@@ -1,0 +1,1 @@
+{"bsonType":"object","required":["user_id","product_name","create_time"],"properties":{"_id":{"description":"ID"},"user_id":{"bsonType":"string"},"product_name":{"bsonType":"string"},"sn":{"bsonType":"string"},"buy_date":{"bsonType":"string"},"warranty_status":{"bsonType":"string"},"create_time":{"bsonType":"timestamp"}}}

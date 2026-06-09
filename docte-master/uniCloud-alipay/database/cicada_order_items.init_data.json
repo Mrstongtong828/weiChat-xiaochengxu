@@ -1,0 +1,24 @@
+[
+  {
+    "_id": "item001",
+    "order_id": "order001",
+    "product_name": "iPhone 14 Pro",
+    "product_model": "A2890",
+    "sn": "F9KXH2Y3P1G8",
+    "buy_date": "2023-10-15",
+    "fault_desc": "屏幕摔碎了，触摸功能正常，但是有裂纹",
+    "media_urls": [],
+    "fix_solution": ""
+  },
+  {
+    "_id": "item002",
+    "order_id": "order002",
+    "product_name": "iPad Air",
+    "product_model": "A2589",
+    "sn": "DMPH2Y3K9L5M",
+    "buy_date": "2023-05-20",
+    "fault_desc": "触摸屏失灵，部分区域点击没反应",
+    "media_urls": [],
+    "fix_solution": "更换触摸屏总成"
+  }
+]

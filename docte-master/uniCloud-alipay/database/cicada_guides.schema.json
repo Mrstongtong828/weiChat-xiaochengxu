@@ -1,0 +1,15 @@
+{
+  "bsonType": "object",
+  "required": ["category", "desc", "file_name"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "type": { "bsonType": "string", "description": "固定教程类型：quick/repair/query/invoice" },
+    "category": { "bsonType": "string" },
+    "desc": { "bsonType": "string" },
+    "file_name": { "bsonType": "string" },
+    "file_url": { "bsonType": "string" },
+    "file_type": { "bsonType": "string" },
+    "sort": { "bsonType": "int" },
+    "update_time": { "bsonType": "timestamp" }
+  }
+}

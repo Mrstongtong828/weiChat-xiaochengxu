@@ -1,0 +1,1 @@
+{"bsonType":"object","required":["category_name","status"],"properties":{"_id":{"description":"ID"},"category_name":{"bsonType":"string"},"status":{"bsonType":"string"},"sort":{"bsonType":"int"}}}

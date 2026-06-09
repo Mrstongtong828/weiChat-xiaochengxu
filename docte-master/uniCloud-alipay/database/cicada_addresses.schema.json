@@ -1,0 +1,1 @@
+{"bsonType":"object","required":["user_id","name","phone","region","detail"],"properties":{"_id":{"description":"ID"},"user_id":{"bsonType":"string"},"name":{"bsonType":"string"},"phone":{"bsonType":"string"},"region":{"bsonType":"string"},"detail":{"bsonType":"string"},"unit":{"bsonType":"string"},"is_default":{"bsonType":"bool"}}}

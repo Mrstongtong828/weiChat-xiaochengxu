@@ -1,0 +1,62 @@
+{
+  "cicada_users": [
+    {
+      "_id": "admin001",
+      "openid": "",
+      "username": "admin",
+      "password": "admin123",
+      "role": "user",
+      "phone": "13800138000",
+      "name": "系统管理员",
+      "nickname": "管理员",
+      "avatar": "",
+      "disabled": false,
+      "create_time": 1715000000000
+    },
+    {
+      "_id": "engineer001",
+      "openid": "",
+      "username": "engineer01",
+      "password": "engineer123",
+      "role": "engineer",
+      "phone": "13800138001",
+      "name": "张工程师",
+      "nickname": "张工",
+      "avatar": "",
+      "disabled": false,
+      "create_time": 1715000000000
+    },
+    {
+      "_id": "user001",
+      "openid": "test_openid_001",
+      "username": "",
+      "role": "user",
+      "phone": "13900139000",
+      "name": "测试用户",
+      "nickname": "小明",
+      "avatar": "",
+      "disabled": false,
+      "create_time": 1715000000000
+    }
+  ],
+  "cicada_product_categories": [
+    {
+      "_id": "cat001",
+      "category_name": "手机",
+      "status": "上架",
+      "sort": 1
+    },
+    {
+      "_id": "cat002",
+      "category_name": "平板电脑",
+      "status": "上架",
+      "sort": 2
+    },
+    {
+      "_id": "cat003",
+      "category_name": "笔记本电脑",
+      "status": "上架",
+      "sort": 3
+    }
+  ]
+}

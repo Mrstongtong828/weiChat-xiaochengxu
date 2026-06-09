@@ -1,0 +1,1 @@
+{"bsonType":"object","required":["key","scope","identity","count","reset_time"],"properties":{"_id":{"description":"ID"},"key":{"bsonType":"string"},"scope":{"bsonType":"string"},"identity":{"bsonType":"string"},"count":{"bsonType":"int"},"reset_time":{"bsonType":"timestamp"},"create_time":{"bsonType":"timestamp"},"update_time":{"bsonType":"timestamp"}}}

@@ -1,0 +1,1 @@
+{"bsonType":"object","required":["category_id","fault_name"],"properties":{"_id":{"description":"ID"},"category_id":{"bsonType":"string"},"fault_name":{"bsonType":"string"},"related_questions":{"bsonType":"array"},"check_steps":{"bsonType":"array"},"fix_solutions":{"bsonType":"array"},"is_recommend_repair":{"bsonType":"bool"}}}

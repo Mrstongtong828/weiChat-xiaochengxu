@@ -1,0 +1,37 @@
+{
+  "说明": "牙科仪器维修测试工单数据",
+  "cicada_orders": [
+    {
+      "_id": "test_order_001",
+      "order_no": "DR20260519150000A1B2C3",
+      "user_id": "user001",
+      "status": "pending",
+      "ship_out_info": {
+        "name": "李医生",
+        "phone": "13800138001",
+        "region": "广东省 深圳市 福田区",
+        "detail": "华强北路1001号口腔诊所",
+        "unit": "2楼"
+      },
+      "ship_back_info": {
+        "name": "李医生",
+        "phone": "13800138001",
+        "region": "广东省 深圳市 福田区",
+        "detail": "华强北路1001号口腔诊所",
+        "unit": "2楼"
+      },
+      "engineer_id": "",
+      "total_price": 0,
+      "timeline": [
+        {
+          "title": "提交报修单",
+          "desc": "您的报修申请已提交，等待客服审核",
+          "time": 1747656000000,
+          "done": true
+        }
+      ],
+      "update_time": 1747656000000,
+      "create_time": 1747656000000
+    }
+  ]
+}

@@ -1,0 +1,129 @@
+import request from '../utils/request.js'
+import { API_BASE } from '../config/api.js'
+
+// 获取工单列表
+export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getAdminOrderList`, {
+    token,
+    status,
+    page,
+    pageSize,
+    keyword: filters.keyword || '',
+    deviceModel: filters.deviceModel || '',
+    invoiceStatus: filters.invoiceStatus || '',
+    todoType: filters.todoType || '',
+    responseMode: filters.responseMode || 'array'
+  })
+}
+
+// 分配工程师
+export const assignEngineer = (token, orderId, engineerId) => {
+  return request.post(`${API_BASE.adminOrder}/assignEngineer`, {
+    token,
+    order_id: orderId,
+    engineer_id: engineerId
+  })
+}
+
+// 更新工单状态
+export const updateOrderStatus = (token, orderId, status) => {
+  return request.post(`${API_BASE.adminOrder}/updateOrderStatus`, {
+    token,
+    order_id: orderId,
+    status
+  })
+}
+
+// 批量导入回寄运单号
+export const batchImportReturnLogistics = (token, rows) => {
+  return request.post(`${API_BASE.adminOrder}/batchImportReturnLogistics`, {
+    token,
+    rows
+  })
+}
+
+// 批量回寄发货
+export const batchUpdateShipping = (token, shippingList) => {
+  return request.post(`${API_BASE.adminOrder}/batchUpdateShipping`, {
+    token,
+    shippingList
+  })
+}
+
+// 批量导入物流单：type=inbound 表示客户寄入签收，type=return 表示后台回寄发货
+export const batchImportLogistics = (token, type, rows, importDate = '') => {
+  return request.post(`${API_BASE.adminOrder}/batchImportLogistics`, {
+    token,
+    type,
+    rows,
+    importDate
+  })
+}
+
+// 更新工单备注
+export const updateRemarks = (token, orderId, adminRemark, printRemark) => {
+  return request.post(`${API_BASE.adminOrder}/updateRemarks`, {
+    token,
+    orderId,
+    adminRemark,
+    printRemark
+  })
+}
+
+// 更新开票状态登记
+export const updateInvoiceStatus = (token, orderId, status, invoice = {}) => {
+  return request.post(`${API_BASE.adminOrder}/updateInvoiceStatus`, {
+    token,
+    order_id: orderId,
+    status,
+    invoice
+  })
+}
+
+// 更新/发布维修报价
+export const updateOrderQuote = (token, orderId, quote = {}) => {
+  return request.post(`${API_BASE.adminOrder}/updateOrderQuote`, {
+    token,
+    order_id: orderId,
+    quote
+  })
+}
+
+// 更新付款核销状态
+export const updatePaymentStatus = (token, orderId, status) => {
+  return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
+    token,
+    order_id: orderId,
+    status
+  })
+}
+
+// 添加时间线
+export const addTimeline = (token, orderId, title, desc) => {
+  return request.post(`${API_BASE.adminOrder}/addTimeline`, {
+    token,
+    order_id: orderId,
+    title,
+    desc
+  })
+}
+
+// 获取统计数据
+export const getStatistics = (token) => {
+  return request.post(`${API_BASE.adminOrder}/getStatistics`, { token })
+}
+
+// 获取后台待办中心统计
+export const getTodoSummary = (token) => {
+  return request.post(`${API_BASE.adminOrder}/getTodoSummary`, { token })
+}
+
+// 获取服务数据总结
+export const getDashboardSummary = (token, filters = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getDashboardSummary`, {
+    token,
+    startDate: filters.startDate || '',
+    endDate: filters.endDate || '',
+    granularity: filters.granularity || 'day'
+  })
+}
