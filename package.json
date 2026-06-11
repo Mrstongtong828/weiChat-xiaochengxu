@@ -1,0 +1,45 @@
+{
+  "name": "dentist-repair-user",
+  "version": "1.0.0",
+  "private": true,
+  "description": "牙医仪器检修用户端微信小程序",
+  "scripts": {
+    "dev:mp-weixin": "cross-env UNI_INPUT_DIR=. UNI_OUTPUT_DIR=unpackage/dist/dev/mp-weixin uni -p mp-weixin",
+    "build:mp-weixin": "cross-env UNI_INPUT_DIR=. UNI_OUTPUT_DIR=unpackage/dist/build/mp-weixin uni build -p mp-weixin",
+    "check": "npm run build:mp-weixin"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-alpha-1000920260519001",
+    "@dcloudio/uni-mp-weixin": "3.0.0-alpha-1000920260519001",
+    "vue": "3.4.21"
+  },
+  "devDependencies": {
+    "@dcloudio/types": "3.4.31",
+    "@dcloudio/uni-cli-shared": "3.0.0-alpha-1000920260519001",
+    "@dcloudio/vite-plugin-uni": "3.0.0-alpha-1000920260519001",
+    "cross-env": "7.0.3",
+    "vite": "8.0.13"
+  },
+  "overrides": {
+    "unplugin-auto-import": "0.16.7",
+    "unimport": "3.6.0",
+    "estree-walker": "2.0.2",
+    "@intlify/core-base": "^9.14.5",
+    "@intlify/message-compiler": "^9.14.5",
+    "@intlify/message-resolver": "^9.14.5",
+    "@intlify/runtime": "^9.14.5",
+    "@intlify/vue-devtools": "^9.14.5",
+    "cookie": "^1.1.1",
+    "jpeg-js": "^0.4.4",
+    "path-to-regexp": "0.1.13",
+    "phin": "^3.7.1",
+    "postcss": "^8.5.15",
+    "qs": "^6.15.2",
+    "send": "^1.2.1",
+    "serve-static": "^2.2.1",
+    "ws": "^8.21.0"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}

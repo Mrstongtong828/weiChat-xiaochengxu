@@ -1,0 +1,10 @@
+{
+  "bsonType": "object",
+  "required": ["key", "value"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "key": { "bsonType": "string" },
+    "value": { "bsonType": "string" },
+    "update_time": { "bsonType": "timestamp" }
+  }
+}

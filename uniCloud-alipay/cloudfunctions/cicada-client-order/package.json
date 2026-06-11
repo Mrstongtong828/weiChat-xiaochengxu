@@ -1,0 +1,7 @@
+{
+  "name": "cicada-client-order",
+  "version": "1.0.0",
+  "cloudfunction-config": {
+    "path": "/cicada-client-order"
+  }
+}

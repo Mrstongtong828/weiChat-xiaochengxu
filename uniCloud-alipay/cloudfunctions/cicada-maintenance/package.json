@@ -1,0 +1,7 @@
+{
+  "name": "cicada-maintenance",
+  "version": "1.0.0",
+  "cloudfunction-config": {
+    "path": "/cicada-maintenance"
+  }
+}
