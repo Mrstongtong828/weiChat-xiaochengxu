@@ -57,6 +57,22 @@ const normalizeQuoteItems = (order) => {
   }))
 }
 
+const normalizeQuoteDetail = (order = {}) => {
+  const detail = order.quote_detail || order.quoteDetail || order.quote?.detail || null
+  if (!detail || typeof detail !== 'object') return null
+  return {
+    parts: Array.isArray(detail.parts) ? detail.parts : [],
+    services: Array.isArray(detail.services) ? detail.services : [],
+    others: Array.isArray(detail.others) ? detail.others : [],
+    parts_total: Number(detail.parts_total ?? detail.partsTotal ?? 0) || 0,
+    services_total: Number(detail.services_total ?? detail.servicesTotal ?? 0) || 0,
+    others_total: Number(detail.others_total ?? detail.othersTotal ?? 0) || 0,
+    auto_total: Number(detail.auto_total ?? detail.autoTotal ?? 0) || 0,
+    final_price: Number(detail.final_price ?? detail.finalPrice ?? order.total_price ?? order.totalPrice ?? 0) || 0,
+    remark: detail.remark || order.quote_remark || order.quoteRemark || ''
+  }
+}
+
 // 后端工单数据转换为前端格式
 export const transformOrder = (order) => {
   if (!order) return null
@@ -64,6 +80,7 @@ export const transformOrder = (order) => {
   const shipOut = order.ship_out_info || {}
   const shipBack = order.ship_back_info || {}
   const invoiceInfo = order.invoice_info || {}
+  const quoteDetail = normalizeQuoteDetail(order)
   const quoteItems = normalizeQuoteItems(order)
   const partsFee = Number(order.parts_fee ?? order.partsFee ?? quoteItems.reduce((sum, item) => sum + item.partsFee, 0)) || 0
   const laborFee = Number(order.labor_fee ?? order.laborFee ?? quoteItems.reduce((sum, item) => sum + item.laborFee, 0)) || 0
@@ -119,6 +136,7 @@ export const transformOrder = (order) => {
     timeline: order.timeline || [],
 
     // 报价/付款
+    quoteDetail,
     quoteItems,
     quoteStatus: order.quote_status || order.quoteStatus || (totalPrice > 0 ? 'issued' : 'pending'),
     quoteRemark: order.quote_remark || order.quoteRemark || '',
@@ -129,6 +147,9 @@ export const transformOrder = (order) => {
     authorizationTime: order.authorization_time || order.authorizationTime || '',
     paymentStatus: order.payment_status || order.paymentStatus || '',
     paymentProofs: Array.isArray(order.payment_proofs) ? order.payment_proofs : (order.paymentProofs || []),
+    inventoryDeducted: Boolean(order.inventory_deducted || order.inventoryDeducted),
+    inventoryStatus: order.inventory_status || order.inventoryStatus || '',
+    inventoryDeductTime: order.inventory_deduct_time || order.inventoryDeductTime || '',
 
     // 发票信息（内部登记，不代表已接入税控开票）
     needInvoice: invoiceInfo.need_invoice || false,

@@ -4,17 +4,35 @@
 
     <div class="sidebar" :class="{ open: sidebarOpen }">
       <div class="sidebar-logo">
-        <img src="/brand/cicada-admin-logo.png" alt="CICADA 思科达">
+        <div class="logo-card">
+          <img src="/brand/cicada-admin-logo.png" alt="CICADA 思科达">
+        </div>
       </div>
+      <div class="nav-label">MAIN NAVIGATION</div>
       <el-menu :default-active="activeMenu" class="el-menu-vertical" @select="handleMenuSelect">
-        <el-menu-item index="home"><el-icon><HomeFilled /></el-icon><span>工作台首页</span></el-menu-item>
-        <el-menu-item index="workorder"><el-icon><Document /></el-icon><span>报修工单管理</span></el-menu-item>
-        <el-menu-item index="faultdb"><el-icon><Warning /></el-icon><span>产品故障知识库</span></el-menu-item>
-        <el-menu-item index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
-        <el-menu-item index="feedback"><el-icon><ChatDotSquare /></el-icon><span>投诉与建议</span></el-menu-item>
-        <el-menu-item index="summary"><el-icon><DataAnalysis /></el-icon><span>运营汇总看板</span></el-menu-item>
-        <el-menu-item index="settings"><el-icon><Setting /></el-icon><span>小程序配置</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><span>工作台首页</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><span>报修工单管理</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('settlement')" index="settlement"><el-icon><Money /></el-icon><span>结算管理</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><span>配件库存管理</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><span>客户管理</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><span>产品故障知识库</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><span>投诉与建议</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('audit')" index="audit"><el-icon><Tickets /></el-icon><span>操作审计日志</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('users')" index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><span>小程序配置</span></el-menu-item>
       </el-menu>
+      <div class="sidebar-footer">
+        <div class="status-card">
+          <div class="status-row">
+            <span class="status-dot"><i></i></span>
+            <div>
+              <strong>系统在线</strong>
+              <small>服务台运行正常</small>
+            </div>
+          </div>
+          <span class="admin-chip">Admin 控制台</span>
+        </div>
+      </div>
     </div>
 
     <div class="main-container">
@@ -24,9 +42,9 @@
           <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
         </div>
         <div class="header-actions">
-          <el-button type="primary" plain round size="small" class="top-btn-text"><el-icon><Monitor /></el-icon> 访问小程序</el-button>
+          <el-button type="primary" plain round size="small" class="visit-miniapp-btn"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
           <el-dropdown>
-            <el-avatar :size="32" src="https://dummyimage.com/64x64/e8f3ff/165DFF.png&text=Admin" style="cursor:pointer;"></el-avatar>
+            <el-avatar :size="40" class="admin-avatar" src="https://dummyimage.com/80x80/e8f3ff/165DFF.png&text=Admin"></el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item @click="profileDrawerVisible = true"><el-icon><User /></el-icon>个人信息</el-dropdown-item>
@@ -80,6 +98,7 @@ import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { changeMyPassword } from '../../api/admin.js'
+import { canAccessMenu } from '../../config/menuAccess.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -89,14 +108,17 @@ const sidebarOpen = ref(false)
 const menuTitles = {
   home: '工作台首页',
   workorder: '报修工单处理中心',
+  inventory: '配件库存管理',
+  settlement: '结算管理',
   faultdb: '产品分类与故障预设',
   users: '用户管理',
   settings: '小程序图文及政策配置',
   feedback: '客户投诉与建议列表',
-  summary: '运营汇总看板'
+  summary: '运营汇总看板',
+  audit: '工单操作审计日志（合规备查）'
 }
 
-const roleMap = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
+const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
 const getMenuFromPath = () => route.path.replace(/^\//, '') || 'home'
 const activeMenu = ref(getMenuFromPath())
 
@@ -193,25 +215,226 @@ onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
 </script>
 
 <style scoped>
-.main-layout { display: flex; height: 100vh; width: 100%; position: relative; }
-.mobile-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; opacity: 0; transition: opacity 0.3s; }
+.main-layout { display: flex; height: 100vh; width: 100%; position: relative; background: hsl(var(--background)); }
+.mobile-mask { display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.42); z-index: 1000; opacity: 0; transition: opacity 0.3s; }
 .mobile-mask.show { display: block; opacity: 1; }
-.sidebar { width: var(--sidebar-width, 220px); background: #fff; display: flex; flex-direction: column; box-shadow: 2px 0 8px rgba(0,0,0,0.02); z-index: 1001; transition: transform 0.3s ease; flex-shrink: 0; }
-.sidebar-logo { height: var(--header-height, 64px); display: flex; align-items: center; justify-content: center; border-bottom: 1px solid #f0f2f5; }
-.sidebar-logo img { max-width: 150px; max-height: 40px; object-fit: contain; }
-.el-menu-vertical { border-right: none; padding: 12px; }
-.main-container { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #f5f7fb; }
-.top-header { height: var(--header-height, 64px); background: #fff; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.03); z-index: 10; flex-shrink: 0; }
-.header-left, .header-actions { display: flex; align-items: center; gap: 16px; }
-.hamburger { font-size: 22px; cursor: pointer; color: #4e5969; }
-.breadcrumb-title { font-size: 16px; font-weight: 600; color: #1d2129; }
-.content-area { flex: 1; overflow-y: auto; padding: 24px; }
-.content-wrapper { max-width: 1600px; margin: 0 auto; }
+.sidebar {
+  width: var(--sidebar-width, 292px);
+  min-height: 100vh;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 26% 0%, rgba(219, 234, 254, 0.95), transparent 20rem),
+    radial-gradient(circle at 82% 100%, rgba(224, 242, 254, 0.95), transparent 17rem),
+    rgba(248, 251, 255, 0.96);
+  border-right: 1px solid hsl(var(--border));
+  display: flex;
+  flex-direction: column;
+  z-index: 1001;
+  transition: transform 0.3s ease;
+  flex-shrink: 0;
+  backdrop-filter: blur(18px);
+}
+.sidebar::before {
+  content: '';
+  position: absolute;
+  width: 360px;
+  height: 360px;
+  left: -148px;
+  top: 116px;
+  border-radius: 999px;
+  background: rgba(219, 234, 254, 0.72);
+}
+.sidebar::after {
+  content: '';
+  position: absolute;
+  width: 292px;
+  height: 292px;
+  right: -98px;
+  bottom: -70px;
+  border-radius: 999px;
+  background: rgba(224, 242, 254, 0.72);
+}
+.sidebar-logo {
+  position: relative;
+  z-index: 1;
+  padding: 22px 22px 18px;
+  flex-shrink: 0;
+}
+.logo-card {
+  height: 74px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(219, 234, 254, 0.9);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-card img { width: 204px; max-height: 42px; object-fit: contain; }
+.nav-label {
+  position: relative;
+  z-index: 1;
+  padding: 16px 32px 8px;
+  color: #64748b;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.el-menu-vertical {
+  position: relative;
+  z-index: 1;
+  border-right: none;
+  padding: 0 22px 10px;
+  background: transparent;
+  display: grid;
+  gap: 7px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+.el-menu-vertical::-webkit-scrollbar {
+  width: 6px;
+}
+.el-menu-vertical::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.52);
+}
+.el-menu-vertical::-webkit-scrollbar-track {
+  background: transparent;
+}
+:deep(.el-menu-item) {
+  height: 60px;
+  margin: 0;
+  padding: 0 18px !important;
+  border-radius: 10px;
+  border: 1px solid #dbeafe;
+  background: rgba(255, 255, 255, 0.88);
+  color: #334155;
+  font-size: 16px;
+  font-weight: 500;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+}
+:deep(.el-menu-item:hover) {
+  background: #eff6ff;
+  color: #2563eb;
+}
+:deep(.el-menu-item.is-active) {
+  background: #e8f2ff;
+  color: #2563eb;
+  border-color: #93c5fd;
+  box-shadow: 0 12px 28px rgba(37, 99, 235, 0.12);
+}
+:deep(.el-menu-item.is-active::before) {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 4px;
+  height: 34px;
+  border-radius: 0 999px 999px 0;
+  background: #2563eb;
+}
+:deep(.el-menu-item .el-icon) {
+  width: 32px;
+  height: 32px;
+  margin-right: 12px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 19px;
+}
+:deep(.el-menu-item.is-active .el-icon) {
+  background: #2563eb;
+  color: #ffffff;
+}
+:deep(.el-menu-item.is-active::after) {
+  content: '';
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #2563eb;
+  transform: translateY(-50%);
+}
+.sidebar-footer {
+  position: relative;
+  z-index: 1;
+  margin-top: auto;
+  padding: 18px 22px 24px;
+  flex-shrink: 0;
+}
+.status-card {
+  padding: 20px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #dbeafe;
+  box-shadow: 0 20px 42px rgba(15, 23, 42, 0.1);
+}
+.status-row { display: flex; align-items: center; gap: 12px; }
+.status-row strong { display: block; color: #0f172a; font-size: 16px; font-weight: 700; }
+.status-row small { display: block; margin-top: 3px; color: #64748b; font-size: 13px; }
+.status-dot {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: #dcfce7;
+  display: grid;
+  place-items: center;
+}
+.status-dot i {
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  border: 3px solid #22c55e;
+  background: #ffffff;
+}
+.admin-chip {
+  display: block;
+  height: 22px;
+  margin-top: 14px;
+  border-radius: 999px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: #2563eb;
+  text-align: center;
+  font-size: 12px;
+  line-height: 20px;
+}
+.main-container { flex: 1; display: flex; flex-direction: column; min-width: 0; background: transparent; }
+.top-header {
+  height: var(--header-height, 82px);
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid hsl(var(--border));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px 0 30px;
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+  z-index: 10;
+  flex-shrink: 0;
+}
+.header-left, .header-actions { display: flex; align-items: center; gap: 18px; }
+.hamburger { font-size: 24px; cursor: pointer; color: #475569; }
+.breadcrumb-title { font-size: 24px; font-weight: 800; color: hsl(var(--foreground)); }
+.visit-miniapp-btn { height: 28px; padding: 0 12px; border-color: #bfdbfe; background: #eff6ff; }
+.visit-miniapp-btn :deep(span) { display: inline-flex; align-items: center; gap: 4px; color: #2563eb; }
+.admin-avatar { cursor: pointer; border: 1px solid #bfdbfe; background: #eff6ff; }
+.content-area { flex: 1; overflow-y: auto; padding: 30px 28px 44px; }
+.content-wrapper { width: 100%; max-width: none; margin: 0; }
 .profile-avatar { display:flex; flex-direction:column; align-items:center; padding: 8px 0 24px; }
 @media screen and (max-width: 768px) {
   .sidebar { position: fixed; top: 0; bottom: 0; left: 0; transform: translateX(-100%); }
   .sidebar.open { transform: translateX(0); }
   .top-header { padding: 0 16px; }
+  .breadcrumb-title { font-size: 20px; }
   .content-area { padding: 16px; }
 }
 </style>

@@ -47,30 +47,43 @@
 								<text class="agreement-text">已阅读并同意</text>
 							</label>
 						</checkbox-group>
-						<text class="link tap">《用户服务协议》</text>
-						<text class="link tap">《隐私政策》</text>
+						<text class="link tap" @click="openPolicy('privacy')">《用户服务协议》</text>
+						<text class="link tap" @click="openPolicy('privacy')">《隐私政策》</text>
 					</view>
 				</view>
 			</view>
 		</view>
+		<PolicyDialog v-model:visible="policyVisible" :title="policyTitle" :content="policyContent" />
 	</view>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { importCloudObject } from '@/utils/cloud.js'
+import { wechatLogin, getCompliance } from '@/api/content'
+import PolicyDialog from '@/components/PolicyDialog.vue'
 
 const agreed = ref(false)
 const loading = ref(false)
 
-let userCloudObject = null
+const policyVisible = ref(false)
+const policyTitle = ref('')
+const policyContent = ref('')
 
-onMounted(() => {
-	userCloudObject = importCloudObject('cicada-client-user')
-})
+const openPolicy = async (type) => {
+	policyTitle.value = type === 'privacy' ? '隐私政策' : '用户服务协议'
+	policyVisible.value = true
+	if (!policyContent.value) {
+		try {
+			const data = await getCompliance()
+			policyContent.value = data.privacyPolicy || ''
+		} catch (e) {
+			policyContent.value = ''
+		}
+	}
+}
 
-// 微信手机号一键登录
+// 微信手机号一键登录：uni.login 取登录凭证(换 openid) + getPhoneNumber 取手机号凭证(换真实手机号)
 const onGetPhoneNumber = async (e) => {
 	if (loading.value) return
 
@@ -78,16 +91,17 @@ const onGetPhoneNumber = async (e) => {
 		uni.showToast({ title: '请先阅读并同意用户协议', icon: 'none' })
 		return
 	}
-	
-	if (e.detail.errMsg !== 'getPhoneNumber:ok') {
-		if (e.detail.errMsg && e.detail.errMsg.includes('cancel')) {
+
+	const detail = e.detail || {}
+	if (detail.errMsg !== 'getPhoneNumber:ok') {
+		if (detail.errMsg && detail.errMsg.includes('cancel')) {
 			return
 		}
 		uni.showToast({ title: '授权失败，请重试', icon: 'none' })
 		return
 	}
 
-	if (!e.detail.code) {
+	if (!detail.code) {
 		uni.showToast({ title: '获取手机号失败', icon: 'none' })
 		return
 	}
@@ -95,13 +109,18 @@ const onGetPhoneNumber = async (e) => {
 	loading.value = true
 
 	try {
-		const result = await userCloudObject.loginWithWechat({ code: e.detail.code })
+		const loginRes = await uni.login({ provider: 'weixin' })
+		if (!loginRes || !loginRes.code) {
+			throw new Error('获取微信登录凭证失败')
+		}
+
+		const res = await wechatLogin({ code: loginRes.code, phoneCode: detail.code })
 
 		loading.value = false
 
-		if (result.code === 0) {
-			uni.setStorageSync('token', result.data.token)
-			uni.setStorageSync('userInfo', result.data.userInfo)
+		if (res && res.token) {
+			uni.setStorageSync('token', res.token)
+			uni.setStorageSync('userInfo', res.userInfo || {})
 			uni.setStorageSync('isLoggedIn', true)
 
 			uni.showToast({ title: '登录成功', icon: 'success' })
@@ -110,7 +129,7 @@ const onGetPhoneNumber = async (e) => {
 				uni.navigateBack()
 			}, 1500)
 		} else {
-			uni.showToast({ title: result.message || '登录失败', icon: 'none' })
+			uni.showToast({ title: '登录失败', icon: 'none' })
 		}
 	} catch (error) {
 		loading.value = false

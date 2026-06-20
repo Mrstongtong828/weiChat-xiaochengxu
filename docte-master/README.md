@@ -16,7 +16,7 @@
 
 | 模块 | 前端进度 | 后端需要关注 |
 | --- | --- | --- |
-| 微信手机号登录 | 页面已接入，走 `cicada-client-user.loginWithWechat({ code })` 云对象 | 配置 `WX_APPID`、`WX_SECRET`，确认 `token + userInfo` 返回 |
+| 微信手机号登录 | 页面已接入，走 `cicada-client-user.login({ code, phoneCode })` 云对象 | 配置 `WX_APPID`、`WX_SECRET`，确认 `token + userInfo` 返回 |
 | 报修提交 | 页面、表单校验、图片/视频上传入口已完成 | 实现 `/repair/submit`，保存工单和产品明细 |
 | 维修进度 | 列表、详情、状态展示已完成 | 实现 `/repair/list`、`/repair/detail`，返回状态和时间线 |
 | 包裹查询 | 查询入口和结果展示已完成 | 实现 `/package/query`，维护快递单号签收和处理状态 |
@@ -144,7 +144,7 @@ unpackage/              编译输出
 - `GET /policy/warranty`
 - `GET /policy/fee`
 
-说明：当前微信手机号登录已统一走 `cicada-client-user.loginWithWechat({ code })` 云对象。若后端后续希望登录也改成 HTTP，再补 `/auth/login` 或 `/auth/wechat-login` 并同步改前端登录调用。
+说明：当前微信手机号登录已统一走 `cicada-client-user.login({ code, phoneCode })` 云对象：`code` 用于换取 openid，`phoneCode` 用于换取手机号。若后端后续希望登录也改成 HTTP，再补 `/auth/login` 或 `/auth/wechat-login` 并同步改前端登录调用。
 
 ### 微信支付
 

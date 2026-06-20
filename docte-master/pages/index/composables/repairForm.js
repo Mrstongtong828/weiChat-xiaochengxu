@@ -17,5 +17,7 @@ export const createRepairProduct = (id = 1) => ({
 	voucher: '',
 	voucherList: [],
 	faultDesc: '',
-	media: []
+	media: [],
+	snInfo: null,
+	snLoading: false
 })

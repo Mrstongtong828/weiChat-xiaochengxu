@@ -15,5 +15,8 @@ export const API_BASE = {
   adminKb: resolveUrl('VITE_ADMIN_KB_URL', 'cicada-admin-kb'),
 
   // 管理端工单接口（工单列表、分配、状态更新）
-  adminOrder: resolveUrl('VITE_ADMIN_ORDER_URL', 'cicada-admin-order')
+  adminOrder: resolveUrl('VITE_ADMIN_ORDER_URL', 'cicada-admin-order'),
+
+  // 管理端客户接口（客户档案、设备、历史工单、合规日志）
+  adminCustomer: resolveUrl('VITE_ADMIN_CUSTOMER_URL', 'cicada-admin-customer')
 }

@@ -1,17 +1,22 @@
 <template>
   <div class="login-wrapper">
-    <el-card class="login-card" shadow="always">
-      <h2 class="login-title">牙科仪器检修管理系统 - 登录</h2>
-      <el-form :model="loginForm">
+    <ShadCard class="login-card">
+      <div class="brand-panel">
+        <ShadBadge variant="primary">Docte Admin</ShadBadge>
+        <h1>欢迎回来</h1>
+        <p>登录牙科仪器检修管理系统，继续处理工单、报价、物流与客户反馈。</p>
+      </div>
+
+      <el-form :model="loginForm" class="login-form" @keyup.enter="handleLogin">
         <el-form-item>
-          <el-input v-model.trim="loginForm.username" type="text" inputmode="text" placeholder="请输入账号"></el-input>
+          <el-input v-model.trim="loginForm.username" type="text" inputmode="text" placeholder="请输入账号" size="large" />
         </el-form-item>
         <el-form-item>
-          <el-input v-model="loginForm.password" type="password" inputmode="text" placeholder="请输入密码" show-password></el-input>
+          <el-input v-model="loginForm.password" type="password" inputmode="text" placeholder="请输入密码" show-password size="large" />
         </el-form-item>
-        <el-button type="primary" style="width:100%;" @click="handleLogin" :loading="loading">登录</el-button>
+        <ShadButton class="login-button" :loading="loading" @click="handleLogin">登录系统</ShadButton>
       </el-form>
-    </el-card>
+    </ShadCard>
   </div>
 </template>
 
@@ -21,6 +26,9 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { adminLogin } from '../api/admin.js'
 import { resetSessionExpiredNotice } from '../utils/adminSession.js'
+import ShadCard from '../components/ui/ShadCard.vue'
+import ShadBadge from '../components/ui/ShadBadge.vue'
+import ShadButton from '../components/ui/ShadButton.vue'
 
 const router = useRouter()
 const loginForm = reactive({ username: '', password: '' })
@@ -53,22 +61,25 @@ const handleLogin = async () => {
 <style scoped>
 .login-wrapper {
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #e8f3ff 0%, #f4f9ff 48%, #dff3ff 100%);
+  padding: 24px;
+  background:
+    radial-gradient(circle at 20% 20%, hsl(var(--primary) / 0.18), transparent 30rem),
+    radial-gradient(circle at 80% 10%, #cffafe, transparent 26rem),
+    hsl(var(--background));
 }
 .login-card {
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  border-radius: 16px;
+  width: 460px;
+  max-width: 100%;
+  padding: 32px;
 }
-.login-title {
-  margin: 0 0 24px;
-  text-align: center;
-  color: #1d2129;
-  font-size: 20px;
-  font-weight: 600;
-}
+.brand-panel { margin-bottom: 26px; }
+.brand-panel h1 { margin: 16px 0 10px; font-size: 30px; letter-spacing: -0.05em; }
+.brand-panel p { margin: 0; color: hsl(var(--muted-foreground)); line-height: 1.7; }
+.login-form { display: grid; gap: 2px; }
+.login-button { width: 100%; margin-top: 6px; border: none; cursor: pointer; }
+.login-button:disabled { cursor: not-allowed; opacity: .75; }
 </style>

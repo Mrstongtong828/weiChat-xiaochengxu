@@ -2,8 +2,13 @@
   <div class="faultdb-container">
     <div class="glass-card faultdb-sidebar">
       <div class="section-title">
-        产品分类
-        <el-button type="primary" link @click="openCatDialog(null)"><el-icon><Plus /></el-icon></el-button>
+        <div>
+          <span>产品分类</span>
+          <p class="section-desc">先选择分类，再维护故障知识。</p>
+        </div>
+        <div class="title-actions">
+          <el-button type="primary" link @click="openCatDialog(null)"><el-icon><Plus /></el-icon></el-button>
+        </div>
       </div>
       <div
         v-for="cat in categories"
@@ -21,20 +26,33 @@
     </div>
 
     <div class="glass-card" style="flex:1;">
-      <el-empty v-if="!currentCategory" description="请选择产品分类"></el-empty>
+      <el-empty v-if="!currentCategory" description="请选择左侧产品分类，或先新增分类"></el-empty>
       <template v-else>
         <div class="section-title">
-          「{{ currentCategory.name }}」故障库
-          <el-button type="primary" @click="openFaultDialog(null)" size="small"><el-icon><Plus /></el-icon> 录入</el-button>
+          <div>
+            <span>「{{ currentCategory.name }}」故障库</span>
+            <p class="section-desc">沉淀常见故障现象、确认方式和处理方案，便于客服和工程师快速定位。</p>
+          </div>
+          <div class="title-actions">
+            <el-button type="primary" @click="openFaultDialog(null)" size="small"><el-icon><Plus /></el-icon> 录入</el-button>
+          </div>
         </div>
         <div class="table-responsive">
           <el-table :data="currentFaultItems" class="modern-table" style="width:100%;" v-loading="loading">
-            <el-table-column prop="name" label="故障现象" width="150"></el-table-column>
+            <template #empty>
+              <div class="table-empty-guide">
+                <strong>暂无故障知识</strong>
+                <span>点击“录入”添加该分类的故障现象、排查步骤和处理方式。</span>
+              </div>
+            </template>
+            <el-table-column prop="name" label="故障现象" width="150">
+              <template #default="{ row }"><span class="cell-primary">{{ row.name || '-' }}</span></template>
+            </el-table-column>
             <el-table-column prop="desc" label="相关问题" show-overflow-tooltip></el-table-column>
             <el-table-column prop="checkSteps" label="确认方式" show-overflow-tooltip></el-table-column>
             <el-table-column prop="solution" label="处理方式" show-overflow-tooltip></el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="160"></el-table-column>
-            <el-table-column label="操作" width="130" align="right">
+            <el-table-column label="操作" width="130" align="right" fixed="right">
               <template #default="{row}">
                 <el-button type="primary" link @click="openFaultDialog(row)">编辑</el-button>
                 <el-button type="danger" link @click="deleteFaultHandler(row)">删除</el-button>

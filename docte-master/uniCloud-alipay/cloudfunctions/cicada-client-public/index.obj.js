@@ -50,9 +50,13 @@ function normalizeGuide(item = {}, type = '') {
   return {
     id: item._id,
     type: item.type || type,
+    category: item.category || '操作指南',
+    audience: item.audience || 'client',
     title: item.category || '操作指南',
     description: item.desc || '',
     summary: item.desc || '',
+    content: item.content || '',
+    media: Array.isArray(item.media) ? item.media : [],
     paperTitle: item.category || '操作指南',
     sections: [{
       title: item.category || '操作指南',

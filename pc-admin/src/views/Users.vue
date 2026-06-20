@@ -1,17 +1,39 @@
 <template>
   <div class="glass-card">
     <div class="section-title">
-      <span>用户管理</span>
-      <el-button type="primary" size="small" @click="openUserDialog(null)">
-        <el-icon><Plus /></el-icon> 新增用户
-      </el-button>
+      <div>
+        <span>用户管理</span>
+        <p class="section-desc">管理后台账号、角色权限、负责品类和工程师服务范围。</p>
+      </div>
+      <div class="title-actions">
+        <el-button type="primary" size="small" @click="openUserDialog(null)">
+          <el-icon><Plus /></el-icon> 新增用户
+        </el-button>
+      </div>
     </div>
     <div class="table-responsive">
       <el-table :data="users" class="modern-table" style="width:100%;" v-loading="loading">
-        <el-table-column prop="name" label="姓名" width="120"></el-table-column>
+        <template #empty>
+          <div class="table-empty-guide">
+            <strong>暂无后台用户</strong>
+            <span>点击“新增用户”创建管理员、工程师、财务或客服账号。</span>
+          </div>
+        </template>
+        <el-table-column prop="name" label="姓名" width="120">
+          <template #default="{ row }"><span class="cell-primary">{{ row.name || '-' }}</span></template>
+        </el-table-column>
         <el-table-column prop="username" label="账号" width="140"></el-table-column>
         <el-table-column prop="phone" label="手机号" width="150"></el-table-column>
         <el-table-column prop="roleDisplay" label="角色" show-overflow-tooltip></el-table-column>
+        <el-table-column label="负责品类" show-overflow-tooltip>
+          <template #default="{row}">{{ (row.device_categories || []).join('、') || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="负责区域" show-overflow-tooltip>
+          <template #default="{row}">{{ (row.service_areas || []).join('、') || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="本月完工" width="100" align="center">
+          <template #default="{row}">{{ row.completed_count != null ? row.completed_count : '—' }}</template>
+        </el-table-column>
         <el-table-column label="状态" width="160" align="right">
           <template #default="{row}">
             <el-tag v-if="isCurrentUser(row)" type="info" effect="plain">当前账号</el-tag>
@@ -21,12 +43,14 @@
         <el-table-column label="操作" width="230" fixed="right" align="right">
           <template #default="{row}">
             <el-button type="primary" link @click="openUserDialog(row)">编辑</el-button>
-            <el-button type="danger" link :disabled="row.username === 'admin_root'" @click="confirmResetPassword(row)">重置密码</el-button>
-            <el-popconfirm v-if="!isCurrentUser(row)" title="确定要禁用该账号吗？" @confirm="deleteUser(row._id)">
-              <template #reference>
-                <el-button type="danger" link :disabled="row.username === 'admin_root'">禁用</el-button>
-              </template>
-            </el-popconfirm>
+            <span class="risk-actions">
+              <el-button type="danger" link :disabled="row.username === 'admin_root'" @click="confirmResetPassword(row)">重置密码</el-button>
+              <el-popconfirm v-if="!isCurrentUser(row)" title="确定要禁用该账号吗？" @confirm="deleteUser(row._id)">
+                <template #reference>
+                  <el-button type="danger" link :disabled="row.username === 'admin_root'">禁用</el-button>
+                </template>
+              </el-popconfirm>
+            </span>
           </template>
         </el-table-column>
       </el-table>
@@ -49,11 +73,20 @@
       </el-form-item>
       <el-form-item label="角色">
         <el-select v-model="userForm.role" style="width:100%;">
+          <el-option label="超级管理员" value="超级管理员"></el-option>
           <el-option label="管理员" value="管理员"></el-option>
           <el-option label="工程师" value="工程师"></el-option>
           <el-option label="财务" value="财务"></el-option>
           <el-option label="客服" value="客服"></el-option>
         </el-select>
+      </el-form-item>
+      <el-form-item label="负责品类">
+        <el-select v-model="userForm.device_categories" multiple filterable allow-create default-first-option
+          placeholder="输入后回车添加，如：综合治疗机" style="width:100%;"></el-select>
+      </el-form-item>
+      <el-form-item label="负责区域">
+        <el-select v-model="userForm.service_areas" multiple filterable allow-create default-first-option
+          placeholder="输入后回车添加，如：华东区" style="width:100%;"></el-select>
       </el-form-item>
     </el-form>
     <template #footer>
@@ -67,17 +100,20 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getStaffList, addStaff, editStaff, disableStaff, resetUserPassword } from '../api/admin.js'
+import { getEngineerPerformance } from '../api/performance.js'
 
 const users = ref([])
 const loading = ref(false)
 
 const roleMap = {
+  superadmin: '超级管理员',
   admin: '管理员',
   engineer: '工程师',
   finance: '财务',
   support: '客服'
 }
 const roleMapReverse = {
+  超级管理员: 'superadmin',
   管理员: 'admin',
   工程师: 'engineer',
   财务: 'finance',
@@ -92,7 +128,9 @@ const userForm = reactive({
   password: '',
   name: '',
   phone: '',
-  role: '工程师'
+  role: '工程师',
+  device_categories: [],
+  service_areas: []
 })
 
 const getCurrentUser = () => {
@@ -124,10 +162,18 @@ const loadUsers = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getStaffList(token)
+    const perfMap = {}
+    try {
+      const perf = await getEngineerPerformance({})
+      ;(perf.list || []).forEach(p => { perfMap[p.engineer_id] = p.completed_count })
+    } catch (e) {
+      // 绩效统计失败不应阻断员工列表加载
+    }
     users.value = sortCurrentUserFirst(data.map(u => ({
       ...u,
       roleDisplay: roleMap[u.role] || u.role,
-      active: !u.disabled
+      active: !u.disabled,
+      completed_count: perfMap[u._id]
     })))
   } catch (error) {
     ElMessage.error(error.message || '加载员工列表失败')
@@ -144,6 +190,8 @@ const openUserDialog = (user) => {
   userForm.name = user ? user.name : ''
   userForm.phone = user ? user.phone : ''
   userForm.role = user ? user.roleDisplay : '工程师'
+  userForm.device_categories = user && Array.isArray(user.device_categories) ? [...user.device_categories] : []
+  userForm.service_areas = user && Array.isArray(user.service_areas) ? [...user.service_areas] : []
   userDialogVisible.value = true
 }
 
@@ -168,7 +216,9 @@ const saveUser = async () => {
       username: userForm.username,
       name: userForm.name,
       phone: userForm.phone,
-      role: roleMapReverse[userForm.role] || 'engineer'
+      role: roleMapReverse[userForm.role] || 'engineer',
+      device_categories: userForm.device_categories,
+      service_areas: userForm.service_areas
     }
     if (userForm.password) staff.password = userForm.password
     if (isEditUser.value) staff._id = userForm._id

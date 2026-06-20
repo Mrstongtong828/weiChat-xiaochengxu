@@ -4,300 +4,116 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a multi-platform dental equipment repair management system ("牙医仪器检修") with two frontend applications sharing a single uniCloud backend:
+Multi-platform dental equipment repair management system ("牙医仪器检修"). Two frontends share one uniCloud (Alipay Cloud) serverless backend:
 
-**1. Mini Program (Client-facing)** - Located in this directory (`3号/`)
-- uni-app (Vue 3) cross-platform application
-- Runs on WeChat Mini Program (primary target), Alipay, and potentially iOS/Android
-- Used by customers to submit repair orders and track progress
-- Directly calls uniCloud functions via `uniCloud.callFunction()`
+1. **Mini Program (client-facing)** — uni-app + Vue 3, primarily WeChat Mini Program. Customers submit repair orders and track progress. Calls cloud functions directly via `uniCloud.callFunction()`.
+2. **PC Admin Dashboard** (`pc-admin/`) — Vue 3 + Vite + Element Plus + Pinia. Staff (admin/engineer/finance/support) manage orders, customers, knowledge base, and settings. Calls cloud functions over HTTP (云函数 URL 化) via axios.
 
-**2. PC Admin Dashboard** - Located in `../pc-admin/`
-- Vue 3 + Vite + Element Plus + Pinia
-- Used by administrators and engineers to manage orders, knowledge base, and system settings
-- Calls uniCloud functions via HTTP (cloud function URL化)
-- Uses axios for HTTP requests
+## Repository Layout — read this first
 
-**Shared Backend**: uniCloud serverless architecture with cloud functions and cloud database (MongoDB-like).
+The folder tree is non-obvious and the legacy docs had it wrong:
 
-## Architecture
+- `docte-master/` — **the active mini-program AND the backend**. The shared `uniCloud-alipay/` backend lives here (`docte-master/uniCloud-alipay/`). Almost all backend/mini-program edits happen under this directory.
+- `pc-admin/` — PC Admin dashboard (a subdirectory, not a sibling).
+- The repository root (`E:\小程序开发\docte\`) also contains a **partial/stale copy** of the mini program (`pages.json`, `App.vue`, `main.js`, etc.) with no `pages/` or backend. Treat `docte-master/` as canonical; do not assume root files are live.
 
-### Mini Program Frontend Structure (this directory)
+There are nested doc files (`docte-master/CLAUDE.md`, `AGENTS.md`) — this root CLAUDE.md is the authoritative one.
 
-- **Pages**: `pages/` contains Vue SFC components for routes (index, login, company, mine)
-- **API Layer**: `api/` provides abstraction over cloud functions with `USE_CLOUD` toggle
-  - When `USE_CLOUD = true`: calls uniCloud functions via `callCloudFunction()`
-  - When `USE_CLOUD = false`: falls back to HTTP requests
-- **Store**: `store/auth.js` manages authentication state
-- **Utils**: 
-  - `utils/cloud.js`: Wrapper for uniCloud.callFunction with token injection
-  - `utils/request.js`: HTTP request utility (fallback mode)
+## Build & Run
 
-### PC Admin Frontend Structure (`../pc-admin/`)
-
-- **Views**: `src/views/` contains page components (Login, OrderManagement, KnowledgeBase, etc.)
-- **API Layer**: `src/api/` contains HTTP API wrappers (admin.js, order.js, kb.js)
-- **Config**: `src/config/api.js` defines cloud function URL endpoints
-- **Utils**: `src/utils/request.js` axios wrapper with token injection
-- **Router**: `src/router/` Vue Router configuration
-- **Store**: Pinia stores for state management
-- **Components**: `src/components/` reusable UI components
-
-### Backend Structure (uniCloud)
-
-Cloud functions are in `uniCloud-alipay/cloudfunctions/`, organized by domain:
-
-**Client-facing functions**:
-- `cicada-client-user`: User authentication and profile
-- `cicada-client-order`: Order creation and management
-- `cicada-client-public`: Public content (guides, fault KB)
-
-**Admin functions**:
-- `cicada-admin-order`: Order management for engineers/admin
-- `cicada-admin-kb`: Fault knowledge base management
-- `cicada-admin-sys`: System settings and configuration
-
-**Maintenance**:
-- `cicada-maintenance`: Background jobs and data maintenance
-
-### Database Collections
-
-All collections use `cicada_` prefix:
-- `cicada_users`: User accounts (role: client/engineer/admin)
-- `cicada_orders`: Repair orders
-- `cicada_order_items`: Order line items
-- `cicada_user_devices`: User's registered devices
-- `cicada_addresses`: User addresses
-- `cicada_fault_kb`: Fault knowledge base
-- `cicada_product_categories`: Product categories
-- `cicada_feedbacks`: User feedback
-- `cicada_guides`: User guides/help content
-- `cicada_settings`: System settings
-- `cicada_rate_limits`: API rate limiting
-
-## Development Workflow
-
-### Running the Project
-
-**Mini Program** (this directory):
-1. Open project in HBuilderX
-2. Run → Run to Mini Program Simulator → WeChat Developer Tools
-3. Or use CLI: `npm run dev:mp-weixin` (if configured)
-
-**H5 Web** (this directory):
+**Mini Program** (run inside `docte-master/`):
 ```bash
-npm run dev:h5
+npm run dev:mp-weixin     # build to unpackage/dist/dev/mp-weixin, then open in WeChat DevTools
+npm run build:mp-weixin   # production build
+npm run check             # alias for build:mp-weixin (use as the build sanity check)
 ```
+There is no lint or unit-test script; `npm run check` (a full mp-weixin build) is the closest thing to CI. Node `>=20.19.0`.
 
-**PC Admin Dashboard** (`../pc-admin/`):
+**PC Admin** (run inside `pc-admin/`):
 ```bash
-cd ../pc-admin
-npm install  # first time only
-npm run dev  # starts Vite dev server on http://localhost:5173
+npm install   # first time
+npm run dev   # Vite dev server (default http://localhost:5173)
+npm run build # outputs to dist/
 ```
 
-**Build for production**:
-```bash
-# Mini Program: use HBuilderX → Publish
-# PC Admin:
-cd ../pc-admin
-npm run build  # outputs to dist/
-```
+## Backend Architecture (uniCloud)
 
-### Working with uniCloud
+Cloud functions live in `docte-master/uniCloud-alipay/cloudfunctions/`, organized by domain. They use the `index.obj.js` "cloud object" style (`module.exports = { async methodName(data) {...} }`).
 
-**Initialize uniCloud** (first time):
-1. Open HBuilderX → uniCloud → Login to Alipay Cloud
-2. Associate project with cloud space
+**Client-facing**: `cicada-client-user` (auth/profile; also `submitFeedback` — the mini-program 投诉/建议 entry, writes `cicada_feedbacks`), `cicada-client-order` (order create/track), `cicada-client-public` (guides, fault KB).
 
-**Deploy cloud functions**:
-- Right-click function folder → Upload and deploy
-- Or use CLI: `unicloud-cli deploy --function <function-name>`
+**Admin** (URL 化, called by pc-admin over HTTP): `cicada-admin-sys`, `cicada-admin-order`, `cicada-admin-kb`, `cicada-admin-customer`. **Important: these functions have grown well beyond their names — match the PC Admin api file to the cloud function by its `API_BASE` key, not by the view name:**
+- `cicada-admin-sys` (`adminSys`): login, staff management, settings, **and the feedback (投诉/建议) closed-loop**: `getFeedbackStats`/`getFeedbackList` (DB-side paginated + status/type/urgency/keyword filters, resolves customer name/phone) plus `assignFeedback`/`setFeedbackUrgency`/`replyFeedback`/`recordFeedbackVisit`/`closeFeedback`/`upgradeFeedback`. `closeFeedback` requires a recorded 回访. Each processing action writes an audit entry to `cicada_order_events` (`action: feedback_*`). RBAC via `PERMISSIONS.view_feedback`/`handle_feedback` (in `cicada-order-workflow`). Backs `pc-admin/src/api/admin.js`. The mini program submits via `cicada-client-user.submitFeedback` and reads status/reply via `getComplaintList` (status mapped to the page's `submitted/processing/replied/closed` keys).
+- `cicada-admin-order` (`adminOrder`): order list/assign/status **plus parts, inventory, and settlement** — `listParts`/`savePart`/`updatePartStatus`/`listInventoryFlows`/`useOrderParts`/`getSettlementList`. Backs `order.js`, `inventory.js`, and `settlement.js`. There is **no** separate inventory/settlement cloud function.
+- `cicada-admin-kb` (`adminKb`): fault KB + categories. Backs `kb.js`.
+- `cicada-admin-customer` (`adminCustomer`): customer CRM (profiles, devices, history, tags, import/export, compliance logs). Backs `customer.js`, `audit.js`, `performance.js`.
 
-**View logs**:
-- HBuilderX → uniCloud → Cloud Functions/Database → View Logs
-- Or use web console: https://unicloud.dcloud.net.cn
+**Maintenance**: `cicada-maintenance` (background cleanup; call `run({ token, dryRun: true })`).
 
-**Enable cloud function URL化 (for PC Admin)**:
+### Shared logic: `cloudfunctions/common/cicada-order-workflow`
 
-PC Admin calls cloud functions via HTTP, so you must enable URL化 for admin functions:
+A shared module (required by admin functions) that is the **single source of truth** for the order state machine and RBAC. It exports `ORDER_STATUS`, `ORDER_STATUS_LABELS`, `ORDER_STATUS_TRANSITIONS`, `ROLE_LABELS`, `ALL_ROLES`, and the `PERMISSIONS` map. When changing statuses, transitions, roles, or who-can-do-what, edit this module — do not hardcode these in individual functions.
 
-1. Go to uniCloud web console → Cloud Functions
-2. For each admin function (`cicada-admin-sys`, `cicada-admin-kb`, `cicada-admin-order`):
-   - Click function name → Enable "云函数URL化"
-   - Copy the generated URL (e.g., `https://fc-mp-xxxxx.next.bspapp.com/http/cicada-admin-sys`)
-3. Update `../pc-admin/src/config/api.js` with the URLs:
-```javascript
-export const API_BASE = {
-  adminSys: 'your-cicada-admin-sys-url',
-  adminKb: 'your-cicada-admin-kb-url',
-  adminOrder: 'your-cicada-admin-order-url'
-}
-```
+**Order status machine** (`ORDER_STATUS_TRANSITIONS`):
+`pending → sent/received/cancelled`, `sent → received/cancelled`, `received → inspecting/fixing/cancelled`, `inspecting → fixing/shipped/cancelled`, `fixing → shipped/completed/cancelled`, `shipped → completed`, `completed`/`cancelled` are terminal.
 
-See `../pc-admin/配置指南.md` for detailed setup instructions.
+### RBAC model (this is `feat/rbac-enhancements`'s focus)
 
-### Database Setup
+Two distinct role spaces:
+- **Mini-program users**: `client` (customers). Stored in `cicada_users`.
+- **Staff** (`ALL_ROLES`): `admin` (管理员), `engineer` (工程师), `finance` (财务), `support` (客服). PC Admin only.
 
-**CRITICAL**: Database indexes must be manually created in uniCloud web console before production use.
+Permissions are gated by the `PERMISSIONS` map in `cicada-order-workflow`, e.g. `confirm_payment`/`update_invoice`/`view_payment_proof` → `admin`+`finance`; `update_status`/`issue_quote`/`manage_kb` → `admin`+`engineer`; `manage_staff`/`manage_settings` → `admin` only; `update_remarks`/`add_timeline` → `admin`+`engineer`+`support`. Admin functions authorize via `verifyAdminToken(token, allowedRoles)`. The frontend mirrors this gating (login returns role flags `isAdmin/isEngineer/isFinance/isSupport`); keep both sides in sync.
 
-See `INDEX_TASK.md` for complete index specifications. Key indexes:
-- `cicada_orders.order_no`: **UNIQUE** index (prevents duplicate order numbers)
-- Composite indexes on `user_id + create_time` for efficient user queries
-- Composite indexes on `status + create_time` for status filtering
+### Database collections (all prefixed `cicada_`)
 
-**To create indexes**:
-1. Go to uniCloud Web Console → Cloud Database → Select collection → Index Management
-2. For composite indexes: Click "Add Field" multiple times in same panel, then save together
-3. Verify indexes are created before deploying to production
+Core: `cicada_users` (client + staff, `role` field), `cicada_orders`, `cicada_order_items`, `cicada_order_events` (order timeline/audit), `cicada_user_devices`, `cicada_addresses`.
+CRM: `cicada_customers`, `cicada_customer_logs` (compliance/access log), `cicada_customer_tags`.
+Inventory/billing: `cicada_parts` (parts/配件 catalog), `cicada_inventory_flows` (stock movement log).
+Content/system: `cicada_fault_kb`, `cicada_product_categories`, `cicada_guides`, `cicada_feedbacks` (投诉/建议: `type` enum `投诉`/`建议`, `status` enum `待处理`/`已处理`, optional `rel_order_no` linking to an order), `cicada_settings`, `cicada_subscription_logs`, `cicada_rate_limits` (API rate limiting).
 
-### Authentication Flow
+Schemas: `docte-master/uniCloud-alipay/database/*.schema.json`. Init/test data: `*.init_data.json`, `test-*.json` (import per `导入测试数据说明.md`).
 
-**Mini Program (Client)**:
-1. User enters phone number → `sendSmsCode` cloud function
-2. User enters SMS code → `login` cloud function returns token
-3. Token stored in `uni.getStorageSync('token')`
-4. `callCloudFunction()` automatically injects token into all requests
-5. Cloud functions validate token and return user info
-6. On 401 error, token is cleared and user redirected to login
+**Indexes are manual.** They must be created in the uniCloud web console before production — see `docte-master/uniCloud-alipay/database/INDEXES.md` (and `INDEX_TASK.md`). `cicada_orders.order_no` is a **UNIQUE** index. Composite indexes back the main list/filter queries; the admin order list does DB-side pagination/count rather than full scans (see `SCALING_GUIDE.md`).
 
-**PC Admin**:
-1. Admin enters username/password → POST to `cicada-admin-sys` URL化接口
-2. Backend validates credentials and returns token
-3. Token stored in localStorage
-4. axios interceptor (in `src/utils/request.js`) injects token in Authorization header
-5. On 401 error, token is cleared and redirected to login page
+## Auth Flow
 
-### API Layer Pattern
+**Mini Program**: phone → `sendSmsCode`; SMS code → `login` returns token stored in `uni.getStorageSync('token')`; injected automatically by `utils/cloud.js` into every call. `code: 401` clears token and redirects to login.
 
-**Mini Program** - When adding new API calls:
+**PC Admin**: username/password → `cicada-admin-sys` login returns token + role flags, stored in `localStorage` (`adminToken`); injected by the axios interceptor in `src/utils/request.js`. `401` clears the session (`utils/adminSession.js`) and routes to `/login` (guard in `src/router/index.js`).
 
-```javascript
-// api/example.js
-import { callCloudFunction } from '@/utils/cloud.js'
+## API Configuration (PC Admin)
 
-const USE_CLOUD = true
+`pc-admin/src/config/api.js` builds endpoint URLs from env vars with a default cloud base. Configure URLs via `.env.local` (`VITE_UNICLOUD_BASE_URL`, or per-function `VITE_ADMIN_SYS_URL`/`VITE_ADMIN_KB_URL`/`VITE_ADMIN_ORDER_URL`/`VITE_ADMIN_CUSTOMER_URL`). When you add an admin function, enable 云函数 URL 化 in the console and add a key to `API_BASE`. See `pc-admin/配置指南.md`.
 
-export const someAction = (params) => {
-  if (USE_CLOUD) {
-    return callCloudFunction('functionName', params)
-  }
-  // HTTP fallback (optional)
-  return request({ url: '/path', method: 'POST', data: params })
-}
-```
+## Conventions & Patterns
 
-**PC Admin** - When adding new API calls:
+- **Error codes**: `code: 0` (or `code: 0`/`code: -1` per function) = success/failure convention; `code: 401` = unauthorized.
+- **Mini-program navigation**: all pages use `navigationStyle: "custom"`.
+- **Mini-program API layer** (`api/*.js`): wraps cloud calls; `USE_CLOUD` toggle switches between `callCloudFunction()` and HTTP fallback.
+- **WeChat AppID**: `wx25289fbe4a3bf011` (manifest.json). uniCloud provider: Alipay Cloud (`uniCloud-alipay`).
 
-```javascript
-// ../pc-admin/src/api/example.js
-import request from '@/utils/request'
-import { API_BASE } from '@/config/api'
+### Adding things
 
-export const someAction = (params) => {
-  return request({
-    url: `${API_BASE.adminSys}/someAction`,
-    method: 'POST',
-    data: params
-  })
-}
-```
+- **Mini-program page**: create `docte-master/pages/<cat>/<name>.vue`, register in `docte-master/pages.json` with `navigationStyle: "custom"`.
+- **PC Admin page**: create `pc-admin/src/views/<Name>.vue`, add a child route under `MainLayout` in `pc-admin/src/router/index.js`, wire API in `pc-admin/src/api/`.
+- **Cloud function**: create `docte-master/uniCloud-alipay/cloudfunctions/<name>/index.obj.js`; if it touches orders/roles, require `../common/cicada-order-workflow` rather than duplicating constants; deploy via HBuilderX "Upload and deploy".
+- **DB collection**: add `<name>.schema.json`, document required indexes in `INDEXES.md`, optionally add init data.
 
-### Cloud Function Pattern
+## Reference Docs
 
-Cloud functions follow this structure:
+`goal.md` / `DEPLOY_GOAL.md` (product/deploy goals), `SCALING_GUIDE.md` (~1000-user capacity tuning), `后端对接任务清单.md` (backend integration checklist), `docte-master/uniCloud-alipay/database/MAINTENANCE.md`.
 
-```javascript
-// uniCloud-alipay/cloudfunctions/function-name/index.obj.js
-module.exports = {
-  async actionName(data) {
-    const { token, ...params } = data
-    
-    // Validate token
-    const user = await validateToken(token)
-    if (!user) {
-      return { code: 401, message: '未授权' }
-    }
-    
-    // Business logic
-    const result = await db.collection('cicada_xxx').add(params)
-    
-    return { code: 0, data: result }
-  }
-}
-```
+## Agent skills
 
-## Key Conventions
+### Issue tracker
 
-- **Navigation**: All pages use `navigationStyle: "custom"` for custom navigation bars
-- **Error Codes**: `code: 0` = success, `code: 401` = unauthorized, other codes = error
-- **Token Management**: Token stored in uni.getStorageSync, auto-injected by cloud.js
-- **User Roles**: `client` (customer), `engineer` (repair technician), `admin` (system admin)
-- **Order Status Flow**: Typically follows a state machine (check order schema for valid transitions)
+Issues and PRDs live in GitHub Issues on `origin` (`huaxie602/docte`), via the `gh` CLI. External PRs are **not** a triage surface. See `docs/agents/issue-tracker.md`.
 
-## Common Tasks
+### Triage labels
 
-### Adding a New Page (Mini Program)
+Canonical defaults — `needs-triage` / `needs-info` / `ready-for-agent` / `ready-for-human` / `wontfix`. See `docs/agents/triage-labels.md`.
 
-1. Create Vue component in `pages/category/name.vue`
-2. Add route to `pages.json`:
-```json
-{
-  "path": "pages/category/name",
-  "style": {
-    "navigationStyle": "custom",
-    "navigationBarTitleText": "页面标题"
-  }
-}
-```
+### Domain docs
 
-### Adding a New Page (PC Admin)
-
-1. Create Vue component in `../pc-admin/src/views/CategoryName.vue`
-2. Add route in `../pc-admin/src/router/index.js`:
-```javascript
-{
-  path: '/category-name',
-  name: 'CategoryName',
-  component: () => import('@/views/CategoryName.vue'),
-  meta: { requiresAuth: true, title: '页面标题' }
-}
-```
-
-### Adding a New Cloud Function
-
-1. Create folder in `uniCloud-alipay/cloudfunctions/function-name/`
-2. Create `index.obj.js` with exported methods
-3. Add `package.json` if dependencies needed
-4. Right-click folder → Upload and deploy
-
-### Adding a New Database Collection
-
-1. Create schema file: `uniCloud-alipay/database/cicada_name.schema.json`
-2. Define schema with validation rules
-3. Upload schema via HBuilderX or web console
-4. Add required indexes (document in INDEX_TASK.md)
-5. Create init data file if needed: `cicada_name.init_data.json`
-
-## Testing
-
-- **Test Data**: See `uniCloud-alipay/database/test-*.json` files
-- **Import Test Data**: Follow instructions in `导入测试数据说明.md`
-- Use WeChat DevTools for debugging Mini Program
-- Use browser DevTools for H5 debugging
-
-## Important Notes
-
-- **Project Structure**: This is a multi-repo setup:
-  - `E:\yayi\3号\` - Mini Program (this directory)
-  - `E:\yayi\pc-admin\` - PC Admin Dashboard (sibling directory)
-  - Both share the same uniCloud backend in `uniCloud-alipay/`
-- **WeChat AppID**: `wxb764380b85d5b475` (configured in manifest.json)
-- **Vue Version**: Vue 3 (vueVersion: "3" in manifest.json)
-- **uniCloud Provider**: Alipay Cloud (folder: uniCloud-alipay)
-- **Rate Limiting**: Implemented via `cicada_rate_limits` collection
-- **Order Numbers**: Must be unique (enforced by database unique index)
-- **User Roles**: 
-  - `client` - Customers using Mini Program
-  - `engineer` - Repair technicians using PC Admin
-  - `admin` - System administrators using PC Admin
+Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

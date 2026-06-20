@@ -1,63 +1,139 @@
 <template>
-  <div>
-    <div class="vivid-banner">
-      <h2>专业医疗设备维保</h2>
-      <p>高效 · 精准 · 数字化服务体系</p>
+  <div class="shad-page-shell home-page">
+    <section class="hero-card">
+      <div class="hero-copy">
+        <h2>专业医疗设备维保</h2>
+        <p>高效 · 精准 · 数字化服务体系</p>
+        <div class="hero-actions">
+          <button type="button" @click="navigateTo('workorder', '')">处理工单</button>
+          <button type="button" @click="scrollToSummary">运营概览</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="stat-grid">
+      <ShadCard
+        v-for="item in statCards"
+        :key="item.key"
+        clickable
+        class="stat-card"
+        @click="navigateTo(item.route, item.filter)"
+      >
+        <div class="stat-head">
+          <span>{{ item.title }}</span>
+          <ShadBadge :variant="item.badgeVariant">{{ item.badge }}</ShadBadge>
+        </div>
+        <div class="stat-value" :class="item.className">{{ item.value }}<small>{{ item.unit }}</small></div>
+        <p>{{ item.desc }}</p>
+      </ShadCard>
     </div>
 
-    <el-row :gutter="20">
-      <el-col :xs="24" :sm="12" :md="8">
-        <div class="glass-card clickable-card" @click="navigateTo('workorder', '')">
-          <div class="section-title">待处理工单 <el-tag class="home-badge home-badge-urgent" type="danger" round>急</el-tag></div>
-          <div style="font-size: 36px; font-weight: bold; color: #165DFF;">{{ stats.pendingCount }} <span style="font-size:14px;color:#86909c;font-weight:normal;">件</span></div>
+    <section class="todo-section">
+      <div class="section-header">
+        <div>
+          <ShadBadge variant="default">Todo Center</ShadBadge>
+          <h3>待办中心</h3>
         </div>
-      </el-col>
-      <el-col :xs="24" :sm="12" :md="8">
-        <div class="glass-card clickable-card" @click="navigateTo('workorder', '')">
-          <div class="section-title">今日新增报修</div>
-          <div style="font-size: 36px; font-weight: bold; color: #1d2129;">{{ stats.todayCount }} <span style="font-size:14px;color:#86909c;font-weight:normal;">件</span></div>
-        </div>
-      </el-col>
-      <el-col :xs="24" :sm="12" :md="8">
-        <div class="glass-card clickable-card" @click="navigateTo('feedback', '')">
-          <div class="section-title">未读投诉/建议</div>
-          <div style="font-size: 36px; font-weight: bold; color: #FF7D00;">{{ stats.unreadCount }} <span style="font-size:14px;color:#86909c;font-weight:normal;">条</span></div>
-        </div>
-      </el-col>
-    </el-row>
-
-    <div class="todo-section">
-      <div class="todo-header">
-        <h3>待办中心</h3>
         <el-tag v-if="todoError" type="danger" effect="plain">{{ todoError }}</el-tag>
       </div>
-      <el-row v-loading="todoLoading" :gutter="16">
-        <el-col v-for="item in todoGroups" :key="item.key" :xs="24" :sm="12" :md="8">
-          <div class="glass-card todo-card" @click="navigateTodo(item.key)">
-            <div class="todo-title">
-              <span>{{ item.title }}</span>
-              <el-tag class="home-badge" :type="item.count ? 'warning' : 'info'" round>{{ item.count }} 件</el-tag>
-            </div>
-            <div class="todo-desc">{{ item.desc }}</div>
+      <div v-loading="todoLoading" class="todo-grid">
+        <ShadCard v-for="item in displayedTodoGroups" :key="item.key" clickable class="todo-card" @click="navigateTodo(item.key)">
+          <div class="todo-title">
+            <span>{{ item.title }}</span>
+            <ShadBadge :variant="item.count ? 'warning' : 'default'">{{ item.count }} 件</ShadBadge>
           </div>
-        </el-col>
-      </el-row>
-    </div>
+          <div class="todo-desc">{{ item.desc }}</div>
+        </ShadCard>
+      </div>
+    </section>
+
+    <section id="operation-summary" class="home-summary-section">
+      <Summary />
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getStatistics, getTodoSummary } from '../api/order.js'
 import { getFeedbackStats } from '../api/admin.js'
+import ShadCard from '../components/ui/ShadCard.vue'
+import ShadBadge from '../components/ui/ShadBadge.vue'
+import Summary from './Summary.vue'
 
 const router = useRouter()
 const stats = ref({ pendingCount: 0, todayCount: 0, unreadCount: 0 })
 const todoGroups = ref([])
 const todoLoading = ref(false)
 const todoError = ref('')
+
+const fallbackTodoGroups = [
+  { key: 'inbound', title: '待签收', desc: '客户已提交或运输中的工单', count: 0 },
+  { key: 'quote', title: '待报价', desc: '已签收/处理中但未发布报价', count: 0 },
+  { key: 'payment', title: '待核销', desc: '客户已上传付款凭证', count: 0 },
+  { key: 'invoice', title: '待开票', desc: '客户已提交发票申请', count: 0 },
+  { key: 'return', title: '待回寄', desc: '已付款但尚未回寄', count: 0 },
+  { key: 'exception', title: '异常工单', desc: '需要人工介入处理', count: 0 }
+]
+
+const todoTextMap = {
+  pending: { title: '待签收', desc: '客户已提交或运输中的工单' },
+  inbound: { title: '待签收', desc: '客户已提交或运输中的工单' },
+  quote: { title: '待报价', desc: '已签收/处理中但未发布报价' },
+  payment: { title: '待核销', desc: '客户已上传付款凭证' },
+  invoice: { title: '待开票', desc: '客户已提交发票申请' },
+  return: { title: '待回寄', desc: '已付款但尚未回寄' },
+  exception: { title: '异常工单', desc: '需要人工介入处理' }
+}
+
+const displayedTodoGroups = computed(() => {
+  const groups = todoGroups.value.length ? todoGroups.value : fallbackTodoGroups
+  return groups.map(item => ({
+    ...item,
+    ...(todoTextMap[item.key] || {})
+  }))
+})
+
+const statCards = computed(() => [
+  {
+    key: 'pending',
+    title: '待处理工单',
+    value: stats.value.pendingCount || 0,
+    unit: '件',
+    badge: '急',
+    badgeVariant: 'danger',
+    route: 'workorder',
+    filter: '',
+    className: 'is-primary',
+    desc: '优先处理签收、检测和维修中的服务请求'
+  },
+  {
+    key: 'today',
+    title: '今日新增报修',
+    value: stats.value.todayCount || 0,
+    unit: '件',
+    badge: 'New',
+    badgeVariant: 'primary',
+    route: 'workorder',
+    filter: '',
+    className: 'is-dark',
+    desc: '跟踪当天新增需求，辅助安排客服与工程师'
+  },
+  {
+    key: 'feedback',
+    title: '未读投诉/建议',
+    value: stats.value.unreadCount || 0,
+    unit: '条',
+    badge: 'Care',
+    badgeVariant: 'warning',
+    route: 'feedback',
+    filter: '',
+    className: 'is-warning',
+    desc: '客户声音集中处理，避免服务体验断点'
+  }
+])
 
 const loadStats = async () => {
   const token = localStorage.getItem('adminToken')
@@ -96,67 +172,98 @@ const navigateTodo = (todoType) => {
   router.push({ path: '/workorder', query: { todo: todoType } })
 }
 
+const scrollToSummary = () => {
+  document.getElementById('operation-summary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 onMounted(() => {
   loadStats()
 })
 </script>
 
 <style scoped>
-.vivid-banner {
-  background: linear-gradient(135deg, rgba(22, 93, 255, 0.85) 0%, rgba(106, 176, 255, 0.85) 100%),
-              url('https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&w=1200&q=80') center/cover no-repeat;
-  border-radius: 16px; padding: 40px; color: #fff; position: relative; overflow: hidden;
-  box-shadow: 0 8px 20px rgba(22, 93, 255, 0.15); margin-bottom: 24px;
+.home-page { width: 100%; }
+.hero-card {
+  min-height: 186px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid #c7d7f2;
+  background:
+    linear-gradient(90deg, rgba(17, 55, 126, 0.55) 0%, rgba(37, 99, 235, 0.48) 43%, rgba(37, 99, 235, 0.82) 100%),
+    url('/brand/cicada-factory.jpg') center / cover no-repeat;
 }
-.vivid-banner h2 { margin: 0 0 12px; font-size: 28px; font-weight: 600; letter-spacing: 2px; }
-.vivid-banner p { margin: 0; font-size: 15px; opacity: 0.9; }
-
-.glass-card {
-  background: #fff; border-radius: 12px; padding: 24px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.03); margin-bottom: 20px; border: none;
+.hero-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(13, 43, 102, 0.08), rgba(37, 99, 235, 0.26));
 }
-.clickable-card { cursor: pointer; transition: all 0.3s ease; border: 1px solid transparent; }
-.clickable-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 24px rgba(22, 93, 255, 0.12);
-  border-color: var(--el-color-primary-light-9);
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  min-height: 186px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 520px;
+  margin-left: 48px;
+  color: #ffffff;
 }
-.section-title {
-  font-size: 16px; font-weight: 600; color: #1d2129; margin-bottom: 16px;
-  display: flex; align-items: center; justify-content: space-between;
-}
-.todo-section { margin-top: 4px; }
-.todo-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin: 8px 0 16px;
-}
-.todo-header h3 { margin: 0; font-size: 18px; color: #1d2129; }
-.todo-card { min-height: 112px; cursor: pointer; border: 1px solid transparent; transition: all 0.2s ease; }
-.todo-card:hover { transform: translateY(-2px); border-color: var(--el-color-primary-light-7); }
-.todo-title {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 16px; font-weight: 600; color: #1d2129; margin-bottom: 12px;
-}
-.home-badge {
-  min-width: 42px;
+.hero-copy h2 { margin: 0 0 8px; font-size: 34px; line-height: 1.16; font-weight: 900; }
+.hero-copy p { margin: 0; font-size: 22px; line-height: 1.25; font-weight: 800; }
+.hero-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.hero-actions button {
+  min-width: 118px;
   height: 28px;
-  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.stat-grid, .todo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.stat-card { padding: 26px 24px 22px; min-height: 184px; }
+.stat-head, .todo-title, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stat-head > span, .todo-title > span { font-size: 22px; font-weight: 900; color: #0f172a; }
+.stat-value { margin-top: 30px; font-size: 48px; font-weight: 900; letter-spacing: 0; line-height: 1; }
+.stat-value small { margin-left: 24px; color: #64748b; font-size: 20px; font-weight: 500; letter-spacing: 0; }
+.stat-value.is-primary { color: hsl(var(--primary)); }
+.stat-value.is-warning { color: #f97316; }
+.stat-value.is-dark { color: hsl(var(--foreground)); }
+.stat-card p { margin: 8px 0 0; color: #536783; line-height: 1.6; font-size: 14px; }
+.todo-section { display: grid; gap: 16px; }
+.section-header { margin-top: 10px; justify-content: flex-start; }
+.section-header h3 { margin: 0; font-size: 28px; font-weight: 900; color: #0f172a; }
+.section-header :deep(.shad-badge) { display: none; }
+.todo-card { padding: 28px 30px; min-height: 150px; }
+.todo-title :deep(.shad-badge) { min-width: 62px; justify-content: center; font-size: 15px; }
+.todo-desc { margin-top: 16px; color: #536783; line-height: 1.6; font-size: 14px; }
+.todo-card::after {
+  content: '进入处理  ->';
+  display: block;
+  margin-top: 22px;
+  color: #2563eb;
   font-size: 14px;
   font-weight: 700;
-  line-height: 26px;
 }
-.home-badge-urgent {
-  min-width: 52px;
-  height: 34px;
-  padding: 0 16px;
-  font-size: 16px;
-  line-height: 32px;
+.home-summary-section {
+  margin-top: 8px;
+  padding-top: 6px;
 }
-.todo-desc { color: #86909c; line-height: 1.5; font-size: 13px; }
-
-@media screen and (max-width: 768px) {
-  .vivid-banner { padding: 24px 20px; }
-  .vivid-banner h2 { font-size: 22px; letter-spacing: 1px; }
-  .vivid-banner p { font-size: 13px; }
+.home-summary-section :deep(.summary-header) {
+  padding-top: 0;
+}
+.home-summary-section :deep(.page-title) {
+  font-size: 24px;
+}
+@media screen and (max-width: 900px) {
+  .hero-card { min-height: 170px; }
+  .hero-copy { min-height: 170px; margin: 0; padding: 24px; }
+  .hero-copy h2 { font-size: 28px; }
+  .hero-copy p { font-size: 18px; }
+  .stat-grid, .todo-grid { grid-template-columns: 1fr; }
 }
 </style>

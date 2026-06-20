@@ -1,57 +1,28 @@
+import { unwrapCloudResult, uploadToCloud, withToken } from './cloudHelpers.js'
+import { getCloudTempFileURL, importCloudObject } from '@/utils/cloud.js'
+
 let publicCloudObject = null
 let userCloudObject = null
 let orderCloudObject = null
 
 const getPublicCloudObject = () => {
-	if (!publicCloudObject) publicCloudObject = uniCloud.importObject('cicada-client-public')
+	if (!publicCloudObject) publicCloudObject = importCloudObject('cicada-client-public')
 	return publicCloudObject
 }
 
 const getUserCloudObject = () => {
-	if (!userCloudObject) userCloudObject = uniCloud.importObject('cicada-client-user')
+	if (!userCloudObject) userCloudObject = importCloudObject('cicada-client-user')
 	return userCloudObject
 }
 
 const getOrderCloudObject = () => {
-	if (!orderCloudObject) orderCloudObject = uniCloud.importObject('cicada-client-order')
+	if (!orderCloudObject) orderCloudObject = importCloudObject('cicada-client-order')
 	return orderCloudObject
 }
-
-const unwrapCloudResult = (result = {}) => {
-	if (!result || typeof result !== 'object') return result
-	if (result.code === 0 || result.code === undefined) return result.data === undefined ? result : result.data
-	if ([401, 1004, 100401].includes(Number(result.code))) {
-		uni.removeStorageSync('token')
-		uni.removeStorageSync('userInfo')
-		uni.removeStorageSync('isLoggedIn')
-	}
-	throw new Error(result.message || result.msg || '请求失败')
-}
-
-const withToken = (params = {}) => ({
-	...params,
-	token: uni.getStorageSync('token') || ''
-})
 
 const settingDoc = (title, content = '') => ({
 	title,
 	content: String(content || '').replace(/\n/g, '<br/>')
-})
-
-const getFileExt = (filePath = '', fallback = 'jpg') => {
-	const cleanPath = String(filePath || '').split('?')[0]
-	const match = cleanPath.match(/\.([a-zA-Z0-9]+)$/)
-	return (match ? match[1] : fallback).toLowerCase()
-}
-
-const uploadToCloud = (filePath, dir = 'uploads', fallbackExt = 'jpg') => new Promise((resolve, reject) => {
-	const ext = getFileExt(filePath, fallbackExt)
-	uniCloud.uploadFile({
-		filePath,
-		cloudPath: `${dir}/${Date.now()}_${Math.random().toString(16).slice(2)}.${ext}`,
-		success: (res) => resolve({ url: res.fileID, fileID: res.fileID }),
-		fail: reject
-	})
 })
 
 const normalizeAddress = (data = {}) => ({
@@ -77,9 +48,39 @@ const displayName = (value) => {
 	return text && !isGeneratedId(text) ? text : ''
 }
 
-export const wechatLogin = (data = {}) => getUserCloudObject().login(data).then(unwrapCloudResult)
+const getLocalDevLoginSession = () => ({
+	token: `local-dev-token-${Date.now()}`,
+	userInfo: {
+		id: 'local-dev-user',
+		userId: 'local-dev-user',
+		phone: '13800138000',
+		nickname: '开发测试用户',
+		avatar: '',
+		unit: '本地调试',
+		role: 'user'
+	}
+})
 
-export const devLogin = () => getUserCloudObject().devLogin({}).then(unwrapCloudResult)
+export const wechatLogin = (data = {}) => {
+	const cloudObject = getUserCloudObject()
+	if (!cloudObject || typeof cloudObject.login !== 'function') {
+		throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
+	}
+	return cloudObject.login(data).then(unwrapCloudResult)
+}
+
+export const devLogin = async () => {
+	try {
+		const cloudObject = getUserCloudObject()
+		if (!cloudObject || typeof cloudObject.devLogin !== 'function') {
+			return getLocalDevLoginSession()
+		}
+		return await cloudObject.devLogin({}).then(unwrapCloudResult)
+	} catch (error) {
+		console.warn('cloud devLogin unavailable, using local dev session:', error)
+		return getLocalDevLoginSession()
+	}
+}
 
 export const logout = () => Promise.resolve()
 
@@ -101,7 +102,63 @@ export const getFeePolicy = async () => {
 	return settingDoc('收费指南', settings.fee_description || settings.fee_policy)
 }
 
+// 按机型保修规则 + 延保政策
+export const getWarrantyExtra = async () => {
+	const settings = await getPublicCloudObject().getSettings({
+		keys: ['warranty_rules', 'extended_warranty_desc', 'extended_warranty_fee', 'extended_warranty_rules']
+	}).then(unwrapCloudResult)
+
+	let rules = []
+	try {
+		const parsed = settings.warranty_rules ? JSON.parse(settings.warranty_rules) : []
+		if (Array.isArray(parsed)) rules = parsed
+	} catch (e) {
+		rules = []
+	}
+
+	// 按机型分类分组
+	const groupMap = {}
+	const order = []
+	rules.forEach(rule => {
+		const category = (rule.category || '其他').trim() || '其他'
+		if (!groupMap[category]) { groupMap[category] = []; order.push(category) }
+		groupMap[category].push({ model: rule.model || '', warrantyPeriod: rule.warrantyPeriod || '', terms: rule.terms || '' })
+	})
+	const groups = order.map(category => ({ category, items: groupMap[category] }))
+
+	return {
+		groups,
+		extended: {
+			desc: settings.extended_warranty_desc || '',
+			fee: settings.extended_warranty_fee || '',
+			rules: settings.extended_warranty_rules || ''
+		}
+	}
+}
+
+// 过保收费阶梯模板
+export const getFeeTiers = async () => {
+	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_tier_templates'] }).then(unwrapCloudResult)
+	try {
+		const parsed = settings.fee_tier_templates ? JSON.parse(settings.fee_tier_templates) : []
+		return Array.isArray(parsed) ? parsed : []
+	} catch (e) {
+		return []
+	}
+}
+
 export const getGuide = (type) => getPublicCloudObject().getGuide({ type }).then(unwrapCloudResult)
+
+// 首页教程弹窗配置
+export const getHomeGuidePopup = async () => {
+	const settings = await getPublicCloudObject().getSettings({
+		keys: ['home_guide_popup_enabled', 'home_guide_popup_content']
+	}).then(unwrapCloudResult)
+	return {
+		enabled: settings.home_guide_popup_enabled === '1' || settings.home_guide_popup_enabled === true,
+		content: settings.home_guide_popup_content || ''
+	}
+}
 
 export const getContact = async () => {
 	const settings = await getPublicCloudObject().getSettings({
@@ -256,3 +313,41 @@ export const getComplaintList = (data = {}) => getUserCloudObject()
 	.then(unwrapCloudResult)
 
 export const getProductCategories = () => getPublicCloudObject().getCategories({}).then(unwrapCloudResult)
+
+// 隐私与合规配置（隐私政策/更新公告/注销规则/数据收集告知/资质公示）
+export const getCompliance = async () => {
+	const settings = await getPublicCloudObject().getSettings({
+		keys: ['privacy_policy', 'privacy_update_notice', 'account_cancellation_policy', 'data_collection_notice', 'qualifications']
+	}).then(unwrapCloudResult)
+
+	let qualifications = []
+	try {
+		const parsed = settings.qualifications ? JSON.parse(settings.qualifications) : []
+		if (Array.isArray(parsed)) qualifications = parsed
+	} catch (e) {
+		qualifications = []
+	}
+
+	// 把资质图片的 cloud:// 地址解析为临时可访问地址
+	const cloudIds = qualifications
+		.filter(it => it && it.type === 'image' && /^cloud:\/\//i.test(String(it.imageUrl || '')))
+		.map(it => it.imageUrl)
+	if (cloudIds.length) {
+		try {
+			const res = await getCloudTempFileURL(cloudIds)
+			const map = {}
+			;(res.fileList || []).forEach(item => { if (item && item.fileID) map[item.fileID] = item.tempFileURL })
+			qualifications = qualifications.map(it => (it.type === 'image' && map[it.imageUrl]) ? { ...it, imageUrl: map[it.imageUrl] } : it)
+		} catch (e) {
+			// 解析失败则保留原始地址
+		}
+	}
+
+	return {
+		privacyPolicy: settings.privacy_policy || '',
+		privacyUpdateNotice: settings.privacy_update_notice || '',
+		cancellationPolicy: settings.account_cancellation_policy || '',
+		dataCollectionNotice: settings.data_collection_notice || '',
+		qualifications
+	}
+}

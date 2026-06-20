@@ -66,9 +66,39 @@ export const getFeedbackStats = (token) => {
   return request.post(`${API_BASE.adminSys}/getFeedbackStats`, { token })
 }
 
-// 获取反馈列表
-export const getFeedbackList = (token, status) => {
-  return request.post(`${API_BASE.adminSys}/getFeedbackList`, { token, status })
+// 获取反馈列表（支持状态/类型/紧急度/关键词筛选 + 分页）
+export const getFeedbackList = (token, params = {}) => {
+  return request.post(`${API_BASE.adminSys}/getFeedbackList`, { token, ...params })
+}
+
+// 分配负责人
+export const assignFeedback = (token, id, handlerId) => {
+  return request.post(`${API_BASE.adminSys}/assignFeedback`, { token, id, handler_id: handlerId })
+}
+
+// 设置紧急等级
+export const setFeedbackUrgency = (token, id, urgency) => {
+  return request.post(`${API_BASE.adminSys}/setFeedbackUrgency`, { token, id, urgency })
+}
+
+// 处理记录 + 官方回复（回复对客户可见）
+export const replyFeedback = (token, payload = {}) => {
+  return request.post(`${API_BASE.adminSys}/replyFeedback`, { token, ...payload })
+}
+
+// 回访登记
+export const recordFeedbackVisit = (token, payload = {}) => {
+  return request.post(`${API_BASE.adminSys}/recordFeedbackVisit`, { token, ...payload })
+}
+
+// 结案（需先完成回访）
+export const closeFeedback = (token, id) => {
+  return request.post(`${API_BASE.adminSys}/closeFeedback`, { token, id })
+}
+
+// 升级投诉
+export const upgradeFeedback = (token, id, note) => {
+  return request.post(`${API_BASE.adminSys}/upgradeFeedback`, { token, id, note })
 }
 
 // 保存配置
@@ -94,7 +124,27 @@ export const updateGuide = (token, guide_id, payload, legacyFileUrl) => {
   return request.post(`${API_BASE.adminSys}/updateGuide`, { token, guide_id, ...data })
 }
 
+// 新增自定义教程
+export const createGuide = (token, payload = {}) => {
+  return request.post(`${API_BASE.adminSys}/createGuide`, { token, ...payload })
+}
+
+// 删除教程
+export const deleteGuide = (token, guide_id) => {
+  return request.post(`${API_BASE.adminSys}/deleteGuide`, { token, guide_id })
+}
+
 // 上传教程文件（fileContent 为 base64 字符串）
 export const uploadGuideFile = (token, fileContent, fileName, fileType) => {
   return request.post(`${API_BASE.adminSys}/uploadGuideFile`, { token, fileContent, fileName, fileType })
+}
+
+// 通用文件上传（fileContent 为 base64 字符串，dir 指定云存储目录，如 compliance/ tutorials/ print/）
+export const uploadFile = (token, fileContent, fileName, fileType, dir) => {
+  return request.post(`${API_BASE.adminSys}/uploadFile`, { token, fileContent, fileName, fileType, dir })
+}
+
+// 解析云存储 fileID 列表为临时可访问地址（预览资质图片/logo），返回 { fileID: tempUrl }
+export const getTempFileURL = (token, fileList) => {
+  return request.post(`${API_BASE.adminSys}/getTempFileURL`, { token, fileList })
 }

@@ -1,24 +1,16 @@
+import { clearAuthSession, getToken, unwrapCloudResult } from './cloudHelpers.js'
+import { importCloudObject } from '@/utils/cloud.js'
+
 let userCloudObject = null
 
 const getCloudObject = () => {
   if (!userCloudObject) {
-    userCloudObject = uniCloud.importObject('cicada-client-user')
+    userCloudObject = importCloudObject('cicada-client-user')
+  }
+  if (!userCloudObject) {
+    throw new Error('云对象 cicada-client-user 未连接，请先在 HBuilderX 关联云空间并部署该云对象')
   }
   return userCloudObject
-}
-
-const getToken = () => uni.getStorageSync('token') || ''
-
-const clearAuthSession = () => {
-  uni.removeStorageSync('token')
-  uni.removeStorageSync('userInfo')
-  uni.removeStorageSync('isLoggedIn')
-}
-
-const unwrapCloudResult = (result = {}) => {
-  if (result.code === 0 || result.code === undefined) return result.data === undefined ? result : result.data
-  if ([401, 1004, 100401].includes(Number(result.code))) clearAuthSession()
-  throw new Error(result.message || result.msg || '认证失败')
 }
 
 const persistAuthSession = (data = {}) => {
@@ -43,6 +35,9 @@ const normalizeLoginParams = (params = {}) => (
 
 const runLogin = async (method, params = {}) => {
   const cloudObject = getCloudObject()
+  if (!cloudObject || typeof cloudObject[method] !== 'function') {
+    throw new Error('云端登录方法未部署，请重新部署 cicada-client-user')
+  }
   const data = await cloudObject[method](normalizeLoginParams(params)).then(unwrapCloudResult)
   return persistAuthSession(data)
 }
@@ -76,8 +71,8 @@ export const getUserInfo = async () => {
   return userInfo
 }
 
-export const loginWithWechat = (params = {}) => {
-  return runLogin('loginWithWechat', params)
+// 微信授权登录统一走 login({ code, phoneCode })（code 换 openid、phoneCode 换真实手机号）。
+// 原 loginWithWechat 已随后端废弃移除。
+export const wechatLogin = (params = {}) => {
+  return runLogin('login', params)
 }
-
-export const wechatLogin = loginWithWechat

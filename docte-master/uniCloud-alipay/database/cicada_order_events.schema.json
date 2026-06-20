@@ -36,7 +36,12 @@
         "update_remarks",
         "add_timeline",
         "assign_engineer",
-        "wechat_pay_confirmed"
+        "wechat_pay_confirmed",
+        "feedback_assign",
+        "feedback_reply",
+        "feedback_visit",
+        "feedback_close",
+        "feedback_upgrade"
       ]
     },
     "actor_id": { "bsonType": "string" },

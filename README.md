@@ -1,51 +1,52 @@
-# 牙医仪器检修用户端
+# 牙医仪器检修管理系统
 
-这是一个基于 `uni-app + Vue 3` 的微信小程序前端，面向牙医仪器维修场景，主要给客户使用，用于报修、查进度、查包裹、看政策和联系客服。
+这是一个面向牙科设备售后维修场景的多端项目，包含客户使用的微信小程序、管理员和工程师使用的 PC 后台，以及共用的 uniCloud 云函数和数据库结构。
 
-## 重要提示：前端进度与交接边界
+## 项目组成
 
-当前 `master` 已经完成“小程序最新版前端 + 原 uniCloud 后台”的融合：
+| 模块 | 位置 | 技术栈 | 说明 |
+| --- | --- | --- | --- |
+| 用户端小程序 | 项目根目录 | uni-app、Vue 3、微信小程序 | 客户提交报修、查看维修进度、查询包裹、管理地址、查看政策和联系客服 |
+| PC 管理后台 | `pc-admin/` | Vue 3、Vite、Element Plus、Pinia | 管理员和工程师处理工单、知识库、用户、系统设置和数据导出 |
+| 云端服务 | `uniCloud-alipay/` | uniCloud 云函数、云数据库 | 用户登录、工单管理、支付同步、订阅消息、后台管理接口 |
 
-- 旧版小程序前端已经替换为最新版用户端前端。
-- 原仓库中的 `uniCloud-alipay/` 后台代码、数据库结构和索引说明已保留。
-- 前端页面、交互、路由、底部导航、地址管理页、用户中心页和首页业务模块已整理完成。
-- 已执行 `npm run check`，微信小程序生产构建通过。
-- 后台同学接手后，重点不是继续替换前端，而是按接口清单补齐后端数据、状态流转和云环境配置。
+## 核心能力
 
-当前前端进度可以按下面理解：
+- 微信小程序客户登录和用户资料维护
+- 报修工单提交、图片和视频上传入口
+- 维修进度、报价确认、支付状态和回寄物流展示
+- 地址、投诉建议、发票信息和产品信息入口
+- PC 后台工单分页、筛选、导出、批量操作和待办中心
+- 故障知识库、系统配置、用户和反馈管理
+- 微信支付 JSAPI 预支付、主动查单同步和订阅消息提醒
+- uniCloud 数据库 schema、初始化数据、索引说明和维护脚本
 
-| 模块 | 前端进度 | 后端需要关注 |
-| --- | --- | --- |
-| 微信手机号登录 | 页面已接入，走 `cicada-client-user.loginWithWechat({ code })` 云对象 | 配置 `WX_APPID`、`WX_SECRET`，确认 `token + userInfo` 返回 |
-| 报修提交 | 页面、表单校验、图片/视频上传入口已完成 | 实现 `/repair/submit`，保存工单和产品明细 |
-| 维修进度 | 列表、详情、状态展示已完成 | 实现 `/repair/list`、`/repair/detail`，返回状态和时间线 |
-| 包裹查询 | 查询入口和结果展示已完成 | 实现 `/package/query`，维护快递单号签收和处理状态 |
-| 政策/客服 | 展示入口已完成 | 实现政策、客服和联系方式接口 |
-| 地址/投诉/发票/产品 | 前端入口和部分本地体验逻辑已预留 | 可分阶段补接口，详见 `后端对接任务清单.md` |
+## 目录结构
 
-请后台同学优先阅读：
+```text
+api/                         小程序接口封装
+pages/                       小程序页面
+store/                       小程序状态管理
+utils/                       请求、云函数和通用工具
+config/                      资源和业务配置
+static/                      小程序静态资源
+pc-admin/                    PC 管理后台
+uniCloud-alipay/             uniCloud 云函数、数据库 schema 和公共模块
+scripts/                     本地检查脚本
+goal.md                      阶段性验收目标
+INDEX_TASK.md                数据库索引创建说明
+后端对接任务清单.md          后端接口补齐清单
+```
 
-- `后端对接任务清单.md`
-- `api/content.js`
-- `pages/index/index.vue`
-- `pages/login/index.vue`
-- `uniCloud-alipay/cloudfunctions/cicada-client-user/index.obj.js`
-- `uniCloud-alipay/database/INDEXES.md`
-
-## 交接说明
-
-- 前端主流程现在以 `api/content.js` 的 HTTP 接口为主。
-- 登录页目前仍保留 `uniCloud.importObject('cicada-client-user')` 的云对象调用方式。
-- `api/auth.js`、`api/repair.js` 属于旧版兼容接口，后续可以逐步统一。
-- 后端同学主要关注 `api/content.js` 里的接口，以及 `pages/login/index.vue` 的登录返回结构。
-
-## 项目运行
-
-环境要求：
+## 环境要求
 
 - Node.js `>= 20.19.0`
+- npm
 - 微信开发者工具
-- HBuilderX（可选）
+- HBuilderX 或 uni-app CLI
+- 已关联的 uniCloud 阿里云空间
+
+## 用户端小程序运行
 
 安装依赖：
 
@@ -53,7 +54,7 @@
 npm install
 ```
 
-本地配置接口地址：
+复制本地环境变量：
 
 ```bash
 cp .env.example .env.local
@@ -65,9 +66,7 @@ Windows PowerShell：
 Copy-Item .env.example .env.local
 ```
 
-默认接口地址见 `utils/request.js`，优先读取 `VITE_API_BASE_URL`。
-
-开发运行：
+启动微信小程序开发构建：
 
 ```bash
 npm run dev:mp-weixin
@@ -79,80 +78,62 @@ npm run dev:mp-weixin
 npm run build:mp-weixin
 ```
 
-交接检查：
+本地验收：
 
 ```bash
 npm run check
 ```
 
-输出目录：
+构建产物默认输出到：
 
 - 开发版：`unpackage/dist/dev/mp-weixin`
 - 生产版：`unpackage/dist/build/mp-weixin`
 
-## 页面入口
+## PC 管理后台运行
 
-`pages.json` 当前已注册页面：
-
-- `pages/index/index`
-- `pages/login/index`
-- `pages/company/index`
-- `pages/mine/index`
-- `pages/address/index`
-
-## 主要目录
-
-```text
-api/                    接口封装
-pages/                  页面
-store/                  状态管理
-utils/                  请求和云函数封装
-config/                 图片和资源配置
-static/                 静态资源
-uniCloud-alipay/        uniCloud 后端
-cloudfunctions/         旧版云函数兼容目录
-unpackage/              编译输出
+```bash
+cd pc-admin
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-## 请求约定
+默认本地地址为 `http://localhost:5173`。生产构建：
 
-- HTTP 统一返回：`{ code, message, data }`
-- `code = 0` 表示成功
-- 请求头自动带 `Authorization: Bearer {token}`
-- 遇到 `401 / 1004 / 100401`，前端会清理登录态
+```bash
+npm run build
+```
 
-## 当前后端对接重点
+后台通过 URL 化云函数访问 uniCloud，需要在 `pc-admin/.env.local` 或 `pc-admin/src/config/api.js` 中配置实际云函数地址。更多说明见 `pc-admin/配置指南.md`。
 
-### 登录
+## uniCloud 配置
 
-- 登录页使用 `cicada-client-user`
-- 需要返回 `token` 和 `userInfo`
-- 若要统一成 HTTP，也可以改成 `/auth/login`、`/auth/wechat-login`
+云函数位于 `uniCloud-alipay/cloudfunctions/`：
 
-### 首页主流程
+- `cicada-client-user`：用户登录和资料
+- `cicada-client-order`：客户工单、支付和订阅消息
+- `cicada-client-public`：公共内容、政策、指南和知识库
+- `cicada-admin-order`：后台工单管理
+- `cicada-admin-kb`：后台故障知识库
+- `cicada-admin-sys`：后台系统、用户和配置
+- `cicada-maintenance`：维护和后台任务
 
-当前前端主要使用这些接口：
+上线前需要在 uniCloud 控制台配置数据库索引，尤其是：
 
-- `POST /repair/submit`
-- `GET /repair/list`
-- `GET /repair/detail`
-- `GET /package/query`
-- `POST /upload/image`
-- `POST /upload/video`
-- `GET /common/contact`
-- `GET /common/customer-service`
-- `GET /policy/warranty`
-- `GET /policy/fee`
+- `cicada_orders.order_no` 唯一索引
+- 用户工单查询相关的 `user_id + create_time` 复合索引
+- 后台状态筛选相关的 `status + create_time` 复合索引
 
-说明：当前微信手机号登录已统一走 `cicada-client-user.loginWithWechat({ code })` 云对象。若后端后续希望登录也改成 HTTP，再补 `/auth/login` 或 `/auth/wechat-login` 并同步改前端登录调用。
+完整索引说明见 `INDEX_TASK.md` 和 `uniCloud-alipay/database/INDEXES.md`。
 
-### 微信支付
+## 关键环境变量
 
-报价确认后，小程序维修详情页的主按钮会走 `cicada-client-order.createWechatPayPayment` 创建微信 JSAPI 预支付单，然后通过 `uni.requestPayment` 拉起支付。支付完成后，前端会调用 `syncWechatPayPayment`，服务端再向微信支付查单，只有微信返回 `SUCCESS` 且金额一致时才把工单写成 `payment_status=paid`。
+微信登录：
 
-企业客户仍可走线下对公转账，备用入口会调用 `uploadPaymentProof`，订单会写成 `payment_status=uploaded` 和 `payment_method=offline_transfer`，后台再人工核销。
+- `WX_APPID`
+- `WX_SECRET`
 
-上线前需要在 uniCloud 的 `cicada-client-order` 云函数环境变量中配置微信支付参数：
+微信支付：
 
 - `WX_PAY_APPID`
 - `WX_PAY_MCH_ID`
@@ -161,16 +142,8 @@ unpackage/              编译输出
 - `WX_PAY_PRIVATE_KEY` 或 `WX_PAY_PRIVATE_KEY_BASE64`
 - `WX_PAY_API_V3_KEY`
 
-其中 `WX_PAY_NOTIFY_URL` 需要配置成 URL 化后的 `cicada-client-order/wechatPayNotify` 地址；否则前端主动同步仍可确认支付，但微信异步通知兜底不会生效。
+订阅消息：
 
-### 订阅消息提醒
-
-小程序会在用户提交报修、查看进度、确认报价/支付、上传对公转账凭证前请求订阅消息授权。后台状态变更、报价发布、付款核销、微信支付到账后，云函数会尝试发送订阅消息，并把结果写入 `cicada_subscription_logs`。
-
-上线前需要在相关云函数环境变量中配置：
-
-- `WX_APPID`
-- `WX_SECRET`
 - `WX_SUBSCRIBE_TEMPLATE_REPAIR_SUBMITTED`
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_RECEIVED`
 - `WX_SUBSCRIBE_TEMPLATE_QUOTE_ISSUED`
@@ -178,53 +151,31 @@ unpackage/              编译输出
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_SHIPPED`
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_COMPLETED`
 
-也支持使用 `WECHAT_SUBSCRIBE_TEMPLATE_*` 作为模板 ID 变量前缀。模板字段当前按通用状态通知结构发送：`thing1`、`character_string2`、`phrase3`、`time4`、`thing5`。如果微信公众平台模板字段不同，需要同步调整 `cicada-admin-order` 和 `cicada-client-order` 云函数里的 `buildSubscriptionData`。
+不要把真实密钥写入仓库；本地示例配置请参考 `.env.example` 和 `pc-admin/.env.example`。
 
-手动验收流程：
+## 接口约定
 
-1. 在微信公众平台申请并启用上述订阅消息模板。
-2. 在 uniCloud 控制台配置 `WX_APPID`、`WX_SECRET` 和模板 ID 环境变量，并重新部署 `cicada-client-public`、`cicada-client-order`、`cicada-admin-order`。
-3. 在 `pc-admin` 中配置 `.env.local` 指向当前云空间，运行 `npm run check:urls`，确认后台 URL 化已命中最新部署的 `cicada-admin-order`。
-4. 运行 `npm run check:subscription`，确认所有订阅场景模板 ID 均已配置；任一场景显示 `missing` 时，订阅消息真机验收不能视为通过。
-4. 用微信开发者工具或真机打开小程序，提交报修或进入进度页，确认出现订阅授权弹窗；拒绝授权时主流程应继续。
-5. 在后台发布报价、核销付款、导入签收/回寄物流或修改工单状态，确认用户端能收到对应订阅消息。
-6. 查询 `cicada_subscription_logs`，确认成功记录为 `sent`；未配置模板、缺少 openid、发送失败时分别记录 `skipped` 或 `failed`，且后台主流程不失败。
+- 统一返回结构：`{ code, message, data }`
+- `code = 0` 表示成功
+- 认证请求携带 `Authorization: Bearer {token}`
+- 遇到 `401`、`1004` 或 `100401` 时前端会清理登录态
 
-### Goal 验收清单
+小程序主流程当前以 uniCloud 云对象调用为主，微信手机号登录走 `cicada-client-user.login({ code, phoneCode })`。`api/auth.js` 和 `api/repair.js` 是兼容封装，可后续继续统一调用入口。
 
-当前 `goal.md` 覆盖发票闭环、后台服务端分页、页面拆分、待办中心和订阅消息提醒。除本地构建检查外，上线前建议按下面顺序做真实环境验收：
+## 上线前检查
 
-1. 发票闭环：用已付款或已完成/已回寄工单在小程序提交发票申请，确认 `cicada_orders.invoice_info` 写入 `need_invoice=true`、`status=待开票`、抬头、税号、邮箱和备注；后台工单页能看到这些字段；后台改为 `已开具` 后，小程序刷新能看到最新状态。
-2. 分页和筛选：准备超过 100 条工单数据，在后台验证第 101 条及之后可通过分页看到；关键词、状态、设备型号、发票状态和待办筛选的总数与云函数 `getAdminOrderList` 返回的 `total` 一致；当前筛选全部导出时，导出提示数量与文件行数一致。
-3. 批量操作刷新：分别执行物流签收导入、回寄物流导入、报价发布、付款核销和发票状态更新，确认操作后列表仍保留当前筛选/分页语境并显示最新数据。
-4. 待办中心：用覆盖待签收、待报价、待核销、待开票、待回寄、异常工单的测试数据，确认后台首页每组数量与进入工单页后的筛选 `total` 一致；无 token 或无效 token 时应跳转登录或显示错误，不应误报为 0。
-5. 订阅消息：在微信开发者工具或真机完成授权、拒绝授权和模板发送失败三种路径验证；确认拒绝或发送失败不阻塞报修、报价确认、付款、后台状态更新等主流程，且 `cicada_subscription_logs` 有可追踪记录。
+1. 创建并核对数据库索引。
+2. 配置微信登录、支付和订阅消息环境变量。
+3. 部署所有 uniCloud 云函数。
+4. 开启后台云函数 URL 化，并更新 PC 后台接口地址。
+5. 运行小程序和 PC 后台构建检查。
+6. 使用真实或准生产数据验证报修、报价、支付、发票、物流和订阅消息闭环。
 
-### 交互预留
+## 参考文档
 
-前端还预留了这些能力，后端接入后可完善：
-
-- 发票申请与列表
-- 收货地址管理
-- 投诉建议
-- 产品列表
-- 故障知识库
-- 管理后台相关接口
-
-## 后端补充建议
-
-- 优先确认 `uniCloud-alipay/database/INDEXES.md` 里的索引是否已创建。
-- 微信登录云对象需要在 uniCloud 环境变量中配置 `WX_APPID` 和 `WX_SECRET`，不要把 AppSecret 写进代码。
-- `config/cicada-assets.js` 里的图片链接需要替换成可访问的 CDN 地址。
-- 如果登录方式要统一，建议先确认前端登录页是否继续保留云对象方式。
-
-## 相关文件
-
-- `api/content.js`
-- `api/auth.js`
-- `api/repair.js`
-- `pages/login/index.vue`
-- `utils/request.js`
-- `utils/cloud.js`
-- `uniCloud-alipay/database/INDEXES.md`
+- `AGENTS.md`
+- `SCALING_GUIDE.md`
 - `后端对接任务清单.md`
+- `pc-admin/README.md`
+- `pc-admin/配置指南.md`
+- `uniCloud-alipay/database/INDEXES.md`

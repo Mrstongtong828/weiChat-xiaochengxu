@@ -14,87 +14,111 @@
 					<text class="warm-strong">温馨提示：</text>
 					<text>为了给您提供更快更好的服务，请务必在快递里面留纸条写明：寄回原因或故障描述，联系方式和收件地址。</text>
 				</view>
-
 				<view class="module-section-head">
 					<text>产品信息</text>
 					<text>共 {{ repairProducts.length }} 件 · 可增加</text>
 				</view>
 				<view v-for="(product, index) in repairProducts" :key="product.id" class="repair-product">
-					<view class="repair-product-strip">
-						<view class="repair-product-name">
-							<text>{{ index + 1 }}</text>
-							<text>报修产品 #{{ index + 1 }}</text>
-						</view>
-						<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
-					</view>
-					<view class="repair-form-card">
-						<view class="repair-field">
-							<text>产品名称</text>
-							<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
-						</view>
-						<view class="repair-field">
-							<text><text class="required-star">*</text>产品序列号</text>
-							<input v-model="product.serial" placeholder="请输入" placeholder-class="input-placeholder" />
-						</view>
-						<view class="repair-field">
-							<text>购买日期</text>
-							<picker mode="date" :value="product.buyDate" @change="(e) => onDateChange(index, e)">
-								<view class="field-action tap">
-									<text class="field-action-value" :class="{ placeholder: !product.buyDate }">{{ product.buyDate || '设备信息待同步' }}</text>
-									<view class="field-mini field-calendar"></view>
-								</view>
-							</picker>
-						</view>
-						<view class="repair-field voucher-field tap" @click="openVoucherPicker(index)">
-							<view class="field-label-wrap">
-								<text>购买凭证</text>
-								<text class="field-optional">选填</text>
+						<view class="repair-product-strip">
+							<view class="repair-product-name">
+								<text>{{ index + 1 }}</text>
+								<text>报修产品 #{{ index + 1 }}</text>
 							</view>
-							<view class="voucher-status">
-								<text v-if="product.voucherList && product.voucherList.length" class="voucher-count">{{ product.voucherList.length }} 张已上传</text>
-								<view v-else class="upload-box voucher-upload">
-									<text>+</text>
-									<text>上传凭证</text>
+							<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
+						</view>
+						<view class="repair-form-card">
+							<view class="repair-field">
+								<text>产品名称</text>
+								<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>产品序列号</text>
+								<input v-model="product.serial" placeholder="输入或扫码 SN" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
+								<view class="scan-icon tap" @click="scanSn(index)">
+									<view class="scan-corner"></view>
+									<view class="scan-corner"></view>
+									<view class="scan-corner"></view>
 								</view>
 							</view>
-							<view class="field-mini field-clip"></view>
-						</view>
-						<view v-if="product.voucherList && product.voucherList.length" class="voucher-preview">
-							<view v-for="(voucher, vIndex) in product.voucherList" :key="voucher.id" class="voucher-thumb tap" @click="previewVoucher(index, vIndex)">
-								<image class="voucher-image" :src="getPreviewUrl(voucher)" mode="aspectFill"></image>
-								<view class="voucher-remove" @click.stop="removeVoucher(index, vIndex)">×</view>
+							<!-- SN 识别结果 -->
+							<view v-if="product.snLoading" class="sn-result loading"><text>正在识别设备…</text></view>
+							<view v-else-if="product.snInfo && product.snInfo.found" class="sn-result">
+								<view class="sn-result-row">
+									<text class="sn-result-label">已识别</text>
+									<text class="sn-tag" :class="'sn-tag-' + (product.snInfo.warrantyStatus || 'unknown')">{{ snWarrantyLabel(product.snInfo) }}</text>
+								</view>
+								<text v-if="product.snInfo.model" class="sn-result-line">型号：{{ product.snInfo.model }}</text>
+								<text v-if="product.snInfo.warrantyExpire" class="sn-result-line">质保至：{{ product.snInfo.warrantyExpire }}</text>
+								<text v-if="product.snInfo.history && product.snInfo.history.length" class="sn-result-line">历史维修：{{ product.snInfo.history.length }} 单</text>
 							</view>
-						</view>
-						<view class="repair-field">
-							<text><text class="required-star">*</text>故障描述</text>
-							<input v-model="product.faultDesc" placeholder="最多2000字" placeholder-class="input-placeholder" />
-						</view>
-						<view class="media-area">
-							<view class="media-title">
-								<text><text class="required-star">*</text>产品清单 / 故障图片或视频</text>
-								<text>{{ product.media.length }}/3</text>
+							<view v-else-if="product.snInfo && !product.snInfo.found && product.serial" class="sn-result muted"><text>未匹配到已登记设备，可手动填写型号</text></view>
+							<view class="repair-field">
+								<text>产品型号</text>
+								<input v-model="product.model" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
 							</view>
-							<view class="media-grid">
-								<view v-for="media in product.media" :key="media.id" class="media-thumb">
-									<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
-									<view v-else class="media-video">
-										<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
+							<view class="repair-field">
+								<text>购买日期</text>
+								<picker mode="date" :value="product.buyDate" @change="(e) => onDateChange(index, e)">
+									<view class="field-action tap">
+										<text class="field-action-value" :class="{ placeholder: !product.buyDate }">{{ product.buyDate || '设备信息待同步' }}</text>
+										<view class="field-mini field-calendar"></view>
+									</view>
+								</picker>
+							</view>
+							<view class="repair-field voucher-field tap" @click="openVoucherPicker(index)">
+								<view class="field-label-wrap">
+									<text>购买凭证</text>
+									<text class="field-optional">选填</text>
+								</view>
+								<view class="voucher-status">
+									<text v-if="product.voucherList && product.voucherList.length" class="voucher-count">{{ product.voucherList.length }} 张已上传</text>
+									<view v-else class="upload-box voucher-upload">
+										<text>+</text>
+										<text>上传凭证</text>
+									</view>
+								</view>
+								<view class="field-mini field-clip"></view>
+							</view>
+							<view v-if="product.voucherList && product.voucherList.length" class="voucher-preview">
+								<view v-for="(voucher, vIndex) in product.voucherList" :key="voucher.id" class="voucher-thumb tap" @click="previewVoucher(index, vIndex)">
+									<image class="voucher-image" :src="getPreviewUrl(voucher)" mode="aspectFill"></image>
+									<view class="voucher-remove" @click.stop="removeVoucher(index, vIndex)">×</view>
+								</view>
+							</view>
+							<view class="repair-field column">
+								<text><text class="required-star">*</text>故障描述</text>
+								<textarea v-model="product.faultDesc" maxlength="2000" placeholder="最多2000字，描述故障现象、时间与诉求……" placeholder-class="input-placeholder"></textarea>
+							</view>
+							<view class="media-area">
+								<view class="media-title">
+									<text><text class="required-star">*</text>产品清单 / 故障图片或视频</text>
+									<text>{{ product.media.length }}/3</text>
+								</view>
+								<view class="media-grid">
+									<view v-for="media in product.media" :key="media.id" class="media-thumb">
+										<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
+										<view v-else class="media-video">
+											<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
+											<text>视频</text>
+										</view>
+										<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
+									</view>
+									<view v-if="product.media.length < 3" class="media-add tap" @click="uploadRepairImage(index)">
+										<text>+</text>
+										<text>图片</text>
+									</view>
+									<view v-if="product.media.length < 3" class="media-add tap" @click="uploadRepairVideo(index)">
+										<text>▶</text>
 										<text>视频</text>
 									</view>
-									<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
-								</view>
-								<view v-if="product.media.length < 3" class="media-add tap" @click="addRepairMedia(index)">
-									<text>+</text>
-									<text>添加</text>
 								</view>
 							</view>
 						</view>
 					</view>
-				</view>
-				<view class="dash-add tap" @click="addRepairProduct">
-					<text>+</text>
-					<text>增加报修产品</text>
-				</view>
+					<view class="dash-add tap" @click="addRepairProduct">
+						<text>+</text>
+						<text>增加报修产品</text>
+					</view>
 
 				<view class="module-section-head single">
 					<text>寄出信息</text>
@@ -467,7 +491,20 @@
 					</view>
 				</view>
 				<view class="module-section-head single"><text>进度时间线</text></view>
-				<view class="timeline-card">
+				<view class="progress-node-card">
+					<view v-for="(node, index) in repairProgressNodes" :key="node.label" class="progress-node-row" :class="node.state">
+						<view class="progress-node-pin">
+							<view class="progress-node-dot"></view>
+							<view v-if="index < repairProgressNodes.length - 1" class="progress-node-line"></view>
+						</view>
+						<view class="progress-node-copy">
+							<text class="progress-node-label">{{ node.label }}</text>
+							<text v-if="node.state === 'current'" class="progress-node-now">进行中</text>
+						</view>
+					</view>
+				</view>
+				<view v-if="detailOrder.timeline && detailOrder.timeline.length" class="module-section-head single"><text>处理记录</text></view>
+				<view v-if="detailOrder.timeline && detailOrder.timeline.length" class="timeline-card">
 					<view v-for="(item, index) in detailTimeline" :key="item.title + index" class="detail-timeline-row">
 						<view class="detail-timeline-pin" :class="{ pending: item.pending }">
 							<view></view>
@@ -491,7 +528,26 @@
 						</view>
 						<text :class="['tag', 'tag-' + getBillingMeta(detailOrder).tone]">{{ getBillingMeta(detailOrder).label }}</text>
 					</view>
-					<view v-if="detailQuoteItems.length" class="quote-line-list">
+					<view v-if="detailQuoteGroups.length" class="quote-line-list quote-group-list">
+						<view v-for="group in detailQuoteGroups" :key="group.key" class="quote-group">
+							<view class="quote-group-head">
+								<text>{{ group.title }}</text>
+								<text>{{ formatMoney(group.total) }}</text>
+							</view>
+							<view v-for="(item, index) in group.items" :key="group.key + item.name + index" class="quote-line-item">
+								<view class="quote-line-copy">
+									<text>{{ item.name || `费用项目 ${index + 1}` }}</text>
+									<text v-if="item.desc">{{ item.desc }}</text>
+									<view class="quote-line-fees">
+										<text v-if="item.unitPrice">单价 {{ formatMoney(item.unitPrice) }}</text>
+										<text v-if="item.quantity">数量 {{ item.quantity }}</text>
+									</view>
+								</view>
+								<text class="quote-line-price">{{ formatMoney(getQuoteDetailRowTotal(item)) }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-else-if="detailQuoteItems.length" class="quote-line-list">
 						<view v-for="(item, index) in detailQuoteItems" :key="item.name + index" class="quote-line-item">
 							<view class="quote-line-copy">
 								<text>{{ item.name || `维修项目 ${index + 1}` }}</text>
@@ -515,6 +571,20 @@
 						<text>{{ getBillingAmountText(detailOrder) }}</text>
 						<text>{{ getPaymentMeta(detailOrder).desc }}</text>
 					</view>
+					<view v-if="detailQuoteVisible" class="quote-bill-info">
+						<view class="quote-bill-row">
+							<view class="quote-bill-dot warranty"></view>
+							<text>{{ detailWarrantyText }}</text>
+						</view>
+						<view v-if="detailPaymentDeadlineText" class="quote-bill-row">
+							<view class="quote-bill-dot deadline"></view>
+							<text>请在 {{ detailPaymentDeadlineText }} 前完成付款，逾期报价可能失效</text>
+						</view>
+						<view class="quote-bill-row">
+							<view class="quote-bill-dot policy"></view>
+							<text>如对报价有疑问，可先联系客服沟通；若最终拒绝维修，设备将按原寄回地址退回（可能产生回寄运费）。</text>
+						</view>
+					</view>
 					<view v-if="detailPaymentProofs.length" class="payment-proof-grid billing-proof-grid">
 						<view v-for="(proof, index) in detailPaymentProofs" :key="proof.id || proof.url || index" class="payment-proof-thumb tap" @click="previewPaymentProof(index)">
 							<image class="payment-proof-image" :src="proof.url || proof.path" mode="aspectFill"></image>
@@ -529,6 +599,45 @@
 							{{ getPaymentProofAction(detailOrder).text }}
 						</view>
 						<text v-else-if="getPaymentProofAction(detailOrder).hint" class="quote-secondary-hint">{{ getPaymentProofAction(detailOrder).hint }}</text>
+						<view v-if="detailQuoteVisible && detailOrder.paymentStatus !== 'paid'" class="quote-contact-action tap" @click="contactSupportForQuote">
+							<text>有疑问？联系客服</text>
+						</view>
+					</view>
+				</view>
+
+				<!-- 回寄物流 -->
+				<view v-if="detailOrder.returnLogisticsNo" class="module-section-head single"><text>回寄物流</text></view>
+				<view v-if="detailOrder.returnLogisticsNo" class="return-logistics-card">
+					<view class="return-logistics-info">
+						<view><text>物流公司</text><text>{{ detailOrder.returnLogisticsCompany || '待录入' }}</text></view>
+						<view><text>回寄单号</text><text class="return-logistics-no">{{ detailOrder.returnLogisticsNo }}</text></view>
+					</view>
+					<view class="return-logistics-actions">
+						<view class="return-logistics-btn tap" @click="copyOne(detailOrder.returnLogisticsNo, 'returnNo')">{{ copied === 'returnNo' ? '已复制' : '复制单号' }}</view>
+						<view class="return-logistics-btn primary tap" @click="trackReturnLogistics(detailOrder)">查物流</view>
+					</view>
+				</view>
+
+				<!-- 完成后引导：评价 / 保养 / 再次报修 -->
+				<view v-if="detailIsCompleted" class="complete-guide-card">
+					<view class="complete-guide-title">
+						<text class="complete-guide-emoji">🎉</text>
+						<text>维修已完成，感谢您的信任</text>
+					</view>
+					<text class="complete-guide-tip">建议定期保养设备以延长使用寿命；遇到新问题可随时再次报修。</text>
+					<view class="complete-guide-actions">
+						<view class="complete-guide-btn tap" @click="evaluateOrder(detailOrder)">
+							<text class="complete-guide-ico">★</text>
+							<text>去评价</text>
+						</view>
+						<view class="complete-guide-btn tap" @click="showMaintenanceTip">
+							<text class="complete-guide-ico">🛠</text>
+							<text>保养提醒</text>
+						</view>
+						<view class="complete-guide-btn tap" @click="reRepair(detailOrder)">
+							<text class="complete-guide-ico">↻</text>
+							<text>再次报修</text>
+						</view>
 					</view>
 				</view>
 			</view>
@@ -621,7 +730,22 @@
 						<text>{{ item.duration }}</text>
 					</view>
 				</view>
-				<view class="module-section-head single"><text>保修范围</text></view>
+				<template v-if="warrantyGroups.length">
+						<view class="module-section-head single"><text>按机型保修</text></view>
+						<view v-for="group in warrantyGroups" :key="group.category" class="warranty-group">
+							<view class="warranty-group-title">{{ group.category }}</view>
+							<view class="white-list-card">
+								<view v-for="(rule, idx) in group.items" :key="idx" class="warranty-rule-row">
+									<view class="warranty-rule-head">
+										<text class="warranty-rule-model">{{ rule.model || group.category }}</text>
+										<text class="warranty-rule-period">{{ rule.warrantyPeriod }}</text>
+									</view>
+									<text v-if="rule.terms" class="warranty-rule-terms">{{ rule.terms }}</text>
+								</view>
+							</view>
+						</view>
+					</template>
+					<view class="module-section-head single"><text>保修范围</text></view>
 				<view class="text-card">
 					<view v-for="(item, index) in warrantyRanges" :key="item" class="number-line">
 						<text>{{ index + 1 }}</text>
@@ -635,7 +759,15 @@
 						<view><text>{{ item.title }}</text><text>{{ item.desc }}</text></view>
 					</view>
 				</view>
-				<view v-if="!warrantyDoc.content" class="doc-paper warranty-paper">
+				<template v-if="extendedWarranty.desc || extendedWarranty.fee || extendedWarranty.rules">
+						<view class="module-section-head single"><text>延保政策</text></view>
+						<view class="text-card warranty-extended">
+							<view v-if="extendedWarranty.desc" class="ext-block"><text class="ext-label">服务说明</text><text class="ext-text">{{ extendedWarranty.desc }}</text></view>
+							<view v-if="extendedWarranty.fee" class="ext-block"><text class="ext-label">收费标准</text><text class="ext-text">{{ extendedWarranty.fee }}</text></view>
+							<view v-if="extendedWarranty.rules" class="ext-block"><text class="ext-label">生效规则</text><text class="ext-text">{{ extendedWarranty.rules }}</text></view>
+						</view>
+					</template>
+					<view v-if="!warrantyDoc.content" class="doc-paper warranty-paper">
 					<text class="paper-title">保修政策</text>
 					<view v-for="section in warrantyTerms" :key="section.title" class="paper-section">
 						<text class="paper-section-title">{{ section.title }}</text>
@@ -657,7 +789,14 @@
 					<view :class="['glyph', 'glyph-' + activeDoc.icon]"><view class="glyph-extra"></view></view>
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
-				<view v-if="activeDoc.content" class="doc-paper">
+				<view v-if="activeModule === 'fees' && feeTiers.length" class="fee-tier-card">
+						<view class="fee-tier-head"><text>收费项</text><text>标准价</text></view>
+						<view v-for="(tier, idx) in feeTiers" :key="idx" class="fee-tier-row">
+							<view class="fee-tier-name"><text>{{ tier.name }}</text><text v-if="tier.note" class="fee-tier-note">{{ tier.note }}</text></view>
+							<text class="fee-tier-price">¥{{ tier.price }}<text v-if="tier.unit" class="fee-tier-unit">/{{ tier.unit }}</text></text>
+						</view>
+					</view>
+					<view v-if="activeDoc.content" class="doc-paper">
 					<rich-text :nodes="activeDoc.content"></rich-text>
 				</view>
 				<view v-else class="doc-paper">
@@ -670,7 +809,14 @@
 						</view>
 					</view>
 				</view>
-				<view v-if="activeDoc.fileUrl" class="guide-file-card">
+				<view v-if="activeDoc.media && activeDoc.media.length" class="guide-media-list">
+						<view v-for="(m, i) in activeDoc.media" :key="i" class="guide-media-item tap" @click="openGuideMedia(m)">
+							<text class="guide-media-type">{{ m.type === 'video' ? '▶ 视频' : m.type === 'image' ? '图片' : '文档' }}</text>
+							<text class="guide-media-name">{{ m.name }}</text>
+							<text class="guide-media-open">打开</text>
+						</view>
+					</view>
+					<view v-if="activeDoc.fileUrl" class="guide-file-card">
 					<view>
 						<text>后台上传文档</text>
 						<text>{{ activeDoc.fileName || '操作教程文档' }}</text>
@@ -1299,6 +1445,8 @@
 			</view>
 			<view class="repair-tool-cancel tap" @click="showRepairTools = false">取消</view>
 		</view>
+		<PrivacyConsent />
+		<PolicyDialog v-model:visible="homeGuideVisible" title="操作指引" :content="homeGuideContent" />
 	</view>
 </template>
 
@@ -1306,6 +1454,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { onLoad, onShow, onPullDownRefresh } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
+import PrivacyConsent from '@/components/PrivacyConsent.vue'
+import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import {
 	getContact,
@@ -1318,12 +1468,16 @@ import {
 	applyInvoice,
 	getWechat,
 	getWarrantyPolicy,
+	getWarrantyExtra,
+	getFeeTiers,
+	getHomeGuidePopup,
 	queryPackageStatus,
 	searchFault,
 	addAddress,
 	updateAddress,
 	deleteAddress,
 	addComplaint,
+	getComplaintList,
 	devLogin,
 	wechatLogin,
 	uploadFeedbackImage,
@@ -1336,9 +1490,11 @@ import {
 	getRepairList,
 	syncRepairWechatPay,
 	uploadRepairPaymentProof,
-	submitRepair as submitRepairOrder
+	submitRepair as submitRepairOrder,
+	lookupDeviceBySn
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
+import { getCloudTempFileURL } from '@/utils/cloud.js'
 import {
 	basics,
 	companyAdvantages,
@@ -1368,12 +1524,33 @@ import {
 	formatMoney,
 	formatOrderListPrice,
 	isFileTooLarge,
+	normalizeQuoteDetail,
 	normalizeQuoteItems,
 	sumQuoteFee,
 	todayText,
 	toTextLines
 } from './composables/orderFormatters'
+import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
 import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import {
+	createRepairStatusMeta,
+	getOrderStatusTone,
+	getRepairProgressNodes,
+	invoiceTodoStatusKeys,
+	normalizeRepairStatus,
+	normalizeStatusTab,
+	packageStatusMeta
+} from './composables/statusMeta'
+import {
+	compressForUpload,
+	getPreviewUrl,
+	getUploadedUrl,
+	hasLoginToken,
+	isAuthError,
+	isPickerCancel,
+	normalizeUploadFileId,
+	normalizeUploadUrl
+} from './composables/uploadUtils'
 
 const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
@@ -1404,6 +1581,7 @@ const orderDetailOrder = ref('')
 const packageQueryLoading = ref(false)
 const packageQuerySearched = ref(false)
 const repairSubmitting = ref(false)
+const repairStep = ref(1)
 const invoiceSubmitting = ref(false)
 const paymentSubmitting = ref(false)
 const paymentProofUploading = ref(false)
@@ -1591,6 +1769,31 @@ const warrantyTerms = [
 ]
 
 logBoot('static blocks ready')
+
+// 按机型保修分组 / 延保政策 / 过保收费阶梯（来自后台配置）
+const warrantyGroups = ref([])
+const extendedWarranty = ref({ desc: '', fee: '', rules: '' })
+const feeTiers = ref([])
+
+// 首页教程弹窗
+const homeGuideVisible = ref(false)
+const homeGuideContent = ref('')
+const HOME_GUIDE_SEEN_KEY = 'home_guide_popup_seen'
+const maybeShowHomeGuidePopup = async () => {
+	try {
+		if (uni.getStorageSync(HOME_GUIDE_SEEN_KEY)) return
+		// 隐私同意弹窗优先；未同意时本次不弹教程
+		if (!uni.getStorageSync('privacy_consented')) return
+		const data = await getHomeGuidePopup()
+		if (data.enabled && data.content) {
+			homeGuideContent.value = data.content
+			homeGuideVisible.value = true
+			uni.setStorageSync(HOME_GUIDE_SEEN_KEY, '1')
+		}
+	} catch (e) {
+		// 忽略弹窗加载失败
+	}
+}
 
 const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-query', 'guide-invoice']
 
@@ -1793,83 +1996,7 @@ const applyContact = (data = {}) => {
 	]
 }
 
-const repairStatusAliases = {
-	0: '已提交',
-	1: '处理中',
-	2: '已回寄',
-	3: '已完成',
-	submitted: '已提交',
-	created: '已提交',
-	pending: '已提交',
-	sent: '运输中',
-	mailed: '运输中',
-	received: '已签收',
-	signed: '已签收',
-	checking: '处理中',
-	inspecting: '处理中',
-	quoted: '处理中',
-	quote_pending: '处理中',
-	waiting_quote: '处理中',
-	confirming: '处理中',
-	waiting_confirm: '处理中',
-	fixing: '处理中',
-	repairing: '维修中',
-	shipped: '已回寄',
-	completed: '已完成',
-	done: '已完成',
-	reviewed: '已评价',
-	rated: '已完成',
-	'已寄出': '运输中',
-	'检测中': '处理中',
-	'待报价': '处理中',
-	'待确认': '处理中',
-	'维修中': '处理中',
-	'已发货': '已回寄',
-	'已评价': '已完成',
-	cancelled: '已取消',
-	canceled: '已取消'
-}
-
-const repairStatusMeta = repairStatusFlow.reduce((acc, label, index) => {
-	acc[label] = {
-		status: label,
-		statusGroup: label,
-		tone: index < 3 ? 'muted' : index < 5 ? 'warn' : 'ok',
-		reached: index
-	}
-	return acc
-}, {
-	'已取消': { status: '已取消', statusGroup: '已取消', tone: 'muted', reached: 0 }
-})
-
-const normalizeRepairStatus = (value, fallback = '已提交') => {
-	const raw = value === undefined || value === null ? '' : String(value).trim()
-	if (!raw) return fallback
-	return repairStatusAliases[raw] || repairStatusAliases[raw.toLowerCase()] || raw
-}
-
-const normalizeStatusTab = (value) => {
-	const raw = value === undefined || value === null ? '' : String(value).trim()
-	if (!raw || raw === '全部') return raw || '全部'
-	if (raw === 'pending' || raw === '待处理') return '待处理'
-	return repairStatusAliases[raw] || repairStatusAliases[raw.toLowerCase()] || raw
-}
-
-const packageStatusMeta = {
-	0: { status: '暂未签收', tone: 'muted', reached: 0 },
-	1: { status: '已签收待登记', tone: 'warn', reached: 1 },
-	2: { status: '已登记待检测', tone: 'warn', reached: 2 },
-	3: { status: '处理中', tone: 'warn', reached: 3 },
-	4: { status: '已关联工单', tone: 'ok', reached: 4 },
-	5: { status: '已完成', tone: 'ok', reached: 4 }
-}
-
-const getOrderStatusTone = (order = {}) => {
-	if (order.statusGroup === '处理中') return 'warn'
-	if (order.statusGroup === '已回寄' || order.statusGroup === '已完成') return 'ok'
-	if (order.statusGroup === '已取消') return 'muted'
-	return order.tone || 'info'
-}
+const repairStatusMeta = createRepairStatusMeta(repairStatusFlow)
 
 const normalizeOrder = (item = {}) => {
 	const statusText = normalizeRepairStatus(item.statusText || item.statusName || item.status)
@@ -1895,8 +2022,11 @@ const normalizeOrder = (item = {}) => {
 	const productSerial = firstItem.sn || firstItem.serial || firstItem.productSerial || merged.sn || merged.serial || merged.productSerial || ''
 	const faultDesc = firstItem.fault_desc || firstItem.faultDesc || merged.fault_desc || merged.faultDesc || merged.fault || ''
 	const shipOutInfo = merged.ship_out_info || merged.shipOutInfo || {}
+	const shipBackInfo = merged.ship_back_info || merged.shipBackInfo || {}
 	const logisticsCompany = shipOutInfo.logistics_company || shipOutInfo.logisticsCompany || merged.logisticsCompany || ''
 	const trackingNo = shipOutInfo.logistics_no || shipOutInfo.logisticsNo || merged.trackingNo || merged.logisticsNo || merged.expressNo || ''
+	const returnLogisticsCompany = shipBackInfo.logistics_company || shipBackInfo.logisticsCompany || ''
+	const returnLogisticsNo = shipBackInfo.logistics_no || shipBackInfo.logisticsNo || shipBackInfo.return_no || shipBackInfo.returnNo || ''
 	const cardTitle = productName || productModel || (productSerial ? `SN ${productSerial}` : '') || '设备信息待同步'
 	const cardMeta = [
 		productModel && productModel !== cardTitle ? `型号 ${productModel}` : '',
@@ -1904,9 +2034,10 @@ const normalizeOrder = (item = {}) => {
 		trackingNo && `寄出 ${logisticsCompany ? `${logisticsCompany} ` : ''}${trackingNo}`
 	].filter(Boolean)
 	const quoteItems = normalizeQuoteItems({ ...merged, status: statusText, statusGroup: meta.statusGroup })
+	const quoteDetail = normalizeQuoteDetail(merged)
 	const partsFee = Number(merged.partsFee ?? merged.parts_fee ?? merged.materialFee ?? merged.material_fee ?? merged.quote?.partsFee ?? merged.quote?.parts_fee ?? sumQuoteFee(quoteItems, 'partsFee')) || 0
 	const laborFee = Number(merged.laborFee ?? merged.labor_fee ?? merged.workFee ?? merged.work_fee ?? merged.quote?.laborFee ?? merged.quote?.labor_fee ?? sumQuoteFee(quoteItems, 'laborFee')) || 0
-	const totalFee = Number(merged.totalFee ?? merged.total_fee ?? merged.total_price ?? merged.amount ?? merged.price ?? merged.quote?.totalFee ?? merged.quote?.total_price ?? partsFee + laborFee) || 0
+	const totalFee = Number(merged.totalFee ?? merged.total_fee ?? merged.total_price ?? merged.amount ?? merged.price ?? merged.quote?.totalFee ?? merged.quote?.total_price ?? quoteDetail?.finalPrice ?? partsFee + laborFee) || 0
 	const paymentProofs = Array.isArray(merged.paymentProofs)
 		? merged.paymentProofs
 		: (Array.isArray(merged.payment_proofs) ? merged.payment_proofs : [])
@@ -1950,11 +2081,17 @@ const normalizeOrder = (item = {}) => {
 		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || (localPatch.authorizationStatus || ''),
 		authorizationTime: merged.authorizationTime || merged.authorization_time || localPatch.authorizationTime || '',
 		paymentStatus: merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending'),
+		quoteDetail,
 		quoteItems,
 		partsFee,
 		laborFee,
 		totalFee,
 		paymentProofs,
+		statusKey: item.status || merged.status || '',
+		quoteWarrantyMonths: Number(merged.quoteWarrantyMonths ?? merged.quote_warranty_months ?? 0) || 0,
+		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
+		returnLogisticsCompany,
+		returnLogisticsNo,
 		timeline: Array.isArray(merged.timeline) ? merged.timeline : []
 	}
 }
@@ -2140,7 +2277,6 @@ const orderTabs = computed(() => [
 	{ key: '已开票', label: '已开票', count: orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued').length }
 ])
 
-const invoiceTodoStatusKeys = ['available', 'processing', 'reviewing', 'approved', 'issuing']
 const invoiceTodoOrders = computed(() => orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))))
 const invoiceIssuedOrders = computed(() => orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued'))
 const invoiceTabs = computed(() => [
@@ -2238,16 +2374,32 @@ const filteredOrderList = computed(() => {
 	return orderList.value
 })
 
+const guideFileTypeByMime = {
+	'application/pdf': 'pdf',
+	'application/msword': 'doc',
+	'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+	'application/vnd.ms-excel': 'xls',
+	'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+	'application/vnd.ms-powerpoint': 'ppt',
+	'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx'
+}
+
 const getGuideFileExt = (doc = {}) => {
-	const source = String(doc.fileName || doc.fileUrl || '').split('?')[0]
-	const match = source.match(/\.([a-zA-Z0-9]+)$/)
-	return match ? match[1].toLowerCase() : ''
+	const mimeExt = guideFileTypeByMime[String(doc.fileType || '').split(';')[0].trim().toLowerCase()]
+	if (mimeExt) return mimeExt
+	const sources = [doc.fileName, doc.name, doc.fileUrl, doc.url]
+	for (const source of sources) {
+		const cleanSource = String(source || '').split('?')[0]
+		const match = cleanSource.match(/\.([a-zA-Z0-9]+)$/)
+		if (match) return match[1].toLowerCase()
+	}
+	return ''
 }
 
 const resolveGuideFileUrl = async (fileUrl = '') => {
 	const url = String(fileUrl || '').trim()
 	if (!url || /^https?:\/\//i.test(url) || url.startsWith('wxfile://')) return url
-	const res = await uniCloud.getTempFileURL({ fileList: [url] })
+	const res = await getCloudTempFileURL([url])
 	const item = res.fileList && res.fileList[0]
 	return (item && (item.tempFileURL || item.url)) || url
 }
@@ -2260,8 +2412,8 @@ const openGuideFile = async (doc = {}) => {
 
 	try {
 		uni.showLoading({ title: '打开中' })
+		const ext = getGuideFileExt(doc)
 		const url = await resolveGuideFileUrl(doc.fileUrl)
-		const ext = getGuideFileExt({ ...doc, fileUrl: url })
 		const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif']
 
 		if (imageExts.includes(ext)) {
@@ -2282,6 +2434,32 @@ const openGuideFile = async (doc = {}) => {
 		console.warn('open guide file failed:', error)
 		uni.hideLoading()
 		uni.showToast({ title: '文档打开失败，请稍后重试', icon: 'none' })
+	}
+}
+
+// 打开教程媒体：图片内联预览，视频用 previewMedia，文档走文件打开
+const openGuideMedia = async (item = {}) => {
+	if (!item || !item.url) return
+	try {
+		uni.showLoading({ title: '打开中' })
+		const url = await resolveGuideFileUrl(item.url)
+		uni.hideLoading()
+		if (item.type === 'image') {
+			uni.previewImage({ urls: [url], current: url })
+			return
+		}
+		if (item.type === 'video') {
+			if (uni.previewMedia) {
+				uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+			} else {
+				uni.navigateTo && uni.navigateTo({ url: `/pages/index/index?video=${encodeURIComponent(url)}`, fail: () => {} })
+			}
+			return
+		}
+		await openGuideFile({ fileUrl: item.url, fileName: item.name, fileType: item.fileType })
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: '媒体打开失败，请稍后重试', icon: 'none' })
 	}
 }
 
@@ -2333,9 +2511,38 @@ const detailTimeline = computed(() => {
 		}
 	]
 })
+
+// 标准化 9 节点维修进度（已提交→已完成），状态由工单状态+报价+付款推导
+const repairProgressNodes = computed(() => getRepairProgressNodes(detailOrder.value))
+
+const detailIsCompleted = computed(() => detailOrder.value.statusKey === 'completed' || detailOrder.value.status === '已完成')
+
+const detailQuoteVisible = computed(() => ['issued', 'confirmed', 'rejected'].includes(detailOrder.value.quoteStatus))
+
+const detailWarrantyText = computed(() => {
+	const m = Number(detailOrder.value.quoteWarrantyMonths || 0)
+	return m > 0 ? `本次维修质保 ${m} 个月` : '本次维修质保以全局质保政策为准'
+})
+
+const detailPaymentDeadlineText = computed(() => {
+	const ts = Number(detailOrder.value.paymentDeadline || 0)
+	if (!ts) return ''
+	const d = new Date(ts)
+	const pad = (n) => String(n).padStart(2, '0')
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+})
 const detailInvoiceOrder = computed(() => resolveOrderRecord(detailOrder.value))
 const activeInvoiceOrder = computed(() => orderList.value.find((item) => item.id === activeInvoiceOrderId.value) || {})
 const detailQuoteItems = computed(() => Array.isArray(detailOrder.value.quoteItems) ? detailOrder.value.quoteItems : [])
+const detailQuoteGroups = computed(() => {
+	const detail = detailOrder.value.quoteDetail
+	if (!detail) return []
+	return [
+		{ key: 'parts', title: '配件费用', items: detail.parts || [], total: detail.partsTotal },
+		{ key: 'services', title: '服务费用', items: detail.services || [], total: detail.servicesTotal },
+		{ key: 'others', title: '其他费用', items: detail.others || [], total: detail.othersTotal }
+	].filter((group) => Array.isArray(group.items) && group.items.length)
+})
 const detailPaymentProofs = computed(() => Array.isArray(detailOrder.value.paymentProofs) ? detailOrder.value.paymentProofs : [])
 
 logBoot('computed state ready')
@@ -2407,13 +2614,15 @@ const patchOrderRecord = (orderId, patch = {}) => {
 	trackOrders.value = applyPatch(trackOrders.value)
 }
 
-const getQuoteTotal = (order = {}) => Number(order.totalFee || 0) || sumQuoteFee(order.quoteItems || [], 'partsFee') + sumQuoteFee(order.quoteItems || [], 'laborFee')
+const getQuoteTotal = (order = {}) => Number(order.totalFee || order.quoteDetail?.finalPrice || 0) || sumQuoteFee(order.quoteItems || [], 'partsFee') + sumQuoteFee(order.quoteItems || [], 'laborFee')
 
 const getQuoteItemTotal = (item = {}) => (Number(item.partsFee) || 0) + (Number(item.laborFee) || 0)
 
+const getQuoteDetailRowTotal = (item = {}) => Number(item.amount || 0) || (Number(item.unitPrice || 0) * Number(item.quantity || 0))
+
 const getQuoteMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
-	if (!Array.isArray(order.quoteItems) || !order.quoteItems.length) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
+	if ((!Array.isArray(order.quoteItems) || !order.quoteItems.length) && !order.quoteDetail) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
 	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: '客户暂未同意该维修报价。' }
 	if (order.authorizationStatus === 'confirmed') return { label: '已确认', tone: 'ok', desc: '报价已确认，工程师可继续维修。' }
 	return { label: '待确认', tone: 'warn', desc: '请确认维修项目、配件、工时和总价后再授权维修。' }
@@ -2559,6 +2768,14 @@ const payRepairQuote = (order = {}) => {
 				uni.hideLoading()
 				loadingShown = false
 				uni.showToast({ title: '支付成功', icon: 'success' })
+				setTimeout(() => {
+					uni.showModal({
+						title: '支付成功',
+						content: '下一步预计：工程师将在 1 个工作日内开始维修，进度会在“维修进度”中实时更新。',
+						showCancel: false,
+						confirmText: '知道了'
+					})
+				}, 600)
 			} catch (error) {
 				console.warn('wechat pay failed:', error)
 				const message = error && (error.message || error.errMsg)
@@ -2575,6 +2792,58 @@ const payRepairQuote = (order = {}) => {
 			}
 		}
 	})
+}
+
+// 报价有疑问联系客服（避免客户直接拒绝报价）
+const contactSupportForQuote = () => {
+	uni.showActionSheet({
+		itemList: ['拨打售后客服', '拨打售后技术'],
+		success: ({ tapIndex }) => {
+			const phone = tapIndex === 1 ? '13929945417' : '13929924257'
+			callPhone(phone)
+		},
+		fail: () => {}
+	})
+}
+
+// 回寄物流：跳转包裹查询并自动带入回寄单号
+const trackReturnLogistics = (order = {}) => {
+	if (!order.returnLogisticsNo) return
+	packageQuery.value.trackingNo = order.returnLogisticsNo
+	openModule('package-query')
+	queryPackage()
+}
+
+// 完成后：去评价（复用投诉建议，预填关联工单）
+const evaluateOrder = (order = {}) => {
+	feedbackType.value = '建议'
+	feedbackOrderId.value = order.id || order.recordId || ''
+	openModule('feedback')
+}
+
+// 完成后：保养提醒
+const showMaintenanceTip = () => {
+	uni.showModal({
+		title: '保养提醒',
+		content: '建议每 6 个月对设备做一次保养维护：清洁、润滑并检查易损件，可有效延长设备寿命、降低故障率。如需上门或寄修保养，可直接发起报修。',
+		showCancel: false,
+		confirmText: '知道了'
+	})
+}
+
+// 完成后：再次报修（预填本次设备信息）
+const reRepair = (order = {}) => {
+	repairForm.value = defaultRepairForm()
+	const product = defaultRepairProduct()
+	product.name = order.productName || ''
+	product.model = order.productModel || ''
+	product.serial = order.productSerial || order.serial || ''
+	repairProducts.value = [product]
+	repairProductSeed = 1
+	repairMediaSeed = 1
+	repairStep.value = 1
+	openModule('repair')
+	if (product.serial) recognizeSn(0)
 }
 
 const uploadPaymentProof = async (order = {}) => {
@@ -2698,7 +2967,7 @@ const submitInvoiceApply = async () => {
 	invoiceSubmitting.value = true
 	try {
 		const invoiceResult = await applyInvoice({
-			orderId: order.id,
+			orderId: order.recordId || order.id,
 			invoiceType: invoiceForm.value.invoiceType,
 			titleType: invoiceForm.value.titleType,
 			title: invoiceForm.value.title.trim(),
@@ -2768,14 +3037,18 @@ const saveFeedbackRecords = () => {
 	writeStorage(feedbackRecordKey, feedbackRecords.value)
 }
 
-const getFeedbackMeta = (record = {}) => {
-	const metaMap = {
-		submitted: { label: '已提交', tone: 'info' },
-		processing: { label: '处理中', tone: 'warn' },
-		replied: { label: '已回复', tone: 'ok' },
-		closed: { label: '已完成', tone: 'ok' }
+// 拉取服务端反馈单，覆盖本地缓存，使后台处理状态与官方回复实时同步
+const syncFeedbackRecords = async () => {
+	try {
+		const res = await getComplaintList({ page: 1, pageSize: 10 })
+		const list = (res && res.list) || []
+		if (!Array.isArray(list)) return
+		feedbackRecords.value = list.map(normalizeFeedbackRecord)
+		saveFeedbackRecords()
+	} catch (error) {
+		// 网络/登录异常时保留本地缓存，不打断页面
+		console.warn('sync feedback records fallback:', error)
 	}
-	return metaMap[record.status] || metaMap.submitted
 }
 
 const getFeedbackRecordImages = () => feedbackImages.value
@@ -2842,6 +3115,14 @@ const openModule = (id, type) => {
 	if (id === 'invoices') {
 		activeInvoiceOrderId.value = ''
 		activeInvoiceTab.value = '待开票'
+	}
+
+	if (id === 'feedback') {
+		syncFeedbackRecords()
+	}
+
+	if (id === 'repair') {
+		repairStep.value = 1
 	}
 
 	if (id === 'orders' && type !== undefined) {
@@ -2960,21 +3241,6 @@ const removeRepairProduct = (index) => {
 	repairProducts.value.splice(index, 1)
 }
 
-const isCloudFileId = (url = '') => String(url || '').startsWith('cloud://')
-const normalizeUploadUrl = (res = {}, fallbackPath = '') => {
-	const url = res.url || res.fileUrl || res.path || res.fullUrl || ''
-	return isCloudFileId(url) ? fallbackPath : (url || fallbackPath)
-}
-const normalizeUploadFileId = (res = {}) => res.fileID || res.fileId || res.url || res.fileUrl || ''
-const getPreviewUrl = (item = {}) => {
-	const url = item.previewUrl || item.url || item.path || ''
-	return isCloudFileId(url) ? (item.path || '') : url
-}
-const getUploadedUrl = (item = {}) => item.fileID || item.fileId || item.cloudUrl || item.url || item.path || ''
-const isPickerCancel = (error = {}) => String(error.errMsg || error.message || error || '').toLowerCase().includes('cancel')
-const isAuthError = (error = {}) => /鉴权失败|Token|token/i.test(String(error.message || error.errMsg || ''))
-const hasLoginToken = () => Boolean(uni.getStorageSync('token'))
-
 const chooseFeedbackImages = async () => {
 	if (feedbackSubmitting.value) return
 	if (feedbackImageUploading.value) return
@@ -3003,23 +3269,33 @@ const chooseFeedbackImages = async () => {
 
 		uni.showLoading({ title: '上传中' })
 		loadingShown = true
-		const uploadedImages = []
-		let failedCount = 0
 
-		for (const path of paths) {
-			if (feedbackImages.value.length + uploadedImages.length >= maxFeedbackImages) break
+		// 压缩 + 并发上传（原先串行逐张上传，多图时明显更慢）
+		const targets = paths.slice(0, remaining)
+		const results = await Promise.all(targets.map(async (path) => {
 			try {
-				const uploadRes = await uploadFeedbackImage(path)
-				feedbackImageSeed += 1
-				uploadedImages.push({
-					id: `feedback-img-${feedbackImageSeed}`,
+				const compressed = await compressForUpload(path)
+				const uploadRes = await uploadFeedbackImage(compressed)
+				return {
 					path,
 					fileID: normalizeUploadFileId(uploadRes),
 					url: normalizeUploadUrl(uploadRes, path)
-				})
+				}
 			} catch (error) {
-				failedCount += 1
 				console.warn('upload feedback image failed:', error)
+				return null
+			}
+		}))
+
+		const uploadedImages = []
+		let failedCount = 0
+		for (const item of results) {
+			if (feedbackImages.value.length + uploadedImages.length >= maxFeedbackImages) break
+			if (item) {
+				feedbackImageSeed += 1
+				uploadedImages.push({ id: `feedback-img-${feedbackImageSeed}`, ...item })
+			} else {
+				failedCount += 1
 			}
 		}
 
@@ -3082,24 +3358,50 @@ const uploadRepairImage = async (index) => {
 
 		uni.showLoading({ title: '上传中' })
 		loadingShown = true
-		for (const path of paths) {
+
+		// 压缩 + 并发上传
+		const slots = Math.max(0, 3 - product.media.length)
+		const targets = paths.slice(0, slots)
+		const results = await Promise.all(targets.map(async (path) => {
+			try {
+				const compressed = await compressForUpload(path)
+				const uploadRes = await uploadImage(compressed)
+				return {
+					path,
+					fileID: normalizeUploadFileId(uploadRes),
+					url: normalizeUploadUrl(uploadRes, path)
+				}
+			} catch (error) {
+				console.warn('upload repair image failed:', error)
+				return null
+			}
+		}))
+
+		let failedCount = 0
+		for (const item of results) {
 			if (product.media.length >= 3) break
-			const uploadRes = await uploadImage(path)
-			repairMediaSeed += 1
-			product.media.push({
-				id: `img-${repairMediaSeed}`,
-				type: 'image',
-				path,
-				fileID: normalizeUploadFileId(uploadRes),
-				url: normalizeUploadUrl(uploadRes, path)
-			})
+			if (item) {
+				repairMediaSeed += 1
+				product.media.push({ id: `img-${repairMediaSeed}`, type: 'image', ...item })
+			} else {
+				failedCount += 1
+			}
 		}
+
 		uni.hideLoading()
 		loadingShown = false
-		uni.showToast({ title: '上传成功', icon: 'success' })
+		if (failedCount && failedCount === targets.length) {
+			uni.showToast({ title: '图片上传失败', icon: 'none' })
+		} else if (failedCount) {
+			uni.showToast({ title: '部分图片上传失败', icon: 'none' })
+		} else {
+			uni.showToast({ title: '上传成功', icon: 'success' })
+		}
 	} catch (error) {
+		if (isPickerCancel(error)) return
 		console.warn('upload image fallback:', error)
-		uni.showToast({ title: '图片上传失败', icon: 'none' })
+		const msg = String(error && (error.errMsg || error.message) || '')
+		uni.showToast({ title: msg.includes('privacy') ? '请先同意隐私授权后再上传' : '图片选择失败', icon: 'none' })
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
@@ -3139,8 +3441,10 @@ const uploadRepairVideo = async (index) => {
 		loadingShown = false
 		uni.showToast({ title: '上传成功', icon: 'success' })
 	} catch (error) {
+		if (isPickerCancel(error)) return
 		console.warn('upload video fallback:', error)
-		uni.showToast({ title: '视频上传失败', icon: 'none' })
+		const msg = String(error && (error.errMsg || error.message) || '')
+		uni.showToast({ title: msg.includes('privacy') ? '请先同意隐私授权后再上传' : '视频上传失败', icon: 'none' })
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
@@ -3211,6 +3515,102 @@ const buildRepairPayload = () => {
 			}
 		})
 	}
+}
+
+const repairStepLabels = ['设备信息', '故障描述', '图片/视频', '寄修信息']
+
+const validateRepairStep = (step) => {
+	const products = repairProducts.value
+	if (step === 1) {
+		for (let i = 0; i < products.length; i += 1) {
+			if (!String(products[i].serial || '').trim()) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请填写序列号`, icon: 'none' })
+				return false
+			}
+		}
+		return true
+	}
+	if (step === 2) {
+		for (let i = 0; i < products.length; i += 1) {
+			if (!String(products[i].faultDesc || '').trim()) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请填写故障描述`, icon: 'none' })
+				return false
+			}
+		}
+		return true
+	}
+	if (step === 3) {
+		for (let i = 0; i < products.length; i += 1) {
+			if (!Array.isArray(products[i].media) || !products[i].media.length) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请上传故障附件`, icon: 'none' })
+				return false
+			}
+		}
+		return true
+	}
+	return true
+}
+
+const nextRepairStep = () => {
+	if (!validateRepairStep(repairStep.value)) return
+	if (repairStep.value < 4) repairStep.value += 1
+}
+
+const prevRepairStep = () => {
+	if (repairStep.value > 1) repairStep.value -= 1
+}
+
+const goRepairStep = (step) => {
+	if (step === repairStep.value) return
+	if (step < repairStep.value) { repairStep.value = step; return }
+	for (let s = repairStep.value; s < step; s += 1) {
+		if (!validateRepairStep(s)) return
+	}
+	repairStep.value = step
+}
+
+const snWarrantyLabel = (info = {}) => {
+	const map = { in_warranty: '保修期内', extended: '延保中', expired: '已过保', unknown: '保修未知' }
+	return map[info.warrantyStatus] || '保修未知'
+}
+
+const recognizeSn = async (index) => {
+	const product = repairProducts.value[index]
+	if (!product) return
+	const sn = String(product.serial || '').trim()
+	if (!sn) { product.snInfo = null; return }
+	if (!hasLoginToken()) return
+	if (product.snLoading) return
+	if (product.snInfo && product.snInfo.sn === sn) return
+	product.snLoading = true
+	try {
+		const info = await lookupDeviceBySn(sn)
+		product.snInfo = info || { found: false, sn }
+		if (info && info.found) {
+			if (info.model && !String(product.model || '').trim()) product.model = info.model
+			if (info.productName && !String(product.name || '').trim()) product.name = info.productName
+			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
+		}
+	} catch (error) {
+		console.warn('lookup sn failed:', error)
+		product.snInfo = null
+	} finally {
+		product.snLoading = false
+	}
+}
+
+const scanSn = (index) => {
+	uni.scanCode({
+		success: (res) => {
+			const code = String(res.result || '').trim()
+			if (!code) return
+			const product = repairProducts.value[index]
+			if (!product) return
+			product.serial = code
+			recognizeSn(index)
+		},
+		fail: () => {}
+	})
 }
 
 const validateRepairForm = () => {
@@ -3549,6 +3949,7 @@ const submitFeedback = async () => {
 			confirmText: '知道了'
 		})
 		resetFeedbackForm()
+		syncFeedbackRecords()
 	} catch (error) {
 		console.warn('submit feedback fallback:', error)
 		const record = addLocalFeedbackRecord('submitted')
@@ -3564,14 +3965,16 @@ const submitFeedback = async () => {
 	}
 }
 
-const onGetPhoneNumberLogin = async (event) => {
-	if (event.detail.errMsg !== 'getPhoneNumber:ok') {
-		if (event.detail.errMsg && event.detail.errMsg.includes('cancel')) return
+const onGetPhoneNumberLogin = async (event = {}) => {
+	const detail = event.detail || {}
+
+	if (detail.errMsg !== 'getPhoneNumber:ok') {
+		if (detail.errMsg && detail.errMsg.includes('cancel')) return
 		uni.showToast({ title: '授权失败，请重试', icon: 'none' })
 		return
 	}
 
-	if (!event.detail.code) {
+	if (!detail.code) {
 		uni.showToast({ title: '获取手机号授权失败', icon: 'none' })
 		return
 	}
@@ -3581,7 +3984,7 @@ const onGetPhoneNumberLogin = async (event) => {
 		if (!loginRes.code) {
 			throw new Error('获取微信登录凭证失败')
 		}
-		const res = await wechatLogin({ code: loginRes.code, phoneCode: event.detail.code })
+		const res = await wechatLogin({ code: loginRes.code, phoneCode: detail.code })
 		if (applyLoginSession(res)) {
 			uni.showToast({ title: '登录成功', icon: 'success' })
 		}
@@ -3734,6 +4137,15 @@ const loadRemoteContent = async () => {
 		getFeePolicy()
 			.then((doc) => updateDoc('fees', doc))
 			.catch((error) => console.warn('fee fallback:', error)),
+		getWarrantyExtra()
+			.then((data = {}) => {
+				warrantyGroups.value = Array.isArray(data.groups) ? data.groups : []
+				extendedWarranty.value = data.extended || { desc: '', fee: '', rules: '' }
+			})
+			.catch((error) => console.warn('warranty extra fallback:', error)),
+		getFeeTiers()
+			.then((list) => { feeTiers.value = Array.isArray(list) ? list : [] })
+			.catch((error) => console.warn('fee tiers fallback:', error)),
 		getGuide('quick')
 			.then((doc) => updateDoc('guide-quick', doc))
 			.catch((error) => console.warn('quick guide fallback:', error)),
@@ -3791,6 +4203,7 @@ const loadRemoteContent = async () => {
 	]
 
 	await Promise.allSettled(tasks)
+	maybeShowHomeGuidePopup()
 }
 
 onMounted(() => {
@@ -7206,6 +7619,109 @@ onMounted(() => {
 	pointer-events: none;
 }
 
+.bottom-prev {
+	width: 180rpx;
+	height: 96rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 16rpx;
+	background: #EEF3FB;
+	color: #0A4FB8;
+	font-size: 28rpx;
+	font-weight: 600;
+}
+
+/* 报修分步进度 */
+.repair-steps {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 24rpx 12rpx 8rpx;
+	margin-bottom: 8rpx;
+}
+
+.repair-step-item {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+	position: relative;
+}
+
+.repair-step-item::after {
+	content: '';
+	position: absolute;
+	top: 24rpx;
+	left: 60%;
+	width: 80%;
+	height: 4rpx;
+	background: #E0E7F2;
+}
+
+.repair-step-item:last-child::after { display: none; }
+
+.repair-step-num {
+	width: 48rpx;
+	height: 48rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #E0E7F2;
+	color: #8597B2;
+	font-size: 24rpx;
+	font-weight: 700;
+	position: relative;
+	z-index: 1;
+}
+
+.repair-step-text {
+	font-size: 22rpx;
+	color: #8597B2;
+}
+
+.repair-step-item.on .repair-step-num { background: linear-gradient(180deg, #2A6CD3 0%, #0A4FB8 100%); color: #FFFFFF; }
+.repair-step-item.on .repair-step-text { color: #0A4FB8; font-weight: 600; }
+.repair-step-item.done .repair-step-num { background: #10B981; color: #FFFFFF; }
+.repair-step-item.done .repair-step-text { color: #10B981; }
+.repair-step-item.done::after { background: #10B981; }
+
+/* SN 识别结果 */
+.sn-result {
+	margin: -4rpx 0 12rpx;
+	padding: 16rpx 20rpx;
+	border-radius: 14rpx;
+	background: #F1F6FF;
+	border: 2rpx solid #DCE8FB;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+}
+
+.sn-result.muted { background: #F7F8FA; border-color: #ECEEF2; }
+.sn-result.loading { background: #F7F8FA; border-color: #ECEEF2; color: #8597B2; }
+.sn-result-row { display: flex; align-items: center; justify-content: space-between; }
+.sn-result-label { font-size: 24rpx; color: #0A4FB8; font-weight: 600; }
+.sn-result-line { font-size: 24rpx; color: #324563; }
+
+.sn-tag { font-size: 22rpx; padding: 4rpx 14rpx; border-radius: 999rpx; }
+.sn-tag-in_warranty { background: #E3F8EE; color: #0F9D58; }
+.sn-tag-extended { background: #E8F0FE; color: #1E6FE0; }
+.sn-tag-expired { background: #FDECEC; color: #E0524D; }
+.sn-tag-unknown { background: #EEF1F5; color: #8597B2; }
+
+.repair-field.column { flex-direction: column; align-items: stretch; gap: 12rpx; }
+.repair-field.column textarea {
+	width: 100%;
+	min-height: 160rpx;
+	box-sizing: border-box;
+	font-size: 28rpx;
+	color: #1d2129;
+	line-height: 1.6;
+}
+
 .tool-sheet-mask {
 	position: fixed;
 	inset: 0;
@@ -8477,6 +8993,38 @@ onMounted(() => {
 	gap: 16rpx;
 }
 
+.quote-group-list {
+	gap: 22rpx;
+}
+
+.quote-group {
+	padding: 18rpx 20rpx;
+	border-radius: 20rpx;
+	background: #F8FBFF;
+	border: 2rpx solid #EAF1FB;
+	box-sizing: border-box;
+}
+
+.quote-group-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16rpx;
+	padding-bottom: 8rpx;
+}
+
+.quote-group-head text:first-child {
+	font-size: 25rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.quote-group-head text:last-child {
+	font-size: 25rpx;
+	font-weight: 900;
+	color: #2B5EA8;
+}
+
 .quote-line-item {
 	padding: 22rpx 0;
 	display: flex;
@@ -8620,6 +9168,207 @@ onMounted(() => {
 	color: #6B7C97;
 	text-align: center;
 }
+
+.quote-contact-action {
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #C97A1B;
+	background: #FFF7E8;
+	border: 2rpx solid #F6E0B5;
+}
+
+/* 报价账单说明 */
+.quote-bill-info {
+	margin-top: 20rpx;
+	padding: 18rpx 20rpx;
+	border-radius: 14rpx;
+	background: #F7FAFF;
+	display: flex;
+	flex-direction: column;
+	gap: 12rpx;
+}
+
+.quote-bill-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 12rpx;
+	font-size: 24rpx;
+	color: #4A5A73;
+	line-height: 1.6;
+}
+
+.quote-bill-dot {
+	width: 12rpx;
+	height: 12rpx;
+	border-radius: 50%;
+	margin-top: 10rpx;
+	flex-shrink: 0;
+}
+
+.quote-bill-dot.warranty { background: #10B981; }
+.quote-bill-dot.deadline { background: #E6A23C; }
+.quote-bill-dot.policy { background: #1E6FE0; }
+
+/* 9 节点进度时间线 */
+.progress-node-card {
+	background: #FFFFFF;
+	border-radius: 20rpx;
+	padding: 28rpx 28rpx 8rpx;
+	box-shadow: 0 8rpx 28rpx -22rpx rgba(10, 79, 184, 0.5);
+}
+
+.progress-node-row {
+	display: flex;
+	gap: 18rpx;
+	min-height: 72rpx;
+}
+
+.progress-node-pin {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.progress-node-dot {
+	width: 22rpx;
+	height: 22rpx;
+	border-radius: 50%;
+	background: #D5DCE8;
+	margin-top: 4rpx;
+	flex-shrink: 0;
+}
+
+.progress-node-line {
+	flex: 1;
+	width: 4rpx;
+	background: #E3E8F1;
+	margin: 4rpx 0;
+}
+
+.progress-node-copy {
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	padding-bottom: 20rpx;
+}
+
+.progress-node-label {
+	font-size: 26rpx;
+	color: #9AA6B8;
+}
+
+.progress-node-now {
+	font-size: 20rpx;
+	color: #1E6FE0;
+	background: #E8F1FE;
+	padding: 2rpx 14rpx;
+	border-radius: 999rpx;
+}
+
+.progress-node-row.done .progress-node-dot { background: #10B981; }
+.progress-node-row.done .progress-node-line { background: #10B981; }
+.progress-node-row.done .progress-node-label { color: #324563; }
+.progress-node-row.current .progress-node-dot { background: #1E6FE0; box-shadow: 0 0 0 6rpx rgba(30, 111, 224, 0.16); }
+.progress-node-row.current .progress-node-label { color: #0A4FB8; font-weight: 700; }
+
+/* 回寄物流 */
+.return-logistics-card {
+	background: #FFFFFF;
+	border-radius: 20rpx;
+	padding: 24rpx;
+	box-shadow: 0 8rpx 28rpx -22rpx rgba(10, 79, 184, 0.5);
+}
+
+.return-logistics-info > view {
+	display: flex;
+	justify-content: space-between;
+	font-size: 26rpx;
+	padding: 8rpx 0;
+}
+
+.return-logistics-info > view > text:first-child { color: #8597B2; }
+.return-logistics-info > view > text:last-child { color: #1d2129; }
+.return-logistics-no { font-weight: 700; }
+
+.return-logistics-actions {
+	display: flex;
+	gap: 16rpx;
+	margin-top: 16rpx;
+}
+
+.return-logistics-btn {
+	flex: 1;
+	height: 76rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 14rpx;
+	font-size: 26rpx;
+	font-weight: 600;
+	color: #1E6FE0;
+	background: #F1F6FF;
+	border: 2rpx solid #DCE8FB;
+}
+
+.return-logistics-btn.primary {
+	color: #FFFFFF;
+	background: linear-gradient(180deg, #2A6CD3 0%, #0A4FB8 100%);
+	border: none;
+}
+
+/* 完成引导 */
+.complete-guide-card {
+	margin-top: 24rpx;
+	background: linear-gradient(180deg, #F0F7FF 0%, #FFFFFF 100%);
+	border-radius: 20rpx;
+	padding: 28rpx 24rpx;
+	border: 2rpx solid #E2EDFB;
+}
+
+.complete-guide-title {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	font-size: 30rpx;
+	font-weight: 700;
+	color: #1d2129;
+}
+
+.complete-guide-emoji { font-size: 34rpx; }
+
+.complete-guide-tip {
+	display: block;
+	margin: 12rpx 0 20rpx;
+	font-size: 24rpx;
+	color: #6B7C97;
+	line-height: 1.6;
+}
+
+.complete-guide-actions {
+	display: flex;
+	gap: 16rpx;
+}
+
+.complete-guide-btn {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+	padding: 20rpx 0;
+	border-radius: 16rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #E2EDFB;
+	font-size: 24rpx;
+	color: #324563;
+}
+
+.complete-guide-ico { font-size: 34rpx; color: #1E6FE0; }
 
 .payment-proof-grid {
 	margin-top: 24rpx;
@@ -10319,4 +11068,34 @@ onMounted(() => {
 	background: currentColor;
 	box-shadow: 8rpx 0 0 currentColor;
 }
+
+/* 按机型保修 / 延保 / 收费阶梯 */
+.warranty-group { margin-bottom: 16rpx; }
+.warranty-group-title { font-size: 27rpx; font-weight: 600; color: #1E6FE0; margin: 12rpx 0 8rpx; }
+.warranty-rule-row { padding: 16rpx 0; border-bottom: 1px solid #f0f2f5; }
+.warranty-rule-row:last-child { border-bottom: none; }
+.warranty-rule-head { display: flex; justify-content: space-between; align-items: center; }
+.warranty-rule-model { font-size: 27rpx; color: #1d2129; font-weight: 500; }
+.warranty-rule-period { font-size: 25rpx; color: #C97A6B; font-weight: 600; }
+.warranty-rule-terms { display: block; margin-top: 6rpx; font-size: 24rpx; line-height: 1.6; color: #86909c; }
+.warranty-extended .ext-block { margin-bottom: 14rpx; }
+.warranty-extended .ext-block:last-child { margin-bottom: 0; }
+.ext-label { display: block; font-size: 25rpx; font-weight: 600; color: #1d2129; margin-bottom: 4rpx; }
+.ext-text { font-size: 25rpx; line-height: 1.7; color: #4e5969; white-space: pre-wrap; }
+.fee-tier-card { background: #fff; border-radius: 16rpx; padding: 8rpx 24rpx; margin-bottom: 20rpx; }
+.fee-tier-head { display: flex; justify-content: space-between; padding: 16rpx 0; font-size: 24rpx; color: #86909c; border-bottom: 1px solid #f0f2f5; }
+.fee-tier-row { display: flex; justify-content: space-between; align-items: center; padding: 18rpx 0; border-bottom: 1px solid #f7f8fa; }
+.fee-tier-row:last-child { border-bottom: none; }
+.fee-tier-name { display: flex; flex-direction: column; }
+.fee-tier-name > text:first-child { font-size: 27rpx; color: #1d2129; }
+.fee-tier-note { font-size: 22rpx; color: #86909c; margin-top: 4rpx; }
+.fee-tier-price { font-size: 29rpx; font-weight: 700; color: #D97706; }
+.fee-tier-unit { font-size: 22rpx; font-weight: 400; color: #86909c; }
+/* 教程媒体列表 */
+.guide-media-list { background: #fff; border-radius: 16rpx; padding: 8rpx 24rpx; margin-bottom: 20rpx; }
+.guide-media-item { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 0; border-bottom: 1px solid #f7f8fa; }
+.guide-media-item:last-child { border-bottom: none; }
+.guide-media-type { font-size: 24rpx; color: #1E6FE0; flex-shrink: 0; }
+.guide-media-name { flex: 1; font-size: 26rpx; color: #1d2129; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.guide-media-open { font-size: 24rpx; color: #86909c; flex-shrink: 0; }
 </style>

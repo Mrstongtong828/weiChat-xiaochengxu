@@ -1,6 +1,21 @@
 const path = require('path')
 const fs = require('fs')
 
+function loadLocalUniCloudSpaces() {
+	if (process.env.UNI_CLOUD_PROVIDER || process.env.UNI_CLOUD_SPACES) {
+		return
+	}
+
+	const localSpacesPath = path.resolve(__dirname, 'unicloud.spaces.local.json')
+	if (!fs.existsSync(localSpacesPath)) {
+		return
+	}
+
+	const rawSpaces = JSON.parse(fs.readFileSync(localSpacesPath, 'utf8').replace(/^\uFEFF/, ''))
+	const spaces = Array.isArray(rawSpaces) ? rawSpaces : [rawSpaces]
+	process.env.UNI_CLOUD_SPACES = JSON.stringify(spaces)
+}
+
 function resolveUniPlugin() {
 	const hBuilderPluginsRoot =
 		process.env.UNI_HBUILDERX_PLUGINS ||
@@ -23,6 +38,7 @@ function resolveUniPlugin() {
 	return require('@dcloudio/vite-plugin-uni').default
 }
 
+loadLocalUniCloudSpaces()
 const uni = resolveUniPlugin()
 
 const assetCopies = [

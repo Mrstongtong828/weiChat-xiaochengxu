@@ -1,0 +1,19 @@
+{
+  "bsonType": "object",
+  "required": ["part_code", "part_name", "sale_price", "stock", "enabled", "create_time"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "part_code": { "bsonType": "string", "description": "配件编码，建议唯一" },
+    "part_name": { "bsonType": "string", "description": "配件名称" },
+    "model": { "bsonType": "string", "description": "配件型号" },
+    "compatible_models": { "bsonType": "array", "description": "适配整机型号" },
+    "purchase_cost": { "bsonType": "double", "description": "采购成本" },
+    "sale_price": { "bsonType": "double", "description": "销售单价" },
+    "stock": { "bsonType": "double", "description": "当前库存" },
+    "warning_threshold": { "bsonType": "double", "description": "库存预警阈值" },
+    "enabled": { "bsonType": "bool", "description": "是否启用" },
+    "remark": { "bsonType": "string", "description": "备注" },
+    "create_time": { "bsonType": "timestamp" },
+    "update_time": { "bsonType": "timestamp" }
+  }
+}

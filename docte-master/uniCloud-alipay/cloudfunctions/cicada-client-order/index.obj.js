@@ -1,6 +1,14 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
-const { assertOrderStatusTransition } = require('../common/cicada-order-workflow')
+const { assertOrderStatusTransition } = loadWorkflowModule()
+
+function loadWorkflowModule() {
+  try {
+    return require('cicada-order-workflow')
+  } catch (packageError) {
+    return require('../common/cicada-order-workflow')
+  }
+}
 
 const CREATE_ORDER_LIMIT = { windowMs: 60 * 1000, max: 8 }
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
@@ -250,11 +258,27 @@ function normalizeQuoteItems(items = []) {
   })).filter(item => item.name || item.desc || item.partsFee > 0 || item.laborFee > 0)
 }
 
+function normalizeQuoteDetail(detail = null) {
+  if (!detail || typeof detail !== 'object') return null
+  return {
+    parts: Array.isArray(detail.parts) ? detail.parts : [],
+    services: Array.isArray(detail.services) ? detail.services : [],
+    others: Array.isArray(detail.others) ? detail.others : [],
+    partsTotal: Number(detail.parts_total ?? detail.partsTotal ?? 0) || 0,
+    servicesTotal: Number(detail.services_total ?? detail.servicesTotal ?? 0) || 0,
+    othersTotal: Number(detail.others_total ?? detail.othersTotal ?? 0) || 0,
+    autoTotal: Number(detail.auto_total ?? detail.autoTotal ?? 0) || 0,
+    finalPrice: Number(detail.final_price ?? detail.finalPrice ?? 0) || 0,
+    remark: detail.remark || ''
+  }
+}
+
 function exposeQuoteFields(order = {}) {
   const quoteStatus = order.quote_status || order.quoteStatus || 'pending'
   const visible = ['issued', 'confirmed', 'rejected'].includes(quoteStatus)
   if (!visible) {
     return {
+      quoteDetail: null,
       quoteItems: [],
       quoteStatus: 'pending',
       partsFee: 0,
@@ -263,17 +287,24 @@ function exposeQuoteFields(order = {}) {
       totalPrice: 0,
       paymentProofs: [],
       paymentStatus: 'pending',
+      paymentDeadline: 0,
+      payment_deadline: 0,
+      quoteWarrantyMonths: 0,
+      quote_warranty_months: 0,
       authorizationStatus: '',
       authorizationTime: ''
     }
   }
 
   const quoteItems = normalizeQuoteItems(order.quote_items || order.quoteItems)
+  const quoteDetail = normalizeQuoteDetail(order.quote_detail || order.quoteDetail)
   const partsFee = Number(order.parts_fee ?? order.partsFee ?? quoteItems.reduce((sum, item) => sum + item.partsFee, 0)) || 0
   const laborFee = Number(order.labor_fee ?? order.laborFee ?? quoteItems.reduce((sum, item) => sum + item.laborFee, 0)) || 0
   const totalFee = Number(order.total_price ?? order.totalPrice ?? partsFee + laborFee) || 0
 
   return {
+    quoteDetail,
+    quote_detail: quoteDetail,
     quoteItems,
     quote_items: quoteItems,
     quoteStatus,
@@ -288,6 +319,10 @@ function exposeQuoteFields(order = {}) {
     totalPrice: totalFee,
     paymentStatus: order.payment_status || order.paymentStatus || 'pending',
     payment_status: order.payment_status || order.paymentStatus || 'pending',
+    paymentDeadline: Number(order.payment_deadline ?? order.paymentDeadline ?? 0) || 0,
+    payment_deadline: Number(order.payment_deadline ?? order.paymentDeadline ?? 0) || 0,
+    quoteWarrantyMonths: Number(order.quote_warranty_months ?? order.quoteWarrantyMonths ?? 0) || 0,
+    quote_warranty_months: Number(order.quote_warranty_months ?? order.quoteWarrantyMonths ?? 0) || 0,
     paymentProofs: Array.isArray(order.payment_proofs) ? order.payment_proofs : (order.paymentProofs || []),
     payment_proofs: Array.isArray(order.payment_proofs) ? order.payment_proofs : (order.paymentProofs || []),
     authorizationStatus: order.authorization_status || order.authorizationStatus || '',
@@ -820,12 +855,8 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
-      const orderRes = await db.collection('cicada_orders')
-        .where({ _id: order_id, user_id: user._id })
-        .limit(1)
-        .get()
-      if (!orderRes.data.length) return { code: -1, msg: '工单不存在或无权限' }
-      const order = orderRes.data[0]
+      const order = await findOwnedOrder(user._id, order_id)
+      if (!order) return { code: -1, msg: '工单不存在或无权限' }
       const itemKeys = [order._id, order.order_no].filter(Boolean)
       const itemsRes = itemKeys.length
         ? await db.collection('cicada_order_items')
@@ -833,6 +864,78 @@ module.exports = {
           .get()
         : { data: [] }
       return { code: 0, data: { ...order, ...exposeQuoteFields(order), items: itemsRes.data } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 按 SN 识别设备：带出型号 / 是否在保 / 历史维修记录（用于报修表单自动填充）
+  async lookupDeviceBySn({ token, sn }) {
+    try {
+      const user = await verifyUserToken(token)
+      const serial = normalizeText(sn)
+      if (!serial) return { code: -1, msg: '请输入设备序列号' }
+
+      // SN 全局唯一：优先取当前用户名下设备，其次取任意匹配设备（仅返回型号/质保等非敏感信息）
+      const ownRes = await db.collection('cicada_user_devices')
+        .where({ sn: serial, user_id: user._id }).limit(1).get()
+      let device = ownRes.data && ownRes.data[0]
+      if (!device) {
+        const anyRes = await db.collection('cicada_user_devices')
+          .where({ sn: serial }).limit(1).get()
+        device = anyRes.data && anyRes.data[0]
+      }
+
+      // 历史维修记录：当前用户名下、含该 SN 的工单
+      const itemRes = await db.collection('cicada_order_items')
+        .where({ sn: serial }).field({ order_id: true, fault_desc: true }).limit(50).get()
+      const orderIds = [...new Set((itemRes.data || []).map(i => i.order_id).filter(Boolean))]
+      let history = []
+      if (orderIds.length) {
+        const ordersRes = await db.collection('cicada_orders')
+          .where({ _id: db.command.in(orderIds), user_id: user._id })
+          .field({ order_no: true, status: true, create_time: true })
+          .orderBy('create_time', 'desc').limit(10).get()
+        history = (ordersRes.data || []).map(o => ({
+          orderNo: o.order_no,
+          status: o.status,
+          createTime: o.create_time
+        }))
+      }
+
+      if (!device && !history.length) {
+        return { code: 0, data: { found: false, sn: serial, history: [] } }
+      }
+
+      let warrantyStatus = 'unknown'
+      let inWarranty = false
+      const expireRaw = device && (device.warranty_expire || '')
+      if (expireRaw) {
+        const expireTs = new Date(`${expireRaw}T23:59:59`).getTime()
+        if (!Number.isNaN(expireTs)) {
+          inWarranty = Date.now() <= expireTs
+          warrantyStatus = inWarranty
+            ? (Array.isArray(device.ext_warranty) && device.ext_warranty.length ? 'extended' : 'in_warranty')
+            : 'expired'
+        }
+      }
+
+      return {
+        code: 0,
+        data: {
+          found: Boolean(device),
+          sn: serial,
+          productName: device ? (device.product_name || '') : '',
+          productCategory: device ? (device.product_category || '') : '',
+          model: device ? (device.model || '') : '',
+          buyDate: device ? (device.buy_date || '') : '',
+          warrantyExpire: expireRaw || '',
+          warrantyStatus,
+          inWarranty,
+          maintenanceCycle: device ? (device.maintenance_cycle || '') : '',
+          history
+        }
+      }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -1196,10 +1299,8 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
-      const found = await db.collection('cicada_orders')
-        .where({ _id: order_id, user_id: user._id }).limit(1).get()
-      if (!found.data.length) return { code: -1, msg: '工单不存在或无权限' }
-      const order = found.data[0]
+      const order = await findOwnedOrder(user._id, order_id)
+      if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (!['pending', 'received'].includes(order.status)) {
         return { code: -1, msg: '当前状态不可取消' }
       }
@@ -1210,7 +1311,7 @@ module.exports = {
         timeline: db.command.push({ title: '已取消', desc: reason || '用户主动取消', time: now, done: true }),
         update_time: now
       }
-      await db.collection('cicada_orders').doc(order_id).update(updateData)
+      await db.collection('cicada_orders').doc(order._id).update(updateData)
       await logOrderEvent({
         order,
         action: 'cancel_order',

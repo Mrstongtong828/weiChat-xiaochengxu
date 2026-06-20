@@ -23,6 +23,7 @@ const ORDER_STATUS_TRANSITIONS = {
 }
 
 const ROLE_LABELS = {
+  superadmin: '超级管理员',
   admin: '管理员',
   engineer: '工程师',
   finance: '财务',
@@ -38,15 +39,20 @@ const PERMISSIONS = {
   get_workflow_config: ALL_ROLES,
   update_status: ['admin', 'engineer'],
   import_logistics: ['admin', 'engineer'],
-  issue_quote: ['admin', 'engineer'],
+  issue_quote: ['admin', 'support'],
   confirm_payment: ['admin', 'finance'],
   update_invoice: ['admin', 'finance'],
   view_payment_proof: ['admin', 'finance'],
+  manage_inventory: ['admin', 'engineer'],
+  view_settlement: ['admin', 'finance'],
   update_remarks: ['admin', 'engineer', 'support'],
   add_timeline: ['admin', 'engineer', 'support'],
   manage_staff: ['admin'],
   manage_settings: ['admin'],
-  manage_kb: ['admin', 'engineer']
+  manage_kb: ['admin', 'engineer'],
+  view_audit_log: ['admin', 'finance'],
+  view_feedback: ['admin', 'engineer', 'finance', 'support'],
+  handle_feedback: ['admin', 'support']
 }
 
 function normalizeRole(role = '') {
@@ -67,7 +73,7 @@ function getUserRole(user = {}) {
 
 function hasRolePermission(role = '', action = '') {
   const normalizedRole = normalizeRole(role)
-  if (normalizedRole === 'admin') return true
+  if (normalizedRole === 'superadmin' || normalizedRole === 'admin') return true
   const allowedRoles = PERMISSIONS[action] || []
   return allowedRoles.includes(normalizedRole)
 }

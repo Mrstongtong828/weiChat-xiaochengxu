@@ -1,30 +1,17 @@
+import { unwrapCloudResult, withToken } from './cloudHelpers.js'
+import { importCloudObject } from '@/utils/cloud.js'
+
 let userCloudObject = null
 let publicCloudObject = null
 
 const getUserCloudObject = () => {
-	if (!userCloudObject) userCloudObject = uniCloud.importObject('cicada-client-user')
+	if (!userCloudObject) userCloudObject = importCloudObject('cicada-client-user')
 	return userCloudObject
 }
 
 const getPublicCloudObject = () => {
-	if (!publicCloudObject) publicCloudObject = uniCloud.importObject('cicada-client-public')
+	if (!publicCloudObject) publicCloudObject = importCloudObject('cicada-client-public')
 	return publicCloudObject
-}
-
-const withToken = (params = {}) => ({
-	...params,
-	token: uni.getStorageSync('token') || ''
-})
-
-const unwrapCloudResult = (result = {}) => {
-	if (!result || typeof result !== 'object') return result
-	if (result.code === 0 || result.code === undefined) return result.data === undefined ? result : result.data
-	if ([401, 1004, 100401].includes(Number(result.code))) {
-		uni.removeStorageSync('token')
-		uni.removeStorageSync('userInfo')
-		uni.removeStorageSync('isLoggedIn')
-	}
-	throw new Error(result.message || result.msg || '请求失败')
 }
 
 const normalizePageParams = ({ page = 1, pageSize, size } = {}) => ({
