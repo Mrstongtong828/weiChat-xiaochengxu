@@ -14,3 +14,5 @@ preview-qr.jpg
 docte-master-*.zip
 # codegraph 本地索引
 .codegraph/
+# Claude Code 本地配置与技能
+.claude/

@@ -234,8 +234,45 @@ async function enrichAdminOrderForList(order = {}, currentAdmin = {}) {
   }, currentAdmin)
 }
 
+// 批量解析工单关联的 CRM 客户（优先 customer_id，回退 user_id），附加客户摘要供列表展示
+async function attachCustomerSummaries(orders = []) {
+  if (!Array.isArray(orders) || !orders.length) return
+  const customerIds = [...new Set(orders.map(o => normalizeText(o.customer_id)).filter(Boolean))]
+  const userIds = [...new Set(orders.filter(o => !normalizeText(o.customer_id)).map(o => normalizeText(o.user_id)).filter(Boolean))]
+  const byId = {}
+  const byUser = {}
+  try {
+    if (customerIds.length) {
+      const res = await db.collection('cicada_customers').where({ _id: dbCmd.in(customerIds) }).get()
+      ;(res.data || []).forEach(c => { byId[c._id] = c })
+    }
+    if (userIds.length) {
+      const res = await db.collection('cicada_customers').where({ user_id: dbCmd.in(userIds) }).get()
+      ;(res.data || []).forEach(c => { if (c.user_id) byUser[c.user_id] = c })
+    }
+  } catch (e) {
+    // 客户解析失败不阻断工单列表
+  }
+  orders.forEach(o => {
+    const c = byId[normalizeText(o.customer_id)] || byUser[normalizeText(o.user_id)] || null
+    if (!c) return
+    o.customer = {
+      id: c._id,
+      name: c.name || '',
+      phone: c.phone || '',
+      customer_type: c.customer_type || '',
+      tags: Array.isArray(c.tags) ? c.tags : []
+    }
+    o.customer_name = c.name || ''
+    o.customer_phone = c.phone || ''
+    o.customer_type = c.customer_type || ''
+  })
+}
+
 async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
-  return Promise.all(rawOrders.map(order => enrichAdminOrderForList(order, currentAdmin)))
+  const enriched = await Promise.all(rawOrders.map(order => enrichAdminOrderForList(order, currentAdmin)))
+  await attachCustomerSummaries(enriched)
+  return enriched
 }
 
 async function countOrdersByMatch(matchCond, todoType = '') {
@@ -254,7 +291,8 @@ const SUBSCRIPTION_SCENE_LABELS = {
   quote_issued: '维修报价已发布',
   payment_confirmed: '付款已确认',
   order_shipped: '设备已回寄',
-  order_completed: '工单已完成'
+  order_completed: '工单已完成',
+  review_invite: '邀请服务评价'
 }
 const SUBSCRIPTION_CONFIG_SCENES = [
   { scene: 'repair_submitted', title: '报修提交提醒' },
@@ -262,7 +300,8 @@ const SUBSCRIPTION_CONFIG_SCENES = [
   { scene: 'quote_issued', title: '维修报价提醒' },
   { scene: 'payment_confirmed', title: '付款到账提醒' },
   { scene: 'order_shipped', title: '回寄发货提醒' },
-  { scene: 'order_completed', title: '工单完成提醒' }
+  { scene: 'order_completed', title: '工单完成提醒' },
+  { scene: 'review_invite', title: '服务评价邀请' }
 ]
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
 
@@ -1614,6 +1653,10 @@ module.exports = {
       }
       if (sceneMap[status] && order.status !== status) {
         await sendOrderSubscription({ ...order, status }, sceneMap[status])
+        // 工单完成后追加服务评价邀请（模板未配置时自动跳过）
+        if (status === 'completed') {
+          await sendOrderSubscription({ ...order, status }, 'review_invite', '邀请您对本次维修评价')
+        }
       }
       return { code: 0 }
     } catch (e) {

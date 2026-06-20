@@ -21,6 +21,18 @@
 - 微信支付 JSAPI 预支付、主动查单同步和订阅消息提醒
 - uniCloud 数据库 schema、初始化数据、索引说明和维护脚本
 
+## 订单状态机与数据闭环
+
+工单是整个系统的主线，投诉、发票、设备、物流、付款、回访都挂在**同一张工单**下，不做成独立模块。
+
+- **主状态机**（后端唯一真相，见 `uniCloud-alipay/cloudfunctions/common/cicada-order-workflow`）：
+  `已提交 → 运输中 → 已签收 → 检测中 → 维修中 → 已回寄 → 已完成`（另有已取消）。
+- **子状态**：报价 `quote_status`、付款 `payment_status` 不塞进主状态，前端按「主状态 + 子状态」统一派生显示标签（待确认报价 / 待付款 / 待核款等），小程序首页、我的、详情三处口径一致。
+- **后端为唯一来源**：支付/确认/收货后强制回拉工单详情，不在本地缓存里猜状态。
+- **闭环动作**：报价确认 / 拒绝维修 → 微信支付或对公转账上传凭证 → 客户确认收货 → 服务评价回访（不满意自动转投诉）。
+- **身份桥**：小程序用户下单时按手机号 / openid 自动匹配或建档 CRM 客户（`cicada_customers`），并把 `customer_id` 回写到工单与设备档案，使小程序与后台是“同一个客户”。
+- **设备档案沉淀**：报修提交 / 维修完成时按 SN 自动新增或更新设备档案（型号、保修状态、历史工单、最近工单），与后台 CRM 设备台账合流。
+
 ## 目录结构
 
 ```text
@@ -44,7 +56,7 @@ INDEX_TASK.md                数据库索引创建说明
 - npm
 - 微信开发者工具
 - HBuilderX 或 uni-app CLI
-- 已关联的 uniCloud 阿里云空间
+- 已关联的 uniCloud 云空间（本项目使用支付宝云，目录为 `uniCloud-alipay/`）
 
 ## 用户端小程序运行
 
@@ -113,9 +125,10 @@ npm run build
 - `cicada-client-user`：用户登录和资料
 - `cicada-client-order`：客户工单、支付和订阅消息
 - `cicada-client-public`：公共内容、政策、指南和知识库
-- `cicada-admin-order`：后台工单管理
+- `cicada-admin-order`：后台工单管理、配件库存、结算（也承载工单列表的客户摘要）
+- `cicada-admin-customer`：后台客户档案（CRM）、设备台账、历史工单、合规日志
 - `cicada-admin-kb`：后台故障知识库
-- `cicada-admin-sys`：后台系统、用户和配置
+- `cicada-admin-sys`：后台系统、用户、配置和投诉处理闭环
 - `cicada-maintenance`：维护和后台任务
 
 上线前需要在 uniCloud 控制台配置数据库索引，尤其是：
@@ -150,8 +163,9 @@ npm run build
 - `WX_SUBSCRIBE_TEMPLATE_PAYMENT_CONFIRMED`
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_SHIPPED`
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_COMPLETED`
+- `WX_SUBSCRIBE_TEMPLATE_REVIEW_INVITE`
 
-不要把真实密钥写入仓库；本地示例配置请参考 `.env.example` 和 `pc-admin/.env.example`。
+不要把真实密钥写入仓库；本地示例配置请参考 `.env.example` 和 `pc-admin/.env.example`。完整的上线配置逐条清单见 `docte-master/上线配置清单.md`。
 
 ## 接口约定
 
@@ -173,7 +187,8 @@ npm run build
 
 ## 参考文档
 
-- `AGENTS.md`
+- `CLAUDE.md`（仓库导览与架构说明，最权威）
+- `docte-master/上线配置清单.md`（微信支付 / 订阅模板 / 索引逐条配置清单）
 - `SCALING_GUIDE.md`
 - `后端对接任务清单.md`
 - `pc-admin/README.md`

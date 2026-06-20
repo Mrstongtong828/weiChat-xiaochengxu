@@ -25,14 +25,42 @@ const settingDoc = (title, content = '') => ({
 	content: String(content || '').replace(/\n/g, '<br/>')
 })
 
-const normalizeAddress = (data = {}) => ({
-	_id: data.addressId || data._id,
-	name: data.name || '',
-	phone: data.phone || '',
-	region: data.region || [data.province, data.city, data.district].filter(Boolean).join('/'),
-	detail: data.detail || '',
-	unit: data.unit || '',
-	is_default: data.isDefault === 1 || data.isDefault === true || data.is_default === true
+const normalizeAddress = (data = {}) => {
+	const region = Array.isArray(data.region)
+		? data.region.filter(Boolean).join('/')
+		: (data.region || [data.province, data.city, data.district].filter(Boolean).join('/'))
+	const contactPhones = (Array.isArray(data.contactPhones)
+		? data.contactPhones
+		: (Array.isArray(data.contact_phones) ? data.contact_phones : []))
+		.map((item) => String(item || '').replace(/\D/g, ''))
+		.filter(Boolean)
+	return {
+		_id: data.addressId || data._id,
+		name: data.name || data.receiver || '',
+		phone: data.phone || '',
+		region,
+		detail: data.detail || '',
+		unit: data.unit || '',
+		contact_phones: contactPhones,
+		is_default: data.isDefault === 1 || data.isDefault === true || data.is_default === true
+	}
+}
+
+// 后端地址 → 地址管理页（pages/address）使用的结构
+const denormalizeAddress = (item = {}) => ({
+	id: item._id || item.id || '',
+	receiver: item.name || '',
+	name: item.name || '',
+	phone: String(item.phone || '').replace(/\D/g, ''),
+	region: typeof item.region === 'string'
+		? item.region.split(/[\/\s]+/).filter(Boolean)
+		: (Array.isArray(item.region) ? item.region : []),
+	detail: item.detail || '',
+	unit: item.unit || '',
+	contactPhones: Array.isArray(item.contact_phones) ? item.contact_phones : [],
+	isDefault: item.is_default === true,
+	createdAt: item.create_time || Date.now(),
+	updatedAt: item.update_time || item.create_time || Date.now()
 })
 
 const normalizeCategory = (item = {}) => ({
@@ -70,15 +98,21 @@ export const wechatLogin = (data = {}) => {
 }
 
 export const devLogin = async () => {
+	// 仅开发环境允许本地假登录兜底；生产构建必须连云，云未连时抛错而非伪造登录态
+	const allowLocalFallback = process.env.NODE_ENV !== 'production'
 	try {
 		const cloudObject = getUserCloudObject()
 		if (!cloudObject || typeof cloudObject.devLogin !== 'function') {
-			return getLocalDevLoginSession()
+			if (allowLocalFallback) return getLocalDevLoginSession()
+			throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
 		}
 		return await cloudObject.devLogin({}).then(unwrapCloudResult)
 	} catch (error) {
-		console.warn('cloud devLogin unavailable, using local dev session:', error)
-		return getLocalDevLoginSession()
+		if (allowLocalFallback) {
+			console.warn('cloud devLogin unavailable, using local dev session:', error)
+			return getLocalDevLoginSession()
+		}
+		throw error
 	}
 }
 
@@ -253,7 +287,15 @@ export const applyInvoice = (data = {}) => getOrderCloudObject()
 	.applyInvoice(withToken(data))
 	.then(unwrapCloudResult)
 
-export const getInvoiceList = () => Promise.resolve({ list: [] })
+// 开票记录列表（cicada-client-order.getInvoiceList，从订单 invoice_info 派生）
+export const getInvoiceList = (params = {}) => getOrderCloudObject()
+	.getInvoiceList(withToken({ page: params.page || 1, pageSize: params.pageSize || params.size || 10 }))
+	.then(unwrapCloudResult)
+
+// 常见问题/故障库 + 指南 关键词搜索（首页搜索框）
+export const searchContent = (keyword = '') => getPublicCloudObject()
+	.searchContent({ keyword: String(keyword || '').trim() })
+	.then(unwrapCloudResult)
 
 export const getProductList = async (params = {}) => {
 	const list = await getUserCloudObject().manageDevice(withToken({ action: 'list' })).then(unwrapCloudResult)
@@ -270,6 +312,13 @@ export const getProductList = async (params = {}) => {
 		page: params.page || 1,
 		pageSize: params.pageSize || params.size || 10
 	}
+}
+
+export const getAddressList = async () => {
+	const list = await getUserCloudObject()
+		.manageAddress(withToken({ action: 'list' }))
+		.then(unwrapCloudResult)
+	return Array.isArray(list) ? list.map(denormalizeAddress) : []
 }
 
 export const addAddress = (data) => getUserCloudObject()

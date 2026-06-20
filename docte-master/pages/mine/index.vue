@@ -99,7 +99,8 @@
 import { computed, ref, onMounted } from 'vue'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { getRepairList } from '@/api/repair'
+import { getRepairList, getRepairStats } from '@/api/repair'
+import { countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
 
 const logged = ref(false)
 const currentUser = ref({})
@@ -111,25 +112,6 @@ onMounted(() => {
 	logged.value = Boolean(token)
 	if (token) loadRepairCounts()
 })
-
-const normalizeStatus = (value = '') => {
-	const raw = String(value || '').trim()
-	const map = {
-		pending: '已提交',
-		submitted: '已提交',
-		sent: '已寄出',
-		received: '已签收',
-		checking: '检测中',
-		quote_pending: '待报价',
-		waiting_confirm: '待确认',
-		fixing: '维修中',
-		repairing: '维修中',
-		shipped: '已发货',
-		completed: '已完成',
-		reviewed: '已评价'
-	}
-	return map[raw] || map[raw.toLowerCase()] || raw
-}
 
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
@@ -143,21 +125,27 @@ const statusItems = computed(() => [
 ])
 
 const loadRepairCounts = async () => {
+	// 优先用 DB 端聚合统计
+	try {
+		const stats = await getRepairStats()
+		if (stats && typeof stats === 'object' && (stats.total !== undefined || stats.byStatus)) {
+			repairCounts.value = {
+				all: Number(stats.total || 0),
+				pending: Number(stats.pending || 0),
+				fixing: Number(stats.fixing || 0),
+				shipped: Number(stats.shipped || 0)
+			}
+			return
+		}
+	} catch (error) {
+		console.warn('load repair stats failed, fallback to list count:', error)
+	}
+	// 兜底：拉列表本地分桶（与后端 getOrderStats 同口径，统一走共享分桶逻辑）
 	try {
 		const data = await getRepairList({ page: 1, size: 100 })
 		const list = Array.isArray(data) ? data : data.list
 		if (!Array.isArray(list)) return
-		repairCounts.value = list.reduce(
-			(acc, item = {}) => {
-				const status = normalizeStatus(item.statusText || item.statusName || item.status)
-				acc.all += 1
-				if (['已提交', '已寄出', '已签收', '检测中', '待报价', '待确认'].includes(status)) acc.pending += 1
-				if (status === '维修中') acc.fixing += 1
-				if (status === '已发货') acc.shipped += 1
-				return acc
-			},
-			{ all: 0, pending: 0, fixing: 0, shipped: 0 }
-		)
+		repairCounts.value = countStatusBuckets(list)
 	} catch (error) {
 		console.warn('load repair counts failed:', error)
 	}

@@ -345,7 +345,7 @@ module.exports = {
       const col = db.collection('cicada_addresses')
 
       if (action === 'add') {
-        const data = pickFields(address, ['name', 'phone', 'region', 'detail', 'unit'])
+        const data = pickFields(address, ['name', 'phone', 'region', 'detail', 'unit', 'contact_phones'])
         data.is_default = normalizeBool(address && address.is_default)
         if (data.is_default) {
           await col.where({ user_id: userId }).update({ is_default: false })
@@ -354,7 +354,7 @@ module.exports = {
         return { code: 0, data: { id: res.id } }
       } else if (action === 'edit') {
         if (!address || !address._id) return { code: -1, msg: '缺少地址ID' }
-        const data = pickFields(address, ['name', 'phone', 'region', 'detail', 'unit', 'is_default'])
+        const data = pickFields(address, ['name', 'phone', 'region', 'detail', 'unit', 'contact_phones', 'is_default'])
         if (!Object.keys(data).length) return { code: -1, msg: '没有可更新的地址字段' }
         if (normalizeBool(data.is_default)) {
           await col.where({ user_id: userId, _id: db.command.neq(address._id) }).update({ is_default: false })

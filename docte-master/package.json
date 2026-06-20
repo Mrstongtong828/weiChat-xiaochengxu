@@ -18,7 +18,9 @@
     "@dcloudio/uni-cli-shared": "3.0.0-alpha-1000920260519001",
     "@dcloudio/vite-plugin-uni": "3.0.0-alpha-1000920260519001",
     "cross-env": "7.0.3",
-    "vite": "8.0.13"
+    "vite": "8.0.16",
+    "esbuild": "0.28.1",
+    "@babel/core": "7.29.7"
   },
   "overrides": {
     "unplugin-auto-import": "0.16.7",
@@ -37,7 +39,10 @@
     "qs": "^6.15.2",
     "send": "^1.2.1",
     "serve-static": "^2.2.1",
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "@babel/core": "7.29.7",
+    "esbuild": "0.28.1",
+    "vite": "8.0.16"
   },
   "engines": {
     "node": ">=20.19.0"

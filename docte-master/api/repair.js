@@ -93,6 +93,22 @@ export const confirmRepairQuote = (id) => {
   return getCloudObject().confirmQuote(withToken(normalizeOrderId(id))).then(unwrapCloudResult)
 }
 
+export const rejectRepairQuote = (id, reason = '') => {
+  return getCloudObject().rejectQuote(withToken({ ...normalizeOrderId(id), reason })).then(unwrapCloudResult)
+}
+
+export const confirmRepairReceipt = (id) => {
+  return getCloudObject().confirmReceipt(withToken(normalizeOrderId(id))).then(unwrapCloudResult)
+}
+
+export const submitRepairReview = (id, review = {}) => {
+  return getCloudObject().submitOrderReview(withToken({ ...normalizeOrderId(id), ...review })).then(unwrapCloudResult)
+}
+
+export const getMyDevices = (params = {}) => {
+  return getCloudObject().listMyDevices(withToken(normalizePageParams(params))).then(unwrapCloudResult)
+}
+
 export const uploadRepairPaymentProof = (id, proof = {}) => {
   return getCloudObject().uploadPaymentProof(withToken({ ...normalizeOrderId(id), proof })).then(unwrapCloudResult)
 }
@@ -110,7 +126,7 @@ export const lookupDeviceBySn = (sn) => {
 }
 
 export const getRepairStats = () => {
-  return Promise.resolve({})
+  return getCloudObject().getOrderStats(withToken({})).then(unwrapCloudResult)
 }
 
 export const uploadRepairImage = (filePath) => {

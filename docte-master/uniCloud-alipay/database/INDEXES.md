@@ -14,6 +14,7 @@ Create these indexes in the uniCloud database console before production traffic.
 - `order_no` unique
 - `create_time desc`
 - `user_id, create_time desc`
+- `customer_id, create_time desc`   # 身份桥：后台按 CRM 客户查历史工单（listCustomerOrders）
 - `status, create_time desc`
 - `engineer_id, create_time desc`
 - `payment_status, create_time desc`

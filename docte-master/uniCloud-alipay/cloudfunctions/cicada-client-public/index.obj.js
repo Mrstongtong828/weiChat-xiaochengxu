@@ -30,7 +30,8 @@ const SUBSCRIPTION_SCENES = [
   { scene: 'quote_issued', title: '维修报价提醒' },
   { scene: 'payment_confirmed', title: '付款到账提醒' },
   { scene: 'order_shipped', title: '回寄发货提醒' },
-  { scene: 'order_completed', title: '工单完成提醒' }
+  { scene: 'order_completed', title: '工单完成提醒' },
+  { scene: 'review_invite', title: '服务评价邀请' }
 ]
 
 function getEnvValue(...names) {
@@ -186,6 +187,59 @@ module.exports = {
       const guide = normalizeGuide(matched, guideType)
       setCache(cacheKey, guide)
       return { code: 0, data: guide }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 常见问题/故障库 + 操作指南 关键词搜索（首页搜索框）
+  async searchContent({ keyword = '', limit = 20 } = {}) {
+    try {
+      const kw = String(keyword || '').trim().toLowerCase()
+      if (!kw) return { code: 0, data: { list: [], keyword: '' } }
+
+      const [faultRes, categoryRes, guideRes] = await Promise.all([
+        db.collection('cicada_fault_kb').limit(1000).get(),
+        db.collection('cicada_product_categories').limit(1000).get(),
+        db.collection('cicada_guides').limit(1000).get()
+      ])
+
+      const categoryMap = (categoryRes.data || []).reduce((map, item) => {
+        map[item._id] = item.category_name
+        return map
+      }, {})
+
+      const flat = (value) => Array.isArray(value) ? value.join(' ') : String(value || '')
+      const hit = (haystack) => String(haystack || '').toLowerCase().includes(kw)
+
+      const faultHits = (faultRes.data || [])
+        .map(item => ({ ...item, category_name: categoryMap[item.category_id] || '' }))
+        .filter(item => hit(item.fault_name) || hit(flat(item.related_questions)) || hit(flat(item.fix_solutions)) || hit(flat(item.check_steps)) || hit(item.category_name))
+        .map(item => ({
+          kind: 'fault',
+          id: item._id,
+          categoryId: item.category_id,
+          category: item.category_name || '',
+          title: item.fault_name || '',
+          questions: item.related_questions || [],
+          checkSteps: item.check_steps || [],
+          solutions: item.fix_solutions || [],
+          isRecommendRepair: item.is_recommend_repair
+        }))
+
+      const guideHits = (guideRes.data || [])
+        .filter(item => hit(item.category) || hit(item.desc) || hit(item.content))
+        .map(item => ({
+          kind: 'guide',
+          id: item._id,
+          type: item.type || '',
+          title: item.category || '操作指南',
+          summary: item.desc || '',
+          content: item.content || ''
+        }))
+
+      const list = [...faultHits, ...guideHits].slice(0, Math.max(1, Number(limit) || 20))
+      return { code: 0, data: { list, keyword: kw, total: faultHits.length + guideHits.length } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

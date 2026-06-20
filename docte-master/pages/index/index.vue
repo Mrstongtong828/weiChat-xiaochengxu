@@ -247,6 +247,7 @@
 						<view><text>预计响应</text><text>30 分钟内</text></view>
 						<view><text>物流方式</text><text>顺丰到付</text></view>
 					</view>
+					<text class="success-archive-tip">本次报修的设备已记入「我的设备」档案，维修完成后保修状态与历史工单会自动更新。</text>
 				</view>
 				<view class="dual-actions">
 					<view class="ghost-button tap" @click="closeModule">返回首页</view>
@@ -331,7 +332,10 @@
 					</view>
 					<view class="package-result-grid">
 						<view><text>物流公司</text><text>{{ packageQueryResult.company || '待录入' }}</text></view>
-						<view><text>关联工单</text><text>{{ packageQueryResult.orderId || '待关联' }}</text></view>
+						<view class="package-linked-order tap" @click="openLinkedOrder(packageQueryResult.orderId)">
+							<text>关联工单</text>
+							<text :class="{ 'package-order-link': packageQueryResult.orderId }">{{ packageQueryResult.orderId || '待关联' }}{{ packageQueryResult.orderId ? ' ›' : '' }}</text>
+						</view>
 					</view>
 					<view class="package-progress">
 						<view v-for="(step, index) in packageFlow" :key="step" class="progress-step" :class="{ reached: index <= packageQueryResult.reached }">
@@ -602,19 +606,57 @@
 						<view v-if="detailQuoteVisible && detailOrder.paymentStatus !== 'paid'" class="quote-contact-action tap" @click="contactSupportForQuote">
 							<text>有疑问？联系客服</text>
 						</view>
+						<view v-if="canRejectQuote(detailOrder)" class="quote-reject-action tap" @click="rejectRepairQuoteAction(detailOrder)">
+							<text>拒绝维修</text>
+						</view>
 					</view>
 				</view>
 
-				<!-- 回寄物流 -->
-				<view v-if="detailOrder.returnLogisticsNo" class="module-section-head single"><text>回寄物流</text></view>
+				<!-- 物流信息：客户寄出 + 厂家寄回，统一挂在工单下 -->
+				<view v-if="detailOrder.trackingNo || detailOrder.returnLogisticsNo || canConfirmReceipt(detailOrder)" class="module-section-head single"><text>物流信息</text></view>
+				<view v-if="detailOrder.trackingNo" class="return-logistics-card">
+					<view class="return-logistics-info">
+						<view><text>客户寄出</text><text>{{ detailOrder.logisticsCompany || '待录入' }}</text></view>
+						<view><text>寄出单号</text><text class="return-logistics-no">{{ detailOrder.trackingNo }}</text></view>
+					</view>
+					<view class="return-logistics-actions">
+						<view class="return-logistics-btn tap" @click="copyOne(detailOrder.trackingNo, 'sendNo')">{{ copied === 'sendNo' ? '已复制' : '复制单号' }}</view>
+						<view class="return-logistics-btn primary tap" @click="trackSendLogistics(detailOrder)">查物流</view>
+					</view>
+				</view>
 				<view v-if="detailOrder.returnLogisticsNo" class="return-logistics-card">
 					<view class="return-logistics-info">
-						<view><text>物流公司</text><text>{{ detailOrder.returnLogisticsCompany || '待录入' }}</text></view>
+						<view><text>厂家寄回</text><text>{{ detailOrder.returnLogisticsCompany || '待录入' }}</text></view>
 						<view><text>回寄单号</text><text class="return-logistics-no">{{ detailOrder.returnLogisticsNo }}</text></view>
 					</view>
 					<view class="return-logistics-actions">
 						<view class="return-logistics-btn tap" @click="copyOne(detailOrder.returnLogisticsNo, 'returnNo')">{{ copied === 'returnNo' ? '已复制' : '复制单号' }}</view>
 						<view class="return-logistics-btn primary tap" @click="trackReturnLogistics(detailOrder)">查物流</view>
+					</view>
+				</view>
+				<view v-if="canConfirmReceipt(detailOrder)" class="primary-button tap detail-action-button receipt-confirm-button" @click="confirmRepairReceiptAction(detailOrder)">
+					确认收货
+				</view>
+
+				<!-- 投诉与反馈：挂在本工单下 -->
+				<view class="module-section-head single"><text>投诉与反馈</text></view>
+				<view class="order-complaint-card">
+					<view v-if="detailOrderComplaints.length" class="order-complaint-list">
+						<view v-for="record in detailOrderComplaints" :key="record.ticketNo" class="order-complaint-item">
+							<view class="order-complaint-top">
+								<text class="order-complaint-type">{{ record.type || '反馈' }}</text>
+								<text :class="['tag', 'tag-' + getFeedbackMeta(record).tone]">{{ record.statusLabel || getFeedbackMeta(record).label }}</text>
+							</view>
+							<text v-if="record.content" class="order-complaint-content">{{ record.content }}</text>
+							<view v-if="record.reply" class="order-complaint-reply">
+								<text class="order-complaint-reply-label">客服回复</text>
+								<text>{{ record.reply }}</text>
+							</view>
+						</view>
+					</view>
+					<text v-else class="order-complaint-empty">本工单暂无投诉/反馈记录。遇到问题可直接发起投诉，我们会在工单内跟进处理与回复。</text>
+					<view class="order-complaint-action tap" @click="complainAboutOrder(detailOrder)">
+						<text>我要投诉</text>
 					</view>
 				</view>
 
@@ -626,9 +668,9 @@
 					</view>
 					<text class="complete-guide-tip">建议定期保养设备以延长使用寿命；遇到新问题可随时再次报修。</text>
 					<view class="complete-guide-actions">
-						<view class="complete-guide-btn tap" @click="evaluateOrder(detailOrder)">
+						<view class="complete-guide-btn tap" @click="reviewOrder(detailOrder)">
 							<text class="complete-guide-ico">★</text>
-							<text>去评价</text>
+							<text>{{ detailOrder.review ? '已评价' : '去评价' }}</text>
 						</view>
 						<view class="complete-guide-btn tap" @click="showMaintenanceTip">
 							<text class="complete-guide-ico">🛠</text>
@@ -902,17 +944,19 @@
 			</view>
 
 			<view v-else-if="activeModule === 'products'" class="module-content products-module">
-				<view v-for="item in productList" :key="item.sn" class="product-card">
+				<view v-for="item in productList" :key="item.sn || item.title" class="product-card">
 					<view class="product-icon"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
 					<view class="product-copy">
 						<text>{{ item.title }}</text>
-						<text>SN · {{ item.sn }}</text>
-						<text>{{ item.date }}</text>
+						<text>SN · {{ item.sn || '未登记' }}</text>
+							<text v-if="item.model">型号 · {{ item.model }}</text>
+							<text v-if="item.lastOrderNo">最近工单 · {{ item.lastOrderNo }}{{ item.repairCount ? `（累计报修 ${item.repairCount} 次）` : '' }}</text>
+						<text v-else-if="item.date">购买日期 · {{ item.date }}</text>
 						<text :class="['tag', item.expired ? 'tag-muted' : 'tag-ok']">{{ item.warranty }}</text>
 					</view>
 					<view class="ghost-mini tap" @click="go('repair')">报修</view>
 				</view>
-				<view v-if="!productList.length" class="empty-hint compact">暂无已登记设备。后端产品接口接入后会显示真实设备与保修状态。</view>
+				<view v-if="!productList.length" class="empty-hint compact">暂无已登记设备。报修提交或维修完成后，会在这里沉淀设备档案与保修状态。</view>
 				<view class="dash-add tap"><text>+</text><text>添加我的产品</text></view>
 			</view>
 
@@ -936,11 +980,13 @@
 						<input v-model="addressForm.phone" class="field-input" placeholder="请输入联系电话" placeholder-class="input-placeholder" type="number" />
 					</view>
 
-					<view class="address-field tap" @click="selectRegion">
-						<text class="field-label"><text class="required-star">*</text>所在地区</text>
-						<input v-model="addressForm.region" class="field-input" placeholder="请选择省 / 市 / 区" placeholder-class="input-placeholder" disabled />
-						<view class="field-arrow"></view>
-					</view>
+					<picker mode="region" :value="regionPickerValue" @change="onRegionChange">
+						<view class="address-field tap">
+							<text class="field-label"><text class="required-star">*</text>所在地区</text>
+							<input v-model="addressForm.region" class="field-input" placeholder="请选择省 / 市 / 区" placeholder-class="input-placeholder" disabled />
+							<view class="field-arrow"></view>
+						</view>
+					</picker>
 
 					<view class="address-field">
 						<text class="field-label"><text class="required-star">*</text>详细地址</text>
@@ -1296,7 +1342,7 @@
 						<image class="qr-image" :src="wechatInfo.qrcodeUrl" mode="aspectFill" show-menu-by-longpress></image>
 					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">长按识别二维码关注官方服务号，获取产品资料、维修保养与售后服务支持。</text>
+					<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
 					<official-account class="official-account-btn"></official-account>
 				</view>
 			</view>
@@ -1383,7 +1429,7 @@
 			<view class="vi-side-wordmark">
 				<text class="vi-en">CICADA</text><text class="vi-tm">®</text>
 			</view>
-			<text class="side-text">思科达服务号</text>
+			<text class="side-text">思科达公众号</text>
 		</view>
 
 		<BottomTabbar v-if="showBottomTabbar" :tabs="tabs" :active-id="activeTab" @select="go" />
@@ -1392,10 +1438,10 @@
 			<view class="official-modal" @click.stop>
 				<text class="modal-close tap" @click="showOfficial = false">×</text>
 				<view class="qr-image-wrap company-qr">
-					<image class="qr-image" :src="wechatInfo.qrcodeUrl" mode="aspectFill" show-menu-by-longpress="true"></image>
+					<image class="qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
 				</view>
 				<text class="follow-title">了解产品与售后支持</text>
-				<text class="follow-desc">长按识别二维码关注官方服务号，获取产品资料、维修保养与售后服务支持。</text>
+				<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
 				<official-account class="official-account-btn"></official-account>
 			</view>
 		</view>
@@ -1404,12 +1450,12 @@
 			<view class="qr-modal" @click.stop>
 				<text class="modal-close tap" @click="showQr = false">×</text>
 				<image class="qr-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-				<text class="qr-title">关注官方服务号</text>
+				<text class="qr-title">关注官方公众号</text>
 				<text class="qr-subtitle">获取最新维修指南 / 售后政策</text>
 				<view class="qr-image-wrap">
 					<image
 						class="qr-image"
-						:src="wechatInfo.qrcodeUrl"
+						:src="cicadaAssets.qrWechat"
 						mode="aspectFill"
 						show-menu-by-longpress
 					></image>
@@ -1464,7 +1510,6 @@ import {
 	getFeePolicy,
 	getGuide,
 	getSubscriptionConfig,
-	getProductList,
 	applyInvoice,
 	getWechat,
 	getWarrantyPolicy,
@@ -1473,6 +1518,8 @@ import {
 	getHomeGuidePopup,
 	queryPackageStatus,
 	searchFault,
+	searchContent,
+	getAddressList,
 	addAddress,
 	updateAddress,
 	deleteAddress,
@@ -1491,7 +1538,11 @@ import {
 	syncRepairWechatPay,
 	uploadRepairPaymentProof,
 	submitRepair as submitRepairOrder,
-	lookupDeviceBySn
+	lookupDeviceBySn,
+	rejectRepairQuote,
+	confirmRepairReceipt,
+	submitRepairReview,
+	getMyDevices
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
@@ -1534,12 +1585,14 @@ import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedback
 import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
 import {
 	createRepairStatusMeta,
+	deriveDisplayStatus,
 	getOrderStatusTone,
 	getRepairProgressNodes,
 	invoiceTodoStatusKeys,
 	normalizeRepairStatus,
 	normalizeStatusTab,
-	packageStatusMeta
+	packageStatusMeta,
+	resolveStatusKey
 } from './composables/statusMeta'
 import {
 	compressForUpload,
@@ -1596,7 +1649,9 @@ const feedbackImages = ref([])
 const subscriptionSceneMap = {
 	repair_submit: ['repair_submitted', 'order_received', 'quote_issued'],
 	track_view: ['quote_issued', 'payment_confirmed', 'order_shipped'],
-	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed']
+	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed'],
+	wechat_pay: ['order_shipped', 'order_completed', 'review_invite'],
+	review_invite: ['review_invite']
 }
 
 const loadSubscriptionTemplates = async () => {
@@ -1654,12 +1709,10 @@ const addressForm = ref({
 	def: false
 })
 const repairDraftKey = 'repairDraft'
-const localOrderPatchKey = 'repairOrderLocalPatches'
 const feedbackRecordKey = 'feedbackRecords'
 const repairForm = ref(defaultRepairForm())
 const submittedOrderId = ref('')
 const repairProducts = ref([defaultRepairProduct()])
-const orderLocalPatches = ref({})
 
 let repairProductSeed = 1
 let repairMediaSeed = 1
@@ -2009,8 +2062,8 @@ const normalizeOrder = (item = {}) => {
 	const orderId = item.order_no || item.orderNo || item.orderId || item.id || item._id || ''
 	const createTime = item.create_time || item.createTime || item.createdAt || item.date || ''
 	const updateTime = item.updateTime || item.updatedAt || createTime
-	const localPatch = orderLocalPatches.value[orderId] || {}
-	const merged = { ...item, ...localPatch }
+	// 后端为唯一状态来源：不再合并本地 patch，避免旧缓存掩盖真实状态
+	const merged = { ...item }
 	const orderItems = Array.isArray(merged.items)
 		? merged.items
 		: (Array.isArray(merged.itemsList) ? merged.itemsList : [])
@@ -2042,6 +2095,11 @@ const normalizeOrder = (item = {}) => {
 		? merged.paymentProofs
 		: (Array.isArray(merged.payment_proofs) ? merged.payment_proofs : [])
 	const invoiceInfo = merged.invoice_info || merged.invoiceInfo || {}
+	// 状态唯一真相：英文主状态键 + 报价/付款子状态 → 细分显示标签（与“我的”页同源）
+	const statusKey = resolveStatusKey(merged)
+	const quoteStatus = merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending')
+	const paymentStatus = merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending')
+	const displayStatus = deriveDisplayStatus({ statusKey, quoteStatus, paymentStatus, review: merged.review })
 
 	return {
 		id: orderId,
@@ -2060,7 +2118,7 @@ const normalizeOrder = (item = {}) => {
 		cardTitle,
 		cardMeta,
 		model: cardTitle,
-		status: statusText,
+		status: displayStatus,
 		statusGroup: meta.statusGroup,
 		tone: meta.tone,
 		reached: meta.reached,
@@ -2077,17 +2135,17 @@ const normalizeOrder = (item = {}) => {
 		invoiceNo: merged.invoiceNo || merged.invoice_no || invoiceInfo.invoice_no,
 		invoiceDate: merged.invoiceDate || merged.invoice_date || formatDateTime(invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
-		quoteStatus: merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending'),
-		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || (localPatch.authorizationStatus || ''),
-		authorizationTime: merged.authorizationTime || merged.authorization_time || localPatch.authorizationTime || '',
-		paymentStatus: merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending'),
+		quoteStatus,
+		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',
+		authorizationTime: merged.authorizationTime || merged.authorization_time || '',
+		paymentStatus,
 		quoteDetail,
 		quoteItems,
 		partsFee,
 		laborFee,
 		totalFee,
 		paymentProofs,
-		statusKey: item.status || merged.status || '',
+		statusKey,
 		quoteWarrantyMonths: Number(merged.quoteWarrantyMonths ?? merged.quote_warranty_months ?? 0) || 0,
 		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
 		returnLogisticsCompany,
@@ -2114,13 +2172,23 @@ const writeStorage = (key, value) => {
 	}
 }
 
-const normalizeProduct = (item = {}) => ({
-	title: item.title || item.name || item.productName || item.model || '已登记设备',
-	sn: item.sn || item.serial || item.productSerial || item.id || '',
-	date: item.buyDate || item.purchaseDate || item.date || '',
-	warranty: item.warrantyText || item.warranty || item.warrantyStatus || '保修信息待同步',
-	expired: Boolean(item.expired || item.isExpired)
-})
+const warrantyStatusLabels = { in_warranty: '保修中', extended: '延保中', expired: '已过保', unknown: '保修信息待同步' }
+const normalizeProduct = (item = {}) => {
+	const warrantyStatus = item.warrantyStatus || item.warranty_status || ''
+	const warranty = item.warrantyText || item.warranty
+		|| (warrantyStatus ? warrantyStatusLabels[warrantyStatus] : '')
+		|| (item.warrantyExpire ? `保修至 ${item.warrantyExpire}` : '保修信息待同步')
+	return {
+		title: item.title || item.name || item.productName || item.model || '已登记设备',
+		sn: item.sn || item.serial || item.productSerial || item.id || '',
+		model: item.model || '',
+		date: item.buyDate || item.purchaseDate || item.date || '',
+		warranty,
+		expired: warrantyStatus === 'expired' || Boolean(item.expired || item.isExpired),
+		lastOrderNo: item.lastOrderNo || item.last_order_no || '',
+		repairCount: Number(item.repairCount || item.repair_count || 0) || 0
+	}
+}
 
 const normalizePackageTimeline = (timeline = []) => {
 	if (!Array.isArray(timeline) || !timeline.length) {
@@ -2517,6 +2585,13 @@ const repairProgressNodes = computed(() => getRepairProgressNodes(detailOrder.va
 
 const detailIsCompleted = computed(() => detailOrder.value.statusKey === 'completed' || detailOrder.value.status === '已完成')
 
+// 投诉/反馈挂到本工单：按 rel_order_no 过滤已加载的反馈单
+const detailOrderComplaints = computed(() => {
+	const id = detailOrder.value.id
+	if (!id) return []
+	return feedbackRecords.value.filter((record) => record && record.orderId === id)
+})
+
 const detailQuoteVisible = computed(() => ['issued', 'confirmed', 'rejected'].includes(detailOrder.value.quoteStatus))
 
 const detailWarrantyText = computed(() => {
@@ -2597,21 +2672,22 @@ function resolveOrderRecord(order = {}) {
 	return orderList.value.find((item) => item.id === order.id) || order || {}
 }
 
-const patchOrderRecord = (orderId, patch = {}) => {
-	if (!orderId) return
-	const nextPatch = {
-		...(orderLocalPatches.value[orderId] || {}),
-		...patch
+// 后端为唯一状态来源：支付/确认/收货等改动后回拉工单详情并覆盖本地数据。
+const refreshOrderFromServer = async (order = {}) => {
+	const recordId = order.recordId || order.id
+	if (!recordId) return null
+	try {
+		const detail = await getRepairDetail(recordId)
+		const normalized = normalizeOrder(detail)
+		if (!normalized.id) return null
+		const mergeInto = (list) => list.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
+		orderList.value = mergeInto(orderList.value)
+		trackOrders.value = mergeInto(trackOrders.value)
+		return normalized
+	} catch (error) {
+		console.warn('refresh order failed:', error)
+		return null
 	}
-	orderLocalPatches.value = {
-		...orderLocalPatches.value,
-		[orderId]: nextPatch
-	}
-	writeStorage(localOrderPatchKey, orderLocalPatches.value)
-
-	const applyPatch = (list) => list.map((item) => (item.id === orderId ? { ...item, ...nextPatch } : item))
-	orderList.value = applyPatch(orderList.value)
-	trackOrders.value = applyPatch(trackOrders.value)
 }
 
 const getQuoteTotal = (order = {}) => Number(order.totalFee || order.quoteDetail?.finalPrice || 0) || sumQuoteFee(order.quoteItems || [], 'partsFee') + sumQuoteFee(order.quoteItems || [], 'laborFee')
@@ -2730,7 +2806,7 @@ const payRepairQuote = (order = {}) => {
 			let loadingShown = false
 			let paymentFinished = false
 			try {
-				await requestStatusSubscription('quote_confirm')
+				await requestStatusSubscription('wechat_pay')
 				paymentSubmitting.value = true
 				uni.showLoading({ title: '创建支付' })
 				loadingShown = true
@@ -2753,18 +2829,9 @@ const payRepairQuote = (order = {}) => {
 
 				uni.showLoading({ title: '确认到账' })
 				loadingShown = true
-				const result = await syncRepairWechatPay(order.recordId || order.id, paymentOrder.outTradeNo)
-				const nextStatus = normalizeRepairStatus(result.status || result.statusGroup || 'fixing')
-				patchOrderRecord(order.id, {
-					authorizationStatus: result.authorizationStatus || result.authorization_status || 'confirmed',
-					quoteStatus: result.quoteStatus || result.quote_status || 'confirmed',
-					authorizationTime: result.authorizationTime || result.authorization_time || todayText(),
-					paymentStatus: result.paymentStatus || result.payment_status || 'paid',
-					status: nextStatus,
-					statusGroup: nextStatus,
-					tone: getOrderStatusTone({ statusGroup: nextStatus }),
-					reached: Math.max(0, repairStatusFlow.indexOf(nextStatus))
-				})
+				await syncRepairWechatPay(order.recordId || order.id, paymentOrder.outTradeNo)
+				// 后端为唯一状态来源：支付完成后回拉工单
+				await refreshOrderFromServer(order)
 				uni.hideLoading()
 				loadingShown = false
 				uni.showToast({ title: '支付成功', icon: 'success' })
@@ -2814,9 +2881,138 @@ const trackReturnLogistics = (order = {}) => {
 	queryPackage()
 }
 
-// 完成后：去评价（复用投诉建议，预填关联工单）
+// 寄出物流：跳转包裹查询并自动带入寄出单号
+const trackSendLogistics = (order = {}) => {
+	if (!order.trackingNo) return
+	packageQuery.value.trackingNo = order.trackingNo
+	openModule('package-query')
+	queryPackage()
+}
+
+// 包裹查询：点击关联工单跳转工单详情
+const openLinkedOrder = (orderId = '') => {
+	if (!orderId) return
+	const matched = orderList.value.find((item) => item.id === orderId) || trackOrders.value.find((item) => item.id === orderId)
+	if (matched) {
+		openOrderDetail(matched)
+		return
+	}
+	uni.showToast({ title: '请登录后在“我的维修单”查看该工单', icon: 'none' })
+}
+
+// 拒绝维修报价（仅报价已发布、未支付时可用）
+const canRejectQuote = (order = {}) => Boolean(order.id && order.quoteStatus === 'issued' && order.paymentStatus !== 'paid')
+
+const rejectRepairQuoteAction = (order = {}) => {
+	if (!canRejectQuote(order)) return
+	uni.showModal({
+		title: '拒绝维修报价',
+		editable: true,
+		placeholderText: '可填写拒绝原因（选填）',
+		confirmText: '确认拒绝',
+		cancelText: '再想想',
+		success: async ({ confirm, content }) => {
+			if (!confirm) return
+			try {
+				uni.showLoading({ title: '提交中' })
+				await rejectRepairQuote(order.recordId || order.id, content || '')
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				uni.showToast({ title: '已拒绝报价', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: (error && error.message) || '操作失败', icon: 'none' })
+			}
+		}
+	})
+}
+
+// 确认收货：已回寄 → 已完成
+const canConfirmReceipt = (order = {}) => Boolean(order.id && (order.statusKey === 'shipped' || order.status === '已回寄'))
+
+const confirmRepairReceiptAction = (order = {}) => {
+	if (!canConfirmReceipt(order)) return
+	uni.showModal({
+		title: '确认收货',
+		content: '确认已收到回寄的设备？确认后工单将标记为已完成。',
+		confirmText: '确认收货',
+		cancelText: '再看看',
+		success: async ({ confirm }) => {
+			if (!confirm) return
+			try {
+				// 完成后服务端会推送"服务评价邀请"，先申请订阅授权
+				await requestStatusSubscription('review_invite')
+				uni.showLoading({ title: '提交中' })
+				await confirmRepairReceipt(order.recordId || order.id)
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				uni.showToast({ title: '已确认收货', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: (error && error.message) || '操作失败', icon: 'none' })
+			}
+		}
+	})
+}
+
+// 完成后：回访评价，绑定到已完成工单；不满意自动转投诉
+const reviewOrder = (order = {}) => {
+	if (!order.id) return
+	if (order.review) {
+		uni.showToast({ title: '该工单已评价，感谢反馈', icon: 'none' })
+		return
+	}
+	const options = [
+		{ label: '非常满意（5星）', rating: 5 },
+		{ label: '满意（4星）', rating: 4 },
+		{ label: '一般（3星）', rating: 3 },
+		{ label: '不满意（转人工投诉）', rating: 2, toComplaint: true }
+	]
+	uni.showActionSheet({
+		itemList: options.map((item) => item.label),
+		success: async ({ tapIndex }) => {
+			const choice = options[tapIndex]
+			if (!choice) return
+			try {
+				uni.showLoading({ title: '提交中' })
+				await submitRepairReview(order.recordId || order.id, {
+					rating: choice.rating,
+					to_complaint: Boolean(choice.toComplaint)
+				})
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				if (choice.toComplaint) {
+					feedbackType.value = '投诉'
+					feedbackOrderId.value = order.id || order.recordId || ''
+					uni.showModal({
+						title: '已记录',
+						content: '已为您生成投诉工单，可补充具体问题，售后会尽快跟进。',
+						showCancel: false,
+						confirmText: '去补充',
+						success: () => openModule('feedback')
+					})
+				} else {
+					uni.showToast({ title: '感谢您的评价', icon: 'success' })
+				}
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: (error && error.message) || '评价失败', icon: 'none' })
+			}
+		},
+		fail: () => {}
+	})
+}
+
+// 完成后：详细反馈（复用投诉建议，预填关联工单）
 const evaluateOrder = (order = {}) => {
 	feedbackType.value = '建议'
+	feedbackOrderId.value = order.id || order.recordId || ''
+	openModule('feedback')
+}
+
+// 工单详情：发起投诉，预填关联工单
+const complainAboutOrder = (order = {}) => {
+	feedbackType.value = '投诉'
 	feedbackOrderId.value = order.id || order.recordId || ''
 	openModule('feedback')
 }
@@ -2877,15 +3073,9 @@ const uploadPaymentProof = async (order = {}) => {
 			console.warn('payment proof upload fallback:', error)
 		}
 		const nextProof = { id: `pay-${Date.now()}`, path, fileID: proofFileID, url: proofUrl, time: todayText() }
-		const nextProofs = [
-			...(Array.isArray(order.paymentProofs) ? order.paymentProofs : []),
-			nextProof
-		]
-		const result = await uploadRepairPaymentProof(order.recordId || order.id, nextProof)
-		patchOrderRecord(order.id, {
-			paymentStatus: result.paymentStatus || result.payment_status || 'uploaded',
-			paymentProofs: Array.isArray(result.paymentProofs) ? result.paymentProofs : (Array.isArray(result.payment_proofs) ? result.payment_proofs : nextProofs)
-		})
+		await uploadRepairPaymentProof(order.recordId || order.id, nextProof)
+		// 后端为唯一状态来源：上传凭证后回拉工单
+		await refreshOrderFromServer(order)
 		uni.hideLoading()
 		loadingShown = false
 		uni.showToast({ title: '凭证已留痕', icon: 'success' })
@@ -2966,7 +3156,7 @@ const submitInvoiceApply = async () => {
 
 	invoiceSubmitting.value = true
 	try {
-		const invoiceResult = await applyInvoice({
+		await applyInvoice({
 			orderId: order.recordId || order.id,
 			invoiceType: invoiceForm.value.invoiceType,
 			titleType: invoiceForm.value.titleType,
@@ -2976,13 +3166,8 @@ const submitInvoiceApply = async () => {
 			remark: invoiceForm.value.remark.trim()
 		})
 
-		patchOrderRecord(order.id, {
-			invoiceStatus: invoiceResult.status || '待开票',
-			invoiceType: invoiceResult.invoice_type || invoiceResult.invoiceType || invoiceForm.value.invoiceType,
-			invoiceTitle: invoiceResult.title || invoiceForm.value.title.trim(),
-			taxNo: invoiceResult.tax_no || invoiceResult.taxNo || (invoiceForm.value.titleType === 'company' ? invoiceForm.value.taxNo.trim() : ''),
-			invoiceEmail: invoiceResult.email || invoiceForm.value.email.trim()
-		})
+		// 后端为唯一状态来源：开票申请后回拉工单
+		await refreshOrderFromServer(order)
 		activeInvoiceOrderId.value = ''
 		activeInvoiceTab.value = '待开票'
 		uni.showModal({
@@ -3028,7 +3213,6 @@ const handleInvoiceAction = (order = {}) => {
 }
 
 const restoreLocalBusinessState = () => {
-	orderLocalPatches.value = readStorage(localOrderPatchKey, {})
 	const records = readStorage(feedbackRecordKey, [])
 	feedbackRecords.value = Array.isArray(records) ? records : []
 }
@@ -3123,6 +3307,7 @@ const openModule = (id, type) => {
 
 	if (id === 'repair') {
 		repairStep.value = 1
+		prefillRepairAddress()
 	}
 
 	if (id === 'orders' && type !== undefined) {
@@ -3155,6 +3340,41 @@ const openTrackDetail = (order) => {
 const openOrderDetail = (order) => {
 	orderDetailOrder.value = order.id
 	openModule('order-detail')
+	// 打开详情时刷新该工单的投诉/反馈状态与客服回复
+	if (hasLoginToken()) syncFeedbackRecords().catch((error) => console.warn('sync feedback on detail failed:', error))
+}
+
+// 报修表单：自动带入默认回寄地址（仅填空字段，不覆盖用户已填）
+const cachedDefaultAddress = ref(null)
+const prefillRepairAddress = async () => {
+	if (!hasLoginToken()) return
+	const form = repairForm.value
+	if (form.receiverName || form.receiverPhone || form.receiverAddress) return
+	try {
+		if (!cachedDefaultAddress.value) {
+			const list = await getAddressList()
+			if (Array.isArray(list) && list.length) {
+				cachedDefaultAddress.value = list.find((item) => item.isDefault) || list[0]
+			}
+		}
+		const target = cachedDefaultAddress.value
+		if (!target) return
+		// 二次确认表单仍为空再写入（避免异步期间用户已开始填写）
+		const current = repairForm.value
+		if (current.receiverName || current.receiverPhone || current.receiverAddress) return
+		const region = Array.isArray(target.region) ? target.region.join(' ') : (target.region || '')
+		const fullAddress = [region, target.detail || ''].filter(Boolean).join(' ').trim()
+		repairForm.value = {
+			...current,
+			receiverName: target.receiver || target.name || '',
+			receiverPhone: target.phone || '',
+			receiverAddress: fullAddress,
+			receiverUnit: target.unit || ''
+		}
+		if (fullAddress || target.receiver) uni.showToast({ title: '已带入默认回寄地址', icon: 'none' })
+	} catch (error) {
+		console.warn('prefill repair address failed:', error)
+	}
 }
 
 const addRepairProduct = () => {
@@ -3877,11 +4097,14 @@ const saveAddress = async () => {
 	}
 }
 
-const selectRegion = () => {
-	uni.showToast({
-		title: '地区选择功能开发中',
-		icon: 'none'
-	})
+const regionPickerValue = computed(() => {
+	const parts = String(addressForm.value.region || '').split(/[\/\s]+/).filter(Boolean)
+	return parts.length === 3 ? parts : ['广东省', '佛山市', '禅城区']
+})
+
+const onRegionChange = (event) => {
+	const parts = (event.detail.value || []).filter(Boolean)
+	addressForm.value.region = parts.join('/')
 }
 
 const resetAddressForm = () => {
@@ -4085,17 +4308,71 @@ const callPhone = (phoneNumber) => {
 	})
 }
 
-const handleSearch = () => {
-	// 待后端接口建立后恢复
-	// go('guide-query')
-	
-	// 临时拦截：搜索功能正在优化中
+const showSearchDetail = (item = {}) => {
+	let content = ''
+	if (item.kind === 'fault') {
+		const parts = []
+		if (item.category) parts.push(`产品类型：${item.category}`)
+		if (Array.isArray(item.solutions) && item.solutions.length) {
+			parts.push(`处理建议：\n${item.solutions.join('\n')}`)
+		} else if (Array.isArray(item.checkSteps) && item.checkSteps.length) {
+			parts.push(`自查步骤：\n${item.checkSteps.join('\n')}`)
+		}
+		if (item.isRecommendRepair) parts.push('该故障建议寄修处理。')
+		content = parts.join('\n\n') || '暂无详细说明，请联系客服。'
+	} else {
+		content = item.summary || item.content || '暂无详细说明。'
+	}
 	uni.showModal({
-		title: '提示',
-		content: '搜索功能正在优化中，敬请期待！',
+		title: (item.title || '搜索结果').slice(0, 30),
+		content: String(content).slice(0, 600),
 		showCancel: false,
 		confirmText: '知道了'
 	})
+}
+
+const showSearchResults = (list = []) => {
+	const items = list.slice(0, 6)
+	if (items.length === 1) {
+		showSearchDetail(items[0])
+		return
+	}
+	uni.showActionSheet({
+		itemList: items.map((it) => String(it.title || '未命名').slice(0, 30)),
+		success: ({ tapIndex }) => {
+			const item = items[tapIndex]
+			if (item) showSearchDetail(item)
+		},
+		fail: () => {}
+	})
+}
+
+const handleSearch = async () => {
+	const keyword = String(searchKeyword.value || '').trim()
+	if (!keyword) {
+		uni.showToast({ title: '请输入要查询的问题', icon: 'none' })
+		return
+	}
+	uni.showLoading({ title: '搜索中', mask: true })
+	try {
+		const res = await searchContent(keyword)
+		const list = (res && Array.isArray(res.list)) ? res.list : []
+		uni.hideLoading()
+		if (!list.length) {
+			uni.showModal({
+				title: '无匹配结果',
+				content: `没有找到与“${keyword}”相关的常见问题，可换个关键词或联系客服。`,
+				showCancel: false,
+				confirmText: '知道了'
+			})
+			return
+		}
+		showSearchResults(list)
+	} catch (error) {
+		uni.hideLoading()
+		console.warn('search content failed:', error)
+		uni.showToast({ title: error.message || '搜索失败，请稍后重试', icon: 'none' })
+	}
 }
 
 onLoad((options = {}) => {
@@ -4183,17 +4460,16 @@ const loadRemoteContent = async () => {
 		getFaultTypes()
 			.then((list) => applyFaultTypes(list))
 			.catch((error) => console.warn('fault types fallback:', error)),
-		getProductList({ page: 1, size: 50 })
+		getMyDevices({ page: 1, size: 50 })
 			.then((data = {}) => {
-				const list = Array.isArray(data) ? data : data.list
+				const list = Array.isArray(data) ? data : (data.list || [])
 				productList.value = Array.isArray(list) ? list.map(normalizeProduct).filter((item) => item.sn || item.title) : []
 			})
-			.catch((error) => console.warn('product list failed:', error)),
+			.catch((error) => console.warn('device list failed:', error)),
 		getRepairList({ page: 1, size: 30 })
 			.then((data = {}) => {
 				const list = Array.isArray(data) ? data : (data.list || data.data || [])
 				if (!Array.isArray(list)) return
-				orderLocalPatches.value = readStorage(localOrderPatchKey, orderLocalPatches.value || {})
 				const normalized = list.map(normalizeOrder).filter((item) => item.id)
 				orderList.value = normalized
 				trackOrders.value = normalized
@@ -9180,6 +9456,114 @@ onMounted(() => {
 	color: #C97A1B;
 	background: #FFF7E8;
 	border: 2rpx solid #F6E0B5;
+}
+
+.quote-reject-action {
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #B23A3A;
+	background: #FDF2F2;
+	border: 2rpx solid #F0CFCF;
+}
+
+.receipt-confirm-button {
+	margin-top: 20rpx;
+}
+
+.package-order-link {
+	color: #1E6FE0;
+	font-weight: 700;
+}
+
+.order-complaint-card {
+	padding: 20rpx;
+	border-radius: 16rpx;
+	background: #F7FAFF;
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.order-complaint-list {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.order-complaint-item {
+	padding: 18rpx;
+	border-radius: 14rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #E8EFFA;
+	display: flex;
+	flex-direction: column;
+	gap: 10rpx;
+}
+
+.order-complaint-top {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.order-complaint-type {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #1F2C44;
+}
+
+.order-complaint-content {
+	font-size: 24rpx;
+	color: #46566F;
+	line-height: 1.5;
+}
+
+.order-complaint-reply {
+	padding: 14rpx;
+	border-radius: 12rpx;
+	background: #F1F6FF;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+	font-size: 24rpx;
+	color: #1F2C44;
+}
+
+.order-complaint-reply-label {
+	font-size: 22rpx;
+	font-weight: 800;
+	color: #1E6FE0;
+}
+
+.order-complaint-empty {
+	font-size: 24rpx;
+	color: #6B7C97;
+	line-height: 1.5;
+}
+
+.order-complaint-action {
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 24rpx;
+	font-weight: 800;
+	color: #B23A3A;
+	background: #FDF2F2;
+	border: 2rpx solid #F0CFCF;
+}
+
+.success-archive-tip {
+	margin-top: 16rpx;
+	font-size: 22rpx;
+	color: #6B7C97;
+	line-height: 1.5;
 }
 
 /* 报价账单说明 */

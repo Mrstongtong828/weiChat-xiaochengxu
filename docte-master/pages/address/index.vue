@@ -155,8 +155,29 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import {
+	getAddressList,
+	addAddress,
+	updateAddress,
+	deleteAddress as removeAddressRemote
+} from '@/api/content'
 
 const STORAGE_KEY = 'receiverAddressList'
+
+// 本地临时 id（云端未同步）前缀
+const isLocalId = (id) => String(id || '').startsWith('addr-')
+
+// 地址管理页结构 → 云端保存载荷
+const toRemotePayload = (item = {}) => ({
+	_id: isLocalId(item.id) ? undefined : item.id,
+	receiver: item.receiver || '',
+	phone: item.phone || '',
+	region: Array.isArray(item.region) ? item.region : [],
+	detail: item.detail || '',
+	unit: item.unit || '',
+	contactPhones: Array.isArray(item.contactPhones) ? item.contactPhones.filter(Boolean) : [],
+	isDefault: Boolean(item.isDefault)
+})
 
 const addresses = ref([])
 const showForm = ref(false)
@@ -186,10 +207,20 @@ onMounted(() => {
 	loadAddresses()
 })
 
-const loadAddresses = () => {
+const loadAddresses = async () => {
+	// 本地缓存秒显
 	const saved = uni.getStorageSync(STORAGE_KEY)
 	addresses.value = Array.isArray(saved) ? saved.map(normalizeAddress) : []
 	ensureOneDefault()
+	// 云端为准
+	try {
+		const list = await getAddressList()
+		addresses.value = (Array.isArray(list) ? list : []).map(normalizeAddress)
+		ensureOneDefault()
+		persistAddresses()
+	} catch (error) {
+		console.warn('load addresses from cloud failed, using local cache:', error)
+	}
 }
 
 const persistAddresses = () => {
@@ -304,7 +335,16 @@ const recognizeAddress = () => {
 		.trim()
 	if (detailLine) form.value.detail = detailLine
 
-	uni.showToast({ title: '已尝试识别', icon: 'success' })
+	const recognized = []
+	if (phoneList[0]) recognized.push('手机号')
+	if (possibleName) recognized.push('收货人')
+	if (unitLine) recognized.push('单位')
+	if (detailLine) recognized.push('详细地址')
+	if (recognized.length) {
+		uni.showToast({ title: `已识别${recognized.join('、')}，请核对`, icon: 'none' })
+	} else {
+		uni.showToast({ title: '未识别到信息，请手动填写', icon: 'none' })
+	}
 }
 
 const validatePhones = () => {
@@ -326,7 +366,7 @@ const validatePhones = () => {
 	return true
 }
 
-const saveAddress = () => {
+const saveAddress = async () => {
 	if (!form.value.receiver.trim() || !form.value.phone || !form.value.detail.trim()) {
 		uni.showToast({ title: '请完善地址信息', icon: 'none' })
 		return
@@ -348,6 +388,7 @@ const saveAddress = () => {
 		updatedAt: now
 	}
 
+	// 乐观更新本地，便于离线可用
 	let next = addresses.value.filter((item) => item.id !== payload.id)
 	if (payload.isDefault) {
 		next = next.map((item) => ({ ...item, isDefault: false }))
@@ -357,20 +398,48 @@ const saveAddress = () => {
 	ensureOneDefault()
 	persistAddresses()
 
-	uni.showToast({ title: '地址已保存', icon: 'success' })
-	setTimeout(() => {
-		showForm.value = false
-		form.value = emptyForm()
-	}, 450)
+	const isEdit = !isLocalId(payload.id)
+	uni.showLoading({ title: '保存中', mask: true })
+	try {
+		if (isEdit) {
+			await updateAddress(toRemotePayload(payload))
+		} else {
+			await addAddress(toRemotePayload(payload))
+		}
+		uni.hideLoading()
+		uni.showToast({ title: '地址已保存', icon: 'success' })
+		await loadAddresses()
+		setTimeout(() => {
+			showForm.value = false
+			form.value = emptyForm()
+		}, 450)
+	} catch (error) {
+		uni.hideLoading()
+		console.warn('save address to cloud failed:', error)
+		uni.showToast({ title: error.message || '云端保存失败，已暂存本机', icon: 'none' })
+		setTimeout(() => {
+			showForm.value = false
+			form.value = emptyForm()
+		}, 800)
+	}
 }
 
-const setDefault = (id) => {
+const setDefault = async (id) => {
+	const target = addresses.value.find((item) => item.id === id)
 	addresses.value = addresses.value.map((item) => ({
 		...item,
 		isDefault: item.id === id
 	}))
 	persistAddresses()
 	uni.showToast({ title: '已设为默认', icon: 'success' })
+
+	if (!target || isLocalId(id)) return
+	try {
+		await updateAddress({ ...toRemotePayload(target), isDefault: true })
+		await loadAddresses()
+	} catch (error) {
+		console.warn('set default cloud sync failed:', error)
+	}
 }
 
 const deleteAddress = (id) => {
@@ -379,7 +448,7 @@ const deleteAddress = (id) => {
 		content: '删除后将无法恢复，确定删除这个地址吗？',
 		confirmText: '删除',
 		confirmColor: '#EF4444',
-		success: (res) => {
+		success: async (res) => {
 			if (!res.confirm) return
 			addresses.value = addresses.value.filter((item) => item.id !== id)
 			ensureOneDefault()
@@ -387,6 +456,14 @@ const deleteAddress = (id) => {
 			showForm.value = false
 			form.value = emptyForm()
 			uni.showToast({ title: '已删除', icon: 'success' })
+
+			if (isLocalId(id)) return
+			try {
+				await removeAddressRemote(id)
+				await loadAddresses()
+			} catch (error) {
+				console.warn('delete address cloud sync failed:', error)
+			}
 		}
 	})
 }

@@ -510,10 +510,12 @@ module.exports = {
       const cur = await db.collection('cicada_customers').doc(id).get()
       const c = cur.data && cur.data[0]
       if (!c) return { code: -1, msg: '客户不存在' }
-      if (!c.user_id) return { code: 0, data: { list: [], total: 0, total_amount: 0 } }
+      // 按 (customer_id 或 user_id) 关联，换绑/历史单都不丢
+      const orFilters = [{ customer_id: id }]
+      if (c.user_id) orFilters.push({ user_id: c.user_id })
 
       const res = await db.collection('cicada_orders')
-        .where({ user_id: c.user_id }).orderBy('create_time', 'desc').limit(200).get()
+        .where(dbCmd.or(orFilters)).orderBy('create_time', 'desc').limit(200).get()
       let totalAmount = 0
       const list = res.data.map(o => {
         const price = Number(o.total_price) || 0
