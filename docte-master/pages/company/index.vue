@@ -88,7 +88,7 @@
 						<view class="icon-cert"><view></view></view>
 						<text>医疗器械质量体系背书</text>
 					</view>
-					<text class="auth-desc">CICADA 产品已取得 ISO13485、CE、FDA 及国内产品注册等资质，覆盖口腔医疗设备研发、生产与合规交付关键环节。</text>
+					<text class="auth-desc">CICADA 始终坚持医疗器械质量体系标准，覆盖口腔医疗设备研发、生产与合规交付关键环节。具体资质证照以下方公示为准。</text>
 						<view v-if="qualifications.length" class="qual-list">
 							<view v-for="(item, index) in qualifications" :key="index" class="qual-item">
 								<text class="qual-name">{{ item.name }}</text>
@@ -135,8 +135,6 @@
 			<view class="compliance-links">
 				<text class="compliance-link tap" @click="openPolicy('privacy')">隐私政策</text>
 				<text class="compliance-divider">·</text>
-				<text class="compliance-link tap" @click="openPolicy('data')">信息收集说明</text>
-				<text class="compliance-divider">·</text>
 				<text class="compliance-link tap" @click="openPolicy('cancellation')">账号注销规则</text>
 			</view>
 		</view>
@@ -159,7 +157,7 @@ import { cicadaAssets } from '@/config/cicada-assets'
 import { getCompliance } from '@/api/content.js'
 
 const qualifications = ref([])
-const complianceDocs = ref({ privacyPolicy: '', dataCollectionNotice: '', cancellationPolicy: '' })
+const complianceDocs = ref({ privacyPolicy: '', cancellationPolicy: '' })
 const policyVisible = ref(false)
 const policyTitle = ref('')
 const policyContent = ref('')
@@ -170,7 +168,6 @@ onMounted(async () => {
 		qualifications.value = Array.isArray(data.qualifications) ? data.qualifications : []
 		complianceDocs.value = {
 			privacyPolicy: data.privacyPolicy || '',
-			dataCollectionNotice: data.dataCollectionNotice || '',
 			cancellationPolicy: data.cancellationPolicy || ''
 		}
 	} catch (e) {
@@ -181,7 +178,6 @@ onMounted(async () => {
 const openPolicy = (type) => {
 	const map = {
 		privacy: { title: '隐私政策', content: complianceDocs.value.privacyPolicy },
-		data: { title: '信息收集说明', content: complianceDocs.value.dataCollectionNotice },
 		cancellation: { title: '账号注销规则', content: complianceDocs.value.cancellationPolicy }
 	}
 	const target = map[type] || map.privacy

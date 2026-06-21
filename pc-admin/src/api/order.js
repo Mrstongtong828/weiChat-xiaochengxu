@@ -12,6 +12,7 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     deviceModel: filters.deviceModel || '',
     invoiceStatus: filters.invoiceStatus || '',
     todoType: filters.todoType || '',
+    slaLevel: filters.slaLevel || '',
     responseMode: filters.responseMode || 'array'
   })
 }
@@ -100,6 +101,16 @@ export const updatePaymentStatus = (token, orderId, status) => {
     token,
     order_id: orderId,
     status
+  })
+}
+
+// 微信支付退款（限 admin/finance）。amount 为退款金额(元)，留空则全额退款
+export const refundOrderPayment = (token, orderId, reason = '', amount) => {
+  return request.post(`${API_BASE.adminOrder}/refundOrderPayment`, {
+    token,
+    order_id: orderId,
+    reason,
+    amount
   })
 }
 

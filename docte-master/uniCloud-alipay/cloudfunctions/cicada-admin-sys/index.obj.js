@@ -679,6 +679,33 @@ module.exports = {
     }
   },
 
+  // 绑定 / 改绑 / 解绑投诉关联的工单（rel_order_no）。传空 order_no 视为解绑。
+  async linkFeedbackOrder(params) {
+    try {
+      const { token, id, order_no } = getRequestData(this, params)
+      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const feedback = await loadFeedback(id)
+      const targetOrderNo = fbText(order_no, 40)
+
+      // 绑定时校验工单确实存在，避免绑定到不存在的工单号
+      if (targetOrderNo) {
+        const orderRes = await db.collection('cicada_orders').where({ order_no: targetOrderNo }).limit(1).get()
+        if (!orderRes.data || !orderRes.data.length) return { code: -1, msg: '关联工单不存在，请核对工单号' }
+      }
+
+      await db.collection('cicada_feedbacks').doc(feedback._id).update({
+        rel_order_no: targetOrderNo,
+        update_time: Date.now()
+      })
+      await writeFeedbackEvent(operator, feedback, 'feedback_link_order',
+        { rel_order_no: feedback.rel_order_no || '' },
+        { rel_order_no: targetOrderNo })
+      return { code: 0, msg: targetOrderNo ? '已关联工单' : '已解除工单关联' }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 处理记录 + 官方回复（回复对客户可见）
   async replyFeedback(params) {
     try {
@@ -819,7 +846,8 @@ module.exports = {
       } else if (this.params) {
         ({ token } = this.params)
       }
-      await verifyAdminToken(token, ['admin', 'engineer'])
+      // 设置均为展示类配置（政策/打印模板/资质/小程序二维码等，无密钥），全体员工可读；写入仍限 admin
+      await verifyAdminToken(token, STAFF_ROLES)
 
       const res = await db.collection('cicada_settings').get()
       const settings = {}

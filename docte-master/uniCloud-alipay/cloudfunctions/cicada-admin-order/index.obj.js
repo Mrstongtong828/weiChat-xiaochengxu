@@ -1,5 +1,7 @@
 const db = uniCloud.database()
 const dbCmd = db.command
+const crypto = require('crypto')
+const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 
 function createWorkflowFallback() {
   const ORDER_STATUS = ['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled']
@@ -151,6 +153,59 @@ function normalizePage(page, pageSize) {
 
 const ADMIN_ORDER_LIST_BATCH_SIZE = 200
 const ADMIN_ORDER_FILTER_SCAN_LIMIT = Number(process.env.ADMIN_ORDER_FILTER_SCAN_LIMIT || 2000)
+const SLA_STATUS_CONFIG = {
+  pending: { thresholdHours: 24, title: '待签收', action: '确认客户寄入物流或催寄' },
+  sent: { thresholdHours: 24, title: '运输中', action: '跟进物流签收' },
+  received: { thresholdHours: 24, title: '已签收', action: '安排检测并出报价' },
+  inspecting: { thresholdHours: 48, title: '检测中', action: '推进检测结论' },
+  fixing: { thresholdHours: 72, title: '处理中', action: '推进维修或回寄' },
+  shipped: { thresholdHours: 72, title: '已回寄', action: '确认客户收货并结单' }
+}
+
+function getSlaInfo(order = {}, now = Date.now()) {
+  const status = normalizeText(order.status)
+  const config = SLA_STATUS_CONFIG[status]
+  const since = Number(order.status_enter_time || order.status_update_time || order.update_time || order.create_time || 0) || 0
+  if (!config || !since || ['completed', 'cancelled'].includes(status)) {
+    return {
+      tracked: Boolean(config),
+      status,
+      level: 'normal',
+      overdue: false,
+      dwell_hours: since ? Math.max(0, Math.floor((now - since) / 36e5)) : 0,
+      threshold_hours: config ? config.thresholdHours : 0,
+      since,
+      title: config ? config.title : '',
+      action: config ? config.action : ''
+    }
+  }
+
+  const dwellHours = Math.max(0, Math.floor((now - since) / 36e5))
+  let level = 'normal'
+  if (dwellHours >= config.thresholdHours * 2) level = 'critical'
+  else if (dwellHours >= config.thresholdHours) level = 'warning'
+
+  return {
+    tracked: true,
+    status,
+    level,
+    overdue: level !== 'normal',
+    dwell_hours: dwellHours,
+    threshold_hours: config.thresholdHours,
+    since,
+    title: config.title,
+    action: config.action
+  }
+}
+
+function matchesSlaFilter(order = {}, slaLevel = '') {
+  const level = normalizeText(slaLevel)
+  if (!level) return true
+  const info = order.sla_info || getSlaInfo(order)
+  if (level === 'tracked') return Boolean(info.tracked)
+  if (level === 'overdue') return Boolean(info.overdue)
+  return info.level === level
+}
 
 function getDirectTodoMatchCond(todoType = '') {
   const type = normalizeText(todoType)
@@ -230,13 +285,26 @@ async function enrichAdminOrderForList(order = {}, currentAdmin = {}) {
     sn: itemDetail.sn || '',
     buy_date: itemDetail.buy_date || '',
     fix_solution: itemDetail.fix_solution || '',
-    itemsList: order.itemsList || []
+    itemsList: order.itemsList || [],
+    sla_info: getSlaInfo(order)
   }, currentAdmin)
 }
 
+// 手机号脱敏：138****8888，与 cicada-admin-customer 的 maskPhone 规则保持一致
+function maskPhone(phone) {
+  const p = normalizeText(phone)
+  if (!p) return ''
+  if (/^\d{11}$/.test(p)) return p.replace(/(\d{3})\d{4}(\d{4})/, '$1****$2')
+  if (p.length >= 7) return p.slice(0, 3) + '****' + p.slice(-2)
+  return '****'
+}
+
 // 批量解析工单关联的 CRM 客户（优先 customer_id，回退 user_id），附加客户摘要供列表展示
-async function attachCustomerSummaries(orders = []) {
+// 安全：CRM 主手机号属客户档案敏感信息，仅 admin 可见完整号（与 CRM view_phone=admin-only 对齐），
+// 其余角色（engineer/finance/support）一律脱敏，避免工单列表旁路 CRM 脱敏策略。
+async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
   if (!Array.isArray(orders) || !orders.length) return
+  const canViewFullPhone = String(currentAdmin && currentAdmin.role || '').toLowerCase() === 'admin'
   const customerIds = [...new Set(orders.map(o => normalizeText(o.customer_id)).filter(Boolean))]
   const userIds = [...new Set(orders.filter(o => !normalizeText(o.customer_id)).map(o => normalizeText(o.user_id)).filter(Boolean))]
   const byId = {}
@@ -256,22 +324,23 @@ async function attachCustomerSummaries(orders = []) {
   orders.forEach(o => {
     const c = byId[normalizeText(o.customer_id)] || byUser[normalizeText(o.user_id)] || null
     if (!c) return
+    const displayPhone = canViewFullPhone ? (c.phone || '') : maskPhone(c.phone)
     o.customer = {
       id: c._id,
       name: c.name || '',
-      phone: c.phone || '',
+      phone: displayPhone,
       customer_type: c.customer_type || '',
       tags: Array.isArray(c.tags) ? c.tags : []
     }
     o.customer_name = c.name || ''
-    o.customer_phone = c.phone || ''
+    o.customer_phone = displayPhone
     o.customer_type = c.customer_type || ''
   })
 }
 
 async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
   const enriched = await Promise.all(rawOrders.map(order => enrichAdminOrderForList(order, currentAdmin)))
-  await attachCustomerSummaries(enriched)
+  await attachCustomerSummaries(enriched, currentAdmin)
   return enriched
 }
 
@@ -323,6 +392,77 @@ function getWechatAppConfig() {
   const secret = getEnvValue('WX_SECRET', 'WECHAT_SECRET')
   if (!appId || !secret) throw new Error('未配置 WX_APPID/WX_SECRET')
   return { appId, secret }
+}
+
+// ============== 微信支付 v3 退款（与 cicada-client-order 的签名实现一致）==============
+function normalizeWxPrivateKey(value = '') {
+  return String(value || '').trim().replace(/\\n/g, '\n')
+}
+
+function getWechatPayPrivateKey() {
+  const base64Key = getEnvValue('WX_PAY_PRIVATE_KEY_BASE64', 'WXPAY_PRIVATE_KEY_BASE64', 'WECHAT_PAY_PRIVATE_KEY_BASE64')
+  if (base64Key) return Buffer.from(base64Key, 'base64').toString('utf8')
+  return normalizeWxPrivateKey(getEnvValue('WX_PAY_PRIVATE_KEY', 'WXPAY_PRIVATE_KEY', 'WECHAT_PAY_PRIVATE_KEY'))
+}
+
+function getWechatPayConfig() {
+  const config = {
+    appId: getEnvValue('WX_PAY_APPID', 'WXPAY_APPID', 'WECHAT_PAY_APPID', 'WX_APPID'),
+    mchId: getEnvValue('WX_PAY_MCH_ID', 'WXPAY_MCH_ID', 'WECHAT_PAY_MCH_ID'),
+    serialNo: getEnvValue('WX_PAY_SERIAL_NO', 'WXPAY_SERIAL_NO', 'WECHAT_PAY_SERIAL_NO'),
+    notifyUrl: getEnvValue('WX_PAY_REFUND_NOTIFY_URL', 'WX_PAY_NOTIFY_URL', 'WXPAY_NOTIFY_URL', 'WECHAT_PAY_NOTIFY_URL'),
+    privateKey: getWechatPayPrivateKey()
+  }
+  const missing = []
+  if (!config.mchId) missing.push('WX_PAY_MCH_ID')
+  if (!config.serialNo) missing.push('WX_PAY_SERIAL_NO')
+  if (!config.privateKey) missing.push('WX_PAY_PRIVATE_KEY 或 WX_PAY_PRIVATE_KEY_BASE64')
+  if (missing.length) throw new Error(`微信支付暂未配置：${missing.join('、')}`)
+  return config
+}
+
+function wxRandomNonce(size = 16) {
+  return crypto.randomBytes(size).toString('hex')
+}
+
+function buildWechatPayAuthorization(method, url, body, config) {
+  const timestamp = String(Math.floor(Date.now() / 1000))
+  const nonce = wxRandomNonce()
+  const message = `${method}\n${url}\n${timestamp}\n${nonce}\n${body}\n`
+  const signer = crypto.createSign('RSA-SHA256')
+  signer.update(message)
+  signer.end()
+  const signature = signer.sign(config.privateKey, 'base64')
+  return `WECHATPAY2-SHA256-RSA2048 mchid="${config.mchId}",nonce_str="${nonce}",signature="${signature}",timestamp="${timestamp}",serial_no="${config.serialNo}"`
+}
+
+async function requestWechatPay(method, url, body, config) {
+  const bodyText = body ? JSON.stringify(body) : ''
+  const res = await uniCloud.httpclient.request(`${WECHAT_PAY_API_BASE}${url}`, {
+    method,
+    data: bodyText || undefined,
+    dataType: 'json',
+    headers: {
+      Authorization: buildWechatPayAuthorization(method, url, bodyText, config),
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
+    }
+  })
+  if (res.status < 200 || res.status >= 300) {
+    const message = res.data && (res.data.message || res.data.code) ? `${res.data.message || res.data.code}` : `微信退款请求失败(${res.status})`
+    throw new Error(message)
+  }
+  return res.data || {}
+}
+
+function getOrderPaidAmountFen(order = {}) {
+  const yuan = Number(order.total_price || order.totalPrice || 0) || 0
+  return Math.round(yuan * 100)
+}
+
+function genRefundNo(order = {}) {
+  const base = String(order.order_no || order._id || `DR${Date.now()}`).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)
+  return `${base}R${wxRandomNonce(3).toUpperCase()}`
 }
 
 async function getWechatAccessToken() {
@@ -853,10 +993,11 @@ function normalizePartInput(part = {}) {
   }
 }
 
-function mapPartForClient(part = {}) {
+// canViewCost：采购成本属敏感商业数据，仅 admin/finance 可见；engineer 等角色不下发成本字段
+function mapPartForClient(part = {}, canViewCost = true) {
   const stock = Number(part.stock || 0) || 0
   const warningThreshold = Number(part.warning_threshold || 0) || 0
-  return {
+  const mapped = {
     ...part,
     partCode: part.part_code || '',
     partName: part.part_name || '',
@@ -866,6 +1007,16 @@ function mapPartForClient(part = {}) {
     warningThreshold,
     lowStock: warningThreshold > 0 && stock <= warningThreshold
   }
+  if (!canViewCost) {
+    delete mapped.purchase_cost
+    delete mapped.purchaseCost
+  }
+  return mapped
+}
+
+// 是否允许查看配件采购成本
+function canViewPartCost(admin = {}) {
+  return ['admin', 'finance'].includes(String(admin && admin.role || '').toLowerCase())
 }
 
 function getQuoteInventoryLines(order = {}) {
@@ -890,6 +1041,17 @@ function getQuoteInventoryLines(order = {}) {
   return [...merged.values()].filter(item => item.quantity > 0)
 }
 
+// 报价里是否填写了配件（无论是否绑定库存），用于区分"无配件"与"有配件但未绑库存"
+function quoteHasAnyParts(order = {}) {
+  const detail = order.quote_detail || order.quoteDetail || {}
+  const parts = Array.isArray(detail.parts) ? detail.parts : []
+  return parts.some(item => {
+    const name = normalizeText(item && (item.name || item.part_name || item.partName))
+    const qty = Math.max(Number(item && item.quantity || 0) || 0, 0)
+    return name && qty > 0
+  })
+}
+
 async function findInventoryPart(line = {}) {
   if (line.part_id) {
     const res = await db.collection('cicada_parts').doc(line.part_id).get()
@@ -911,6 +1073,12 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
   }
   const lines = getQuoteInventoryLines(order)
   if (!lines.length) {
+    // 区分"报价无配件"与"报价含配件但未绑定库存"——后者属需人工核对的告警，不能静默跳过
+    if (quoteHasAnyParts(order)) {
+      const warning = '报价包含配件但未绑定库存配件，库存未自动扣减，请在库存管理中核对领用'
+      if (required) throw new Error(warning)
+      return { skipped: true, warning: true, reason: warning, flows: [] }
+    }
     return { skipped: true, reason: '报价未绑定库存配件', flows: [] }
   }
 
@@ -1292,6 +1460,7 @@ module.exports = {
         deviceModel = '',
         invoiceStatus = '',
         todoType = '',
+        slaLevel = '',
         responseMode = 'array'
       } = requestParams
 
@@ -1301,8 +1470,9 @@ module.exports = {
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
       const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
+      const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
-      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus
+      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedSlaLevel
 
       let list = []
       let total = 0
@@ -1351,7 +1521,8 @@ module.exports = {
           return matchesTodoType(order, todoType) &&
             (!normalizedKeyword || searchableText.includes(normalizedKeyword)) &&
             (!normalizedDeviceModel || productModels.includes(normalizedDeviceModel)) &&
-            (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus)
+            (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
+            matchesSlaFilter(order, normalizedSlaLevel)
         })
 
         total = filteredOrders.length
@@ -1435,7 +1606,8 @@ module.exports = {
 
   async listParts(params) {
     try {
-      requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const showCost = canViewPartCost(currentAdmin)
       const { keyword = '', stockStatus = '', enabled, page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
@@ -1455,7 +1627,7 @@ module.exports = {
       })
       const total = list.length
       const start = (pagination.page - 1) * pagination.pageSize
-      list = list.slice(start, start + pagination.pageSize).map(mapPartForClient)
+      list = list.slice(start, start + pagination.pageSize).map(part => mapPartForClient(part, showCost))
       return { code: 0, data: { list, total, page: pagination.page, pageSize: pagination.pageSize } }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -1465,6 +1637,7 @@ module.exports = {
   async savePart(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const showCost = canViewPartCost(currentAdmin)
       const { part = {} } = pickParam(this, params)
       const data = normalizePartInput(part)
       if (!data.part_code) return { code: -1, msg: '缺少配件编码' }
@@ -1476,6 +1649,8 @@ module.exports = {
         const oldRes = await db.collection('cicada_parts').doc(partId).get()
         const oldPart = oldRes.data && oldRes.data[0]
         if (!oldPart) return { code: -1, msg: '配件不存在' }
+        // 非 admin/finance 不可修改采购成本：保留原值，防止越权篡改成本
+        if (!showCost) data.purchase_cost = Number(oldPart.purchase_cost || 0)
         const updateData = { ...data, update_time: now }
         await db.collection('cicada_parts').doc(partId).update(updateData)
         if (Number(oldPart.stock || 0) !== Number(data.stock || 0)) {
@@ -1493,7 +1668,7 @@ module.exports = {
             create_time: now
           })
         }
-        return { code: 0, data: { _id: partId, ...updateData } }
+        return { code: 0, data: mapPartForClient({ _id: partId, ...updateData }, showCost) }
       }
 
       const dup = await db.collection('cicada_parts').where({ part_code: data.part_code }).limit(1).get()
@@ -1519,7 +1694,7 @@ module.exports = {
           create_time: now
         })
       }
-      return { code: 0, data: { _id: addRes.id, ...createData } }
+      return { code: 0, data: mapPartForClient({ _id: addRes.id, ...createData }, showCost) }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -2198,7 +2373,105 @@ module.exports = {
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
         await sendOrderSubscription({ ...order, ...updateData }, 'payment_confirmed', '付款已确认')
       }
-      return { code: 0, data: { ...updateData, inventoryResult } }
+      // 库存未自动扣减的告警（报价含配件但未绑定库存）随响应返回，供前端提示运营核对
+      const msg = inventoryResult && inventoryResult.warning ? inventoryResult.reason : ''
+      return { code: 0, msg, data: { ...updateData, inventoryResult } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 微信支付退款（限 admin/finance）。支持全额或部分退款，幂等防重复，写审计。
+  async refundOrderPayment(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'confirm_payment')
+      const { order_id, reason = '', amount } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+
+      const found = await db.collection('cicada_orders').doc(order_id).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+
+      // 前置校验：必须是已用微信支付成功的工单
+      if (order.payment_status !== 'paid') return { code: -1, msg: '该工单未完成支付，无法退款' }
+      if (order.payment_method !== 'wechat_pay') return { code: -1, msg: '仅支持微信支付订单在线退款，其他方式请线下处理' }
+      if (order.refund_status === 'refunded') return { code: -1, msg: '该工单已退款，请勿重复操作' }
+      if (order.refund_status === 'processing') return { code: -1, msg: '退款处理中，请稍后查询结果' }
+
+      const outTradeNo = String(order.wechat_pay_out_trade_no || '').trim()
+      const transactionId = String(order.wechat_pay_transaction_id || '').trim()
+      if (!outTradeNo && !transactionId) return { code: -1, msg: '缺少微信支付交易号，无法退款' }
+
+      const totalFen = getOrderPaidAmountFen(order)
+      if (totalFen <= 0) return { code: -1, msg: '无法确定原支付金额，请核对工单' }
+      // amount 为可选的退款金额（元），不传则全额退款
+      const refundFen = amount === undefined || amount === '' || amount === null
+        ? totalFen
+        : Math.round((Number(amount) || 0) * 100)
+      if (!(refundFen > 0) || refundFen > totalFen) return { code: -1, msg: '退款金额不合法（需大于0且不超过原支付金额）' }
+
+      const config = getWechatPayConfig()
+      const outRefundNo = genRefundNo(order)
+      const reasonText = String(reason || '').trim().slice(0, 80)
+      const body = {
+        out_refund_no: outRefundNo,
+        reason: reasonText || '售后退款',
+        amount: { refund: refundFen, total: totalFen, currency: 'CNY' }
+      }
+      if (transactionId) body.transaction_id = transactionId
+      else body.out_trade_no = outTradeNo
+      if (config.notifyUrl) body.notify_url = config.notifyUrl
+
+      // 先标记处理中，避免并发重复退款
+      const now = Date.now()
+      await db.collection('cicada_orders').doc(order_id).update({ refund_status: 'processing', update_time: now })
+
+      let result
+      try {
+        result = await requestWechatPay('POST', '/v3/refund/domestic/refunds', body, config)
+      } catch (err) {
+        // 退款下单失败：回滚处理中标记，便于重试
+        await db.collection('cicada_orders').doc(order_id).update({ refund_status: order.refund_status || '', update_time: Date.now() })
+        return { code: -1, msg: `微信退款失败：${err.message}` }
+      }
+
+      // SUCCESS=即时退款成功；PROCESSING=受理中（异步到账）
+      const wxStatus = String(result.status || '').toUpperCase()
+      const isDone = wxStatus === 'SUCCESS'
+      const finishedAt = Date.now()
+      const fullRefund = refundFen >= totalFen
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const updateData = {
+        refund_status: isDone ? 'refunded' : 'processing',
+        refund_amount_fen: refundFen,
+        refund_out_no: outRefundNo,
+        wechat_refund_id: result.refund_id || '',
+        refund_reason: reasonText,
+        refund_time: isDone ? finishedAt : 0,
+        update_time: finishedAt,
+        timeline: [
+          ...timeline,
+          {
+            title: isDone ? '已退款' : '退款受理中',
+            desc: `${fullRefund ? '全额' : '部分'}退款 ¥${(refundFen / 100).toFixed(2)}${reasonText ? `（${reasonText}）` : ''}`,
+            time: finishedAt,
+            done: isDone
+          }
+        ]
+      }
+      // 全额退款且即时成功时，同步把付款状态回退为已退款
+      if (isDone && fullRefund) updateData.payment_status = 'refunded'
+
+      await db.collection('cicada_orders').doc(order_id).update(updateData)
+      await logOrderEvent({
+        order,
+        action: 'refund_payment',
+        actor: currentAdmin,
+        before: { payment_status: order.payment_status, refund_status: order.refund_status || '' },
+        after: { refund_status: updateData.refund_status, refund_amount_fen: refundFen, out_refund_no: outRefundNo, wx_status: wxStatus }
+      })
+
+      return { code: 0, msg: isDone ? '退款成功' : '退款已受理，到账以微信结果为准', data: { ...updateData, wx_status: wxStatus } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

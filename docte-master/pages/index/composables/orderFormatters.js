@@ -90,6 +90,8 @@ export const normalizeQuoteDetail = (item = {}) => {
 
 export const sumQuoteFee = (items = [], key) => items.reduce((total, item) => total + (Number(item[key]) || 0), 0)
 
+// 注意：部分平台 chooseImage 不返回 size，此时视为未超限以免误拦正常上传；
+// 文件大小的最终兜底由云端上传接口的服务端限制保证。
 export const isFileTooLarge = (file = {}, limit) => Number(file.size || 0) > limit
 
 export const formatFileSize = (size) => `${Math.round(size / 1024 / 1024)}MB`

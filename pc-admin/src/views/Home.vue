@@ -6,7 +6,7 @@
         <p>高效 · 精准 · 数字化服务体系</p>
         <div class="hero-actions">
           <button type="button" @click="navigateTo('workorder', '')">处理工单</button>
-          <button type="button" @click="scrollToSummary">运营概览</button>
+          <button type="button" @click="navigateTo('settlement', '')">查看结算</button>
         </div>
       </div>
     </section>
@@ -46,10 +46,6 @@
         </ShadCard>
       </div>
     </section>
-
-    <section id="operation-summary" class="home-summary-section">
-      <Summary />
-    </section>
   </div>
 </template>
 
@@ -61,7 +57,6 @@ import { getStatistics, getTodoSummary } from '../api/order.js'
 import { getFeedbackStats } from '../api/admin.js'
 import ShadCard from '../components/ui/ShadCard.vue'
 import ShadBadge from '../components/ui/ShadBadge.vue'
-import Summary from './Summary.vue'
 
 const router = useRouter()
 const stats = ref({ pendingCount: 0, todayCount: 0, unreadCount: 0 })
@@ -172,10 +167,6 @@ const navigateTodo = (todoType) => {
   router.push({ path: '/workorder', query: { todo: todoType } })
 }
 
-const scrollToSummary = () => {
-  document.getElementById('operation-summary')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 onMounted(() => {
   loadStats()
 })
@@ -248,16 +239,6 @@ onMounted(() => {
   color: #2563eb;
   font-size: 14px;
   font-weight: 700;
-}
-.home-summary-section {
-  margin-top: 8px;
-  padding-top: 6px;
-}
-.home-summary-section :deep(.summary-header) {
-  padding-top: 0;
-}
-.home-summary-section :deep(.page-title) {
-  font-size: 24px;
 }
 @media screen and (max-width: 900px) {
   .hero-card { min-height: 170px; }

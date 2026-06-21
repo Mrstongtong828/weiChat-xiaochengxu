@@ -13,11 +13,9 @@
         <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><span>工作台首页</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><span>报修工单管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('settlement')" index="settlement"><el-icon><Money /></el-icon><span>结算管理</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><span>配件库存管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><span>客户管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><span>产品故障知识库</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><span>投诉与建议</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('audit')" index="audit"><el-icon><Tickets /></el-icon><span>操作审计日志</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('users')" index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><span>小程序配置</span></el-menu-item>
       </el-menu>
@@ -42,7 +40,7 @@
           <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
         </div>
         <div class="header-actions">
-          <el-button type="primary" plain round size="small" class="visit-miniapp-btn"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
+          <el-button type="primary" plain round size="small" class="visit-miniapp-btn" @click="openMiniappDialog"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
           <el-dropdown>
             <el-avatar :size="40" class="admin-avatar" src="https://dummyimage.com/80x80/e8f3ff/165DFF.png&text=Admin"></el-avatar>
             <template #dropdown>
@@ -79,6 +77,22 @@
       </template>
     </el-drawer>
 
+    <el-dialog title="访问小程序（扫码预览）" v-model="miniappDialogVisible" width="380px" align-center>
+      <div v-loading="miniappLoading" class="miniapp-qr-box">
+        <template v-if="miniappQrUrl">
+          <img :src="miniappQrUrl" class="miniapp-qr-img" alt="小程序二维码" />
+          <p class="miniapp-qr-tip">请用<strong>微信</strong>扫描上方二维码，在手机上预览客户端小程序。</p>
+          <p class="miniapp-qr-note">体验版需先在微信公众平台「成员管理」把你的微信加为体验成员；正式发布后此处可替换为正式版小程序码。</p>
+        </template>
+        <template v-else-if="!miniappLoading">
+          <el-empty description="尚未配置小程序二维码">
+            <p class="miniapp-qr-note">请在「系统设置 → 隐私与合规 → 小程序体验版二维码」上传后，此处即可扫码预览。</p>
+            <el-button v-if="canManageSettings" type="primary" @click="goSettings">前往设置上传</el-button>
+          </el-empty>
+        </template>
+      </div>
+    </el-dialog>
+
     <el-dialog title="修改登录密码" v-model="pwdDialogVisible" width="400px" align-center>
       <el-form :model="pwdForm" label-width="100px">
         <el-form-item label="原密码"><el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="请输入原密码"></el-input></el-form-item>
@@ -97,8 +111,8 @@
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { changeMyPassword } from '../../api/admin.js'
-import { canAccessMenu } from '../../config/menuAccess.js'
+import { changeMyPassword, getSettings, getTempFileURL } from '../../api/admin.js'
+import { canAccessMenu, getCurrentAdminRole } from '../../config/menuAccess.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -108,14 +122,11 @@ const sidebarOpen = ref(false)
 const menuTitles = {
   home: '工作台首页',
   workorder: '报修工单处理中心',
-  inventory: '配件库存管理',
   settlement: '结算管理',
   faultdb: '产品分类与故障预设',
   users: '用户管理',
   settings: '小程序图文及政策配置',
-  feedback: '客户投诉与建议列表',
-  summary: '运营汇总看板',
-  audit: '工单操作审计日志（合规备查）'
+  feedback: '客户投诉与建议列表'
 }
 
 const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
@@ -127,6 +138,43 @@ const profileForm = reactive({ username: '', realName: '', phone: '', role: '' }
 const pwdDialogVisible = ref(false)
 const pwdSaving = ref(false)
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+
+// 访问小程序（扫码预览）
+const miniappDialogVisible = ref(false)
+const miniappLoading = ref(false)
+const miniappQrUrl = ref('')
+let miniappQrLoaded = false
+const canManageSettings = ['superadmin', 'admin'].includes(getCurrentAdminRole())
+const isWebUrl = (v) => /^https?:\/\//i.test(String(v || ''))
+
+const openMiniappDialog = async () => {
+  miniappDialogVisible.value = true
+  if (miniappQrLoaded) return // 已加载过则直接复用
+  miniappLoading.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const settings = await getSettings(token)
+    const qr = (settings && settings.miniapp_preview_qr) || ''
+    if (qr && isWebUrl(qr)) {
+      miniappQrUrl.value = qr
+    } else if (qr) {
+      const map = await getTempFileURL(token, [qr])
+      miniappQrUrl.value = (map && map[qr]) || ''
+    } else {
+      miniappQrUrl.value = ''
+    }
+    miniappQrLoaded = true
+  } catch (error) {
+    ElMessage.error(error.message || '获取小程序二维码失败')
+  } finally {
+    miniappLoading.value = false
+  }
+}
+
+const goSettings = () => {
+  miniappDialogVisible.value = false
+  router.push('/settings')
+}
 
 const checkMobile = () => {
   isMobile.value = window.innerWidth <= 768
@@ -426,6 +474,10 @@ onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
 .breadcrumb-title { font-size: 24px; font-weight: 800; color: hsl(var(--foreground)); }
 .visit-miniapp-btn { height: 28px; padding: 0 12px; border-color: #bfdbfe; background: #eff6ff; }
 .visit-miniapp-btn :deep(span) { display: inline-flex; align-items: center; gap: 4px; color: #2563eb; }
+.miniapp-qr-box { min-height: 180px; text-align: center; }
+.miniapp-qr-img { width: 220px; height: 220px; object-fit: contain; border: 1px solid #eef2f7; border-radius: 8px; padding: 8px; background: #fff; }
+.miniapp-qr-tip { margin: 14px 0 4px; font-size: 14px; color: #1f2937; }
+.miniapp-qr-note { margin: 4px 0 0; font-size: 12px; color: #94a3b8; line-height: 1.6; }
 .admin-avatar { cursor: pointer; border: 1px solid #bfdbfe; background: #eff6ff; }
 .content-area { flex: 1; overflow-y: auto; padding: 30px 28px 44px; }
 .content-wrapper { width: 100%; max-width: none; margin: 0; }

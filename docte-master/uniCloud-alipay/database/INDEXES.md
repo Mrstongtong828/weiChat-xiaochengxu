@@ -32,7 +32,7 @@ Create these indexes in the uniCloud database console before production traffic.
 - `user_id, create_time desc`
 - `user_id, sn`
 - `customer_id, create_time desc`
-- `sn`
+- `sn` — **UNIQUE**（同一物理设备序列号全局唯一，防止跨账号重复绑定；建唯一索引前需先清洗存量重复 SN）
 
 ## cicada_customers
 

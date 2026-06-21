@@ -58,6 +58,22 @@ export const logout = async () => {
   return { success: true }
 }
 
+// 用户自助注销账号：调用后端软删除+脱敏，成功后清除本地登录态
+export const cancelAccount = async () => {
+  const cloudObject = getCloudObject()
+  const token = getToken()
+  if (!token) {
+    clearAuthSession()
+    throw new Error('未登录')
+  }
+  if (typeof cloudObject.cancelAccount !== 'function') {
+    throw new Error('云端注销方法未部署，请重新部署 cicada-client-user')
+  }
+  await cloudObject.cancelAccount({ token, confirm: true }).then(unwrapCloudResult)
+  clearAuthSession()
+  return { success: true }
+}
+
 export const getUserInfo = async () => {
   const token = getToken()
   if (!token) {

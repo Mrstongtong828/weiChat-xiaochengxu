@@ -311,6 +311,11 @@ module.exports = {
   // 小程序端统一走 login({ code, phoneCode })：code 换 openid、phoneCode 换真实手机号。
 
   async devLogin() {
+    // 安全护栏：仅在显式开启 ALLOW_DEV_LOGIN=1 的非生产环境可用。
+    // 生产部署（NODE_ENV=production 或未显式开启）一律拒绝，避免免授权登录后门。
+    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_DEV_LOGIN !== '1') {
+      return { code: -1, message: '该接口已禁用' }
+    }
     try {
       const data = await saveWechatUserByPhone('13800138000', {
         openid: 'dev_test_openid',
@@ -333,6 +338,54 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       return { code: 0, data: buildUserInfo(user, user._id) }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 用户自助注销账号（合规：软删除 + 脱敏 + 解绑微信，不物理删除以保留工单/审计可追溯）
+  async cancelAccount({ token, confirm }) {
+    try {
+      const user = await verifyUserToken(token)
+      // 二次确认，避免误触
+      if (confirm !== true && confirm !== 'true' && confirm !== 1) {
+        return { code: -1, msg: '请确认后再注销账号' }
+      }
+      const now = Date.now()
+      // 注销用户：禁用 + 清除登录态 + 脱敏手机号/openid（清空 phone 以便同号可重新注册）
+      await db.collection('cicada_users').doc(user._id).update({
+        disabled: true,
+        status: 'cancelled',
+        phone: '',
+        openid: '',
+        token: '',
+        token_expire: 0,
+        cancelled_at: now,
+        update_time: now
+      })
+      // 同步解绑/脱敏关联的客户档案，防御式：失败不阻断注销主流程
+      try {
+        const matchOr = []
+        if (user._id) matchOr.push({ user_id: user._id })
+        if (user.openid) matchOr.push({ openid: user.openid })
+        if (matchOr.length) {
+          const found = await db.collection('cicada_customers').where(db.command.or(matchOr)).limit(1).get()
+          const customer = found.data && found.data[0]
+          if (customer && customer.status !== 'cancelled') {
+            await db.collection('cicada_customers').doc(customer._id).update({
+              status: 'cancelled',
+              phone: '',
+              openid: '',
+              user_id: '',
+              cancelled_at: now,
+              update_time: now
+            })
+          }
+        }
+      } catch (e) {
+        // 客户档案解绑失败不影响账号注销
+      }
+      return { code: 0, msg: '账号已注销' }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -384,12 +437,36 @@ module.exports = {
       const col = db.collection('cicada_user_devices')
       if (action === 'add') {
         const data = pickFields(device, ['product_name', 'sn', 'buy_date', 'warranty_status'])
+        const sn = normalizeText(data.sn)
+        if (!sn) return { code: -1, msg: '请填写设备序列号(SN)' }
+        data.sn = sn
+        // SN 全局查重：同一物理设备不应被多个账号重复绑定，避免设备台账脏数据
+        const dup = await col.where({ sn }).limit(1).get()
+        const dupDevice = dup.data && dup.data[0]
+        if (dupDevice) {
+          return dupDevice.user_id === userId
+            ? { code: -1, msg: '该设备已登记，请勿重复添加' }
+            : { code: -1, msg: '该设备序列号已被其他账号绑定，如有疑问请联系客服' }
+        }
         const res = await col.add({ ...data, user_id: userId, create_time: Date.now() })
         return { code: 0, data: { id: res.id } }
       } else if (action === 'edit') {
         if (!device || !device._id) return { code: -1, msg: '缺少设备ID' }
         const data = pickFields(device, ['product_name', 'sn', 'buy_date', 'warranty_status'])
         if (!Object.keys(data).length) return { code: -1, msg: '没有可更新的设备字段' }
+        // 若修改 SN，需保证非空且不与其他设备（含他人）重复
+        if (Object.prototype.hasOwnProperty.call(data, 'sn')) {
+          const sn = normalizeText(data.sn)
+          if (!sn) return { code: -1, msg: '设备序列号(SN)不能为空' }
+          data.sn = sn
+          const dup = await col.where({ sn, _id: db.command.neq(device._id) }).limit(1).get()
+          const dupDevice = dup.data && dup.data[0]
+          if (dupDevice) {
+            return dupDevice.user_id === userId
+              ? { code: -1, msg: '您已登记过该设备序列号' }
+              : { code: -1, msg: '该设备序列号已被其他账号绑定，如有疑问请联系客服' }
+          }
+        }
         const res = await col.where({ _id: device._id, user_id: userId }).update(data)
         if (!res.updated) return { code: -1, msg: '设备不存在或无权限' }
         return { code: 0 }

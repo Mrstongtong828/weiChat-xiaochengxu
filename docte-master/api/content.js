@@ -20,9 +20,36 @@ const getOrderCloudObject = () => {
 	return orderCloudObject
 }
 
-const settingDoc = (title, content = '') => ({
+const parseSettingFile = (value) => {
+	try {
+		const parsed = value ? JSON.parse(value) : {}
+		return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+	} catch (e) {
+		return {}
+	}
+}
+
+// 把单个 cloud:// 文件地址解析为临时可访问地址（用于客服/公众号二维码等）
+const resolveCloudUrl = async (value) => {
+	if (!value || !/^cloud:\/\//i.test(String(value))) return value || ''
+	try {
+		const res = await getCloudTempFileURL([value])
+		const item = (res.fileList || [])[0]
+		return (item && item.tempFileURL) || value
+	} catch (e) {
+		return value
+	}
+}
+
+const settingDoc = (title, content = '', file = null) => ({
 	title,
-	content: String(content || '').replace(/\n/g, '<br/>')
+	content: String(content || '').replace(/\n/g, '<br/>'),
+	...(file && file.fileUrl ? {
+		fileName: file.fileName || title,
+		fileUrl: file.fileUrl,
+		fileType: file.fileType || '',
+		updatedAt: file.updatedAt || ''
+	} : {})
 })
 
 const normalizeAddress = (data = {}) => {
@@ -118,6 +145,19 @@ export const devLogin = async () => {
 
 export const logout = () => Promise.resolve()
 
+// 用户自助注销账号：调用后端软删除+脱敏，成功后清本地登录态
+export const cancelAccount = async () => {
+	const cloudObject = getUserCloudObject()
+	if (!cloudObject || typeof cloudObject.cancelAccount !== 'function') {
+		throw new Error('云端注销方法未部署，请重新部署 cicada-client-user')
+	}
+	const res = await cloudObject.cancelAccount(withToken({ confirm: true })).then(unwrapCloudResult)
+	uni.removeStorageSync('token')
+	uni.removeStorageSync('userInfo')
+	uni.removeStorageSync('isLoggedIn')
+	return res
+}
+
 export const getUserInfo = () => Promise.resolve(uni.getStorageSync('userInfo') || {})
 
 export const uploadImage = (filePath) => uploadToCloud(filePath, 'repair/images', 'jpg')
@@ -127,13 +167,13 @@ export const uploadVideo = (filePath) => uploadToCloud(filePath, 'repair/videos'
 export const uploadFeedbackImage = (filePath) => uploadToCloud(filePath, 'feedback/images', 'jpg')
 
 export const getWarrantyPolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy'] }).then(unwrapCloudResult)
-	return settingDoc('保修政策', settings.warranty_policy)
+	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy', 'warranty_policy_file'] }).then(unwrapCloudResult)
+	return settingDoc('保修政策', settings.warranty_policy, parseSettingFile(settings.warranty_policy_file))
 }
 
 export const getFeePolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy'] }).then(unwrapCloudResult)
-	return settingDoc('收费指南', settings.fee_description || settings.fee_policy)
+	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy', 'fee_policy_file'] }).then(unwrapCloudResult)
+	return settingDoc('收费指南', settings.fee_description || settings.fee_policy, parseSettingFile(settings.fee_policy_file))
 }
 
 // 按机型保修规则 + 延保政策
@@ -215,7 +255,7 @@ export const getCustomerService = async () => {
 		title: settings.customer_service_title,
 		description: settings.customer_service_desc,
 		wechat: settings.customer_service_wechat,
-		qrcodeUrl: settings.customer_service_qrcode
+		qrcodeUrl: await resolveCloudUrl(settings.customer_service_qrcode)
 	}
 }
 
@@ -226,7 +266,7 @@ export const getWechat = async () => {
 	return {
 		name: settings.wechat_name,
 		description: settings.wechat_desc,
-		qrcodeUrl: settings.wechat_qrcode
+		qrcodeUrl: await resolveCloudUrl(settings.wechat_qrcode)
 	}
 }
 
@@ -363,10 +403,10 @@ export const getComplaintList = (data = {}) => getUserCloudObject()
 
 export const getProductCategories = () => getPublicCloudObject().getCategories({}).then(unwrapCloudResult)
 
-// 隐私与合规配置（隐私政策/更新公告/注销规则/数据收集告知/资质公示）
+// 隐私与合规配置（隐私政策/注销规则/资质公示）
 export const getCompliance = async () => {
 	const settings = await getPublicCloudObject().getSettings({
-		keys: ['privacy_policy', 'privacy_update_notice', 'account_cancellation_policy', 'data_collection_notice', 'qualifications']
+		keys: ['privacy_policy', 'account_cancellation_policy', 'qualifications']
 	}).then(unwrapCloudResult)
 
 	let qualifications = []
@@ -394,9 +434,7 @@ export const getCompliance = async () => {
 
 	return {
 		privacyPolicy: settings.privacy_policy || '',
-		privacyUpdateNotice: settings.privacy_update_notice || '',
 		cancellationPolicy: settings.account_cancellation_policy || '',
-		dataCollectionNotice: settings.data_collection_notice || '',
 		qualifications
 	}
 }

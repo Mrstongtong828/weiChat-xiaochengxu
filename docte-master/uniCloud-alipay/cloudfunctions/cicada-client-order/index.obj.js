@@ -229,6 +229,48 @@ function normalizePhoneLast4(value) {
   return normalizeText(value).replace(/\D/g, '').slice(-4)
 }
 
+// 默认整机质保月数：当设备无显式 warranty_expire/warranty_months 时，用购机日期推算到期日
+const DEFAULT_WARRANTY_MONTHS = 12
+
+// 将 YYYY-MM-DD 加上 N 个月，返回 YYYY-MM-DD；无效输入返回空串
+function addMonthsToDateStr(dateStr, months) {
+  const s = normalizeText(dateStr)
+  const m = Number(months)
+  if (!s || !Number.isFinite(m) || m <= 0) return ''
+  const d = new Date(`${s}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  d.setMonth(d.getMonth() + m)
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
+}
+
+// 推算质保到期日：优先已存 warranty_expire；否则由 buy_date + warranty_months(默认12) 推算
+function deriveWarrantyExpire(device = {}) {
+  const stored = normalizeText(device.warranty_expire)
+  if (stored) return stored
+  const months = Number(device.warranty_months) > 0 ? Number(device.warranty_months) : DEFAULT_WARRANTY_MONTHS
+  return addMonthsToDateStr(device.buy_date || device.buyDate, months)
+}
+
+// 计算在保状态，返回 { inWarranty, warrantyStatus }
+function computeWarrantyStatus(expireStr, extWarranty) {
+  let inWarranty = false
+  let warrantyStatus = 'unknown'
+  const expire = normalizeText(expireStr)
+  if (expire) {
+    const expireTs = new Date(`${expire}T23:59:59`).getTime()
+    if (!Number.isNaN(expireTs)) {
+      inWarranty = Date.now() <= expireTs
+      warrantyStatus = inWarranty
+        ? (Array.isArray(extWarranty) && extWarranty.length ? 'extended' : 'in_warranty')
+        : 'expired'
+    }
+  }
+  return { inWarranty, warrantyStatus }
+}
+
 function formatTimelineTime(value) {
   if (!value) return ''
   if (typeof value === 'number') {
@@ -745,10 +787,24 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
       const existRes = await db.collection('cicada_user_devices')
         .where({ sn, user_id: userId }).limit(1).get()
       const existing = existRes.data && existRes.data[0]
+      const buyDate = normalizeText(item.buy_date) || (existing && existing.buy_date) || ''
       const baseFields = {
         product_name: normalizeText(item.product_name) || (existing && existing.product_name) || '已登记设备',
         model: normalizeText(item.product_model) || (existing && existing.model) || '',
-        buy_date: normalizeText(item.buy_date) || (existing && existing.buy_date) || ''
+        buy_date: buyDate
+      }
+      // 质保沉淀：若设备尚无 warranty_expire，但有购机日期，则按默认质保月数推算并落库，
+      // 使自助报修设备也具备在保/过保判定依据（此前该字段仅后台手工建档才写）。
+      const existingExpire = existing && normalizeText(existing.warranty_expire)
+      if (!existingExpire && buyDate) {
+        const months = (existing && Number(existing.warranty_months) > 0)
+          ? Number(existing.warranty_months)
+          : DEFAULT_WARRANTY_MONTHS
+        const derivedExpire = addMonthsToDateStr(buyDate, months)
+        if (derivedExpire) {
+          baseFields.warranty_expire = derivedExpire
+          baseFields.warranty_months = months
+        }
       }
       const trackFields = {
         last_order_no: orderMeta.order_no || (existing && existing.last_order_no) || '',
@@ -781,6 +837,41 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
     } catch (e) {
       // 忽略单条设备沉淀失败
     }
+  }
+}
+
+// 下单时计算订单级质保结论：逐个 SN 优先查已建档设备，其次由提交的购机日期推算。
+// 返回 { in_warranty, warranty_status, charge_type }；charge_type 仅为默认建议，
+// 人为损坏等不在保情形由工程师在报价时最终判定（可覆盖）。
+async function computeOrderWarranty(userId, items = []) {
+  let anyInWarranty = false
+  let anyEvaluated = false
+  for (const item of items) {
+    const sn = normalizeText(item && (item.sn || item.serial))
+    let device = null
+    if (sn && userId) {
+      try {
+        const res = await db.collection('cicada_user_devices').where({ sn, user_id: userId }).limit(1).get()
+        device = res.data && res.data[0]
+      } catch (e) {
+        device = null
+      }
+    }
+    // 已建档设备用其质保数据；否则用本次提交的购机日期推算
+    const source = device || { buy_date: item && item.buy_date }
+    const expire = deriveWarrantyExpire(source)
+    if (!expire) continue
+    anyEvaluated = true
+    const { inWarranty } = computeWarrantyStatus(expire, source.ext_warranty)
+    if (inWarranty) anyInWarranty = true
+  }
+  if (!anyEvaluated) {
+    return { in_warranty: false, warranty_status: 'unknown', charge_type: 'pending' }
+  }
+  return {
+    in_warranty: anyInWarranty,
+    warranty_status: anyInWarranty ? 'in_warranty' : 'expired',
+    charge_type: anyInWarranty ? 'free' : 'paid'
   }
 }
 
@@ -859,6 +950,8 @@ module.exports = {
       } catch (customerErr) {
         customerId = ''
       }
+      // 在保/过保自动判定：用于区分免费(在保质量问题)/收费(过保或人为损坏)维修
+      const warranty = await computeOrderWarranty(user._id, items)
       const newOrder = {
         order_no,
         user_id: user._id,
@@ -868,6 +961,9 @@ module.exports = {
         ship_back_info,
         engineer_id: '',
         total_price: 0,
+        in_warranty: warranty.in_warranty,
+        warranty_status: warranty.warranty_status,
+        charge_type: warranty.charge_type,
         timeline: [{ title: '提交报修单', desc: '您的报修申请已提交，等待客服审核', time: now, done: true }],
         update_time: now,
         create_time: now
@@ -1069,7 +1165,8 @@ module.exports = {
       const serial = normalizeText(sn)
       if (!serial) return { code: -1, msg: '请输入设备序列号' }
 
-      // SN 全局唯一：优先取当前用户名下设备，其次取任意匹配设备（仅返回型号/质保等非敏感信息）
+      // 设备 SN 期望全局唯一（手动绑定 manageDevice 已做全局查重）：优先取当前用户名下设备，
+      // 其次取任意匹配设备（仅返回型号/质保等非敏感信息，不泄露归属账号）
       const ownRes = await db.collection('cicada_user_devices')
         .where({ sn: serial, user_id: user._id }).limit(1).get()
       let device = ownRes.data && ownRes.data[0]
@@ -1100,18 +1197,9 @@ module.exports = {
         return { code: 0, data: { found: false, sn: serial, history: [] } }
       }
 
-      let warrantyStatus = 'unknown'
-      let inWarranty = false
-      const expireRaw = device && (device.warranty_expire || '')
-      if (expireRaw) {
-        const expireTs = new Date(`${expireRaw}T23:59:59`).getTime()
-        if (!Number.isNaN(expireTs)) {
-          inWarranty = Date.now() <= expireTs
-          warrantyStatus = inWarranty
-            ? (Array.isArray(device.ext_warranty) && device.ext_warranty.length ? 'extended' : 'in_warranty')
-            : 'expired'
-        }
-      }
+      // 优先用已存到期日；无则由购机日期+质保月数推算，使仅有购机日期的设备也能判定在保
+      const expireRaw = device ? deriveWarrantyExpire(device) : ''
+      const { inWarranty, warrantyStatus } = computeWarrantyStatus(expireRaw, device && device.ext_warranty)
 
       return {
         code: 0,
@@ -1202,6 +1290,13 @@ module.exports = {
       const now = Date.now()
       const reasonText = normalizeText(reason)
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      // 归档路径：设备尚未拆检（pending/sent/received）→ 直接取消归档；
+      // 已进入检测/维修（inspecting/fixing）→ 设备在维修中心，标记待回寄，由售后安排原路寄回后再结案。
+      const returnableEarly = ['pending', 'sent', 'received']
+      const canArchiveNow = returnableEarly.includes(order.status)
+      const archiveNote = canArchiveNow
+        ? '客户拒绝维修报价，工单已自动取消归档。'
+        : '客户拒绝维修报价，设备将原路寄回，售后将尽快为您安排回寄后归档。'
       const updateData = {
         quote_status: 'rejected',
         authorization_status: '',
@@ -1210,11 +1305,20 @@ module.exports = {
           ...timeline,
           {
             title: '客户已拒绝维修报价',
-            desc: reasonText ? `拒绝原因：${reasonText}` : '客户暂不接受当前维修报价，等待售后跟进。',
+            desc: reasonText ? `拒绝原因：${reasonText}` : archiveNote,
             time: now,
             done: true
           }
         ]
+      }
+      if (canArchiveNow) {
+        updateData.status = 'cancelled'
+        updateData.cancel_reason = reasonText || '客户拒绝维修报价'
+        updateData.cancelled_at = now
+      } else {
+        // 待回寄归档标记：供后台“待回寄/待归档”待办筛选，避免拒修工单悬挂
+        updateData.needs_return = true
+        updateData.archive_status = 'pending_return'
       }
 
       await db.collection('cicada_orders').doc(order._id).update(updateData)
@@ -1222,8 +1326,8 @@ module.exports = {
         order,
         action: 'reject_quote',
         actor: user,
-        before: { quote_status: order.quote_status || 'pending' },
-        after: { quote_status: updateData.quote_status, reason: reasonText }
+        before: { quote_status: order.quote_status || 'pending', status: order.status },
+        after: { quote_status: updateData.quote_status, status: updateData.status || order.status, reason: reasonText }
       })
       return { code: 0, data: { ...updateData, ...exposeQuoteFields({ ...order, ...updateData }) } }
     } catch (e) {

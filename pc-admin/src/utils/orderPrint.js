@@ -158,7 +158,154 @@ const buildPrintSection = (order, config) => {
   `
 }
 
-export const openPrintWindow = (printOrders = [], rawConfig = {}) => {
+const PAYMENT_STATUS_LABELS = {
+  paid: '已付款', unpaid: '未付款', pending: '待付款', refunding: '退款中',
+  refunded: '已退款', partial_refunded: '部分退款', waived: '已免单'
+}
+const paymentLabel = (value = '') => PAYMENT_STATUS_LABELS[value] || (value || '未付款')
+
+const buildChrome = (config) => {
+  const watermark = config.watermarkEnabled && config.watermarkText
+    ? `<div class="watermark" style="opacity:${Number(config.watermarkOpacity) || 0.12}">${escapeHtml(config.watermarkText)}</div>`
+    : ''
+  const header = (config.logoUrl || config.header)
+    ? `<div class="print-header">${config.logoUrl ? `<img class="print-logo" src="${escapeHtml(config.logoUrl)}" alt="logo" />` : ''}${config.header ? `<span class="print-header-text">${escapeHtml(config.header)}</span>` : ''}</div>`
+    : ''
+  return { watermark, header }
+}
+
+const buildFooter = (config) => `<div class="footer">
+  <span>${escapeHtml(config.footer || '')}</span>
+  <span>打印时间：${escapeHtml(new Date().toLocaleString('zh-CN', { hour12: false }))}</span>
+</div>`
+
+const infoTable = (rows = []) => `<table>${rows.filter(Boolean)
+  .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml((value === 0 ? '0' : value) || '-')}</td></tr>`)
+  .join('')}</table>`
+
+const itemsTable = (headers, rows) => {
+  if (!rows.length) return ''
+  return `<table class="items-table"><thead><tr>${headers.map(h => `<th>${escapeHtml(h)}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+}
+
+const normLineItem = (item = {}, fallbackName = '项目') => {
+  const name = item.name || item.part_name || item.partName || item.title || fallbackName
+  const spec = item.spec || item.model || item.product_model || item.productCategory || item.desc || ''
+  const quantity = safeNum(item.quantity ?? item.qty ?? 1) || 1
+  const unitPrice = safeNum(item.unitPrice ?? item.unit_price ?? item.price ?? 0)
+  const amount = safeNum(item.amount ?? (unitPrice * quantity))
+  return { name, spec, quantity, unitPrice, amount }
+}
+
+const wrapSection = (config, body, signatureText) => {
+  const { watermark, header } = buildChrome(config)
+  return `
+    <section class="print-section">
+      ${watermark}
+      ${header}
+      <h1>${escapeHtml(config.title)}</h1>
+      ${body}
+      ${config.showSignature && signatureText ? `<div class="signature">${escapeHtml(signatureText)}</div>` : ''}
+      ${buildFooter(config)}
+    </section>
+  `
+}
+
+// 维修报价单：分组列出配件/服务/其他费用 + 合计 + 备注
+const buildQuoteSection = (order, config) => {
+  const fields = config.fields || {}
+  const q = getQuoteSummary(order)
+  const group = (label, items, fallback) => {
+    const norm = (items || []).map(it => normLineItem(it, fallback))
+    if (!norm.length) return ''
+    return `<div class="group-title">${escapeHtml(label)}</div>` + itemsTable(
+      ['项目', '规格/说明', '单价(元)', '数量', '金额(元)'],
+      norm.map(n => [n.name || '-', n.spec || '-', n.unitPrice.toFixed(2), String(n.quantity), n.amount.toFixed(2)])
+    )
+  }
+  const info = infoTable([
+    ['工单编号', order.id],
+    ['诊所/单位', order.clinicName],
+    ['联系人', order.customerName],
+    fields.showPhone !== false ? ['联系电话', order.phone] : null,
+    ['产品明细', formatOrderItems(order.itemsList)]
+  ])
+  const groups = [
+    group('配件费用', q.parts, '配件'),
+    group('服务费用', q.services, '服务'),
+    group('其他费用', q.others, '其他')
+  ].filter(Boolean).join('')
+  const totals = infoTable([
+    ['配件小计', `¥${q.partsTotal.toFixed(2)}`],
+    ['服务小计', `¥${q.servicesTotal.toFixed(2)}`],
+    ['其他小计', `¥${q.othersTotal.toFixed(2)}`],
+    ['合计报价', `¥${q.finalPrice.toFixed(2)}`]
+  ])
+  const remark = q.remark ? `<div class="remark-box"><b>报价备注：</b>${escapeHtml(q.remark)}</div>` : ''
+  const body = `${info}${groups || '<div class="empty-note">暂无报价明细</div>'}<div class="group-title">费用合计</div>${totals}${remark}`
+  return wrapSection(config, body, '客户确认签字：____________　　日期：____________')
+}
+
+// 竣工结算单：完成信息 + 费用结算 + 付款状态
+const buildSettlementSection = (order, config) => {
+  const fields = config.fields || {}
+  const q = getQuoteSummary(order)
+  const info = infoTable([
+    ['工单编号', order.id],
+    ['诊所/单位', order.clinicName],
+    ['联系人', order.customerName],
+    fields.showPhone !== false ? ['联系电话', order.phone] : null,
+    ['当前状态', order.status],
+    ['完成时间', order.updateTime],
+    ['产品明细', formatOrderItems(order.itemsList)]
+  ])
+  const costs = infoTable([
+    ['配件费', `¥${q.partsTotal.toFixed(2)}`],
+    ['服务费', `¥${q.servicesTotal.toFixed(2)}`],
+    ['其他费用', `¥${q.othersTotal.toFixed(2)}`],
+    ['结算总额', `¥${q.finalPrice.toFixed(2)}`],
+    ['付款状态', paymentLabel(order.paymentStatus)],
+    order.paymentMethod ? ['付款方式', order.paymentMethod] : null,
+    order.refundStatus ? ['退款状态', order.refundStatus] : null
+  ])
+  const remark = q.remark ? `<div class="remark-box"><b>结算备注：</b>${escapeHtml(q.remark)}</div>` : ''
+  const body = `${info}<div class="group-title">费用结算</div>${costs}${remark}`
+  return wrapSection(config, body, '工程师签字：____________　客户签收：____________')
+}
+
+// 配件出库单：从报价配件明细生成领用单
+const buildPartsOutboundSection = (order, config) => {
+  const q = getQuoteSummary(order)
+  const parts = (q.parts || []).map(it => normLineItem(it, '配件'))
+  const info = infoTable([
+    ['关联工单', order.id],
+    ['领用单位', order.clinicName],
+    ['客户联系人', order.customerName],
+    ['出库日期', new Date().toLocaleDateString('zh-CN')]
+  ])
+  const table = parts.length
+    ? itemsTable(['配件名称', '规格/型号', '数量', '单价(元)', '金额(元)'],
+        parts.map(p => [p.name || '-', p.spec || '-', String(p.quantity), p.unitPrice.toFixed(2), p.amount.toFixed(2)]))
+    : '<div class="empty-note">该工单暂未登记配件用料</div>'
+  const total = parts.length
+    ? infoTable([
+        ['配件合计', `¥${parts.reduce((s, p) => s + p.amount, 0).toFixed(2)}`],
+        ['合计数量', String(parts.reduce((s, p) => s + p.quantity, 0))]
+      ])
+    : ''
+  const body = `${info}<div class="group-title">出库配件明细</div>${table}${total}`
+  return wrapSection(config, body, '出库人签字：____________　领用人签字：____________')
+}
+
+const buildSection = (order, config, docType) => {
+  if (docType === 'quote') return buildQuoteSection(order, config)
+  if (docType === 'settlement') return buildSettlementSection(order, config)
+  if (docType === 'parts_outbound') return buildPartsOutboundSection(order, config)
+  return buildPrintSection(order, config)
+}
+
+export const openPrintWindow = (printOrders = [], rawConfig = {}, docType = 'repair_order') => {
   if (!printOrders.length) return true
   const config = parsePrintConfig(rawConfig)
   const copies = Math.min(Math.max(Number(config.copies) || 1, 1), 5)
@@ -179,6 +326,14 @@ export const openPrintWindow = (printOrders = [], rawConfig = {}) => {
           table { width: 100%; border-collapse: collapse; }
           td { border: 1px solid #dcdfe6; padding: 10px 12px; font-size: 14px; vertical-align: top; white-space: pre-line; }
           td:first-child { width: 120px; background: #f5f7fa; font-weight: 700; }
+          .items-table { width: 100%; border-collapse: collapse; margin: 6px 0 14px; }
+          .items-table th { border: 1px solid #dcdfe6; padding: 8px 10px; font-size: 13px; background: #f5f7fa; font-weight: 700; }
+          .items-table td { border: 1px solid #dcdfe6; padding: 8px 10px; font-size: 13px; white-space: normal; }
+          .items-table td:first-child { width: auto; background: transparent; font-weight: 400; }
+          .items-table td:last-child, .items-table th:last-child { text-align: right; white-space: nowrap; }
+          .group-title { font-size: 15px; font-weight: 700; margin: 16px 0 6px; }
+          .remark-box { margin-top: 12px; font-size: 13px; line-height: 1.7; border: 1px dashed #dcdfe6; padding: 10px 12px; white-space: pre-line; }
+          .empty-note { margin: 10px 0; color: #909399; font-size: 13px; }
           .signature { margin-top: 24px; display: flex; justify-content: space-between; font-size: 14px; }
           .footer { margin-top: 24px; display: flex; justify-content: space-between; gap: 24px; font-size: 13px; color: #606266; }
           .print-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -191,7 +346,7 @@ export const openPrintWindow = (printOrders = [], rawConfig = {}) => {
         </style>
       </head>
       <body>
-        ${expandedOrders.map(order => buildPrintSection(order, config)).join('')}
+        ${expandedOrders.map(order => buildSection(order, config, docType)).join('')}
       </body>
     </html>
   `)

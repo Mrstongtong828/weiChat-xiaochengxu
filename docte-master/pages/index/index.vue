@@ -1089,7 +1089,10 @@
 				<text class="login-title">欢迎使用</text>
 				<text class="login-desc">专业牙科仪器 · 全程检修服务</text>
 				<button class="wechat-login tap" open-type="getPhoneNumber" @getphonenumber="onGetPhoneNumberLogin">微信手机号授权登录</button>
+				<!-- #ifdef H5 -->
+				<!-- 仅 H5 调试环境保留测试登录入口，微信小程序生产构建不包含此按钮 -->
 				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
+				<!-- #endif -->
 				<text class="login-agree">授权登录即视为您同意《用户服务协议》及《隐私政策》</text>
 			</view>
 		</view>
@@ -1410,6 +1413,10 @@
 					</view>
 				</view>
 
+				<view v-if="logged" class="account-cancel-row">
+					<text class="account-cancel-link tap" @click="onCancelAccount">注销账号</text>
+				</view>
+
 				<view class="mine-footer">
 					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
 					<text>佛山思科达 · 牙医仪器检修 v1.2.0</text>
@@ -1527,6 +1534,7 @@ import {
 	getComplaintList,
 	devLogin,
 	wechatLogin,
+	cancelAccount,
 	uploadFeedbackImage,
 	uploadImage,
 	uploadVideo
@@ -1882,7 +1890,7 @@ const docFallbacks = {
 		sections: [
 			{ title: '一、报修前准备', lines: ['产品信息：准备好产品型号、序列号等基本信息。', '故障描述：详细描述故障现象、发生时间及使用环境。', '故障照片/视频：如有可能，拍摄故障发生时的照片或视频。', '购买凭证：准备好购买发票或订单信息（用于保修确认）。'] },
 			{ title: '二、网上报修流程', lines: ['进入「立即报修」页面。', '填写产品信息。', '填写故障描述并上传图片。', '确认信息并提交。'] },
-			{ title: '三、思科达 24h 客服指引', lines: ['在线客服：8:00 - 21:00。', '服务热线：400-888-9999。'] }
+			{ title: '三、思科达客服指引', lines: ['在线客服：8:00 - 21:00。', '服务热线：0757-85775667。'] }
 		],
 		steps: [
 			{ title: '进入立即报修', desc: '在小程序首页点击「立即报修」按钮，进入报修表单页面。' },
@@ -1900,7 +1908,7 @@ const docFallbacks = {
 			{ title: '一、工单号查询', lines: ['在小程序首页顶部的搜索框中，直接输入 DR 开头的完整工单号。', '点击搜索即可查看该工单的实时物流进度、检测报告及维修状态。'] },
 			{ title: '二、序列号（SN）查询', lines: ['使用设备机身上刻印的 SN 序列号进行查询。', '该方式可追溯设备的所有历史维修记录及保修剩余时长。'] },
 			{ title: '三、个人中心查询', lines: ['登录小程序后，点击右下角「我的」。', '进入「维修订单」页面，即可查看名下绑定的所有维修申请及进度。'] },
-			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系 400 服务热线，提供报修时的手机号由客服协助查询。'], marker: '' }
+			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系客服热线 0757-85775667，提供报修时的手机号由客服协助查询。'], marker: '' }
 		]
 	},
 	'guide-invoice': {
@@ -4253,6 +4261,30 @@ const logoutLocal = () => {
 	logged.value = false
 }
 
+// 用户自助注销账号：二次确认后调用后端软删除+脱敏，并清空本地登录态
+const onCancelAccount = () => {
+	uni.showModal({
+		title: '注销账号',
+		content: '注销后将清除您的账号信息并解绑微信，维修记录将匿名保留。此操作不可恢复，确定要注销吗？',
+		confirmText: '确认注销',
+		confirmColor: '#e54d42',
+		success: async (res) => {
+			if (!res.confirm) return
+			try {
+				uni.showLoading({ title: '注销中...', mask: true })
+				await cancelAccount()
+				uni.hideLoading()
+				currentUser.value = {}
+				logged.value = false
+				uni.showToast({ title: '账号已注销', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: error.message || '注销失败，请稍后重试', icon: 'none' })
+			}
+		}
+	})
+}
+
 const go = (id, type) => {
 	if (tabRoutes[id]) {
 		activeTab.value = id
@@ -6413,6 +6445,18 @@ onMounted(() => {
 	font-size: 22rpx;
 	line-height: 1.3;
 	color: #94A3B8;
+}
+
+.account-cancel-row {
+	display: flex;
+	justify-content: center;
+	padding: 40rpx 28rpx 0;
+}
+
+.account-cancel-link {
+	font-size: 24rpx;
+	color: #94A3B8;
+	text-decoration: underline;
 }
 
 .mine-footer {

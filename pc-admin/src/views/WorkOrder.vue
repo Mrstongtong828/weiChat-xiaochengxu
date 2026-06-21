@@ -54,6 +54,12 @@
             <el-option label="未发票" value="未发票"></el-option>
             <el-option label="已发票" value="已发票"></el-option>
           </el-select>
+          <el-select v-model="slaFilter" placeholder="SLA 超时" clearable>
+            <el-option label="全部" value=""></el-option>
+            <el-option label="已超时" value="overdue"></el-option>
+            <el-option label="严重超时" value="critical"></el-option>
+            <el-option label="临近超时" value="warning"></el-option>
+          </el-select>
         </div>
       </div>
 
@@ -122,6 +128,21 @@
           </el-tooltip>
         </div>
       </div>
+    </div>
+
+    <div class="sla-board">
+      <button
+        v-for="item in slaCards"
+        :key="item.key"
+        type="button"
+        class="sla-card"
+        :class="[`sla-card--${item.tone}`, { active: slaFilter === item.filter }]"
+        @click="applySlaFilter(item.filter)"
+      >
+        <span>{{ item.label }}</span>
+        <strong>{{ item.count }}</strong>
+        <small>{{ item.desc }}</small>
+      </button>
     </div>
 
     <div class="info-banner">
@@ -233,6 +254,22 @@
               size="small">
               {{ normalizeInvoiceStatus(row) }}
             </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column width="126">
+          <template #header>
+            <el-tooltip content="按当前状态停留时间和 SLA 阈值标记超时程度" placement="top">
+              <span class="table-header-help">SLA</span>
+            </el-tooltip>
+          </template>
+          <template #default="{row}">
+            <div class="sla-cell" :class="'sla-cell--' + getSlaLevel(row)">
+              <el-tag :type="getSlaTagType(row)" effect="light" round size="small">
+                {{ getSlaLabel(row) }}
+              </el-tag>
+              <span>{{ getSlaText(row) }}</span>
+            </div>
           </template>
         </el-table-column>
 
@@ -388,30 +425,6 @@
                 <div><span>自动合计</span><strong>{{ formatMoney(quoteAutoTotal) }}</strong></div>
                 <div><span>最终报价</span><strong class="quote-total">{{ formatMoney(quoteTotal) }}</strong></div>
               </div>
-              <div v-if="canPerformOrderAction('issue_quote') && quotePackageTemplates.length" class="quote-template-row">
-                <el-select :model-value="''" placeholder="套用报价套餐模板" clearable @change="applyQuotePackage">
-                  <el-option
-                    v-for="item in orderedQuotePackageTemplates"
-                    :key="item.index"
-                    :label="`${item.recommended ? '推荐 · ' : ''}${item.tpl.name || '未命名套餐'}${item.tpl.category ? ' / ' + item.tpl.category : ''}`"
-                    :value="item.index"
-                  />
-                </el-select>
-                <span>{{ recommendedQuotePackages.length ? `已根据产品类型推荐 ${recommendedQuotePackages.length} 个常用套餐。` : '套用后会追加服务费、其他费用和报价备注。' }}</span>
-              </div>
-              <div v-if="recommendedQuotePackages.length" class="quote-recommend-row">
-                <span>推荐套餐</span>
-                <el-button
-                  v-for="item in recommendedQuotePackages.slice(0, 3)"
-                  :key="item.index"
-                  type="primary"
-                  plain
-                  size="small"
-                  @click="applyQuotePackage(item.index)"
-                >
-                  {{ item.tpl.name || '未命名套餐' }}
-                </el-button>
-              </div>
               <el-alert
                 v-if="quoteInventoryWarnings.length"
                 class="quote-inventory-alert"
@@ -484,16 +497,6 @@
                 <el-input-number v-model="quoteForm.paymentDeadlineDays" :disabled="!canPerformOrderAction('issue_quote')" :min="1" :max="60" :step="1" controls-position="right"></el-input-number>
                 <span class="quote-deadline-hint">发布报价时起算，默认 7 天</span>
               </div>
-              <el-select
-                v-if="canPerformOrderAction('issue_quote') && quoteRemarkTemplates.length"
-                :model-value="''"
-                placeholder="选用备注模板填充到下方备注"
-                size="small"
-                style="width:100%; margin-top:8px;"
-                @change="applyQuoteTemplate"
-              >
-                <el-option v-for="(t, i) in quoteRemarkTemplates" :key="i" :label="t.title" :value="i" />
-              </el-select>
               <div class="remark-field remark-field--customer">
                 <div class="remark-field-head">
                   <strong>客户可见报价备注</strong>
@@ -576,6 +579,23 @@
                   </el-button>
                 </el-tooltip>
                 <span v-if="resolvePaymentStatus(currentOrder) === 'paid'" class="payment-paid-tip">财务已确认到账，可继续处理发票。</span>
+                <el-tooltip
+                  v-if="resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.paymentMethod === 'wechat_pay' && currentOrder.refundStatus !== 'refunded' && canPerformOrderAction('confirm_payment')"
+                  content="对微信支付订单发起退款（全额/部分），到账以微信结果为准"
+                  placement="top"
+                >
+                  <el-button
+                    type="danger"
+                    size="small"
+                    plain
+                    :loading="refunding"
+                    @click="handleRefund"
+                  >
+                    申请退款
+                  </el-button>
+                </el-tooltip>
+                <span v-if="currentOrder.refundStatus === 'refunded'" class="payment-paid-tip">已退款 ¥{{ ((currentOrder.refundAmountFen || 0) / 100).toFixed(2) }}。</span>
+                <span v-else-if="currentOrder.refundStatus === 'processing'" class="payment-paid-tip">退款处理中…</span>
               </div>
             </div>
             <div class="drawer-section">
@@ -729,9 +749,17 @@
     <template #footer>
       <div class="drawer-footer">
         <div class="drawer-footer-actions">
-          <el-tooltip content="按当前打印配置生成维修/回寄单据" placement="top">
-            <el-button @click="printConfiguredOrder" plain><el-icon><Printer /></el-icon> 打印</el-button>
-          </el-tooltip>
+          <el-dropdown trigger="click" @command="handlePrintCommand">
+            <el-button plain><el-icon><Printer /></el-icon> 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="repair_order">报修 / 回寄单</el-dropdown-item>
+                <el-dropdown-item command="quote" :disabled="!hasQuoteData">维修报价单</el-dropdown-item>
+                <el-dropdown-item command="settlement" :disabled="!hasQuoteData">竣工结算单</el-dropdown-item>
+                <el-dropdown-item command="parts_outbound" :disabled="!hasPartsData">配件出库单</el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button @click="drawerVisible=false">关闭</el-button>
           <el-tooltip v-if="canPerformOrderAction('update_status') && getAllowedStatusOptions(currentOrder).length" content="保存后会推进工单状态，并同步影响客户小程序可见进度" placement="top">
             <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">保存进度</el-button>
@@ -960,7 +988,7 @@
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, refundOrderPayment, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList } from '../api/inventory.js'
 import { getSettings, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
@@ -1130,6 +1158,12 @@ const parseOrderDate = (value = '') => {
 }
 
 const getStatusDwell = (order = {}) => {
+  if (order.slaInfo && order.slaInfo.tracked) {
+    const hours = Number(order.slaInfo.dwell_hours || 0)
+    const days = Math.floor(hours / 24)
+    const text = days >= 1 ? `停留 ${days}天` : `停留 ${Math.max(hours, 1)}小时`
+    return { text, level: order.slaInfo.overdue ? 'warning' : 'normal' }
+  }
   if (['已完成', '已取消'].includes(order.status)) {
     return { text: '已结束', level: 'normal' }
   }
@@ -1139,6 +1173,28 @@ const getStatusDwell = (order = {}) => {
   const days = Math.floor(hours / 24)
   const text = days >= 1 ? `停留 ${days}天` : `停留 ${Math.max(hours, 1)}小时`
   return { text, level: days >= 2 ? 'warning' : 'normal' }
+}
+
+const getSlaLevel = (order = {}) => (order.slaInfo && order.slaInfo.level) || 'normal'
+const getSlaTagType = (order = {}) => {
+  const level = getSlaLevel(order)
+  if (level === 'critical') return 'danger'
+  if (level === 'warning') return 'warning'
+  return 'success'
+}
+const getSlaLabel = (order = {}) => {
+  const level = getSlaLevel(order)
+  if (level === 'critical') return '严重超时'
+  if (level === 'warning') return '临近超时'
+  return order.slaInfo && order.slaInfo.tracked ? '正常' : '不跟踪'
+}
+const getSlaText = (order = {}) => {
+  const info = order.slaInfo || {}
+  if (!info.tracked) return '无需 SLA'
+  const threshold = Number(info.threshold_hours || 0)
+  const dwell = Number(info.dwell_hours || 0)
+  const action = info.action || '继续处理'
+  return `${dwell}h / ${threshold}h · ${action}`
 }
 
 const getNextAction = (order = {}) => {
@@ -1211,6 +1267,8 @@ const exportableFields = [
   { label: '提交时间', key: 'submitTime', getter: order => order.submitTime },
   { label: '更新时间', key: 'updateTime', getter: order => order.updateTime },
   { label: '当前状态', key: 'status', getter: order => order.status },
+  { label: 'SLA状态', key: 'slaStatus', getter: order => getSlaLabel(order) },
+  { label: 'SLA停留', key: 'slaDwell', getter: order => getSlaText(order) },
   { label: '寄出物流', key: 'logisticsCompany', getter: order => order.logisticsCompany },
   { label: '寄出单号', key: 'logisticsNo', getter: order => order.logisticsNo },
   { label: '回寄地址', key: 'address', getter: order => order.address },
@@ -1246,6 +1304,7 @@ const workflowConfig = ref(null)
 const isPrinting = ref(false)
 const printTime = ref('')
 const printConfig = ref(parsePrintConfig())
+const printSettingsRaw = ref({})
 const exportDialogVisible = ref(false)
 const selectedExportFields = ref(exportableFields.map(field => field.key))
 const checkAll = ref(true)
@@ -1256,6 +1315,7 @@ const importResult = ref(null)
 const activeLogisticsImportType = ref('return')
 const shipDate = ref(new Date().toISOString().slice(0, 10))
 const searchInvoiceStatus = ref('')
+const slaFilter = ref('')
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
 const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
@@ -1268,6 +1328,22 @@ const logisticsImportTip = computed(() => {
 const loadWorkflowConfig = async () => {
   const token = localStorage.getItem('adminToken')
   workflowConfig.value = await getWorkflowConfig(token)
+}
+
+const slaCards = computed(() => {
+  const overdue = orders.value.filter(order => order.slaInfo && order.slaInfo.overdue)
+  const critical = orders.value.filter(order => getSlaLevel(order) === 'critical')
+  const warning = orders.value.filter(order => getSlaLevel(order) === 'warning')
+  return [
+    { key: 'overdue', label: '超时工单', count: overdue.length, desc: '当前页需优先处理', filter: 'overdue', tone: 'danger' },
+    { key: 'critical', label: '严重超时', count: critical.length, desc: '超过阈值 2 倍', filter: 'critical', tone: 'critical' },
+    { key: 'warning', label: '临近超时', count: warning.length, desc: '超过 SLA 阈值', filter: 'warning', tone: 'warning' },
+    { key: 'today', label: '今日待处理', count: orders.value.filter(order => ['已提交', '运输中', '已签收', '处理中'].includes(order.status)).length, desc: '未完成有效工单', filter: '', tone: 'info' }
+  ]
+})
+
+const applySlaFilter = (filter) => {
+  slaFilter.value = slaFilter.value === filter ? '' : filter
 }
 
 const canPerformOrderAction = (action) => {
@@ -1309,6 +1385,7 @@ const loadOrders = async () => {
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       todoType: activeTodoType.value,
+      slaLevel: slaFilter.value,
       responseMode: 'page'
     })
     const list = Array.isArray(data) ? data : (data.list || [])
@@ -1339,6 +1416,7 @@ const fetchAllFilteredOrders = async () => {
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       todoType: activeTodoType.value,
+      slaLevel: slaFilter.value,
       responseMode: 'page'
     })
     const list = Array.isArray(data) ? data : (data.list || [])
@@ -1388,7 +1466,7 @@ onMounted(async () => {
 })
 
 watch(
-  () => [wo.search, wo.filter, wo.deviceFilter, searchInvoiceStatus.value, activeTodoType.value],
+  () => [wo.search, wo.filter, wo.deviceFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
   () => {
     if (wo.page === 1) {
       loadOrders()
@@ -1426,6 +1504,7 @@ const invoiceForm = reactive({ title: '', taxNo: '', remark: '' })
 const remarkSaving = ref(false)
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
+const refunding = ref(false)
 const partPickerVisible = ref(false)
 const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
@@ -1504,9 +1583,7 @@ const currentOrderProductKeywords = computed(() => {
 })
 
 // 报价备注模板库 / 过保收费阶梯模板（来自系统设置）
-const quoteRemarkTemplates = ref([])
 const feeTiers = ref([])
-const quotePackageTemplates = ref([])
 const parseSettingsArray = (value) => {
   try {
     const parsed = value ? JSON.parse(value) : []
@@ -1522,50 +1599,6 @@ const applyFeeTier = (item, index) => {
   item.unitPrice = Number(tier.price) || 0
   item.quantity = item.quantity || 1
 }
-const applyQuoteTemplate = (index) => {
-  const tpl = quoteRemarkTemplates.value[index]
-  if (!tpl) return
-  quoteForm.remark = quoteForm.remark
-    ? `${quoteForm.remark}\n${tpl.content || ''}`
-    : (tpl.content || '')
-}
-const isRecommendedQuotePackage = (tpl = {}) => {
-  const keywords = currentOrderProductKeywords.value
-  if (!keywords.length) return false
-  const haystack = [tpl.category, tpl.productCategory, tpl.product_category, tpl.name, tpl.keywords]
-    .map(item => Array.isArray(item) ? item.join(' ') : item)
-    .join(' ')
-    .toLowerCase()
-  if (!haystack.trim()) return false
-  return keywords.some(keyword => keyword && (haystack.includes(keyword) || keyword.includes(haystack)))
-}
-const orderedQuotePackageTemplates = computed(() => {
-  return quotePackageTemplates.value
-    .map((tpl, index) => ({ tpl, index, recommended: isRecommendedQuotePackage(tpl) }))
-    .sort((a, b) => Number(b.recommended) - Number(a.recommended))
-})
-const recommendedQuotePackages = computed(() => orderedQuotePackageTemplates.value.filter(item => item.recommended))
-const appendQuoteRemark = (remark = '') => {
-  const text = String(remark || '').trim()
-  if (!text) return
-  const next = quoteForm.remark ? `${quoteForm.remark}\n${text}` : text
-  quoteForm.remark = next.slice(0, 200)
-}
-const applyQuotePackage = (index) => {
-  const tpl = quotePackageTemplates.value[index]
-  if (!tpl) return
-  const services = Array.isArray(tpl.services) ? tpl.services.filter(hasQuoteRowContent).map(createServiceRow) : []
-  const others = Array.isArray(tpl.others) ? tpl.others.filter(hasQuoteRowContent).map(createOtherRow) : []
-  if (services.length) {
-    const onlyBlank = quoteForm.services.length === 1 && !hasQuoteRowContent(quoteForm.services[0])
-    quoteForm.services = onlyBlank ? services : [...quoteForm.services, ...services]
-  }
-  if (others.length) quoteForm.others = [...quoteForm.others, ...others]
-  appendQuoteRemark(tpl.remark)
-  quoteForm.finalPrice = quoteAutoTotal.value
-  ElMessage.success(`已套用${tpl.name || '报价套餐'}`)
-}
-
 const getQuotePartStockType = (item = {}) => {
   const stock = Number(item.stock)
   const quantity = Number(item.quantity || 0)
@@ -2292,6 +2325,47 @@ const markPaymentPaid = async () => {
   }
 }
 
+const handleRefund = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('confirm_payment')) {
+    ElMessage.error('当前角色无权发起退款')
+    return
+  }
+  let reason = ''
+  try {
+    const res = await ElMessageBox.prompt(
+      '将对该微信支付订单发起全额退款，原路退回客户支付账户。请填写退款原因：',
+      '退款确认',
+      {
+        confirmButtonText: '确认退款',
+        cancelButtonText: '取消',
+        inputPlaceholder: '如：客户拒修 / 重复支付 / 协商退款',
+        inputValidator: (v) => (v && v.trim() ? true : '请填写退款原因'),
+        type: 'warning'
+      }
+    )
+    reason = (res && res.value || '').trim()
+  } catch (error) {
+    if (!isUserCancel(error)) ElMessage.error(error.message || '退款已取消')
+    return
+  }
+
+  refunding.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const orderId = currentOrder.value._id
+    const result = await refundOrderPayment(token, orderId, reason)
+    ElMessage.success((result && result.msg) || '退款已提交')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === orderId)
+    if (fresh) currentOrder.value = fresh
+  } catch (error) {
+    ElMessage.error(error.message || '退款失败')
+  } finally {
+    refunding.value = false
+  }
+}
+
 const saveRemarks = async () => {
   if (!currentOrder.value) return
   if (!canPerformOrderAction('update_remarks')) {
@@ -2379,27 +2453,65 @@ const handleBatchPrint = async () => {
   setTimeout(resetPrinting, 1000)
 }
 
+// logo 存的是云存储 fileID，打印窗口无法直接加载，需解析成临时 http 地址（按 fileID 缓存）
+const printLogoCache = reactive({})
+const resolvePrintLogo = async (template) => {
+  if (!template.logoUrl || !/^cloud:\/\//i.test(template.logoUrl)) return template
+  const fileId = template.logoUrl
+  if (printLogoCache[fileId] !== undefined) {
+    template.logoUrl = printLogoCache[fileId]
+    return template
+  }
+  try {
+    const token = localStorage.getItem('adminToken')
+    const map = await getTempFileURL(token, [fileId])
+    const url = (map && map[fileId]) || ''
+    printLogoCache[fileId] = url
+    template.logoUrl = url
+  } catch (e) {
+    printLogoCache[fileId] = ''
+    template.logoUrl = ''
+  }
+  return template
+}
+
 const loadPrintConfig = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
+    printSettingsRaw.value = data || {}
     const template = pickPrintTemplate(data && data.print_templates, data && data.print_config, 'repair_order')
-    // logo 存的是云存储 fileID，打印窗口无法直接加载，需解析成临时 http 地址
-    if (template.logoUrl && /^cloud:\/\//i.test(template.logoUrl)) {
-      try {
-        const map = await getTempFileURL(token, [template.logoUrl])
-        template.logoUrl = (map && map[template.logoUrl]) || ''
-      } catch (e) {
-        template.logoUrl = ''
-      }
-    }
+    await resolvePrintLogo(template)
     printConfig.value = template
-    quoteRemarkTemplates.value = parseSettingsArray(data && data.quote_remark_templates)
     feeTiers.value = parseSettingsArray(data && data.fee_tier_templates)
-    quotePackageTemplates.value = parseSettingsArray(data && data.quote_package_templates)
   } catch (error) {
     printConfig.value = parsePrintConfig()
   }
+}
+
+// 按单据类型打印当前工单（维修报价单 / 竣工结算单 / 配件出库单）
+const hasQuoteData = computed(() => {
+  const o = currentOrder.value
+  if (!o) return false
+  const d = o.quoteDetail || {}
+  return Number(o.totalPrice || 0) > 0 || (d.parts || []).length > 0 || (d.services || []).length > 0 || (d.others || []).length > 0
+})
+const hasPartsData = computed(() => {
+  const o = currentOrder.value
+  return !!(o && o.quoteDetail && (o.quoteDetail.parts || []).length > 0)
+})
+const printDoc = async (docType) => {
+  if (!currentOrder.value) return
+  const raw = printSettingsRaw.value || {}
+  const template = pickPrintTemplate(raw.print_templates, raw.print_config, docType)
+  await resolvePrintLogo(template)
+  if (!openPrintWindow([currentOrder.value], template, docType)) {
+    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
+  }
+}
+const handlePrintCommand = (command) => {
+  if (command === 'repair_order') return printConfiguredOrder()
+  return printDoc(command)
 }
 
 const printConfiguredOrder = () => {
@@ -2508,6 +2620,19 @@ const confirmExportExcel = async () => {
 .banner-title { font-size: 15px; font-weight: 700; color: #1d2129; margin-bottom: 4px; }
 .banner-desc { font-size: 13px; color: #4e5969; line-height: 1.6; }
 .banner-badge { flex-shrink: 0; }
+
+.sla-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 18px 0 8px; }
+.sla-card { appearance: none; border: 1px solid #e5e6eb; border-radius: 8px; background: #fff; padding: 12px 14px; text-align: left; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s; }
+.sla-card:hover, .sla-card.active { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(29, 33, 41, 0.06); }
+.sla-card span { display: block; color: #4e5969; font-size: 12px; margin-bottom: 4px; }
+.sla-card strong { display: block; color: #1d2129; font-size: 24px; line-height: 1.1; margin-bottom: 4px; }
+.sla-card small { color: #86909c; font-size: 11px; }
+.sla-card--danger, .sla-card--critical { border-color: #ffd0cc; background: #fff7f6; }
+.sla-card--danger strong, .sla-card--critical strong { color: #f56c6c; }
+.sla-card--warning { border-color: #ffe0a3; background: #fffaf0; }
+.sla-card--warning strong { color: #ff9800; }
+.sla-card--info { border-color: #d9ecff; background: #f7fbff; }
+.sla-card--info strong { color: #1890ff; }
 
 .control-panel { display: grid; grid-template-columns: minmax(420px, 0.85fr) minmax(560px, 1.15fr); gap: 20px; margin-bottom: 18px; }
 .panel-block { min-width: 0; padding: 18px 20px; border: 1px solid #e5eefb; border-radius: 10px; background: #fbfdff; }
@@ -2633,6 +2758,10 @@ const confirmExportExcel = async () => {
 .logistics-label { color: #86909c; font-weight: 500; }
 .next-action-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
 .next-action-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
+.sla-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
+.sla-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
+.sla-cell--warning span:last-child { color: #ff9800; font-weight: 600; }
+.sla-cell--critical span:last-child { color: #f56c6c; font-weight: 600; }
 
 .status-tag { font-weight: 600; font-size: 12px; }
 .status-dropdown-trigger { display: inline-flex; cursor: pointer; outline: none; }
@@ -2672,6 +2801,7 @@ const confirmExportExcel = async () => {
   .filter-container .el-input, .filter-container .el-select { width: 100% !important; }
   .toolbar-actions { width: 100%; }
   .toolbar-actions :deep(.el-date-editor.el-input) { width: 100%; }
+  .sla-board { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .info-banner { align-items: flex-start; }
   .banner-badge { display: none; }
   .drawer-info-grid { grid-template-columns: 1fr; }

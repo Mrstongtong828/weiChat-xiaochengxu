@@ -130,6 +130,7 @@ export const transformOrder = (order) => {
     // 状态
     status: toChineseStatus(order.status),
     statusEn: order.status,
+    slaInfo: order.sla_info || order.slaInfo || null,
 
     // 工程师和时间线
     engineerId: order.engineer_id || '',
@@ -146,6 +147,9 @@ export const transformOrder = (order) => {
     authorizationStatus: order.authorization_status || order.authorizationStatus || '',
     authorizationTime: order.authorization_time || order.authorizationTime || '',
     paymentStatus: order.payment_status || order.paymentStatus || '',
+    paymentMethod: order.payment_method || order.paymentMethod || '',
+    refundStatus: order.refund_status || order.refundStatus || '',
+    refundAmountFen: Number(order.refund_amount_fen || order.refundAmountFen || 0),
     paymentProofs: Array.isArray(order.payment_proofs) ? order.payment_proofs : (order.paymentProofs || []),
     inventoryDeducted: Boolean(order.inventory_deducted || order.inventoryDeducted),
     inventoryStatus: order.inventory_status || order.inventoryStatus || '',

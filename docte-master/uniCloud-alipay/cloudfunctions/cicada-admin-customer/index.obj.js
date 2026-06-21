@@ -2,6 +2,9 @@ const db = uniCloud.database()
 const dbCmd = db.command
 
 // ============== 角色权限 ==============
+// 说明：这里是「客户CRM域」专属的权限点（view/create/edit/cancel/view_phone/device/export），
+// 与 cicada-order-workflow 的「工单域」权限点（view_order/issue_quote 等）是不同命名空间，并非重复。
+// 但角色清单需与共享模块的 ALL_ROLES 保持一致——新增/调整员工角色时两处都要更新。
 const STAFF_ROLES = ['admin', 'engineer', 'finance', 'support']
 const ROLE_LABELS = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
 const PERMISSIONS = {
@@ -109,9 +112,28 @@ function toTimestamp(dateStr) {
   return Number.isFinite(t) ? t : 0
 }
 
+// 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串
+function addMonthsToDateStr(dateStr, months) {
+  const s = normalizeText(dateStr)
+  const m = Number(months)
+  if (!s || !Number.isFinite(m) || m <= 0) return ''
+  const d = new Date(`${s}T00:00:00`)
+  if (Number.isNaN(d.getTime())) return ''
+  d.setMonth(d.getMonth() + m)
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
+}
+
 // 计算设备实际质保到期（取基础质保与所有延保中的最晚值）与状态
+// 若未填 warranty_expire 但有 buy_date + warranty_months(默认12)，则自动推算基础到期日
 function computeWarranty(device) {
   let expire = normalizeText(device.warranty_expire)
+  if (!expire && normalizeText(device.buy_date)) {
+    const months = Number(device.warranty_months) > 0 ? Number(device.warranty_months) : 12
+    expire = addMonthsToDateStr(device.buy_date, months)
+  }
   let expireTs = toTimestamp(expire)
   const exts = Array.isArray(device.ext_warranty) ? device.ext_warranty : []
   for (const ext of exts) {

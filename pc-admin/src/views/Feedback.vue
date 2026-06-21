@@ -163,6 +163,11 @@
           </el-select>
         </div>
         <div class="form-row">
+          <label>关联工单</label>
+          <el-input v-model="form.relOrderNo" placeholder="填写工单号绑定，清空后保存即解绑" style="width:220px;"></el-input>
+          <el-button :loading="linking" style="margin-left:12px;" @click="saveLinkOrder">保存关联</el-button>
+        </div>
+        <div class="form-row">
           <label>核实结果</label>
           <el-input v-model="form.processResult" placeholder="如：设备质量问题 / 人为损坏 / 物流问题" style="flex:1;"></el-input>
         </div>
@@ -213,7 +218,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getFeedbackList, getStaffList,
-  assignFeedback, setFeedbackUrgency, replyFeedback,
+  assignFeedback, setFeedbackUrgency, replyFeedback, linkFeedbackOrder,
   recordFeedbackVisit, closeFeedback, upgradeFeedback
 } from '../api/admin.js'
 
@@ -225,6 +230,7 @@ const loading = ref(false)
 const saving = ref(false)
 const visiting = ref(false)
 const closing = ref(false)
+const linking = ref(false)
 const feedbackList = ref([])
 const staffOptions = ref([])
 const total = ref(0)
@@ -237,7 +243,7 @@ const dialogVisible = ref(false)
 const current = ref(null)
 const form = reactive({
   handlerId: '', urgency: '普通', processResult: '', reply: '', processNote: '',
-  satisfaction: '', visitOpinion: ''
+  satisfaction: '', visitOpinion: '', relOrderNo: ''
 })
 
 const router = useRouter()
@@ -309,7 +315,20 @@ const openDialog = (row) => {
   form.processNote = row.process_note || ''
   form.satisfaction = row.visit_satisfaction || ''
   form.visitOpinion = row.visit_opinion || ''
+  form.relOrderNo = row.rel_order_no || ''
   dialogVisible.value = true
+}
+
+const saveLinkOrder = async () => {
+  if (!current.value) return
+  linking.value = true
+  try {
+    await linkFeedbackOrder(token(), current.value._id, form.relOrderNo.trim())
+    ElMessage.success(form.relOrderNo.trim() ? '已关联工单' : '已解除工单关联')
+    await refreshCurrent()
+  } catch (e) { /* interceptor toasts */ } finally {
+    linking.value = false
+  }
 }
 
 const refreshCurrent = async () => {

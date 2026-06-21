@@ -81,7 +81,7 @@
         <el-form-item label="适配机型">
           <el-select v-model="partForm.compatible_models" multiple filterable allow-create default-first-option style="width:100%;" placeholder="输入后回车添加"></el-select>
         </el-form-item>
-        <el-form-item label="采购成本"><el-input-number v-model="partForm.purchase_cost" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
+        <el-form-item v-if="canViewCost" label="采购成本"><el-input-number v-model="partForm.purchase_cost" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
         <el-form-item label="销售单价"><el-input-number v-model="partForm.sale_price" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
         <el-form-item label="当前库存"><el-input-number v-model="partForm.stock" :min="0" :precision="0" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
         <el-form-item label="预警阈值"><el-input-number v-model="partForm.warning_threshold" :min="0" :precision="0" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
@@ -115,6 +115,10 @@
 import { reactive, ref, watch, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getPartList, savePart, updatePartStatus, getInventoryFlows } from '../api/inventory.js'
+import { getCurrentAdminRole } from '../config/menuAccess.js'
+
+// 采购成本仅 admin/finance 可见可编辑（后端亦已对其他角色脱敏，前端同步隐藏）
+const canViewCost = ['superadmin', 'admin', 'finance'].includes(getCurrentAdminRole())
 
 const parts = ref([])
 const flows = ref([])

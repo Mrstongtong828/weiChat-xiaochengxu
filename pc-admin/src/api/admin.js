@@ -81,6 +81,11 @@ export const setFeedbackUrgency = (token, id, urgency) => {
   return request.post(`${API_BASE.adminSys}/setFeedbackUrgency`, { token, id, urgency })
 }
 
+// 绑定 / 改绑 / 解绑投诉关联工单（order_no 传空即解绑）
+export const linkFeedbackOrder = (token, id, orderNo) => {
+  return request.post(`${API_BASE.adminSys}/linkFeedbackOrder`, { token, id, order_no: orderNo })
+}
+
 // 处理记录 + 官方回复（回复对客户可见）
 export const replyFeedback = (token, payload = {}) => {
   return request.post(`${API_BASE.adminSys}/replyFeedback`, { token, ...payload })
