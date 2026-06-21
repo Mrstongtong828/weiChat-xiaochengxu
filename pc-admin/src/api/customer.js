@@ -7,6 +7,7 @@ const post = (action, data = {}) => {
 }
 
 // 客户档案
+export const getCustomerPermissionConfig = () => post('getPermissionConfig')
 export const listCustomers = (params) => post('listCustomers', params)
 export const getCustomerDetail = (customer_id) => post('getCustomerDetail', { customer_id })
 export const getCustomerPhone = (customer_id) => post('getCustomerPhone', { customer_id })

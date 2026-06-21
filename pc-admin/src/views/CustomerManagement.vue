@@ -335,6 +335,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
+  getCustomerPermissionConfig,
   listCustomers, getCustomerDetail, getCustomerPhone, createCustomer, updateCustomer,
   cancelCustomer, listDealers, syncCustomersFromUsers,
   listCustomerDevices, saveCustomerDevice, deleteCustomerDevice,
@@ -364,12 +365,18 @@ const fmtDateTime = (ts) => { if (!ts) return '-'; const d = new Date(ts); retur
 const currentRole = (() => {
   try { return (JSON.parse(localStorage.getItem('adminUser') || '{}').role) || '' } catch (e) { return '' }
 })()
-const canCreate = computed(() => ['admin', 'support'].includes(currentRole))
-const canEdit = computed(() => ['admin', 'support'].includes(currentRole))
-const canCancel = computed(() => currentRole === 'admin')
-const canViewPhone = computed(() => currentRole === 'admin')
-const canDevice = computed(() => ['admin', 'engineer', 'support'].includes(currentRole))
-const canExport = computed(() => currentRole === 'admin')
+const permissionConfig = ref(null)
+const hasCustomerPermission = (action, fallback) => {
+  const permissions = permissionConfig.value && permissionConfig.value.permissions
+  if (permissions && Object.prototype.hasOwnProperty.call(permissions, action)) return !!permissions[action]
+  return fallback
+}
+const canCreate = computed(() => hasCustomerPermission('create', ['admin', 'support'].includes(currentRole)))
+const canEdit = computed(() => hasCustomerPermission('edit', ['admin', 'support'].includes(currentRole)))
+const canCancel = computed(() => hasCustomerPermission('cancel', currentRole === 'admin'))
+const canViewPhone = computed(() => hasCustomerPermission('view_phone', currentRole === 'admin'))
+const canDevice = computed(() => hasCustomerPermission('device', ['admin', 'engineer', 'support'].includes(currentRole)))
+const canExport = computed(() => hasCustomerPermission('export', currentRole === 'admin'))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -403,6 +410,9 @@ const load = async () => {
 const reload = () => { filters.page = 1; load() }
 const onPage = (p) => { filters.page = p; load() }
 
+const loadPermissionConfig = async () => {
+  try { permissionConfig.value = await getCustomerPermissionConfig() } catch (e) { /* keep local role fallback */ }
+}
 const loadDealers = async () => { try { dealers.value = await listDealers() } catch (e) { /* ignore */ } }
 
 const revealPhone = async (row, isDetail = false) => {
@@ -623,7 +633,7 @@ const submitImport = async () => {
   } catch (e) { /* ignore */ } finally { importing.value = false }
 }
 
-onMounted(() => { load(); loadDealers(); loadTags() })
+onMounted(() => { loadPermissionConfig(); load(); loadDealers(); loadTags() })
 </script>
 
 <style scoped>

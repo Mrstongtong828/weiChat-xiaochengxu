@@ -51,7 +51,36 @@ function requirePermission(user, action) {
   return true
 }
 
+function getPermissionConfigForRole(role) {
+  return {
+    role,
+    permissions: Object.fromEntries(
+      Object.keys(PERMISSIONS).map(action => [action, (PERMISSIONS[action] || []).includes(role)])
+    )
+  }
+}
+
 function normalizeText(v) { return String(v == null ? '' : v).trim() }
+
+function escapeRegExp(value) {
+  return normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function uniqueTruthy(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map(normalizeText).filter(Boolean))]
+}
+
+function buildCustomerListQuery(base, keyword) {
+  const kw = normalizeText(keyword).slice(0, 60)
+  if (!kw) return base
+  const reg = new db.RegExp({ regexp: escapeRegExp(kw), options: 'i' })
+  const keywordQuery = dbCmd.or([
+    { name: reg },
+    { contact: reg },
+    { phone: reg }
+  ])
+  return Object.keys(base).length ? dbCmd.and([base, keywordQuery]) : keywordQuery
+}
 
 function maskPhone(phone) {
   const p = normalizeText(phone)
@@ -145,6 +174,84 @@ function sanitizeCustomerForList(c) {
   }
 }
 
+async function fetchByIn(collectionName, field, values, {
+  fields = null,
+  orderField = 'create_time',
+  orderDirection = 'desc',
+  batchSize = 80,
+  pageSize = 500,
+  maxRowsPerBatch = 5000
+} = {}) {
+  const ids = uniqueTruthy(values)
+  if (!ids.length) return []
+  const rows = []
+  const col = db.collection(collectionName)
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const chunk = ids.slice(i, i + batchSize)
+    let offset = 0
+    while (offset < maxRowsPerBatch) {
+      let query = col.where({ [field]: dbCmd.in(chunk) })
+      if (fields) query = query.field(fields)
+      const res = await query.orderBy(orderField, orderDirection).skip(offset).limit(pageSize).get()
+      const batch = res.data || []
+      rows.push(...batch)
+      if (batch.length < pageSize) break
+      offset += batch.length
+    }
+  }
+  return rows
+}
+
+async function buildCustomerListStats(customers = []) {
+  const stats = {}
+  for (const c of customers) {
+    stats[c._id] = { order_count: 0, device_count: 0, last_order_time: 0 }
+  }
+  if (!customers.length) return stats
+
+  const customerIds = uniqueTruthy(customers.map(c => c._id))
+  const userIds = uniqueTruthy(customers.map(c => c.user_id))
+  const customerById = Object.fromEntries(customers.map(c => [c._id, c]))
+  const customerIdByUserId = {}
+  customers.forEach(c => {
+    if (c.user_id && !customerIdByUserId[c.user_id]) customerIdByUserId[c.user_id] = c._id
+  })
+
+  const [devicesByCustomer, devicesByUser, ordersByCustomer, ordersByUser] = await Promise.all([
+    fetchByIn('cicada_user_devices', 'customer_id', customerIds, { fields: { customer_id: true, user_id: true, create_time: true } }),
+    fetchByIn('cicada_user_devices', 'user_id', userIds, { fields: { customer_id: true, user_id: true, create_time: true } }),
+    fetchByIn('cicada_orders', 'customer_id', customerIds, { fields: { customer_id: true, user_id: true, create_time: true } }),
+    fetchByIn('cicada_orders', 'user_id', userIds, { fields: { customer_id: true, user_id: true, create_time: true } })
+  ])
+
+  const seenDevices = new Set()
+  for (const device of [...devicesByCustomer, ...devicesByUser]) {
+    const customerId = (device.customer_id && customerById[device.customer_id])
+      ? device.customer_id
+      : customerIdByUserId[device.user_id]
+    if (!customerId || !stats[customerId]) continue
+    const key = device._id || `${customerId}:${device.user_id || ''}:${device.create_time || ''}`
+    if (seenDevices.has(key)) continue
+    seenDevices.add(key)
+    stats[customerId].device_count += 1
+  }
+
+  const seenOrders = new Set()
+  for (const order of [...ordersByCustomer, ...ordersByUser]) {
+    const customerId = (order.customer_id && customerById[order.customer_id])
+      ? order.customer_id
+      : customerIdByUserId[order.user_id]
+    if (!customerId || !stats[customerId]) continue
+    const key = order._id || `${customerId}:${order.user_id || ''}:${order.create_time || ''}`
+    if (seenOrders.has(key)) continue
+    seenOrders.add(key)
+    stats[customerId].order_count += 1
+    stats[customerId].last_order_time = Math.max(stats[customerId].last_order_time, order.create_time || 0)
+  }
+
+  return stats
+}
+
 module.exports = {
   _before() {
     const httpInfo = this.getHttpInfo && this.getHttpInfo()
@@ -154,6 +261,16 @@ module.exports = {
   },
 
   // ============== 客户列表 ==============
+  async getPermissionConfig(params) {
+    try {
+      const p = pickParam(this, params)
+      const admin = await verifyAdminToken(p.token)
+      return { code: 0, data: getPermissionConfigForRole(admin.role) }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async listCustomers(params) {
     try {
       const p = pickParam(this, params)
@@ -161,7 +278,7 @@ module.exports = {
       requirePermission(admin, 'view')
 
       const { page, pageSize } = normalizePage(p.page, p.pageSize)
-      const keyword = normalizeText(p.keyword).toLowerCase()
+      const keyword = normalizeText(p.keyword)
       const customerType = normalizeText(p.customer_type)
       const statusFilter = normalizeText(p.status) || 'active' // active/cancelled/all
       const dealerId = normalizeText(p.dealer_id)
@@ -174,48 +291,20 @@ module.exports = {
       if (tagFilter) where.tags = tagFilter // 数组字段：包含该标签即命中
 
       const col = db.collection('cicada_customers')
-      let list = []
-      let total = 0
-
-      if (keyword) {
-        // 关键字（客户名/联系人/手机号）需内存过滤，扫描后分页
-        const scan = await col.where(where).orderBy('create_time', 'desc').limit(1000).get()
-        const filtered = scan.data.filter(c => {
-          const hay = [c.name, c.contact, c.phone].map(normalizeText).join(' ').toLowerCase()
-          return hay.includes(keyword)
-        })
-        total = filtered.length
-        list = filtered.slice((page - 1) * pageSize, page * pageSize)
-      } else {
-        const countRes = await col.where(where).count()
-        total = countRes.total
-        const res = await col.where(where).orderBy('create_time', 'desc')
+      const query = buildCustomerListQuery(where, keyword)
+      const [countRes, listRes] = await Promise.all([
+        col.where(query).count(),
+        col.where(query).orderBy('create_time', 'desc')
           .skip((page - 1) * pageSize).limit(pageSize).get()
-        list = res.data
-      }
+      ])
+      const total = countRes.total
+      const list = listRes.data || []
 
-      // 逐行补充统计（工单数 / 设备数 / 最后报修时间）
-      const enriched = await Promise.all(list.map(async (c) => {
-        const base = sanitizeCustomerForList(c)
-        let orderCount = 0, lastOrderTime = 0, deviceCount = 0
-        try {
-          const deviceOr = [{ customer_id: c._id }]
-          if (c.user_id) deviceOr.push({ user_id: c.user_id })
-          const devRes = await db.collection('cicada_user_devices').where(dbCmd.or(deviceOr)).count()
-          deviceCount = devRes.total
-        } catch (e) { /* ignore */ }
-        if (c.user_id) {
-          try {
-            const ordersCol = db.collection('cicada_orders')
-            const oc = await ordersCol.where({ user_id: c.user_id }).count()
-            orderCount = oc.total
-            if (orderCount > 0) {
-              const last = await ordersCol.where({ user_id: c.user_id }).orderBy('create_time', 'desc').limit(1).get()
-              lastOrderTime = (last.data[0] && last.data[0].create_time) || 0
-            }
-          } catch (e) { /* ignore */ }
-        }
-        return { ...base, order_count: orderCount, device_count: deviceCount, last_order_time: lastOrderTime }
+      // 批量补充统计，避免每行单独查询订单和设备。
+      const stats = await buildCustomerListStats(list)
+      const enriched = list.map(c => ({
+        ...sanitizeCustomerForList(c),
+        ...(stats[c._id] || { order_count: 0, device_count: 0, last_order_time: 0 })
       }))
 
       return { code: 0, data: { list: enriched, total, page, pageSize } }
