@@ -460,9 +460,9 @@ function getOrderPaidAmountFen(order = {}) {
   return Math.round(yuan * 100)
 }
 
-function genRefundNo(order = {}) {
+function genRefundNo(order = {}, refundFen = 0) {
   const base = String(order.order_no || order._id || `DR${Date.now()}`).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 24)
-  return `${base}R${wxRandomNonce(3).toUpperCase()}`
+  return `${base}R${Math.max(Number(refundFen) || 0, 0)}`
 }
 
 async function getWechatAccessToken() {
@@ -1095,39 +1095,87 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
     resolved.push({ line, part })
   }
 
-  const flows = []
-  for (const { line, part } of resolved) {
-    const beforeStock = Number(part.stock || 0) || 0
-    const afterStock = beforeStock - line.quantity
-    await db.collection('cicada_parts').doc(part._id).update({
-      stock: afterStock,
+  const orderLockRes = await db.collection('cicada_orders')
+    .where({
+      _id: order._id,
+      inventory_deducted: dbCmd.neq(true),
+      inventory_status: dbCmd.neq('outbound_processing')
+    })
+    .update({
+      inventory_status: 'outbound_processing',
       update_time: now
     })
-    const flow = {
-      part_id: part._id,
-      part_code: part.part_code || line.part_code || '',
-      part_name: part.part_name || line.part_name || '',
-      order_id: order._id || '',
-      order_no: order.order_no || '',
-      flow_type: 'outbound',
-      quantity: line.quantity,
-      before_stock: beforeStock,
-      after_stock: afterStock,
-      operator_id: actor._id || '',
-      operator_name: actor.name || actor.username || '',
-      remark: '工单维修领用出库',
-      create_time: now
-    }
-    const addRes = await db.collection('cicada_inventory_flows').add(flow)
-    flows.push({ ...flow, _id: addRes.id })
+  if (!orderLockRes.updated) {
+    return { skipped: true, reason: '该工单已完成或正在进行配件出库', flows: [] }
   }
 
-  await db.collection('cicada_orders').doc(order._id).update({
-    inventory_deducted: true,
-    inventory_deduct_time: now,
-    inventory_status: 'outbound',
-    update_time: now
-  })
+  const deducted = []
+  const flowPayloads = []
+  const flows = []
+  try {
+    for (const { line, part } of resolved) {
+      const deductRes = await db.collection('cicada_parts')
+        .where({ _id: part._id, stock: dbCmd.gte(line.quantity) })
+        .update({
+          stock: dbCmd.inc(-line.quantity),
+          update_time: now
+        })
+      if (!deductRes.updated) {
+        const latestRes = await db.collection('cicada_parts').doc(part._id).get()
+        const latestPart = latestRes.data && latestRes.data[0]
+        const latestStock = Number(latestPart && latestPart.stock || 0) || 0
+        throw new Error(`配件 ${part.part_name || part.part_code} 库存不足，当前 ${latestStock}，需 ${line.quantity}`)
+      }
+      const latestRes = await db.collection('cicada_parts').doc(part._id).get()
+      const latestPart = latestRes.data && latestRes.data[0]
+      const afterStock = Number(latestPart && latestPart.stock || 0) || 0
+      const beforeStock = afterStock + line.quantity
+      deducted.push({ part_id: part._id, quantity: line.quantity })
+      flowPayloads.push({
+        part_id: part._id,
+        part_code: part.part_code || line.part_code || '',
+        part_name: part.part_name || line.part_name || '',
+        order_id: order._id || '',
+        order_no: order.order_no || '',
+        flow_type: 'outbound',
+        quantity: line.quantity,
+        before_stock: beforeStock,
+        after_stock: afterStock,
+        operator_id: actor._id || '',
+        operator_name: actor.name || actor.username || '',
+        remark: '工单维修领用出库',
+        create_time: now
+      })
+    }
+
+    for (const flow of flowPayloads) {
+      const addRes = await db.collection('cicada_inventory_flows').add(flow)
+      flows.push({ ...flow, _id: addRes.id })
+    }
+
+    await db.collection('cicada_orders').doc(order._id).update({
+      inventory_deducted: true,
+      inventory_deduct_time: now,
+      inventory_status: 'outbound',
+      update_time: now
+    })
+  } catch (error) {
+    for (const item of deducted.reverse()) {
+      await db.collection('cicada_parts').doc(item.part_id).update({
+        stock: dbCmd.inc(item.quantity),
+        update_time: Date.now()
+      })
+    }
+    for (const flow of flows) {
+      if (flow._id) await db.collection('cicada_inventory_flows').doc(flow._id).remove()
+    }
+    await db.collection('cicada_orders').doc(order._id).update({
+      inventory_deducted: false,
+      inventory_status: 'outbound_failed',
+      update_time: Date.now()
+    })
+    throw error
+  }
 
   await logOrderEvent({
     order,
@@ -2411,7 +2459,7 @@ module.exports = {
       if (!(refundFen > 0) || refundFen > totalFen) return { code: -1, msg: '退款金额不合法（需大于0且不超过原支付金额）' }
 
       const config = getWechatPayConfig()
-      const outRefundNo = genRefundNo(order)
+      const outRefundNo = genRefundNo(order, refundFen)
       const reasonText = String(reason || '').trim().slice(0, 80)
       const body = {
         out_refund_no: outRefundNo,
@@ -2422,9 +2470,27 @@ module.exports = {
       else body.out_trade_no = outTradeNo
       if (config.notifyUrl) body.notify_url = config.notifyUrl
 
-      // 先标记处理中，避免并发重复退款
+      // 条件更新抢占退款处理权，避免并发双击同时通过前置校验。
       const now = Date.now()
-      await db.collection('cicada_orders').doc(order_id).update({ refund_status: 'processing', update_time: now })
+      const lockRes = await db.collection('cicada_orders')
+        .where({
+          _id: order_id,
+          payment_status: 'paid',
+          payment_method: 'wechat_pay',
+          refund_status: dbCmd.and(dbCmd.neq('processing'), dbCmd.neq('refunded'))
+        })
+        .update({
+          refund_status: 'processing',
+          refund_out_no: outRefundNo,
+          refund_amount_fen: refundFen,
+          update_time: now
+        })
+      if (!lockRes.updated) {
+        const latestRes = await db.collection('cicada_orders').doc(order_id).get()
+        const latest = latestRes.data && latestRes.data[0]
+        if (latest && latest.refund_status === 'refunded') return { code: -1, msg: '该工单已退款，请勿重复操作' }
+        return { code: -1, msg: '退款处理中，请稍后查询结果' }
+      }
 
       let result
       try {

@@ -19,6 +19,8 @@ Create these indexes in the uniCloud database console before production traffic.
 - `engineer_id, create_time desc`
 - `payment_status, create_time desc`
 - `quote_status, create_time desc`
+- `refund_status, create_time desc`
+- `inventory_status, create_time desc`
 - `invoice_info.need_invoice, invoice_info.status, create_time desc`
 - `ship_out_info.logistics_no`
 - `ship_back_info.logistics_no`

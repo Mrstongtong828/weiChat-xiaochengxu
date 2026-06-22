@@ -2,10 +2,14 @@
 // 请在 uniCloud 控制台开启云函数 URL 化后，将对应 URL 配置到 .env.local。
 const env = import.meta.env || {}
 
-const defaultCloudBase = 'https://env-00jy6bcqqsjw.dev-hz.cloudbasefunction.cn'
 const normalizeBase = (base = '') => String(base || '').replace(/\/$/, '')
-const cloudBase = normalizeBase(env.VITE_UNICLOUD_BASE_URL || defaultCloudBase)
-const resolveUrl = (envKey, functionName) => normalizeBase(env[envKey] || `${cloudBase}/${functionName}`)
+const cloudBase = normalizeBase(env.VITE_UNICLOUD_BASE_URL)
+const resolveUrl = (envKey, functionName) => {
+  const explicitUrl = normalizeBase(env[envKey])
+  if (explicitUrl) return explicitUrl
+  if (cloudBase) return `${cloudBase}/${functionName}`
+  throw new Error(`缺少 ${envKey} 或 VITE_UNICLOUD_BASE_URL，不能静默连接默认云空间`)
+}
 
 export const API_BASE = {
   // 管理端系统接口（登录、员工管理）

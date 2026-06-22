@@ -48,10 +48,25 @@
 | idx_order_no | order_no | 1 | **是** | 单字段，必须勾选 Unique |
 | idx_user_create | user_id | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | create_time | -1 | | |
+| idx_customer_create | customer_id | 1 | 否 | 复合索引，后台 CRM 客户详情查历史工单 |
+| | create_time | -1 | | |
 | idx_status_create | status | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | create_time | -1 | | |
 | idx_engineer_create | engineer_id | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | create_time | -1 | | |
+| idx_payment_create | payment_status | 1 | 否 | 复合索引，按支付状态筛选/统计工单 |
+| | create_time | -1 | | |
+| idx_quote_create | quote_status | 1 | 否 | 复合索引，按报价状态筛选/统计工单 |
+| | create_time | -1 | | |
+| idx_refund_create | refund_status | 1 | 否 | 复合索引，按退款状态排查处理中/已退款订单 |
+| | create_time | -1 | | |
+| idx_inventory_status_create | inventory_status | 1 | 否 | 复合索引，按库存出库状态排查失败/处理中订单 |
+| | create_time | -1 | | |
+| idx_invoice_status_create | invoice_info.need_invoice | 1 | 否 | 复合索引，按发票需求/开票状态筛选 |
+| | invoice_info.status | 1 | | |
+| | create_time | -1 | | |
+| idx_ship_out_logistics_no | ship_out_info.logistics_no | 1 | 否 | 单字段索引，按寄出物流单号查询 |
+| idx_ship_back_logistics_no | ship_back_info.logistics_no | 1 | 否 | 单字段索引，按寄回物流单号查询 |
 
 ---
 
@@ -70,8 +85,26 @@
 |---|---|---|---|---|
 | idx_user_create | user_id | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | create_time | -1 | | |
+| idx_customer_create | customer_id | 1 | 否 | 复合索引，后台 CRM 客户详情查历史设备 |
+| | create_time | -1 | | |
 | idx_user_sn | user_id | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | sn | 1 | | |
+| idx_sn_unique | sn | 1 | **是** | 全局 SN 唯一。创建前先清理存量重复/空 SN |
+
+---
+
+## cicada_subscription_logs
+
+| 索引名称 | 字段名 | 索引类型 | 唯一 (Unique) | 备注 |
+|---|---|---|---|---|
+| idx_order_create | order_id | 1 | 否 | 复合索引，按工单查订阅发送记录 |
+| | create_time | -1 | | |
+| idx_user_create | user_id | 1 | 否 | 复合索引，按用户查订阅发送记录 |
+| | create_time | -1 | | |
+| idx_scene_create | scene | 1 | 否 | 复合索引，按订阅场景统计/排查 |
+| | create_time | -1 | | |
+| idx_status_create | status | 1 | 否 | 复合索引，按发送状态统计/排查 |
+| | create_time | -1 | | |
 
 ---
 

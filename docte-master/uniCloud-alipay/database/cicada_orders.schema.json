@@ -1,1 +1,142 @@
-{"bsonType":"object","required":["order_no","user_id","status","create_time"],"properties":{"_id":{"description":"ID"},"order_no":{"bsonType":"string"},"user_id":{"bsonType":"string"},"customer_id":{"bsonType":"string","description":"关联 CRM 客户 cicada_customers._id（下单时按手机号/openid 自动匹配或建档回写）"},"status":{"bsonType":"string","enum":["pending","sent","received","inspecting","fixing","shipped","completed","cancelled"]},"ship_out_info":{"bsonType":"object"},"ship_back_info":{"bsonType":"object"},"invoice_info":{"bsonType":"object"},"engineer_id":{"bsonType":"string"},"total_price":{"bsonType":"double"},"quote_warranty_months":{"bsonType":"int","description":"维修质保期(月)，随报价发布；0=沿用全局质保政策"},"payment_deadline":{"bsonType":"timestamp","description":"付款截止时间，报价发布(issued)时设定"},"timeline":{"bsonType":"array"},"review":{"bsonType":"object","description":"客户回访评价：{rating,satisfaction,content,tags,satisfied,create_time}"},"review_time":{"bsonType":"timestamp","description":"回访评价时间"},"received_confirm_time":{"bsonType":"timestamp","description":"客户确认收货时间"},"update_time":{"bsonType":"timestamp"},"create_time":{"bsonType":"timestamp"}}}
+{
+  "bsonType": "object",
+  "required": ["order_no", "user_id", "status", "create_time"],
+  "properties": {
+    "_id": {
+      "description": "ID"
+    },
+    "order_no": {
+      "bsonType": "string"
+    },
+    "user_id": {
+      "bsonType": "string"
+    },
+    "customer_id": {
+      "bsonType": "string",
+      "description": "关联 CRM 客户 cicada_customers._id"
+    },
+    "status": {
+      "bsonType": "string",
+      "enum": ["pending", "sent", "received", "inspecting", "fixing", "shipped", "completed", "cancelled"]
+    },
+    "in_warranty": {
+      "bsonType": "bool",
+      "description": "下单或报价时派生的是否在保快照"
+    },
+    "warranty_status": {
+      "bsonType": "string",
+      "description": "质保状态快照，如 in_warranty / expired / unknown"
+    },
+    "charge_type": {
+      "bsonType": "string",
+      "description": "收费类型，如 warranty / paid / free / unknown"
+    },
+    "quote_status": {
+      "bsonType": "string",
+      "description": "报价状态：draft / issued / confirmed / rejected / cancelled"
+    },
+    "payment_status": {
+      "bsonType": "string",
+      "description": "付款状态：unpaid / pending / paid / refunded"
+    },
+    "inventory_deducted": {
+      "bsonType": "bool",
+      "description": "报价配件是否已完成库存扣减"
+    },
+    "inventory_deduct_time": {
+      "bsonType": "timestamp",
+      "description": "库存扣减时间"
+    },
+    "inventory_status": {
+      "bsonType": "string",
+      "description": "库存处理状态，如 outbound"
+    },
+    "refund_status": {
+      "bsonType": "string",
+      "description": "退款状态：processing / refunded / failed"
+    },
+    "refund_amount_fen": {
+      "bsonType": "int",
+      "description": "退款金额，单位分"
+    },
+    "refund_out_no": {
+      "bsonType": "string",
+      "description": "微信退款商户退款单号"
+    },
+    "wechat_refund_id": {
+      "bsonType": "string",
+      "description": "微信退款单号"
+    },
+    "refund_reason": {
+      "bsonType": "string"
+    },
+    "refund_time": {
+      "bsonType": "timestamp"
+    },
+    "payment_method": {
+      "bsonType": "string"
+    },
+    "wechat_pay_out_trade_no": {
+      "bsonType": "string"
+    },
+    "wechat_pay_transaction_id": {
+      "bsonType": "string"
+    },
+    "quote_detail": {
+      "bsonType": "object"
+    },
+    "quote_items": {
+      "bsonType": "array"
+    },
+    "parts_fee": {
+      "bsonType": "double"
+    },
+    "labor_fee": {
+      "bsonType": "double"
+    },
+    "ship_out_info": {
+      "bsonType": "object"
+    },
+    "ship_back_info": {
+      "bsonType": "object"
+    },
+    "invoice_info": {
+      "bsonType": "object"
+    },
+    "engineer_id": {
+      "bsonType": "string"
+    },
+    "total_price": {
+      "bsonType": "double"
+    },
+    "quote_warranty_months": {
+      "bsonType": "int",
+      "description": "维修质保期(月)，随报价发布；0=沿用全局质保政策"
+    },
+    "payment_deadline": {
+      "bsonType": "timestamp",
+      "description": "付款截止时间，报价发布(issued)时设定"
+    },
+    "timeline": {
+      "bsonType": "array"
+    },
+    "review": {
+      "bsonType": "object",
+      "description": "客户回访评价"
+    },
+    "review_time": {
+      "bsonType": "timestamp",
+      "description": "回访评价时间"
+    },
+    "received_confirm_time": {
+      "bsonType": "timestamp",
+      "description": "客户确认收货时间"
+    },
+    "update_time": {
+      "bsonType": "timestamp"
+    },
+    "create_time": {
+      "bsonType": "timestamp"
+    }
+  }
+}

@@ -26,10 +26,15 @@ const fileEnv = {
 
 const readEnv = (key) => process.env[key] || fileEnv[key] || ''
 const normalizeBase = (base = '') => String(base || '').replace(/\/$/, '')
-const defaultCloudBase = 'https://env-00jy6bcqqsjw.dev-hz.cloudbasefunction.cn'
-const cloudBase = normalizeBase(readEnv('VITE_UNICLOUD_BASE_URL') || defaultCloudBase)
-const adminOrderUrl = normalizeBase(readEnv('VITE_ADMIN_ORDER_URL') || `${cloudBase}/cicada-admin-order`)
-const configUrl = normalizeBase(readEnv('VITE_CLIENT_PUBLIC_URL') || adminOrderUrl)
+const cloudBase = normalizeBase(readEnv('VITE_UNICLOUD_BASE_URL'))
+const resolveUrl = (envKey, functionName) => {
+  const explicitUrl = normalizeBase(readEnv(envKey))
+  if (explicitUrl) return explicitUrl
+  if (cloudBase) return `${cloudBase}/${functionName}`
+  throw new Error(`Missing ${envKey} or VITE_UNICLOUD_BASE_URL; refusing to use a default cloud environment.`)
+}
+const adminOrderUrl = resolveUrl('VITE_ADMIN_ORDER_URL', 'cicada-admin-order')
+const configUrl = normalizeBase(readEnv('VITE_CLIENT_PUBLIC_URL')) || adminOrderUrl
 
 const res = await fetch(`${configUrl}/getSubscriptionConfig`, {
   method: 'POST',

@@ -4,10 +4,13 @@ export const MENU_ROLES = {
   home: ['superadmin', 'admin', 'engineer', 'finance', 'support'],
   workorder: ['superadmin', 'admin', 'engineer', 'finance', 'support'],
   customers: ['superadmin', 'admin', 'support'],
+  inventory: ['superadmin', 'admin', 'engineer'],
   settlement: ['superadmin', 'admin', 'finance'],
   faultdb: ['superadmin', 'admin', 'engineer'],
   users: ['superadmin', 'admin'],
   feedback: ['superadmin', 'admin', 'support'],
+  summary: ['superadmin', 'admin', 'finance'],
+  audit: ['superadmin', 'admin', 'finance'],
   settings: ['superadmin', 'admin']
 }
 
