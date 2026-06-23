@@ -861,6 +861,75 @@ module.exports = {
     }
   },
 
+  async getSurveyList(params) {
+    try {
+      let token, page = 1, pageSize = 20, keyword = '', status = ''
+      if (params && params.token) {
+        ({ token, page = 1, pageSize = 20, keyword = '', status = '' } = params)
+      } else if (this.params) {
+        ({ token, page = 1, pageSize = 20, keyword = '', status = '' } = this.params)
+      }
+      await verifyAdminToken(token, ['admin', 'support'])
+      const pagination = fbPage(page, pageSize)
+      const where = {}
+      const kw = fbText(keyword, 80)
+      const statusText = fbText(status, 30)
+      if (statusText) where.status = statusText
+      if (kw) {
+        where.$or = [
+          { order_no: new RegExp(kw, 'i') },
+          { contact: new RegExp(kw, 'i') },
+          { comment: new RegExp(kw, 'i') }
+        ]
+      }
+
+      const col = db.collection('cicada_surveys')
+      const [listRes, countRes] = await Promise.all([
+        col.where(where)
+          .orderBy('create_time', 'desc')
+          .skip((pagination.page - 1) * pagination.pageSize)
+          .limit(pagination.pageSize)
+          .get(),
+        col.where(where).count()
+      ])
+
+      return {
+        code: 0,
+        data: {
+          list: listRes.data || [],
+          total: countRes.total || 0,
+          page: pagination.page,
+          pageSize: pagination.pageSize
+        }
+      }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async updateSurveyStatus(params) {
+    try {
+      let token, id, status
+      if (params && params.token) {
+        ({ token, id, status } = params)
+      } else if (this.params) {
+        ({ token, id, status } = this.params)
+      }
+      await verifyAdminToken(token, ['admin', 'support'])
+      const surveyId = fbText(id, 60)
+      const nextStatus = fbText(status, 30)
+      if (!surveyId) return { code: -1, msg: '缺少调研记录ID' }
+      if (!['new', 'contacted', 'closed'].includes(nextStatus)) return { code: -1, msg: '调研状态不正确' }
+      await db.collection('cicada_surveys').doc(surveyId).update({
+        status: nextStatus,
+        update_time: Date.now()
+      })
+      return { code: 0 }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async getGuides(params) {
     try {
       let token

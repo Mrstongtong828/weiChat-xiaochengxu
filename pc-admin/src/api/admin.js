@@ -117,6 +117,14 @@ export const getSettings = (token) => {
 }
 
 // 获取教程列表
+export const getSurveyList = (token, params = {}) => {
+  return request.post(`${API_BASE.adminSys}/getSurveyList`, { token, ...params })
+}
+
+export const updateSurveyStatus = (token, id, status) => {
+  return request.post(`${API_BASE.adminSys}/updateSurveyStatus`, { token, id, status })
+}
+
 export const getGuides = (token) => {
   return request.post(`${API_BASE.adminSys}/getGuides`, { token })
 }

@@ -204,6 +204,78 @@
 
         <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与公众号配置</el-button></div>
       </el-tab-pane>
+
+      <el-tab-pane label="调研有礼" name="survey">
+        <el-alert
+          title="这里维护小程序「调研有礼」页面。保存后小程序会动态读取最新标题、说明、选项和提交成功提示；客户后续修改内容无需重新发布小程序。"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin: 20px 0;"
+        />
+
+        <el-form :model="surveyConfig" label-width="120px" class="print-form">
+          <el-form-item label="是否启用">
+            <el-switch v-model="surveyConfig.enabled" active-text="启用" inactive-text="停用" />
+          </el-form-item>
+          <el-form-item label="页面标题"><el-input v-model="surveyConfig.title" placeholder="如 售后服务调研表" /></el-form-item>
+          <el-form-item label="页面说明"><el-input v-model="surveyConfig.subtitle" type="textarea" :rows="2" placeholder="展示在标题下方的说明文案" /></el-form-item>
+          <el-form-item label="福利说明"><el-input v-model="surveyConfig.giftText" placeholder="如 提交后由工作人员核对并登记福利" /></el-form-item>
+          <el-form-item label="满意度选项"><el-input v-model="surveySatisfactionText" placeholder="用逗号分隔，如 满意,一般,不满意" /></el-form-item>
+          <el-form-item label="解决状态选项"><el-input v-model="surveyResolvedText" placeholder="用逗号分隔，如 已解决,处理中,未解决" /></el-form-item>
+          <el-form-item label="评分上限"><el-input-number v-model="surveyConfig.ratingMax" :min="1" :max="10" controls-position="right" /></el-form-item>
+          <el-form-item label="成功标题"><el-input v-model="surveyConfig.successTitle" placeholder="如 提交成功" /></el-form-item>
+          <el-form-item label="成功提示"><el-input v-model="surveyConfig.successMessage" type="textarea" :rows="2" placeholder="提交成功后弹窗展示的内容" /></el-form-item>
+        </el-form>
+        <div class="save-row"><el-button type="primary" :loading="savingSurvey" @click="saveSurveyConfig">保存调研配置</el-button></div>
+
+        <el-divider />
+
+        <div class="qual-head">
+          <span>调研提交记录</span>
+          <el-button type="primary" link :loading="surveyLoading" @click="loadSurveyRecords">刷新记录</el-button>
+        </div>
+        <div class="survey-toolbar">
+          <el-input v-model="surveyQuery.keyword" clearable placeholder="搜索工单号 / 联系方式 / 内容" style="max-width:320px;" @keyup.enter="loadSurveyRecords" />
+          <el-select v-model="surveyQuery.status" clearable placeholder="处理状态" style="width:160px;" @change="loadSurveyRecords">
+            <el-option label="新提交" value="new" />
+            <el-option label="已联系" value="contacted" />
+            <el-option label="已关闭" value="closed" />
+          </el-select>
+          <el-button @click="loadSurveyRecords">查询</el-button>
+        </div>
+        <el-table :data="surveyRecords" v-loading="surveyLoading" class="modern-table" style="width:100%; margin-top:12px;">
+          <el-table-column prop="order_no" label="工单号 / SN" width="150" show-overflow-tooltip />
+          <el-table-column prop="satisfaction" label="满意度" width="100" />
+          <el-table-column prop="rating" label="评分" width="80" />
+          <el-table-column prop="resolved" label="是否解决" width="110" />
+          <el-table-column prop="comment" label="反馈内容" min-width="220" show-overflow-tooltip />
+          <el-table-column prop="contact" label="联系方式" width="150" show-overflow-tooltip />
+          <el-table-column label="提交时间" width="170">
+            <template #default="{ row }">{{ formatSurveyTime(row.create_time) }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="130">
+            <template #default="{ row }">
+              <el-select :model-value="row.status || 'new'" size="small" @change="(status) => changeSurveyStatus(row, status)">
+                <el-option label="新提交" value="new" />
+                <el-option label="已联系" value="contacted" />
+                <el-option label="已关闭" value="closed" />
+              </el-select>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="survey-pagination">
+          <el-pagination
+            v-model:current-page="surveyQuery.page"
+            v-model:page-size="surveyQuery.pageSize"
+            :total="surveyTotal"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            @size-change="loadSurveyRecords"
+            @current-change="loadSurveyRecords"
+          />
+        </div>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -211,7 +283,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { saveSettings, getSettings, getTempFileURL } from '../api/admin.js'
+import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus } from '../api/admin.js'
 import RichEditor from '../components/RichEditor.vue'
 import { uploadFileToCloud } from '../utils/upload.js'
 
@@ -343,6 +415,7 @@ const loadSettings = async () => {
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
     applyCompliance(data)
     applyContactInfo(data)
+    applySurveyConfig(data.survey_config)
   } catch (error) {
     console.error('加载配置失败:', error)
   }
@@ -556,8 +629,119 @@ const saveContact = async () => {
   }
 }
 
+// ===== 调研有礼配置 / 记录 =====
+const surveyConfig = reactive({
+  enabled: true,
+  title: '售后服务调研表',
+  subtitle: '提交一次真实售后体验反馈，工作人员核对后为您登记调研福利。',
+  giftText: '查看原调研有礼海报',
+  ratingMax: 5,
+  successTitle: '提交成功',
+  successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。'
+})
+const surveySatisfactionText = ref('满意,一般,不满意')
+const surveyResolvedText = ref('已解决,处理中,未解决')
+const surveyRecords = ref([])
+const surveyLoading = ref(false)
+const savingSurvey = ref(false)
+const surveyTotal = ref(0)
+const surveyQuery = reactive({ keyword: '', status: '', page: 1, pageSize: 10 })
+
+const parseSurveyList = (value, fallback = []) => {
+  const text = String(value || '')
+    .split(/[,\n，、]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+  return text.length ? text.slice(0, 8) : fallback
+}
+
+const applySurveyConfig = (value = '') => {
+  try {
+    const parsed = value ? JSON.parse(value) : {}
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      surveyConfig.enabled = parsed.enabled !== false
+      surveyConfig.title = parsed.title || surveyConfig.title
+      surveyConfig.subtitle = parsed.subtitle || surveyConfig.subtitle
+      surveyConfig.giftText = parsed.giftText || surveyConfig.giftText
+      surveyConfig.ratingMax = Math.max(1, Math.min(10, Number(parsed.ratingMax) || surveyConfig.ratingMax))
+      surveyConfig.successTitle = parsed.successTitle || surveyConfig.successTitle
+      surveyConfig.successMessage = parsed.successMessage || surveyConfig.successMessage
+      surveySatisfactionText.value = Array.isArray(parsed.satisfactionOptions) ? parsed.satisfactionOptions.join(',') : surveySatisfactionText.value
+      surveyResolvedText.value = Array.isArray(parsed.resolvedOptions) ? parsed.resolvedOptions.join(',') : surveyResolvedText.value
+    }
+  } catch (error) {
+    console.warn('parse survey config failed:', error)
+  }
+}
+
+const serializeSurveyConfig = () => JSON.stringify({
+  enabled: surveyConfig.enabled,
+  title: surveyConfig.title,
+  subtitle: surveyConfig.subtitle,
+  giftText: surveyConfig.giftText,
+  ratingMax: Number(surveyConfig.ratingMax) || 5,
+  satisfactionOptions: parseSurveyList(surveySatisfactionText.value, ['满意', '一般', '不满意']),
+  resolvedOptions: parseSurveyList(surveyResolvedText.value, ['已解决', '处理中', '未解决']),
+  successTitle: surveyConfig.successTitle,
+  successMessage: surveyConfig.successMessage
+})
+
+const saveSurveyConfig = async () => {
+  try {
+    savingSurvey.value = true
+    const token = localStorage.getItem('adminToken')
+    await saveSettings(token, {
+      survey_config: serializeSurveyConfig()
+    })
+    ElMessage.success('调研配置保存成功')
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingSurvey.value = false
+  }
+}
+
+const formatSurveyTime = (value) => {
+  if (!value) return ''
+  const d = new Date(Number(value))
+  if (Number.isNaN(d.getTime())) return String(value)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+const loadSurveyRecords = async () => {
+  try {
+    surveyLoading.value = true
+    const token = localStorage.getItem('adminToken')
+    const data = await getSurveyList(token, {
+      page: surveyQuery.page,
+      pageSize: surveyQuery.pageSize,
+      keyword: surveyQuery.keyword,
+      status: surveyQuery.status
+    })
+    surveyRecords.value = (data && data.list) || []
+    surveyTotal.value = (data && data.total) || 0
+  } catch (error) {
+    ElMessage.error(error.message || '加载调研记录失败')
+  } finally {
+    surveyLoading.value = false
+  }
+}
+
+const changeSurveyStatus = async (row, status) => {
+  try {
+    const token = localStorage.getItem('adminToken')
+    await updateSurveyStatus(token, row._id || row.id, status)
+    ElMessage.success('状态已更新')
+    row.status = status
+  } catch (error) {
+    ElMessage.error(error.message || '状态更新失败')
+  }
+}
+
 onMounted(() => {
   loadSettings()
+  loadSurveyRecords()
 })
 </script>
 
@@ -601,6 +785,8 @@ onMounted(() => {
 .logo-row { display:flex; align-items:center; gap:12px; }
 .logo-thumb { height:44px; border:1px solid #f0f2f5; border-radius:6px; object-fit:contain; }
 .watermark-row { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.survey-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.survey-pagination { display:flex; justify-content:flex-end; margin-top:16px; }
 .table-responsive { width: 100%; overflow-x: auto; }
 .modern-table { min-width: 800px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }

@@ -686,21 +686,80 @@
 
 			<view v-else-if="activeModule === 'survey'" class="survey-module">
 				<view class="survey-mask"></view>
-				<view class="survey-modal-card survey-poster-card">
+				<view class="survey-modal-card survey-form-card">
 					<view class="survey-close tap" @click="closeModule">×</view>
 					<view class="survey-ribbon"><view class="glyph glyph-gift"><view class="glyph-extra"></view></view><text>调研有礼</text></view>
-					<view class="survey-poster-wrap tap" @click="previewSurveyPoster">
-						<image
-							class="survey-poster"
-							:src="surveyPosterUrl"
-							mode="widthFix"
-							show-menu-by-longpress
-						></image>
+					<text class="survey-title">{{ surveyConfig.title }}</text>
+					<text class="survey-desc">{{ surveyConfig.subtitle }}</text>
+
+					<view class="survey-benefits">
+						<view class="survey-benefit"><text>1</text><text>填写售后体验</text></view>
+						<view class="survey-benefit"><text>2</text><text>留下联系方式</text></view>
+						<view class="survey-benefit"><text>3</text><text>领取专属福利</text></view>
 					</view>
-					<text class="survey-poster-tip">点击图片放大查看，长按可保存或识别二维码</text>
+
+					<view class="survey-form">
+						<view class="survey-field">
+							<text class="survey-field-label">工单号 / 设备 SN</text>
+							<input v-model="surveyForm.orderNo" placeholder="选填，便于客服核对服务记录" placeholder-class="input-placeholder" />
+						</view>
+
+						<view class="survey-field">
+							<text class="survey-field-label"><text class="required-star">*</text>整体满意度</text>
+							<view class="survey-chip-row">
+								<view
+									v-for="option in surveySatisfactionOptions"
+									:key="option.value"
+									class="survey-chip tap"
+									:class="{ on: surveyForm.satisfaction === option.value }"
+									@click="surveyForm.satisfaction = option.value"
+								>{{ option.label }}</view>
+							</view>
+						</view>
+
+						<view class="survey-field">
+							<text class="survey-field-label"><text class="required-star">*</text>服务评分</text>
+							<view class="survey-score-row">
+								<view
+									v-for="score in surveyRatingOptions"
+									:key="score"
+									class="survey-score tap"
+									:class="{ on: surveyForm.rating >= score }"
+									@click="surveyForm.rating = score"
+								>{{ score }}</view>
+							</view>
+							<text class="survey-score-tip">{{ surveyForm.rating ? surveyForm.rating + ' 分 / ' + surveyConfig.ratingMax + ' 分' : '未评分' }}</text>
+						</view>
+
+						<view class="survey-field">
+							<text class="survey-field-label"><text class="required-star">*</text>问题是否解决</text>
+							<view class="survey-chip-row">
+								<view
+									v-for="option in surveyResolveOptions"
+									:key="option.value"
+									class="survey-chip tap"
+									:class="{ on: surveyForm.resolved === option.value }"
+									@click="surveyForm.resolved = option.value"
+								>{{ option.label }}</view>
+							</view>
+						</view>
+
+						<view class="survey-field">
+							<text class="survey-field-label"><text class="required-star">*</text>您最想反馈什么</text>
+							<textarea v-model="surveyForm.comment" maxlength="500" placeholder="例如：响应速度、报价说明、维修质量、物流体验、客服沟通等" placeholder-class="input-placeholder"></textarea>
+						</view>
+
+						<view class="survey-field">
+							<text class="survey-field-label"><text class="required-star">*</text>联系方式</text>
+							<input v-model="surveyForm.contact" placeholder="手机号 / 微信号，便于发放福利" placeholder-class="input-placeholder" />
+						</view>
+					</view>
+
 					<view class="survey-actions">
-						<view class="survey-secondary tap" @click="closeModule">退出</view>
+						<view class="survey-secondary tap" @click="resetSurveyForm()">重填</view>
+						<view class="survey-primary tap" :class="{ disabled: surveySubmitting }" @click="submitSurveyForm">{{ surveySubmitting ? '提交中' : '提交调研' }}</view>
 					</view>
+					<text class="survey-poster-tip tap" @click="previewSurveyPoster">{{ surveyConfig.giftText }}</text>
 				</view>
 			</view>
 
@@ -1516,6 +1575,7 @@ import {
 	getFaultTypes,
 	getFeePolicy,
 	getGuide,
+	getSurveyConfig,
 	getSubscriptionConfig,
 	applyInvoice,
 	getWechat,
@@ -1537,7 +1597,8 @@ import {
 	cancelAccount,
 	uploadFeedbackImage,
 	uploadImage,
-	uploadVideo
+	uploadVideo,
+	submitAfterSalesSurvey
 } from '@/api/content'
 import {
 	createRepairWechatPay,
@@ -1653,6 +1714,30 @@ const feedbackType = ref('建议')
 const feedbackContactKind = ref('phone')
 const feedbackText = ref('')
 const feedbackImages = ref([])
+const surveySubmitting = ref(false)
+const surveyConfig = ref({
+	enabled: true,
+	title: '售后服务调研表',
+	subtitle: '提交一次真实售后体验反馈，工作人员核对后为您登记调研福利。',
+	giftText: '查看原调研有礼海报',
+	ratingMax: 5,
+	satisfactionOptions: ['满意', '一般', '不满意'],
+	resolvedOptions: ['已解决', '处理中', '未解决'],
+	successTitle: '提交成功',
+	successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。'
+})
+const surveyRatingOptions = computed(() => Array.from({ length: Math.max(1, Number(surveyConfig.value.ratingMax) || 5) }, (_, i) => i + 1))
+const surveySatisfactionOptions = computed(() => (Array.isArray(surveyConfig.value.satisfactionOptions) && surveyConfig.value.satisfactionOptions.length ? surveyConfig.value.satisfactionOptions : ['满意', '一般', '不满意']).map(label => ({ label, value: label })))
+const surveyResolveOptions = computed(() => (Array.isArray(surveyConfig.value.resolvedOptions) && surveyConfig.value.resolvedOptions.length ? surveyConfig.value.resolvedOptions : ['已解决', '处理中', '未解决']).map(label => ({ label, value: label })))
+const surveyForm = ref({
+	orderNo: '',
+	satisfaction: '',
+	rating: 0,
+	resolved: '',
+	comment: '',
+	contact: ''
+})
+const surveyRecords = ref([])
 
 const subscriptionSceneMap = {
 	repair_submit: ['repair_submitted', 'order_received', 'quote_issued'],
@@ -1718,6 +1803,7 @@ const addressForm = ref({
 })
 const repairDraftKey = 'repairDraft'
 const feedbackRecordKey = 'feedbackRecords'
+const surveyRecordKey = 'afterSalesSurveyRecords'
 const repairForm = ref(defaultRepairForm())
 const submittedOrderId = ref('')
 const repairProducts = ref([defaultRepairProduct()])
@@ -3223,10 +3309,16 @@ const handleInvoiceAction = (order = {}) => {
 const restoreLocalBusinessState = () => {
 	const records = readStorage(feedbackRecordKey, [])
 	feedbackRecords.value = Array.isArray(records) ? records : []
+	const surveys = readStorage(surveyRecordKey, [])
+	surveyRecords.value = Array.isArray(surveys) ? surveys : []
 }
 
 const saveFeedbackRecords = () => {
 	writeStorage(feedbackRecordKey, feedbackRecords.value)
+}
+
+const saveSurveyRecords = () => {
+	writeStorage(surveyRecordKey, surveyRecords.value)
 }
 
 // 拉取服务端反馈单，覆盖本地缓存，使后台处理状态与官方回复实时同步
@@ -3293,6 +3385,99 @@ const previewSurveyPoster = () => {
 	})
 }
 
+const loadSurveyConfig = async () => {
+	try {
+		const config = await getSurveyConfig()
+		if (config && typeof config === 'object') {
+			surveyConfig.value = {
+				...surveyConfig.value,
+				...config,
+				ratingMax: Math.max(1, Number(config.ratingMax) || surveyConfig.value.ratingMax)
+			}
+			if (!surveyConfig.value.satisfactionOptions.includes(surveyForm.value.satisfaction)) surveyForm.value.satisfaction = ''
+			if (!surveyConfig.value.resolvedOptions.includes(surveyForm.value.resolved)) surveyForm.value.resolved = ''
+			if (surveyForm.value.rating > surveyConfig.value.ratingMax) surveyForm.value.rating = 0
+		}
+	} catch (error) {
+		console.warn('load survey config failed:', error)
+	}
+}
+
+const prefillSurveyContact = () => {
+	if (surveyForm.value.contact) return
+	const user = currentUser.value || {}
+	surveyForm.value.contact = user.phone || user.mobile || user.wechat || ''
+}
+
+const resetSurveyForm = (silent = false) => {
+	surveyForm.value = {
+		orderNo: '',
+		satisfaction: '',
+		rating: 0,
+		resolved: '',
+		comment: '',
+		contact: ''
+	}
+	if (!silent) uni.showToast({ title: '已重置调研表', icon: 'none' })
+}
+
+const saveLocalSurveyRecord = (record) => {
+	surveyRecords.value = [record, ...surveyRecords.value].slice(0, 20)
+	saveSurveyRecords()
+}
+
+const submitSurveyForm = async () => {
+	if (surveySubmitting.value) return
+	const form = surveyForm.value
+	if (surveyConfig.value.enabled === false) {
+		uni.showToast({ title: '调研表暂未启用', icon: 'none' })
+		return
+	}
+	if (!form.satisfaction || !form.resolved || !form.rating) {
+		uni.showToast({ title: '请完成必填选项', icon: 'none' })
+		return
+	}
+	if (!form.comment.trim()) {
+		uni.showToast({ title: '请填写调研反馈', icon: 'none' })
+		return
+	}
+	if (!form.contact.trim()) {
+		uni.showToast({ title: '请填写联系方式', icon: 'none' })
+		return
+	}
+
+	surveySubmitting.value = true
+	const record = {
+		id: `SUR-${Date.now()}`,
+		orderNo: form.orderNo.trim(),
+		satisfaction: form.satisfaction,
+		rating: form.rating,
+		resolved: form.resolved,
+		comment: form.comment.trim(),
+		contact: form.contact.trim(),
+		time: todayText()
+	}
+	try {
+		const res = await submitAfterSalesSurvey(record)
+		saveLocalSurveyRecord({ ...record, cloudId: res && res.id, status: 'submitted' })
+		uni.showModal({
+			title: (res && res.successTitle) || surveyConfig.value.successTitle || '提交成功',
+			content: (res && res.successMessage) || surveyConfig.value.successMessage || '感谢参与售后调研。',
+			showCancel: false
+		})
+		resetSurveyForm(true)
+	} catch (error) {
+		saveLocalSurveyRecord({ ...record, status: 'local_fallback' })
+		uni.showModal({
+			title: '已本地保存',
+			content: '当前云端暂不可用，调研内容已先保存在本机。请稍后重新提交或联系工作人员。',
+			showCancel: false
+		})
+	} finally {
+		surveySubmitting.value = false
+	}
+}
+
 const openModule = (id, type) => {
 	if (id === 'address') {
 		openAddressPage()
@@ -3311,6 +3496,12 @@ const openModule = (id, type) => {
 
 	if (id === 'feedback') {
 		syncFeedbackRecords()
+	}
+
+	if (id === 'survey') {
+		restoreLocalBusinessState()
+		loadSurveyConfig()
+		prefillSurveyContact()
 	}
 
 	if (id === 'repair') {
@@ -4525,6 +4716,7 @@ onMounted(() => {
 		logBoot('deferred boot start')
 		restoreLocalBusinessState()
 		restoreRepairDraft()
+		loadSurveyConfig()
 		loadRemoteContent()
 	}, 220)
 })
@@ -9936,6 +10128,13 @@ onMounted(() => {
 	overflow-y: auto;
 }
 
+.survey-form-card {
+	max-height: calc(100vh - 80rpx);
+	padding: 36rpx 28rpx 32rpx;
+	overflow-y: auto;
+	text-align: left;
+}
+
 .survey-close {
 	position: absolute;
 	top: 18rpx;
@@ -10000,6 +10199,147 @@ onMounted(() => {
 	font-size: 25rpx;
 	line-height: 1.7;
 	color: #6B7C97;
+	text-align: center;
+}
+
+.survey-benefits {
+	margin-top: 24rpx;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 12rpx;
+}
+
+.survey-benefit {
+	min-height: 96rpx;
+	padding: 14rpx 10rpx;
+	border-radius: 18rpx;
+	background: #F7FAFF;
+	border: 2rpx solid #E1EAF7;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8rpx;
+	box-sizing: border-box;
+}
+
+.survey-benefit text:first-child {
+	width: 34rpx;
+	height: 34rpx;
+	border-radius: 50%;
+	background: #1E6FE0;
+	color: #FFFFFF;
+	font-size: 20rpx;
+	font-weight: 800;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.survey-benefit text:last-child {
+	font-size: 21rpx;
+	line-height: 1.25;
+	color: #334155;
+	text-align: center;
+}
+
+.survey-form {
+	margin-top: 24rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 20rpx;
+}
+
+.survey-field {
+	padding: 22rpx;
+	border-radius: 20rpx;
+	background: #F8FAFC;
+	border: 2rpx solid #E5ECF6;
+	box-sizing: border-box;
+}
+
+.survey-field-label {
+	display: block;
+	margin-bottom: 14rpx;
+	font-size: 25rpx;
+	font-weight: 700;
+	color: #0F1F3A;
+}
+
+.survey-field input,
+.survey-field textarea {
+	width: 100%;
+	min-height: 72rpx;
+	font-size: 26rpx;
+	line-height: 1.5;
+	color: #0F1F3A;
+	box-sizing: border-box;
+}
+
+.survey-field textarea {
+	height: 172rpx;
+	padding: 0;
+}
+
+.survey-chip-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12rpx;
+}
+
+.survey-chip {
+	min-height: 64rpx;
+	padding: 0 22rpx;
+	border-radius: 999rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #D9E4F2;
+	color: #5B6B82;
+	font-size: 24rpx;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.survey-chip.on {
+	background: #E8F1FE;
+	border-color: #1E6FE0;
+	color: #1E6FE0;
+}
+
+.survey-score-row {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	gap: 12rpx;
+}
+
+.survey-score {
+	height: 68rpx;
+	border-radius: 18rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #D9E4F2;
+	color: #5B6B82;
+	font-size: 25rpx;
+	font-weight: 800;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.survey-score.on {
+	background: #FFF7E6;
+	border-color: #F59E0B;
+	color: #A16207;
+}
+
+.survey-score-tip {
+	display: block;
+	margin-top: 12rpx;
+	font-size: 22rpx;
+	color: #8A97AA;
+	text-align: right;
 }
 
 .survey-qr-wrap {
@@ -10029,11 +10369,12 @@ onMounted(() => {
 .survey-actions {
 	margin-top: 36rpx;
 	display: flex;
+	gap: 18rpx;
 	justify-content: center;
 }
 
 .survey-secondary {
-	min-width: 240rpx;
+	flex: 1;
 	height: 80rpx;
 	display: flex;
 	align-items: center;
@@ -10045,6 +10386,24 @@ onMounted(() => {
 	border: 2rpx solid #D7E3FA;
 	color: #1E6FE0;
 	padding: 0 40rpx;
+}
+
+.survey-primary {
+	flex: 1.4;
+	height: 80rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 28rpx;
+	font-weight: 700;
+	background: #1E6FE0;
+	color: #FFFFFF;
+	box-shadow: 0 16rpx 36rpx -20rpx rgba(30, 111, 224, 0.9);
+}
+
+.survey-primary.disabled {
+	opacity: 0.62;
 }
 
 .diag-hero-card {

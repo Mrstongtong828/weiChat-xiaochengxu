@@ -404,6 +404,20 @@ export const getComplaintList = (data = {}) => getUserCloudObject()
 export const getProductCategories = () => getPublicCloudObject().getCategories({}).then(unwrapCloudResult)
 
 // 隐私与合规配置（隐私政策/注销规则/资质公示）
+export const getSurveyConfig = () => getPublicCloudObject().getSurveyConfig({}).then(unwrapCloudResult)
+
+export const submitAfterSalesSurvey = (data = {}) => getPublicCloudObject()
+	.submitSurvey({
+		orderNo: data.orderNo || '',
+		satisfaction: data.satisfaction || '',
+		rating: data.rating || 0,
+		resolved: data.resolved || '',
+		comment: data.comment || '',
+		contact: data.contact || '',
+		source: 'miniapp'
+	})
+	.then(unwrapCloudResult)
+
 export const getCompliance = async () => {
 	const settings = await getPublicCloudObject().getSettings({
 		keys: ['privacy_policy', 'account_cancellation_policy', 'qualifications']

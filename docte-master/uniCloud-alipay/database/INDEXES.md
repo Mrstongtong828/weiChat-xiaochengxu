@@ -111,6 +111,13 @@ Create these indexes in the uniCloud database console before production traffic.
 - `order_no, create_time desc`
 - `flow_type, create_time desc`
 
+## cicada_surveys
+
+- `create_time desc`
+- `status, create_time desc`
+- `contact`
+- `order_no`
+
 ## Notes
 
 - Keep `order_no` unique. The code now uses a time prefix plus 32 bits of random suffix, but the unique index is still the final guard.
