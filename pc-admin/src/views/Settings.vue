@@ -96,6 +96,48 @@
         <div class="save-row"><el-button type="primary" :loading="savingPolicy" @click="saveConfig">保存配置</el-button></div>
       </el-tab-pane>
 
+      <el-tab-pane label="操作教程" name="guides">
+        <el-alert
+          title="这里维护小程序首页四个操作教程按钮。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin: 20px 0;"
+        />
+        <div class="guide-document-grid">
+          <div v-for="guide in guideDocuments" :key="guide.type" class="policy-document-card guide-document-card">
+            <div class="policy-document-main">
+              <el-icon class="policy-document-icon"><Document /></el-icon>
+              <div class="policy-document-copy guide-document-copy">
+                <div class="policy-document-title">{{ guide.category }}</div>
+                <el-input
+                  v-model="guide.desc"
+                  class="guide-document-desc-input"
+                  type="textarea"
+                  :rows="2"
+                  placeholder="填写这份教程在小程序中的简要说明"
+                />
+                <div v-if="guide.file_name" class="policy-document-file">
+                  <span>{{ guide.file_name }}</span>
+                  <em v-if="guide.updatedAt">更新于 {{ guide.updatedAt }}</em>
+                </div>
+                <div v-else class="policy-document-empty">暂未上传教程文件</div>
+              </div>
+            </div>
+            <div class="policy-document-actions">
+              <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".pdf,.doc,.docx" :on-change="(file) => handleGuideDocumentUpload(file, guide)">
+                <el-button type="primary" :loading="uploadingGuideType === guide.type">
+                  <el-icon><Upload /></el-icon>{{ guide.file_url ? '替换文件' : '上传文件' }}
+                </el-button>
+              </el-upload>
+              <el-button v-if="guide.file_url" plain @click="openGuideDocument(guide)"><el-icon><View /></el-icon>预览</el-button>
+              <el-button v-if="guide.file_url" type="danger" link @click="removeGuideDocument(guide)">移除</el-button>
+            </div>
+          </div>
+        </div>
+        <div class="save-row"><el-button type="primary" :loading="savingGuides" @click="saveGuideDocuments">保存操作教程配置</el-button></div>
+      </el-tab-pane>
+
       <el-tab-pane label="隐私与合规" name="compliance">
         <el-alert
           title="医疗器械小程序上线必备：隐私政策、账号注销规则、资质公示。保存后小程序端实时读取并展示。"
@@ -283,7 +325,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus } from '../api/admin.js'
+import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide } from '../api/admin.js'
 import RichEditor from '../components/RichEditor.vue'
 import { uploadFileToCloud } from '../utils/upload.js'
 
@@ -403,6 +445,139 @@ const removeWarrantyDocument = () => removePolicyDocument(warrantyDocument)
 const removeFeeDocument = () => removePolicyDocument(feeDocument)
 
 const addFeeTier = () => feeTiers.value.push({ name: '', price: 0, unit: '次', note: '' })
+
+// ===== 操作教程文档 =====
+const GUIDE_TYPES = [
+  { type: 'quick', category: '快速指南', desc: '帮助用户快速了解小程序售后流程。', sort: 1 },
+  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 2 },
+  { type: 'query', category: '查询指南', desc: '说明工单、物流和维修进度查询方式。', sort: 3 },
+  { type: 'invoice', category: '开票指南', desc: '说明发票申请、抬头填写和寄送方式。', sort: 4 }
+]
+const guideDocuments = ref(GUIDE_TYPES.map(item => ({ ...item, _id: '', file_name: '', file_url: '', file_type: '', updatedAt: '' })))
+const guidePreviewMap = reactive({})
+const savingGuides = ref(false)
+const uploadingGuideType = ref('')
+
+const formatGuideUpdateTime = (value) => {
+  if (!value) return ''
+  const date = new Date(Number(value))
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10)
+  return date.toISOString().slice(0, 10)
+}
+
+const normalizeGuideDocument = (guide = {}) => {
+  const fallback = GUIDE_TYPES.find(item => item.type === guide.type) || GUIDE_TYPES.find(item => guide.category && item.category === guide.category) || GUIDE_TYPES[0]
+  return {
+    ...fallback,
+    _id: guide._id || guide.id || '',
+    type: guide.type || fallback.type,
+    category: guide.category || fallback.category,
+    desc: guide.desc !== undefined ? guide.desc : fallback.desc,
+    file_name: guide.file_name || guide.fileName || '',
+    file_url: guide.file_url || guide.fileUrl || '',
+    file_type: guide.file_type || guide.fileType || '',
+    sort: Number(guide.sort || fallback.sort) || fallback.sort,
+    updatedAt: guide.updatedAt || formatGuideUpdateTime(guide.update_time)
+  }
+}
+
+const loadGuides = async () => {
+  try {
+    const token = localStorage.getItem('adminToken')
+    const list = await getGuides(token)
+    const map = new Map((Array.isArray(list) ? list : []).map(item => [item.type, item]))
+    guideDocuments.value = GUIDE_TYPES.map(item => normalizeGuideDocument(map.get(item.type) || item))
+    guideDocuments.value.forEach(resolveGuideDocumentPreview)
+  } catch (error) {
+    console.error('加载操作教程失败:', error)
+  }
+}
+
+const resolveGuideDocumentPreview = async (guide) => {
+  if (!guide.file_url || isWebUrl(guide.file_url) || guidePreviewMap[guide.file_url]) return
+  const token = localStorage.getItem('adminToken')
+  try {
+    const map = await getTempFileURL(token, [guide.file_url])
+    if (map && map[guide.file_url]) {
+      guidePreviewMap[guide.file_url] = map[guide.file_url]
+    }
+  } catch (error) {
+    console.error('解析教程文件地址失败:', error)
+  }
+}
+
+const handleGuideDocumentUpload = async (uploadFile, guide) => {
+  const raw = uploadFile && uploadFile.raw
+  if (!raw) return
+  if (!/\.(pdf|doc|docx)$/i.test(raw.name || '')) {
+    ElMessage.warning('请上传 PDF 或 Word 文档')
+    return
+  }
+  try {
+    uploadingGuideType.value = guide.type
+    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, 'guides/', 20 * 1024 * 1024)
+    guide.file_name = raw.name
+    guide.file_url = fileUrl
+    guide.file_type = raw.type || ''
+    guide.updatedAt = new Date().toISOString().slice(0, 10)
+    if (tempUrl) guidePreviewMap[fileUrl] = tempUrl
+    ElMessage.success(`${guide.category}文件上传成功`)
+  } catch (error) {
+    ElMessage.error(error.message || '上传失败')
+  } finally {
+    uploadingGuideType.value = ''
+  }
+}
+
+const openGuideDocument = async (guide) => {
+  if (!guide.file_url) {
+    ElMessage.warning('请先上传教程文件')
+    return
+  }
+  if (isWebUrl(guide.file_url)) {
+    window.open(guide.file_url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  await resolveGuideDocumentPreview(guide)
+  const url = guidePreviewMap[guide.file_url]
+  if (url) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  ElMessage.info('文件已上传到云存储，暂时无法生成后台预览链接')
+}
+
+const removeGuideDocument = (guide) => {
+  guide.file_name = ''
+  guide.file_url = ''
+  guide.file_type = ''
+  guide.updatedAt = ''
+}
+
+const saveGuideDocuments = async () => {
+  try {
+    savingGuides.value = true
+    const token = localStorage.getItem('adminToken')
+    for (const guide of guideDocuments.value) {
+      if (!guide._id) throw new Error(`${guide.category}缺少数据库记录，请刷新后重试`)
+      await updateGuide(token, guide._id, {
+        category: guide.category,
+        desc: guide.desc || '',
+        audience: 'client',
+        file_name: guide.file_name || '',
+        file_url: guide.file_url || '',
+        file_type: guide.file_type || '',
+        sort: guide.sort
+      })
+    }
+    ElMessage.success('操作教程配置已保存')
+    await loadGuides()
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingGuides.value = false
+  }
+}
 
 const loadSettings = async () => {
   try {
@@ -741,6 +916,7 @@ const changeSurveyStatus = async (row, status) => {
 
 onMounted(() => {
   loadSettings()
+  loadGuides()
   loadSurveyRecords()
 })
 </script>
@@ -762,6 +938,11 @@ onMounted(() => {
 .policy-document-file em { color:#86909c; font-style:normal; white-space:nowrap; }
 .policy-document-empty { margin-top:10px; color:#86909c; font-size:13px; }
 .policy-document-actions { display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+.guide-document-grid { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:16px; }
+.guide-document-card { align-items:flex-start; }
+.guide-document-card .policy-document-main { flex:1; }
+.guide-document-copy { width:100%; }
+.guide-document-desc-input { margin-top:8px; max-width:520px; }
 .upload-title { margin-bottom:16px; color:#165DFF; font-weight:600; }
 .upload-tip { margin-top: 8px; font-size: 12px; color: #86909c; }
 .preview-box { background:#f7f8fa; border-radius:10px; padding:20px; line-height:1.8; color:#4e5969; }
@@ -796,6 +977,7 @@ onMounted(() => {
 .modern-tabs :deep(.el-tabs__item) { font-size: 15px; padding: 0 20px; }
 
 @media (max-width: 768px) {
+  .guide-document-grid { grid-template-columns: 1fr; }
   .policy-document-card { align-items:flex-start; flex-direction:column; }
   .policy-document-actions { width:100%; justify-content:flex-start; }
   .policy-document-file { align-items:flex-start; flex-direction:column; gap:4px; }

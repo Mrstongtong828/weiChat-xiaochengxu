@@ -1233,7 +1233,7 @@
 							v-for="item in guides"
 							:key="item.id"
 							class="guide-card tap"
-							@click="go(item.id)"
+							@click="openGuideFromHome(item.id)"
 						>
 							<view class="guide-icon">
 								<view :class="['glyph', 'glyph-' + item.icon, 'glyph-guide']">
@@ -2010,6 +2010,18 @@ const docFallbacks = {
 	}
 }
 
+;['guide-quick', 'guide-repair', 'guide-query', 'guide-invoice'].forEach((key) => {
+	if (docFallbacks[key]) {
+		docFallbacks[key].sections = []
+		docFallbacks[key].steps = []
+		docFallbacks[key].content = ''
+		docFallbacks[key].fileName = ''
+		docFallbacks[key].fileUrl = ''
+		docFallbacks[key].fileType = ''
+		docFallbacks[key].media = []
+	}
+})
+
 const docMap = ref({})
 
 logBoot('doc fallbacks ready')
@@ -2075,8 +2087,12 @@ const normalizeDoc = (doc, fallback = {}) => {
 		paperTitle: doc.paperTitle || doc.title || fallback.paperTitle || fallback.title,
 		content,
 		updateTime: doc.updateTime || fallback.updateTime,
+		fileName: doc.fileName || doc.file_name || fallback.fileName || '',
+		fileUrl: doc.fileUrl || doc.file_url || fallback.fileUrl || '',
+		fileType: doc.fileType || doc.file_type || fallback.fileType || '',
+		media: Array.isArray(doc.media) ? doc.media : fallback.media || [],
 		sections: Array.isArray(doc.sections) && doc.sections.length ? doc.sections : fallback.sections || [],
-		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps
+		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps || []
 	}
 }
 
@@ -2597,6 +2613,41 @@ const openGuideFile = async (doc = {}) => {
 		uni.hideLoading()
 		uni.showToast({ title: '文档打开失败，请稍后重试', icon: 'none' })
 	}
+}
+
+const guideModuleTypeMap = {
+	'guide-quick': 'quick',
+	'guide-repair': 'repair',
+	'guide-query': 'query',
+	'guide-invoice': 'invoice'
+}
+
+const openGuideFromHome = async (id) => {
+	const type = guideModuleTypeMap[id]
+	if (!type) {
+		go(id)
+		return
+	}
+
+	let doc = docMap.value[id]
+	if (!doc || !doc.fileUrl) {
+		try {
+			const remoteDoc = await getGuide(type)
+			if (remoteDoc) {
+				updateDoc(id, remoteDoc)
+				doc = normalizeDoc(remoteDoc, docFallbacks[id] || {})
+			}
+		} catch (error) {
+			console.warn('load guide before open failed:', error)
+		}
+	}
+
+	if (doc && doc.fileUrl) {
+		await openGuideFile(doc)
+		return
+	}
+
+	uni.showToast({ title: '该教程还未上传文档', icon: 'none' })
 }
 
 // 打开教程媒体：图片内联预览，视频用 previewMedia，文档走文件打开
@@ -4682,14 +4733,18 @@ const loadRemoteContent = async () => {
 			.catch((error) => console.warn('wechat fallback:', error)),
 		getFaultTypes()
 			.then((list) => applyFaultTypes(list))
-			.catch((error) => console.warn('fault types fallback:', error)),
-		getMyDevices({ page: 1, size: 50 })
+			.catch((error) => console.warn('fault types fallback:', error))
+	]
+
+	if (hasLoginToken()) {
+		tasks.push(
+			getMyDevices({ page: 1, size: 50 })
 			.then((data = {}) => {
 				const list = Array.isArray(data) ? data : (data.list || [])
 				productList.value = Array.isArray(list) ? list.map(normalizeProduct).filter((item) => item.sn || item.title) : []
 			})
 			.catch((error) => console.warn('device list failed:', error)),
-		getRepairList({ page: 1, size: 30 })
+			getRepairList({ page: 1, size: 30 })
 			.then((data = {}) => {
 				const list = Array.isArray(data) ? data : (data.list || data.data || [])
 				if (!Array.isArray(list)) return
@@ -4699,7 +4754,8 @@ const loadRemoteContent = async () => {
 				hydrateOrderDetails(normalized).catch((error) => console.warn('repair detail hydrate failed:', error))
 			})
 			.catch((error) => console.warn('repair list failed:', error))
-	]
+		)
+	}
 
 	await Promise.allSettled(tasks)
 	maybeShowHomeGuidePopup()

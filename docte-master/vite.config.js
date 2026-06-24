@@ -58,6 +58,10 @@ const assetCopies = [
 
 function copyMiniappAssets() {
 	const outDir = process.env.UNI_OUTPUT_DIR || path.join('unpackage', 'dist', 'build', 'mp-weixin')
+	if (outDir.includes(`${path.sep}dev${path.sep}`) || outDir.includes('/dev/')) {
+		return
+	}
+
 	const assetsDir = path.resolve(__dirname, outDir, 'assets')
 	fs.mkdirSync(assetsDir, { recursive: true })
 
