@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import MainLayout from '../components/Layout/MainLayout.vue'
 import Home from '../views/Home.vue'
@@ -16,7 +16,7 @@ import { clearAdminSession } from '../utils/adminSession.js'
 import { canAccessMenu } from '../config/menuAccess.js'
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes: [
     { path: '/login', name: 'Login', component: Login },
     {

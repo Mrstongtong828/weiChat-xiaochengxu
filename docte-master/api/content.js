@@ -43,7 +43,7 @@ const resolveCloudUrl = async (value) => {
 
 const settingDoc = (title, content = '', file = null) => ({
 	title,
-	content: String(content || '').replace(/\n/g, '<br/>'),
+	content: String(content || ''),
 	...(file && file.fileUrl ? {
 		fileName: file.fileName || title,
 		fileUrl: file.fileUrl,
@@ -167,58 +167,13 @@ export const uploadVideo = (filePath) => uploadToCloud(filePath, 'repair/videos'
 export const uploadFeedbackImage = (filePath) => uploadToCloud(filePath, 'feedback/images', 'jpg')
 
 export const getWarrantyPolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy', 'warranty_policy_file'] }).then(unwrapCloudResult)
-	return settingDoc('保修政策', settings.warranty_policy, parseSettingFile(settings.warranty_policy_file))
+	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy'] }).then(unwrapCloudResult)
+	return settingDoc('保修政策', settings.warranty_policy)
 }
 
 export const getFeePolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy', 'fee_policy_file'] }).then(unwrapCloudResult)
-	return settingDoc('收费指南', settings.fee_description || settings.fee_policy, parseSettingFile(settings.fee_policy_file))
-}
-
-// 按机型保修规则 + 延保政策
-export const getWarrantyExtra = async () => {
-	const settings = await getPublicCloudObject().getSettings({
-		keys: ['warranty_rules', 'extended_warranty_desc', 'extended_warranty_fee', 'extended_warranty_rules']
-	}).then(unwrapCloudResult)
-
-	let rules = []
-	try {
-		const parsed = settings.warranty_rules ? JSON.parse(settings.warranty_rules) : []
-		if (Array.isArray(parsed)) rules = parsed
-	} catch (e) {
-		rules = []
-	}
-
-	// 按机型分类分组
-	const groupMap = {}
-	const order = []
-	rules.forEach(rule => {
-		const category = (rule.category || '其他').trim() || '其他'
-		if (!groupMap[category]) { groupMap[category] = []; order.push(category) }
-		groupMap[category].push({ model: rule.model || '', warrantyPeriod: rule.warrantyPeriod || '', terms: rule.terms || '' })
-	})
-	const groups = order.map(category => ({ category, items: groupMap[category] }))
-
-	return {
-		groups,
-		extended: {
-			desc: settings.extended_warranty_desc || '',
-			fee: settings.extended_warranty_fee || '',
-			rules: settings.extended_warranty_rules || ''
-		}
-	}
-}
-
-// 过保收费阶梯模板
-export const getFeeTiers = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_tier_templates'] }).then(unwrapCloudResult)
-	try {
-		const parsed = settings.fee_tier_templates ? JSON.parse(settings.fee_tier_templates) : []
-		return Array.isArray(parsed) ? parsed : []
-	} catch (e) {
-		return []
-	}
+	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy'] }).then(unwrapCloudResult)
+	return settingDoc('收费指南', settings.fee_description || settings.fee_policy)
 }
 
 export const getGuide = (type) => getPublicCloudObject().getGuide({ type }).then(unwrapCloudResult)

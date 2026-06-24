@@ -3,96 +3,30 @@
     <div class="section-title">
       <div>
         <span>系统配置</span>
-        <p class="section-desc">维护保修政策、收费办法、基础收费项、隐私合规文案和小程序联系方式。</p>
+        <p class="section-desc">维护保修政策、收费办法、隐私合规文案和小程序联系方式。</p>
       </div>
     </div>
     <el-tabs v-model="activeContentTab" class="modern-tabs">
       <el-tab-pane label="保修与收费" name="policy">
-        <div class="field-title" style="margin-top:20px;">保修政策总述</div>
-        <div class="policy-document-card">
-          <div class="policy-document-main">
-            <el-icon class="policy-document-icon"><Document /></el-icon>
-            <div class="policy-document-copy">
-              <div class="policy-document-title">上传保修政策文件</div>
-              <div class="policy-document-desc">支持 PDF、Word 文档；保存后作为小程序保修政策页的正式文件来源。</div>
-              <div v-if="warrantyDocument.fileName" class="policy-document-file">
-                <span>{{ warrantyDocument.fileName }}</span>
-                <em v-if="warrantyDocument.updatedAt">更新于 {{ warrantyDocument.updatedAt }}</em>
-              </div>
-              <div v-else class="policy-document-empty">暂未上传保修政策文件</div>
-            </div>
-          </div>
-          <div class="policy-document-actions">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".pdf,.doc,.docx" :on-change="handleWarrantyDocumentUpload">
-              <el-button type="primary" :loading="uploadingWarrantyDocument"><el-icon><Upload /></el-icon>{{ warrantyDocument.fileUrl ? '替换文件' : '上传文件' }}</el-button>
-            </el-upload>
-            <el-button v-if="warrantyDocument.fileUrl" plain @click="openWarrantyDocument"><el-icon><View /></el-icon>预览</el-button>
-            <el-button v-if="warrantyDocument.fileUrl" type="danger" link @click="removeWarrantyDocument">移除</el-button>
-          </div>
+        <div class="policy-editor-block">
+          <div class="field-title">保修政策</div>
+          <RichEditor
+            v-model="config.warranty"
+            upload-dir="policy/"
+            min-height="320px"
+            placeholder="录入保修范围、期限、免责说明等内容。支持换行、加粗、粘贴富文本。"
+          />
         </div>
-        <el-alert
-          v-if="config.warranty"
-          title="检测到旧版富文本保修政策内容，保存后会继续保留为兼容内容；当前后台主入口已改为文档上传。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-top:12px;"
-        />
 
-        <div class="field-title" style="margin-top:24px;">收费办法说明</div>
-        <div class="policy-document-card">
-          <div class="policy-document-main">
-            <el-icon class="policy-document-icon"><Document /></el-icon>
-            <div class="policy-document-copy">
-              <div class="policy-document-title">上传收费办法文件</div>
-              <div class="policy-document-desc">支持 PDF、Word 文档；保存后作为小程序收费指南页的正式文件来源。</div>
-              <div v-if="feeDocument.fileName" class="policy-document-file">
-                <span>{{ feeDocument.fileName }}</span>
-                <em v-if="feeDocument.updatedAt">更新于 {{ feeDocument.updatedAt }}</em>
-              </div>
-              <div v-else class="policy-document-empty">暂未上传收费办法文件</div>
-            </div>
-          </div>
-          <div class="policy-document-actions">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".pdf,.doc,.docx" :on-change="handleFeeDocumentUpload">
-              <el-button type="primary" :loading="uploadingFeeDocument"><el-icon><Upload /></el-icon>{{ feeDocument.fileUrl ? '替换文件' : '上传文件' }}</el-button>
-            </el-upload>
-            <el-button v-if="feeDocument.fileUrl" plain @click="openFeeDocument"><el-icon><View /></el-icon>预览</el-button>
-            <el-button v-if="feeDocument.fileUrl" type="danger" link @click="removeFeeDocument">移除</el-button>
-          </div>
+        <div class="policy-editor-block">
+          <div class="field-title">收费办法</div>
+          <RichEditor
+            v-model="config.feePolicy"
+            upload-dir="policy/"
+            min-height="320px"
+            placeholder="录入检测费、维修费、报价规则、付款说明等内容。支持换行、加粗、粘贴富文本。"
+          />
         </div>
-        <el-alert
-          v-if="config.feePolicy"
-          title="检测到旧版文本收费办法内容，保存后会继续保留为兼容内容；当前后台主入口已改为文档上传。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-top:12px;"
-        />
-
-        <div class="qual-head">
-          <span>过保收费阶梯模板</span>
-          <el-button type="primary" link @click="addFeeTier">+ 新增收费项</el-button>
-        </div>
-        <div v-if="!feeTiers.length" class="empty-tip">预设检测费、基础维修费、加急服务费等标准价，报价弹窗可一键带出；小程序收费指南展示价格表。</div>
-        <el-table v-else :data="feeTiers" class="modern-table" style="width:100%;">
-          <el-table-column label="收费项" width="200">
-            <template #default="{ row }"><el-input v-model="row.name" placeholder="如 检测费 / 加急服务费" /></template>
-          </el-table-column>
-          <el-table-column label="标准价(元)" width="160">
-            <template #default="{ row }"><el-input-number v-model="row.price" :min="0" :step="10" controls-position="right" style="width:100%;" /></template>
-          </el-table-column>
-          <el-table-column label="单位" width="120">
-            <template #default="{ row }"><el-input v-model="row.unit" placeholder="如 次 / 台" /></template>
-          </el-table-column>
-          <el-table-column label="备注">
-            <template #default="{ row }"><el-input v-model="row.note" placeholder="选填说明" /></template>
-          </el-table-column>
-          <el-table-column label="操作" width="80" align="right" fixed="right">
-            <template #default="{ $index }"><el-button type="danger" link @click="feeTiers.splice($index, 1)">删除</el-button></template>
-          </el-table-column>
-        </el-table>
-
         <div class="save-row"><el-button type="primary" :loading="savingPolicy" @click="saveConfig">保存配置</el-button></div>
       </el-tab-pane>
 
@@ -335,116 +269,6 @@ const isWebUrl = (url = '') => /^https?:\/\//i.test(url)
 
 // ===== 保修与收费 =====
 const savingPolicy = ref(false)
-const feeTiers = ref([])
-const warrantyDocument = reactive({ fileName: '', fileUrl: '', fileType: '', updatedAt: '' })
-const feeDocument = reactive({ fileName: '', fileUrl: '', fileType: '', updatedAt: '' })
-const policyDocumentPreviewMap = reactive({})
-const uploadingWarrantyDocument = ref(false)
-const uploadingFeeDocument = ref(false)
-
-const parseJsonArray = (value) => {
-  try {
-    const parsed = value ? JSON.parse(value) : []
-    return Array.isArray(parsed) ? parsed : []
-  } catch (error) {
-    return []
-  }
-}
-
-const parseJsonObject = (value) => {
-  try {
-    const parsed = value ? JSON.parse(value) : {}
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-  } catch (error) {
-    return {}
-  }
-}
-
-const applyPolicyDocument = (target, value) => {
-  const doc = parseJsonObject(value)
-  target.fileName = doc.fileName || ''
-  target.fileUrl = doc.fileUrl || ''
-  target.fileType = doc.fileType || ''
-  target.updatedAt = doc.updatedAt || ''
-  resolvePolicyDocumentPreview(target)
-}
-
-const resolvePolicyDocumentPreview = async (target) => {
-  if (!target.fileUrl || isWebUrl(target.fileUrl) || policyDocumentPreviewMap[target.fileUrl]) return
-  const token = localStorage.getItem('adminToken')
-  try {
-    const map = await getTempFileURL(token, [target.fileUrl])
-    if (map && map[target.fileUrl]) {
-      policyDocumentPreviewMap[target.fileUrl] = map[target.fileUrl]
-    }
-  } catch (error) {
-    console.error('解析政策文件地址失败:', error)
-  }
-}
-
-const handlePolicyDocumentUpload = async (uploadFile, target, loading, dir, successMessage) => {
-  const raw = uploadFile && uploadFile.raw
-  if (!raw) return
-  if (!/\.(pdf|doc|docx)$/i.test(raw.name || '')) {
-    ElMessage.warning('请上传 PDF 或 Word 文档')
-    return
-  }
-  try {
-    loading.value = true
-    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, dir, 20 * 1024 * 1024)
-    target.fileName = raw.name
-    target.fileUrl = fileUrl
-    target.fileType = raw.type || ''
-    target.updatedAt = new Date().toISOString().slice(0, 10)
-    if (tempUrl) policyDocumentPreviewMap[fileUrl] = tempUrl
-    ElMessage.success(successMessage)
-  } catch (error) {
-    ElMessage.error(error.message || '上传失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-const openPolicyDocument = async (target, emptyMessage) => {
-  if (!target.fileUrl) {
-    ElMessage.warning(emptyMessage)
-    return
-  }
-  if (isWebUrl(target.fileUrl)) {
-    window.open(target.fileUrl, '_blank', 'noopener,noreferrer')
-    return
-  }
-  await resolvePolicyDocumentPreview(target)
-  const url = policyDocumentPreviewMap[target.fileUrl]
-  if (url) {
-    window.open(url, '_blank', 'noopener,noreferrer')
-    return
-  }
-  ElMessage.info('文件已上传到云存储，暂时无法生成后台预览链接')
-}
-
-const removePolicyDocument = (target) => {
-  target.fileName = ''
-  target.fileUrl = ''
-  target.fileType = ''
-  target.updatedAt = ''
-}
-
-const serializePolicyDocument = (target) => target.fileUrl ? JSON.stringify({
-  fileName: target.fileName,
-  fileUrl: target.fileUrl,
-  fileType: target.fileType,
-  updatedAt: target.updatedAt
-}) : ''
-
-const handleWarrantyDocumentUpload = (uploadFile) => handlePolicyDocumentUpload(uploadFile, warrantyDocument, uploadingWarrantyDocument, 'warranty/', '保修政策文件上传成功')
-const handleFeeDocumentUpload = (uploadFile) => handlePolicyDocumentUpload(uploadFile, feeDocument, uploadingFeeDocument, 'fees/', '收费办法文件上传成功')
-const openWarrantyDocument = () => openPolicyDocument(warrantyDocument, '请先上传保修政策文件')
-const openFeeDocument = () => openPolicyDocument(feeDocument, '请先上传收费办法文件')
-const removeWarrantyDocument = () => removePolicyDocument(warrantyDocument)
-const removeFeeDocument = () => removePolicyDocument(feeDocument)
-
-const addFeeTier = () => feeTiers.value.push({ name: '', price: 0, unit: '次', note: '' })
 
 // ===== 操作教程文档 =====
 const GUIDE_TYPES = [
@@ -585,9 +409,6 @@ const loadSettings = async () => {
     const data = await getSettings(token)
     config.warranty = data.warranty_policy || ''
     config.feePolicy = data.fee_description || ''
-    applyPolicyDocument(warrantyDocument, data.warranty_policy_file)
-    applyPolicyDocument(feeDocument, data.fee_policy_file)
-    feeTiers.value = parseJsonArray(data.fee_tier_templates)
     applyCompliance(data)
     applyContactInfo(data)
     applySurveyConfig(data.survey_config)
@@ -600,13 +421,9 @@ const saveConfig = async () => {
   try {
     savingPolicy.value = true
     const token = localStorage.getItem('adminToken')
-    const cleanFeeTiers = feeTiers.value.filter(t => t.name || t.price)
     await saveSettings(token, {
       warranty_policy: config.warranty,
-      warranty_policy_file: serializePolicyDocument(warrantyDocument),
-      fee_description: config.feePolicy,
-      fee_policy_file: serializePolicyDocument(feeDocument),
-      fee_tier_templates: JSON.stringify(cleanFeeTiers)
+      fee_description: config.feePolicy
     })
     ElMessage.success('配置保存成功')
   } catch (error) {
@@ -927,6 +744,7 @@ onMounted(() => {
 .sub-label { font-size:13px; color:#4e5969; margin-bottom:8px; }
 .save-row { margin-top:20px; text-align:center; }
 .print-form { max-width: 720px; margin-top: 20px; }
+.policy-editor-block { margin-top: 20px; }
 .policy-document-card { display:flex; justify-content:space-between; gap:18px; align-items:center; border:1px solid #dce8ff; background:#f7fbff; border-radius:8px; padding:18px; }
 .policy-document-main { display:flex; align-items:flex-start; gap:14px; min-width:0; }
 .policy-document-icon { flex:0 0 42px; width:42px; height:42px; border-radius:8px; background:#e8f1ff; color:#165dff; font-size:22px; display:flex; align-items:center; justify-content:center; }
