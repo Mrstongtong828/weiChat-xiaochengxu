@@ -1,4 +1,4 @@
-<template>
+﻿<template>
 	<view class="page-shell">
 		<view v-if="activeModule" class="module-page">
 			<view class="module-head" :style="moduleHeadStyle">
@@ -1077,75 +1077,22 @@
 				</view>
 			</view>
 
-			<view v-else-if="activeModule === 'login'" class="module-content login-module">
-				<view class="login-bg login-bg-left"></view>
-				<view class="login-bg login-bg-right"></view>
-				<image class="login-bg-device" :src="cicadaAssets.photoFactory" mode="aspectFill"></image>
-				<view class="login-brand">
-					<view class="login-logo">
-						<image :src="cicadaAssets.brandToothBlue" mode="aspectFit"></image>
-					</view>
-					<text class="login-title">思科达售后服务中心</text>
-					<text class="login-desc">专业牙科仪器维修 · 检测 · 保养服务</text>
-				</view>
-				<view class="login-service-card">
-					<view class="login-service-item">
-						<view class="login-service-icon login-service-repair">
-							<view></view>
-							<view></view>
-						</view>
-						<text class="login-service-title">专业维修</text>
-						<text class="login-service-text">原厂标准流程</text>
-						<text class="login-service-text">专业工程师团队</text>
-					</view>
-					<view class="login-service-divider"></view>
-					<view class="login-service-item">
-						<view class="login-service-icon login-service-order">
-							<view></view>
-							<view></view>
-							<view></view>
-						</view>
-						<text class="login-service-title">工单查询</text>
-						<text class="login-service-text">实时查看维修进度</text>
-						<text class="login-service-text">全流程透明可追溯</text>
-					</view>
-					<view class="login-service-divider"></view>
-					<view class="login-service-item">
-						<view class="login-service-icon login-service-shield">
-							<view></view>
-						</view>
-						<text class="login-service-title">品质保障</text>
-						<text class="login-service-text">原厂配件品质保障</text>
-						<text class="login-service-text">维修记录永久留存</text>
-					</view>
-				</view>
+			<view v-else-if="activeModule === 'login'" class="module-content login-module login-image-module">
+				<image class="login-auth-image" :src="cicadaAssets.loginAuthBg" mode="widthFix"></image>
 				<button
-					class="wechat-login tap"
+					class="login-auth-button tap"
 					:class="{ loading: loginSubmitting }"
 					:disabled="loginSubmitting"
 					:open-type="loginPrivacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization'"
 					@agreeprivacyauthorization="onAgreeLoginPrivacyAuthorization"
 					@getphonenumber="onGetPhoneNumberLogin"
 				>
-					<view class="wechat-login-icon">
-						<view></view>
-						<view></view>
-					</view>
 					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : loginPrivacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
 				</button>
-				<text v-if="loginError" class="login-error">{{ loginError }}</text>
+				<text v-if="loginError" class="login-error login-image-error">{{ loginError }}</text>
 				<!-- #ifdef H5 -->
-				<!-- 仅 H5 调试环境保留测试登录入口，微信小程序生产构建不包含此按钮 -->
 				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
 				<!-- #endif -->
-				<view class="login-agree">
-					<text>登录即表示您已阅读并同意</text>
-					<view>
-						<text>《用户协议》</text>
-						<text>及</text>
-						<text>《隐私政策》</text>
-					</view>
-				</view>
 			</view>
 		</view>
 
@@ -11779,334 +11726,80 @@ onUnmounted(() => {
 	position: relative;
 	overflow: hidden;
 	margin: 0 -28rpx;
-	padding: 76rpx 36rpx 68rpx;
-	min-height: calc(100vh - 360rpx);
-	display: flex;
-	flex-direction: column;
-	align-items: stretch;
-	background: linear-gradient(180deg, #F4F9FF 0%, #EEF6FF 50%, #F8FCFF 100%);
-	box-sizing: border-box;
-}
-
-.login-module::before {
-	content: "";
-	position: absolute;
-	left: -180rpx;
-	top: -220rpx;
-	width: 620rpx;
-	height: 620rpx;
-	border-radius: 999rpx;
-	background: rgba(211, 234, 255, 0.75);
-}
-
-.login-module::after {
-	content: "";
-	position: absolute;
-	right: -170rpx;
-	bottom: -160rpx;
-	width: 520rpx;
-	height: 520rpx;
-	border-radius: 999rpx;
-	background: rgba(220, 239, 255, 0.84);
-}
-
-.login-bg {
-	position: absolute;
-	z-index: 1;
-	border-radius: 999rpx;
-	background-image: radial-gradient(rgba(44, 138, 245, 0.12) 18%, transparent 19%);
-	background-size: 26rpx 26rpx;
-}
-
-.login-bg-left {
-	left: 52rpx;
-	top: 70rpx;
-	width: 150rpx;
-	height: 150rpx;
-}
-
-.login-bg-right {
-	right: 54rpx;
-	top: 328rpx;
-	width: 184rpx;
-	height: 184rpx;
-}
-
-.login-bg-device {
-	position: absolute;
-	right: -150rpx;
-	top: 320rpx;
-	z-index: 1;
-	width: 300rpx;
-	height: 500rpx;
-	opacity: 0.12;
-}
-
-.login-brand {
-	position: relative;
-	z-index: 2;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-}
-
-.login-logo {
-	width: 260rpx;
-	height: 260rpx;
-	padding: 14rpx;
-	border-radius: 999rpx;
-	background: #FFFFFF;
-	box-shadow: 0 20rpx 48rpx rgba(30, 111, 224, 0.16);
-	box-sizing: border-box;
-}
-
-.login-logo image {
-	width: 100%;
-	height: 100%;
-	border-radius: 999rpx;
-}
-
-.login-title {
-	margin-top: 50rpx;
-	font-size: 54rpx;
-	font-weight: 800;
-	line-height: 1.12;
-	color: #122449;
-	text-shadow: 0 8rpx 18rpx rgba(18, 36, 73, 0.1);
-}
-
-.login-desc {
-	margin-top: 24rpx;
-	font-size: 28rpx;
-	line-height: 1.35;
-	color: #728096;
-}
-
-.login-service-card {
-	position: relative;
-	z-index: 2;
-	margin-top: 56rpx;
-	padding: 38rpx 20rpx;
-	min-height: 238rpx;
-	border-radius: 34rpx;
-	background: rgba(255, 255, 255, 0.92);
-	box-shadow: 0 22rpx 56rpx rgba(39, 116, 213, 0.13);
-	display: flex;
-	align-items: stretch;
-	box-sizing: border-box;
-}
-
-.login-service-item {
-	flex: 1;
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-}
-
-.login-service-divider {
-	width: 1rpx;
-	margin: 18rpx 14rpx 12rpx;
-	background: #DCE7F5;
-}
-
-.login-service-icon {
-	position: relative;
-	width: 96rpx;
-	height: 96rpx;
-	margin-bottom: 22rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999rpx;
-	background: linear-gradient(180deg, #ECF6FF 0%, #E3F0FF 100%);
-}
-
-.login-service-title {
-	margin-bottom: 14rpx;
-	font-size: 27rpx;
-	font-weight: 800;
-	line-height: 1.25;
-	color: #122449;
-}
-
-.login-service-text {
-	font-size: 22rpx;
-	line-height: 1.45;
-	color: #78879B;
-	white-space: nowrap;
-}
-
-.login-service-repair view {
-	position: absolute;
-	width: 46rpx;
-	height: 11rpx;
-	border-radius: 999rpx;
-	background: #2D86F4;
-}
-
-.login-service-repair view:first-child {
-	transform: rotate(-45deg);
-}
-
-.login-service-repair view:last-child {
-	transform: rotate(45deg);
-}
-
-.login-service-order {
-	box-sizing: border-box;
-}
-
-.login-service-order view:first-child {
-	position: absolute;
-	width: 42rpx;
-	height: 54rpx;
-	border: 7rpx solid #2D86F4;
-	border-radius: 8rpx;
-	box-sizing: border-box;
-}
-
-.login-service-order view:nth-child(2),
-.login-service-order view:nth-child(3) {
-	position: absolute;
-	left: 38rpx;
-	width: 20rpx;
-	height: 5rpx;
-	border-radius: 999rpx;
-	background: #2D86F4;
-}
-
-.login-service-order view:nth-child(2) { top: 39rpx; }
-.login-service-order view:nth-child(3) { top: 53rpx; width: 15rpx; }
-
-.login-service-shield {
-	width: 52rpx;
-	height: 60rpx;
-	margin-top: 18rpx;
-	margin-bottom: 40rpx;
-	border-radius: 21rpx 21rpx 28rpx 28rpx;
-	background: linear-gradient(180deg, #2F8DF8 0%, #176EE8 100%);
-}
-
-.login-service-shield view {
-	position: absolute;
-	left: 18rpx;
-	top: 24rpx;
-	width: 20rpx;
-	height: 12rpx;
-	border-left: 7rpx solid #FFFFFF;
-	border-bottom: 7rpx solid #FFFFFF;
-	transform: rotate(-45deg);
-}
-
-.wechat-login,
-.phone-login {
-	position: relative;
-	z-index: 2;
-	width: 100%;
-	height: 112rpx;
-	margin-top: 68rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 24rpx;
-	border-radius: 30rpx;
-	font-size: 32rpx;
-	font-weight: 800;
-	box-sizing: border-box;
-}
-
-.wechat-login {
-	background: linear-gradient(135deg, #3C9CFF 0%, #0E6DF2 100%);
-	box-shadow: 0 18rpx 40rpx rgba(29, 118, 239, 0.28);
-	color: #FFFFFF;
-	border: none;
-	line-height: 112rpx;
 	padding: 0;
+	min-height: 1334rpx;
+	background: #F4F9FF;
+	box-sizing: border-box;
 }
 
-.wechat-login::after {
+.login-image-module {
+	display: block;
+}
+
+.login-auth-image {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 750rpx;
+	z-index: 1;
+}
+
+.login-auth-button {
+	position: absolute;
+	left: 74rpx;
+	top: 1038rpx;
+	z-index: 3;
+	width: 602rpx;
+	height: 120rpx;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: transparent;
+	font-size: 1rpx;
+	line-height: 120rpx;
+	opacity: 0.01;
+}
+
+.login-auth-button::after {
 	border: none;
 }
 
-.wechat-login.loading,
-.wechat-login[disabled] {
-	opacity: 0.72;
-}
-
-.wechat-login-icon {
-	position: relative;
-	width: 58rpx;
-	height: 46rpx;
-}
-
-.wechat-login-icon view {
-	position: absolute;
-	background: #FFFFFF;
-	border-radius: 999rpx;
-}
-
-.wechat-login-icon view:first-child {
-	left: 0;
-	top: 2rpx;
-	width: 42rpx;
-	height: 34rpx;
-}
-
-.wechat-login-icon view:last-child {
-	right: 0;
-	bottom: 0;
-	width: 36rpx;
-	height: 29rpx;
+.login-auth-button.loading,
+.login-auth-button[disabled] {
+	opacity: 0.01;
 }
 
 .phone-login {
-	margin-top: 20rpx;
-	border: 2rpx solid #E4ECF7;
-	background: #FFFFFF;
-	color: #0F1F3A;
-}
-
-.login-agree {
-	position: relative;
-	z-index: 2;
-	margin-top: 72rpx;
-	padding: 0 40rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 6rpx;
-	text-align: center;
-	font-size: 25rpx;
-	line-height: 1.7;
-	color: #7B8797;
-}
-
-.login-agree view {
+	position: absolute;
+	left: 220rpx;
+	top: 1280rpx;
+	z-index: 4;
+	width: 310rpx;
+	height: 72rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 10rpx;
-	flex-wrap: wrap;
+	border: 2rpx solid #E4ECF7;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.82);
+	color: #0F1F3A;
+	font-size: 26rpx;
+	font-weight: 700;
 }
 
-.login-agree view text:nth-child(odd) {
-	color: #1E7DF2;
-}
-
-.login-error {
-	position: relative;
-	z-index: 2;
-	display: block;
-	margin-top: 22rpx;
-	padding: 0 36rpx;
-	font-size: 23rpx;
+.login-error,
+.login-image-error {
+	position: absolute;
+	left: 76rpx;
+	top: 1178rpx;
+	z-index: 4;
+	width: 598rpx;
+	padding: 0;
+	text-align: center;
+	font-size: 24rpx;
 	line-height: 1.5;
 	color: #E5484D;
 }
-
 .glyph-cam::before {
 	left: 5rpx;
 	top: 14rpx;
@@ -12161,3 +11854,5 @@ onUnmounted(() => {
 .guide-media-name { flex: 1; font-size: 26rpx; color: #1d2129; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .guide-media-open { font-size: 24rpx; color: #86909c; flex-shrink: 0; }
 </style>
+
+

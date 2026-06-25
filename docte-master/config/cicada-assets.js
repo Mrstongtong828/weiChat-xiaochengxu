@@ -8,6 +8,7 @@ import photoBuilding from '@/static/photo-building.jpg'
 import qrWechat from '@/static/qr-wechat.jpg'
 import surveyPoster from '@/static/survey-poster.png'
 import surveyQrWechat from '@/static/survey-qr-wechat.jpg'
+import loginAuthBg from '@/static/login-auth-bg.png'
 
 export const cicadaAssets = {
 	brandToothBlue,
@@ -19,5 +20,6 @@ export const cicadaAssets = {
 	photoBuilding,
 	qrWechat,
 	surveyPoster,
-	surveyQrWechat
+	surveyQrWechat,
+	loginAuthBg
 }
