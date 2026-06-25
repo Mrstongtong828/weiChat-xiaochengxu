@@ -1,63 +1,76 @@
 <template>
 	<view class="page-shell">
-		<view class="wx-top">
-			<view class="status-row">
-				<text class="status-time">9:41</text>
-				<view class="status-icons">
-					<view class="signal">
-						<view class="signal-bar signal-one"></view>
-						<view class="signal-bar signal-two"></view>
-						<view class="signal-bar signal-three"></view>
-						<view class="signal-bar signal-four"></view>
-					</view>
-					<view class="wifi-dot"></view>
-					<view class="battery"><view class="battery-fill"></view></view>
-				</view>
-			</view>
-			<view class="nav-row">
-				<view class="back-btn tap" @click="goBack">
-					<view class="chevron-left"></view>
-				</view>
-				<text class="nav-title">登录</text>
-				<view class="nav-spacer"></view>
-			</view>
-		</view>
+		<view class="bg-orb bg-orb-left"></view>
+		<view class="bg-orb bg-orb-right"></view>
+		<image class="bg-device" :src="cicadaAssets.photoFactory" mode="aspectFill"></image>
 
 		<view class="login-content">
 			<view class="brand-section">
-				<image class="brand-logo" :src="cicadaAssets.brandToothBlue" mode="aspectFit"></image>
-				<text class="brand-name">佛山思科达</text>
-				<text class="brand-desc">牙医仪器检修</text>
+				<view class="brand-logo-wrap">
+					<image class="brand-logo" :src="cicadaAssets.brandToothBlue" mode="aspectFit"></image>
+				</view>
+				<text class="brand-name">思科达售后服务中心</text>
+				<text class="brand-desc">专业牙科仪器维修 · 检测 · 保养服务</text>
 			</view>
 
-			<view class="form-section">
-				<view class="form-card">
-					<view class="form-title">微信手机号授权登录</view>
-					<text class="login-tip">授权手机号用于绑定联系方式，账号身份仍以微信 openid 登录。</text>
-
-					<button
-						class="wechat-btn"
-						:class="{ loading: loading }"
-						:disabled="loading"
-						:open-type="privacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization'"
-						@agreeprivacyauthorization="onAgreePrivacyAuthorization"
-						@getphonenumber="onGetPhoneNumber"
-					>
-						<view class="wechat-icon"></view>
-						<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : privacyReady ? '微信手机号授权登录' : '同意隐私政策并登录' }}</text>
-					</button>
-					<text v-if="loginError" class="login-error">{{ loginError }}</text>
-
-					<view class="agreement-wrap">
-						<checkbox-group @change="onAgreeChange">
-							<label class="agreement-item">
-								<checkbox value="agree" color="#1E6FE0" :checked="agreed" />
-								<text class="agreement-text">已阅读并同意</text>
-							</label>
-						</checkbox-group>
-						<text class="link tap" @click="openPolicy('privacy')">《用户服务协议》</text>
-						<text class="link tap" @click="openPolicy('privacy')">《隐私政策》</text>
+			<view class="service-card">
+				<view class="service-item">
+					<view class="service-icon">
+						<view class="tool tool-wrench"></view>
+						<view class="tool tool-screwdriver"></view>
 					</view>
+					<text class="service-title">专业维修</text>
+					<text class="service-text">原厂标准流程</text>
+					<text class="service-text">专业工程师团队</text>
+				</view>
+				<view class="service-divider"></view>
+				<view class="service-item">
+					<view class="service-icon">
+						<view class="clipboard">
+							<view class="clipboard-clip"></view>
+							<view class="clipboard-line"></view>
+							<view class="clipboard-line short"></view>
+						</view>
+					</view>
+					<text class="service-title">工单查询</text>
+					<text class="service-text">实时查看维修进度</text>
+					<text class="service-text">全流程透明可追溯</text>
+				</view>
+				<view class="service-divider"></view>
+				<view class="service-item">
+					<view class="service-icon">
+						<view class="shield">
+							<view class="shield-check"></view>
+						</view>
+					</view>
+					<text class="service-title">品质保障</text>
+					<text class="service-text">原厂配件品质保障</text>
+					<text class="service-text">维修记录永久留存</text>
+				</view>
+			</view>
+
+			<button
+				class="wechat-btn"
+				:class="{ loading: loading }"
+				:disabled="loading"
+				:open-type="privacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization'"
+				@agreeprivacyauthorization="onAgreePrivacyAuthorization"
+				@getphonenumber="onGetPhoneNumber"
+			>
+				<view class="wechat-icon">
+					<view class="wechat-bubble bubble-main"></view>
+					<view class="wechat-bubble bubble-sub"></view>
+				</view>
+				<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : privacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
+			</button>
+			<text v-if="loginError" class="login-error">{{ loginError }}</text>
+
+			<view class="agreement-wrap">
+				<text class="agreement-text">登录即表示您已阅读并同意</text>
+				<view class="agreement-links">
+					<text class="link tap" @click="openPolicy('service')">《用户协议》</text>
+					<text class="agreement-text">及</text>
+					<text class="link tap" @click="openPolicy('privacy')">《隐私政策》</text>
 				</view>
 			</view>
 		</view>
@@ -75,7 +88,7 @@ import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 
-const agreed = ref(false)
+const agreed = ref(true)
 const loading = ref(false)
 const retrying = ref(false)
 const loginError = ref('')
@@ -194,306 +207,302 @@ const onGetPhoneNumber = async (e) => {
 	}
 }
 
-const onAgreeChange = (e) => {
-	agreed.value = e.detail.value.includes('agree')
-}
-
-const goBack = () => {
-	uni.navigateBack()
-}
 </script>
 
 <style scoped>
 .page-shell {
 	position: relative;
 	min-height: 100vh;
-	background: #E8EEFA;
-	color: #0F1F3A;
+	overflow: hidden;
+	background: linear-gradient(180deg, #F4F9FF 0%, #EEF6FF 48%, #F8FCFF 100%);
+	color: #13264A;
 	font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
 	box-sizing: border-box;
 }
 
-.tap:active {
-	opacity: 0.82;
-	transform: scale(0.98);
-}
-
-.wx-top {
-	position: relative;
-	z-index: 30;
-	padding-top: 44rpx;
-	background: #E8EEFA;
-}
-
-.status-row {
-	height: 88rpx;
-	padding: 0 44rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	box-sizing: border-box;
-}
-
-.status-time {
-	font-size: 30rpx;
-	font-weight: 600;
-	line-height: 1;
-	color: #0F1F3A;
-}
-
-.status-icons {
-	display: flex;
-	align-items: center;
-	gap: 10rpx;
-}
-
-.signal {
-	height: 22rpx;
-	display: flex;
-	align-items: flex-end;
-	gap: 4rpx;
-}
-
-.signal-bar {
-	width: 4rpx;
-	border-radius: 2rpx;
-	background: #0F1F3A;
-}
-
-.signal-one { height: 6rpx; }
-.signal-two { height: 10rpx; }
-.signal-three { height: 14rpx; }
-.signal-four { height: 20rpx; }
-
-.wifi-dot {
-	width: 12rpx;
-	height: 12rpx;
-	border-radius: 999rpx;
-	border: 4rpx solid #0F1F3A;
-	border-left-color: transparent;
-	border-bottom-color: transparent;
-	transform: rotate(-45deg);
-}
-
-.battery {
-	width: 44rpx;
-	height: 20rpx;
-	padding: 2rpx;
-	border: 2rpx solid rgba(15, 31, 58, 0.6);
-	border-radius: 5rpx;
-	box-sizing: border-box;
-}
-
-.battery-fill {
-	width: 85%;
-	height: 100%;
-	border-radius: 2rpx;
-	background: #0F1F3A;
-}
-
-.nav-row {
-	position: relative;
-	height: 88rpx;
-	padding: 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	box-sizing: border-box;
-}
-
-.nav-spacer {
-	width: 48rpx;
-	height: 48rpx;
-}
-
-.nav-title {
+.page-shell::before {
+	content: '';
 	position: absolute;
-	left: 50%;
-	font-size: 32rpx;
-	font-weight: 600;
-	line-height: 1;
-	color: #0F1F3A;
-	transform: translateX(-50%);
+	left: -180rpx;
+	top: -260rpx;
+	width: 720rpx;
+	height: 720rpx;
+	border-radius: 999rpx;
+	background: rgba(211, 234, 255, 0.72);
 }
 
-.back-btn {
-	width: 48rpx;
-	height: 48rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+.page-shell::after {
+	content: '';
+	position: absolute;
+	right: -180rpx;
+	bottom: -180rpx;
+	width: 560rpx;
+	height: 560rpx;
+	border-radius: 999rpx;
+	background: rgba(220, 239, 255, 0.82);
 }
 
-.chevron-left {
-	width: 20rpx;
-	height: 20rpx;
-	border-top: 4rpx solid #0F1F3A;
-	border-left: 4rpx solid #0F1F3A;
-	transform: rotate(-45deg);
+.tap:active,
+.wechat-btn:active {
+	opacity: 0.86;
+	transform: scale(0.985);
+}
+
+.bg-orb {
+	position: absolute;
+	z-index: 1;
+	border-radius: 999rpx;
+	background-image: radial-gradient(rgba(44, 138, 245, 0.12) 18%, transparent 19%);
+	background-size: 26rpx 26rpx;
+}
+
+.bg-orb-left {
+	left: 78rpx;
+	top: 128rpx;
+	width: 160rpx;
+	height: 160rpx;
+}
+
+.bg-orb-right {
+	right: 72rpx;
+	top: 390rpx;
+	width: 190rpx;
+	height: 190rpx;
+}
+
+.bg-device {
+	position: absolute;
+	right: -152rpx;
+	top: 380rpx;
+	z-index: 1;
+	width: 310rpx;
+	height: 520rpx;
+	opacity: 0.12;
 }
 
 .login-content {
-	padding: 40rpx 36rpx;
+	position: relative;
+	z-index: 5;
+	min-height: 100vh;
+	padding: 150rpx 48rpx 56rpx;
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	align-items: stretch;
 }
 
 .brand-section {
-	padding: 80rpx 0 60rpx;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
+	text-align: center;
 }
 
-.brand-logo {
-	width: 160rpx;
-	height: 160rpx;
-	margin-bottom: 24rpx;
-}
-
-.brand-name {
-	font-size: 40rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-	margin-bottom: 8rpx;
-}
-
-.brand-desc {
-	font-size: 26rpx;
-	color: #6B7C97;
-}
-
-.form-section {
-	padding: 0 8rpx;
-}
-
-.form-card {
+.brand-logo-wrap {
+	width: 280rpx;
+	height: 280rpx;
+	padding: 16rpx;
+	border-radius: 999rpx;
 	background: #FFFFFF;
-	border-radius: 32rpx;
-	padding: 48rpx 36rpx;
-	box-shadow: 0 4rpx 24rpx rgba(30, 111, 224, 0.1);
-}
-
-.form-title {
-	font-size: 36rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-	margin-bottom: 18rpx;
-	text-align: center;
-}
-
-.login-tip {
-	display: block;
-	margin-bottom: 48rpx;
-	text-align: center;
-	font-size: 25rpx;
-	line-height: 1.6;
-	color: #6B7C97;
-}
-
-.field-wrap {
-	margin-bottom: 40rpx;
-}
-
-.field-label {
-	font-size: 26rpx;
-	color: #324563;
-	margin-bottom: 12rpx;
-	font-weight: 500;
-}
-
-.input-field {
-	position: relative;
-	height: 96rpx;
-	background: #F8FBFF;
-	border: 2rpx solid #E4ECF7;
-	border-radius: 16rpx;
-	display: flex;
-	align-items: center;
-	padding: 0 28rpx;
+	box-shadow: 0 20rpx 48rpx rgba(30, 111, 224, 0.16);
 	box-sizing: border-box;
 }
 
-.input-control {
-	flex: 1;
+.brand-logo {
+	width: 100%;
 	height: 100%;
-	font-size: 28rpx;
-	color: #0F1F3A;
-}
-
-.clear-btn {
-	width: 44rpx;
-	height: 44rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 40rpx;
-	color: #94A3B8;
-	line-height: 1;
-}
-
-.btn-wrap {
-	margin-top: 56rpx;
-}
-
-.login-btn {
-	height: 100rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: linear-gradient(180deg, #2A6CD3 0%, #0A4FB8 100%);
 	border-radius: 999rpx;
-	color: #FFFFFF;
-	font-size: 30rpx;
-	font-weight: 700;
-	box-shadow: 0 12rpx 32rpx rgba(10, 79, 184, 0.35);
 }
 
-.login-btn.disabled {
-	background: #C4D1E4;
-	box-shadow: none;
+.brand-name {
+	margin-top: 58rpx;
+	font-size: 58rpx;
+	font-weight: 800;
+	line-height: 1.12;
+	letter-spacing: 0;
+	color: #122449;
+	text-shadow: 0 8rpx 18rpx rgba(18, 36, 73, 0.1);
 }
 
-.login-btn.loading {
-	opacity: 0.7;
+.brand-desc {
+	margin-top: 28rpx;
+	font-size: 29rpx;
+	line-height: 1.35;
+	color: #728096;
 }
 
-.divider {
-	margin: 36rpx 0;
+.service-card {
+	margin-top: 64rpx;
+	padding: 40rpx 22rpx;
+	min-height: 246rpx;
+	border-radius: 34rpx;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: 0 22rpx 56rpx rgba(39, 116, 213, 0.13);
+	display: flex;
+	align-items: stretch;
+	box-sizing: border-box;
+}
+
+.service-item {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	min-width: 0;
+}
+
+.service-divider {
+	width: 1rpx;
+	margin: 18rpx 16rpx 12rpx;
+	background: #DCE7F5;
+}
+
+.service-icon {
+	width: 100rpx;
+	height: 100rpx;
+	margin-bottom: 24rpx;
+	border-radius: 999rpx;
+	background: linear-gradient(180deg, #ECF6FF 0%, #E3F0FF 100%);
+	position: relative;
 	display: flex;
 	align-items: center;
-	gap: 20rpx;
+	justify-content: center;
 }
 
-.divider-line {
-	flex: 1;
-	height: 1rpx;
-	background: #E4ECF7;
+.service-title {
+	font-size: 28rpx;
+	font-weight: 800;
+	line-height: 1.25;
+	color: #122449;
+	margin-bottom: 16rpx;
 }
 
-.divider-text {
-	font-size: 24rpx;
-	color: #94A3B8;
+.service-text {
+	font-size: 23rpx;
+	line-height: 1.45;
+	color: #78879B;
+	white-space: nowrap;
+}
+
+.tool {
+	position: absolute;
+	background: #2D86F4;
+	border-radius: 999rpx;
+}
+
+.tool-wrench {
+	width: 46rpx;
+	height: 12rpx;
+	transform: rotate(-45deg);
+}
+
+.tool-wrench::before {
+	content: '';
+	position: absolute;
+	left: -10rpx;
+	top: -10rpx;
+	width: 24rpx;
+	height: 24rpx;
+	border: 8rpx solid #2D86F4;
+	border-right-color: transparent;
+	border-radius: 999rpx;
+	box-sizing: border-box;
+}
+
+.tool-screwdriver {
+	width: 48rpx;
+	height: 10rpx;
+	transform: rotate(45deg);
+}
+
+.tool-screwdriver::after {
+	content: '';
+	position: absolute;
+	right: -10rpx;
+	top: -5rpx;
+	width: 18rpx;
+	height: 20rpx;
+	background: #2D86F4;
+	border-radius: 4rpx;
+}
+
+.clipboard {
+	width: 42rpx;
+	height: 54rpx;
+	border: 7rpx solid #2D86F4;
+	border-radius: 8rpx;
+	position: relative;
+	box-sizing: border-box;
+}
+
+.clipboard-clip {
+	position: absolute;
+	left: 50%;
+	top: -16rpx;
+	width: 24rpx;
+	height: 18rpx;
+	border: 6rpx solid #2D86F4;
+	border-bottom: none;
+	border-radius: 10rpx 10rpx 0 0;
+	transform: translateX(-50%);
+	box-sizing: border-box;
+}
+
+.clipboard-line {
+	position: absolute;
+	left: 8rpx;
+	top: 16rpx;
+	width: 18rpx;
+	height: 5rpx;
+	border-radius: 999rpx;
+	background: #2D86F4;
+}
+
+.clipboard-line.short {
+	top: 29rpx;
+	width: 14rpx;
+}
+
+.shield {
+	width: 54rpx;
+	height: 62rpx;
+	background: linear-gradient(180deg, #2F8DF8 0%, #176EE8 100%);
+	border-radius: 22rpx 22rpx 28rpx 28rpx;
+	position: relative;
+}
+
+.shield-check {
+	position: absolute;
+	left: 18rpx;
+	top: 24rpx;
+	width: 21rpx;
+	height: 12rpx;
+	border-left: 7rpx solid #FFFFFF;
+	border-bottom: 7rpx solid #FFFFFF;
+	transform: rotate(-45deg);
 }
 
 .wechat-btn {
 	width: 100%;
-	height: 96rpx;
+	height: 116rpx;
+	margin-top: 72rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 16rpx;
-	background: #07C160;
-	border-radius: 999rpx;
+	gap: 26rpx;
+	background: linear-gradient(135deg, #3C9CFF 0%, #0E6DF2 100%);
+	border-radius: 30rpx;
 	color: #FFFFFF;
-	font-size: 28rpx;
-	font-weight: 600;
+	font-size: 32rpx;
+	font-weight: 800;
 	border: none;
 	outline: none;
+	box-shadow: 0 18rpx 40rpx rgba(29, 118, 239, 0.28);
+	transition: transform 0.18s ease, opacity 0.18s ease;
 }
 
-.wechat-btn.loading {
-	opacity: 0.72;
-}
-
+.wechat-btn.loading,
 .wechat-btn[disabled] {
 	opacity: 0.72;
 }
@@ -503,56 +512,80 @@ const goBack = () => {
 }
 
 .wechat-icon {
-	width: 44rpx;
-	height: 44rpx;
+	position: relative;
+	width: 58rpx;
+	height: 46rpx;
+}
+
+.wechat-bubble {
+	position: absolute;
 	background: #FFFFFF;
 	border-radius: 999rpx;
-	position: relative;
 }
 
-.wechat-icon::after {
+.bubble-main {
+	left: 0;
+	top: 2rpx;
+	width: 42rpx;
+	height: 34rpx;
+}
+
+.bubble-sub {
+	right: 0;
+	bottom: 0;
+	width: 36rpx;
+	height: 29rpx;
+}
+
+.wechat-bubble::before,
+.wechat-bubble::after {
 	content: '';
 	position: absolute;
-	left: 50%;
-	top: 50%;
-	width: 20rpx;
-	height: 20rpx;
-	background: #07C160;
+	top: 12rpx;
+	width: 6rpx;
+	height: 6rpx;
 	border-radius: 999rpx;
-	transform: translate(-50%, -50%);
+	background: #2E86F4;
 }
 
-.agreement-wrap {
-	margin-top: 36rpx;
-	display: flex;
-	align-items: center;
-	flex-wrap: wrap;
-	gap: 6rpx;
-	justify-content: center;
-	font-size: 22rpx;
-}
-
-.agreement-item {
-	display: flex;
-	align-items: center;
-	gap: 6rpx;
-}
-
-.agreement-text {
-	color: #6B7C97;
-}
-
-.link {
-	color: #1E6FE0;
-}
+.bubble-main::before { left: 12rpx; }
+.bubble-main::after { left: 24rpx; }
+.bubble-sub::before { left: 10rpx; top: 10rpx; }
+.bubble-sub::after { left: 22rpx; top: 10rpx; }
 
 .login-error {
 	display: block;
-	margin-top: 20rpx;
-	padding: 0 12rpx;
+	margin-top: 22rpx;
+	padding: 0 16rpx;
 	text-align: center;
-	font-size: 23rpx;
+	font-size: 24rpx;
 	line-height: 1.5;
 	color: #E5484D;
+}
+
+.agreement-wrap {
+	margin-top: 76rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	font-size: 25rpx;
+	line-height: 1.75;
+}
+
+.agreement-links {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10rpx;
+	flex-wrap: wrap;
+}
+
+.agreement-text {
+	color: #7B8797;
+}
+
+.link {
+	color: #1E7DF2;
 }
 </style>
