@@ -12,6 +12,14 @@
 			<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : privacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
 		</button>
 		<text v-if="loginError" class="login-error login-image-error">{{ loginError }}</text>
+		<view class="login-agreement-clean">
+			<text>登录即表示您已阅读并同意</text>
+			<view>
+				<text>《用户协议》</text>
+				<text>及</text>
+				<text>《隐私政策》</text>
+			</view>
+		</view>
 		<PolicyDialog v-model:visible="policyVisible" :title="policyTitle" :content="policyContent" />
 		<PrivacyConsent />
 	</view>
@@ -102,7 +110,7 @@ const syncWechatPrivacyReady = () => {
 const onAgreePrivacyAuthorization = () => {
 	markWechatPrivacyReady()
 	syncWechatPrivacyReady()
-	loginError.value = '已同意隐私政策，请再次点击获取手机号完成登录'
+	loginError.value = ''
 }
 
 // 先完成微信手机号授权，再通过 wx.login code 获取 openid 作为账号身份登录。
@@ -157,10 +165,11 @@ const onGetPhoneNumber = async (e) => {
 
 .login-auth-image {
 	position: absolute;
-	left: 0;
+	left: 50%;
 	top: 0;
 	width: 750rpx;
 	z-index: 1;
+	transform: translateX(-50%);
 }
 
 .login-auth-button {
@@ -188,12 +197,41 @@ const onGetPhoneNumber = async (e) => {
 	opacity: 0.01;
 }
 
+.login-agreement-clean {
+	position: absolute;
+	left: 74rpx;
+	top: 1190rpx;
+	z-index: 4;
+	width: 602rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+	text-align: center;
+	font-size: 25rpx;
+	line-height: 1.6;
+	color: #7B8797;
+}
+
+.login-agreement-clean view {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10rpx;
+	flex-wrap: wrap;
+}
+
+.login-agreement-clean view text:nth-child(odd) {
+	color: #1E7DF2;
+}
+
 .login-image-error {
 	position: absolute;
 	left: 76rpx;
-	top: 1178rpx;
-	z-index: 4;
+	top: 1158rpx;
+	z-index: 5;
 	width: 598rpx;
+	padding: 0;
 	text-align: center;
 	font-size: 24rpx;
 	line-height: 1.5;

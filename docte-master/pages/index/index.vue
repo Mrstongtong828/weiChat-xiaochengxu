@@ -1,7 +1,7 @@
 ﻿<template>
 	<view class="page-shell">
 		<view v-if="activeModule" class="module-page">
-			<view class="module-head" :style="moduleHeadStyle">
+			<view v-if="activeModule !== 'login'" class="module-head" :style="moduleHeadStyle">
 				<view class="back-button tap" @click="returnFromModule"></view>
 				<view class="module-title-wrap">
 					<text class="module-title">{{ moduleInfo.title }}</text>
@@ -1090,6 +1090,14 @@
 					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : loginPrivacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
 				</button>
 				<text v-if="loginError" class="login-error login-image-error">{{ loginError }}</text>
+				<view class="login-agreement-clean">
+					<text>登录即表示您已阅读并同意</text>
+					<view>
+						<text>《用户协议》</text>
+						<text>及</text>
+						<text>《隐私政策》</text>
+					</view>
+				</view>
 				<!-- #ifdef H5 -->
 				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
 				<!-- #endif -->
@@ -1770,7 +1778,7 @@ const moduleInfo = computed(() => moduleMap[activeModule.value] || {})
 const moduleHeadStyle = computed(() => ({
 	paddingTop: `${moduleHeadPaddingTop.value}rpx`
 }))
-const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && activeModule.value !== 'repair')
+const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && !['repair', 'login'].includes(activeModule.value))
 
 const trackOrders = ref([])
 
@@ -4382,7 +4390,7 @@ const onGetPhoneNumberLogin = async (event = {}) => {
 const onAgreeLoginPrivacyAuthorization = () => {
 	markWechatPrivacyReady()
 	syncLoginPrivacyReady()
-	loginError.value = '已同意隐私政策，请再次点击获取手机号完成登录'
+	loginError.value = ''
 }
 
 const syncLoginPrivacyReady = () => {
@@ -11738,10 +11746,11 @@ onUnmounted(() => {
 
 .login-auth-image {
 	position: absolute;
-	left: 0;
+	left: 50%;
 	top: 0;
 	width: 750rpx;
 	z-index: 1;
+	transform: translateX(-50%);
 }
 
 .login-auth-button {
@@ -11769,6 +11778,34 @@ onUnmounted(() => {
 	opacity: 0.01;
 }
 
+.login-agreement-clean {
+	position: absolute;
+	left: 74rpx;
+	top: 1190rpx;
+	z-index: 4;
+	width: 602rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+	text-align: center;
+	font-size: 25rpx;
+	line-height: 1.6;
+	color: #7B8797;
+}
+
+.login-agreement-clean view {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10rpx;
+	flex-wrap: wrap;
+}
+
+.login-agreement-clean view text:nth-child(odd) {
+	color: #1E7DF2;
+}
+
 .phone-login {
 	position: absolute;
 	left: 220rpx;
@@ -11791,8 +11828,8 @@ onUnmounted(() => {
 .login-image-error {
 	position: absolute;
 	left: 76rpx;
-	top: 1178rpx;
-	z-index: 4;
+	top: 1158rpx;
+	z-index: 5;
 	width: 598rpx;
 	padding: 0;
 	text-align: center;
@@ -11854,5 +11891,6 @@ onUnmounted(() => {
 .guide-media-name { flex: 1; font-size: 26rpx; color: #1d2129; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .guide-media-open { font-size: 24rpx; color: #86909c; flex-shrink: 0; }
 </style>
+
 
 
