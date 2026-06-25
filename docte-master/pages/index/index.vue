@@ -1084,21 +1084,31 @@
 				<image class="login-auth-image" :src="cicadaAssets.loginAuthBg" mode="widthFix"></image>
 				<button
 					class="login-auth-button tap"
-					:class="{ loading: loginSubmitting }"
-					:disabled="loginSubmitting"
-					:open-type="loginPrivacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization'"
+					:class="{ loading: loginSubmitting, disabled: !loginAgreementChecked }"
+					:disabled="loginSubmitting || !loginAgreementChecked"
+					:open-type="loginAgreementChecked ? (loginPrivacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization') : ''"
 					@agreeprivacyauthorization="onAgreeLoginPrivacyAuthorization"
 					@getphonenumber="onGetPhoneNumberLogin"
 				>
 					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : loginPrivacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
 				</button>
-				<text v-if="loginError" class="login-error login-image-error">{{ loginError }}</text>
+				<view v-if="!loginAgreementChecked" class="login-button-mask"></view>
+				<text class="login-error login-image-error">{{ loginError || '请先同意隐私政策授权，再重新点击微信手机号授权登录' }}</text>
+				<view class="login-consent-check tap" @click="toggleLoginAgreement">
+					<view :class="['login-checkbox', { checked: loginAgreementChecked }]">
+						<text v-if="loginAgreementChecked">✓</text>
+					</view>
+					<text>我已阅读并同意</text>
+					<text class="login-policy-link" @click.stop="openLoginPolicy('user')">《用户协议》</text>
+					<text>与</text>
+					<text class="login-policy-link" @click.stop="openLoginPolicy('privacy')">《隐私政策》</text>
+				</view>
 				<view class="login-agreement-clean">
 					<text>登录即表示您已阅读并同意</text>
 					<view>
-						<text>《用户协议》</text>
+						<text @click="openLoginPolicy('user')">《用户协议》</text>
 						<text>及</text>
-						<text>《隐私政策》</text>
+						<text @click="openLoginPolicy('privacy')">《隐私政策》</text>
 					</view>
 				</view>
 				<!-- #ifdef H5 -->
@@ -1670,6 +1680,7 @@ const loginSubmitting = ref(false)
 const loginRetrying = ref(false)
 const loginError = ref('')
 const loginPrivacyReady = ref(false)
+const loginAgreementChecked = ref(false)
 const surveyConfig = ref({
 	enabled: true,
 	title: '售后服务调研表',
@@ -4345,6 +4356,11 @@ const onGetPhoneNumberLogin = async (event = {}) => {
 	loginError.value = ''
 	loginRetrying.value = false
 
+	if (!loginAgreementChecked.value) {
+		showLoginError('请先勾选同意用户协议与隐私政策')
+		return
+	}
+
 	const authDetail = normalizePhoneAuthDetail(event.detail || {})
 	if (!authDetail.ok) {
 		console.warn('wechat getPhoneNumber failed:', authDetail.raw || event.detail || {})
@@ -4398,6 +4414,15 @@ const onAgreeLoginPrivacyAuthorization = () => {
 
 const syncLoginPrivacyReady = () => {
 	loginPrivacyReady.value = true
+}
+
+const toggleLoginAgreement = () => {
+	loginAgreementChecked.value = !loginAgreementChecked.value
+	if (loginAgreementChecked.value) loginError.value = ''
+}
+
+const openLoginPolicy = (type) => {
+	uni.navigateTo({ url: `/pages/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
 }
 
 const showLoginError = (message) => {
@@ -11750,7 +11775,7 @@ onUnmounted(() => {
 .login-auth-image {
 	position: absolute;
 	left: 50%;
-	top: 0;
+	top: 52rpx;
 	width: 750rpx;
 	z-index: 1;
 	transform: translateX(-50%);
@@ -11783,7 +11808,7 @@ onUnmounted(() => {
 .login-auth-button {
 	position: absolute;
 	left: 74rpx;
-	top: 1038rpx;
+	top: 1090rpx;
 	z-index: 3;
 	width: 602rpx;
 	height: 120rpx;
@@ -11805,10 +11830,67 @@ onUnmounted(() => {
 	opacity: 0.01;
 }
 
+.login-button-mask {
+	position: absolute;
+	left: 74rpx;
+	top: 1090rpx;
+	z-index: 4;
+	width: 602rpx;
+	height: 120rpx;
+	border-radius: 26rpx;
+	background: rgba(170, 181, 197, 0.48);
+	pointer-events: none;
+}
+
+.login-consent-check {
+	position: absolute;
+	left: 74rpx;
+	top: 1220rpx;
+	z-index: 5;
+	width: 602rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 8rpx;
+	font-size: 24rpx;
+	line-height: 1.5;
+	color: #6C7890;
+	text-align: center;
+}
+
+.login-checkbox {
+	width: 28rpx;
+	height: 28rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2rpx solid #9AA9BF;
+	border-radius: 6rpx;
+	background: rgba(255, 255, 255, 0.9);
+	box-sizing: border-box;
+}
+
+.login-checkbox.checked {
+	border-color: #1E7DF2;
+	background: #1E7DF2;
+}
+
+.login-checkbox text {
+	font-size: 22rpx;
+	line-height: 1;
+	color: #FFFFFF;
+	font-weight: 900;
+}
+
+.login-policy-link {
+	color: #1E7DF2;
+}
+
 .login-agreement-clean {
 	position: absolute;
 	left: 74rpx;
-	top: 1190rpx;
+	top: 1276rpx;
 	z-index: 4;
 	width: 602rpx;
 	display: flex;
@@ -11855,7 +11937,7 @@ onUnmounted(() => {
 .login-image-error {
 	position: absolute;
 	left: 76rpx;
-	top: 1158rpx;
+	top: 1192rpx;
 	z-index: 5;
 	width: 598rpx;
 	padding: 0;

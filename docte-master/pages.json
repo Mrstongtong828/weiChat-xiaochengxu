@@ -16,6 +16,13 @@
 			}
 		},
 		{
+			"path": "pages/legal/index",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": ""
+			}
+		},
+		{
 			"path": "pages/company/index",
 			"style": {
 				"navigationStyle": "custom",
