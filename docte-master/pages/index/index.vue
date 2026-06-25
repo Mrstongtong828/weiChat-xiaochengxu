@@ -1078,6 +1078,9 @@
 			</view>
 
 			<view v-else-if="activeModule === 'login'" class="module-content login-module login-image-module">
+				<view class="login-back-button tap" @click="returnFromModule">
+					<view></view>
+				</view>
 				<image class="login-auth-image" :src="cicadaAssets.loginAuthBg" mode="widthFix"></image>
 				<button
 					class="login-auth-button tap"
@@ -11751,6 +11754,30 @@ onUnmounted(() => {
 	width: 750rpx;
 	z-index: 1;
 	transform: translateX(-50%);
+}
+
+.login-back-button {
+	position: absolute;
+	left: 32rpx;
+	top: 88rpx;
+	z-index: 8;
+	width: 72rpx;
+	height: 72rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.94);
+	box-shadow: 0 10rpx 24rpx rgba(30, 111, 224, 0.14);
+}
+
+.login-back-button view {
+	width: 20rpx;
+	height: 20rpx;
+	margin-left: 8rpx;
+	border-left: 4rpx solid #2B7DE9;
+	border-bottom: 4rpx solid #2B7DE9;
+	transform: rotate(45deg);
 }
 
 .login-auth-button {
