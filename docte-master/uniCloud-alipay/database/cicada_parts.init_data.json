@@ -1,0 +1,16 @@
+[
+  {
+    "part_code": "PART-HANDPIECE-BEARING",
+    "part_name": "牙科手机轴承组件",
+    "model": "HP-BRG-01",
+    "compatible_models": ["高速手机", "低速手机"],
+    "purchase_cost": 80,
+    "sale_price": 180,
+    "stock": 20,
+    "warning_threshold": 5,
+    "enabled": true,
+    "remark": "报价弹窗示例配件",
+    "create_time": 0,
+    "update_time": 0
+  }
+]

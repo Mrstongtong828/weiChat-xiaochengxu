@@ -33,12 +33,20 @@
 			<view class="form-section">
 				<view class="form-card">
 					<view class="form-title">微信手机号授权登录</view>
-					<text class="login-tip">短信验证码暂未开放，请通过微信授权手机号完成正式登录。</text>
+					<text class="login-tip">授权手机号用于绑定联系方式，账号身份仍以微信 openid 登录。</text>
 
-					<button class="wechat-btn" :class="{ loading: loading }" open-type="getPhoneNumber" @getphonenumber="onGetPhoneNumber">
+					<button
+						class="wechat-btn"
+						:class="{ loading: loading }"
+						:disabled="loading"
+						:open-type="privacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization'"
+						@agreeprivacyauthorization="onAgreePrivacyAuthorization"
+						@getphonenumber="onGetPhoneNumber"
+					>
 						<view class="wechat-icon"></view>
-						<text>{{ loading ? '登录中...' : '微信手机号授权登录' }}</text>
+						<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : privacyReady ? '微信手机号授权登录' : '同意隐私政策并登录' }}</text>
 					</button>
+					<text v-if="loginError" class="login-error">{{ loginError }}</text>
 
 					<view class="agreement-wrap">
 						<checkbox-group @change="onAgreeChange">
@@ -47,74 +55,142 @@
 								<text class="agreement-text">已阅读并同意</text>
 							</label>
 						</checkbox-group>
-						<text class="link tap">《用户服务协议》</text>
-						<text class="link tap">《隐私政策》</text>
+						<text class="link tap" @click="openPolicy('privacy')">《用户服务协议》</text>
+						<text class="link tap" @click="openPolicy('privacy')">《隐私政策》</text>
 					</view>
 				</view>
 			</view>
 		</view>
+		<PolicyDialog v-model:visible="policyVisible" :title="policyTitle" :content="policyContent" />
+		<PrivacyConsent />
 	</view>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { importCloudObject } from '@/utils/cloud.js'
+import { wechatLogin, getCompliance } from '@/api/content'
+import PolicyDialog from '@/components/PolicyDialog.vue'
+import PrivacyConsent from '@/components/PrivacyConsent.vue'
+import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
+import { getWechatPrivacyReady, markWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 
 const agreed = ref(false)
 const loading = ref(false)
+const retrying = ref(false)
+const loginError = ref('')
+const privacyReady = ref(false)
 
-let userCloudObject = null
+const policyVisible = ref(false)
+const policyTitle = ref('')
+const policyContent = ref('')
 
-onMounted(() => {
-	userCloudObject = importCloudObject('cicada-client-user')
+const openPolicy = async (type) => {
+	policyTitle.value = type === 'privacy' ? '隐私政策' : '用户服务协议'
+	policyVisible.value = true
+	if (!policyContent.value) {
+		try {
+			const data = await getCompliance()
+			policyContent.value = data.privacyPolicy || ''
+		} catch (e) {
+			policyContent.value = ''
+		}
+	}
+}
+
+const showLoginError = (message) => {
+	loginError.value = message
+	if (String(message).length > 16) {
+		uni.showModal({
+			title: '登录失败',
+			content: message,
+			showCancel: false,
+			confirmText: '知道了'
+		})
+		return
+	}
+	uni.showToast({ title: message, icon: 'none' })
+}
+
+const goBackAfterLogin = () => {
+	uni.navigateBack({
+		fail: () => uni.reLaunch({ url: '/pages/index/index' })
+	})
+}
+
+const applyLoginSuccess = (res = {}, message = '') => {
+	if (res && res.token) {
+		uni.setStorageSync('token', res.token)
+		uni.setStorageSync('userInfo', res.userInfo || {})
+		uni.setStorageSync('isLoggedIn', true)
+
+		uni.showToast({ title: message || (res.offline ? '体验登录成功' : '登录成功'), icon: 'success' })
+
+		setTimeout(() => {
+			goBackAfterLogin()
+		}, 1200)
+		return true
+	}
+	showLoginError('登录响应缺少 token')
+	return false
+}
+
+onMounted(async () => {
+	uni.$on('wechatPrivacyReady', syncWechatPrivacyReady)
+	privacyReady.value = await getWechatPrivacyReady()
 })
 
-// 微信手机号一键登录
+onUnmounted(() => {
+	uni.$off('wechatPrivacyReady', syncWechatPrivacyReady)
+})
+
+const syncWechatPrivacyReady = () => {
+	privacyReady.value = true
+	agreed.value = true
+}
+
+const onAgreePrivacyAuthorization = () => {
+	markWechatPrivacyReady()
+	syncWechatPrivacyReady()
+	loginError.value = '已同意隐私政策，请再次点击获取手机号完成登录'
+}
+
+// 先完成微信手机号授权，再通过 wx.login code 获取 openid 作为账号身份登录。
 const onGetPhoneNumber = async (e) => {
 	if (loading.value) return
+	loginError.value = ''
+	retrying.value = false
 
 	if (!agreed.value) {
-		uni.showToast({ title: '请先阅读并同意用户协议', icon: 'none' })
-		return
-	}
-	
-	if (e.detail.errMsg !== 'getPhoneNumber:ok') {
-		if (e.detail.errMsg && e.detail.errMsg.includes('cancel')) {
-			return
-		}
-		uni.showToast({ title: '授权失败，请重试', icon: 'none' })
+		showLoginError('请先阅读并同意用户协议')
 		return
 	}
 
-	if (!e.detail.code) {
-		uni.showToast({ title: '获取手机号失败', icon: 'none' })
+	const authDetail = normalizePhoneAuthDetail(e.detail || {})
+	if (!authDetail.ok) {
+		console.warn('wechat getPhoneNumber failed:', authDetail.raw || e.detail || {})
+		if (!authDetail.canceled) showLoginError(authDetail.message)
+		else loginError.value = authDetail.message
 		return
 	}
 
 	loading.value = true
 
 	try {
-		const result = await userCloudObject.loginWithWechat({ code: e.detail.code })
+		const res = await loginWithWechatPhoneCode(wechatLogin, authDetail.phoneCode, {
+			retries: 1,
+			onRetry: () => {
+				retrying.value = true
+				loginError.value = '微信登录失败，正在自动重试...'
+			}
+		})
 
-		loading.value = false
-
-		if (result.code === 0) {
-			uni.setStorageSync('token', result.data.token)
-			uni.setStorageSync('userInfo', result.data.userInfo)
-			uni.setStorageSync('isLoggedIn', true)
-
-			uni.showToast({ title: '登录成功', icon: 'success' })
-
-			setTimeout(() => {
-				uni.navigateBack()
-			}, 1500)
-		} else {
-			uni.showToast({ title: result.message || '登录失败', icon: 'none' })
-		}
+		applyLoginSuccess(res, '登录成功')
 	} catch (error) {
+		showLoginError(getLoginErrorMessage(error))
+	} finally {
 		loading.value = false
-		uni.showToast({ title: error.message || '登录失败', icon: 'none' })
+		retrying.value = false
 	}
 }
 
@@ -418,6 +494,10 @@ const goBack = () => {
 	opacity: 0.72;
 }
 
+.wechat-btn[disabled] {
+	opacity: 0.72;
+}
+
 .wechat-btn::after {
 	border: none;
 }
@@ -464,5 +544,15 @@ const goBack = () => {
 
 .link {
 	color: #1E6FE0;
+}
+
+.login-error {
+	display: block;
+	margin-top: 20rpx;
+	padding: 0 12rpx;
+	text-align: center;
+	font-size: 23rpx;
+	line-height: 1.5;
+	color: #E5484D;
 }
 </style>

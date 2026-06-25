@@ -1,22 +1,13 @@
+import { unwrapCloudResult, uploadToCloud, withToken } from './cloudHelpers.js'
+import { importCloudObject } from '@/utils/cloud.js'
+
 let orderCloudObject = null
 
 const getCloudObject = () => {
   if (!orderCloudObject) {
-    orderCloudObject = uniCloud.importObject('cicada-client-order')
+    orderCloudObject = importCloudObject('cicada-client-order')
   }
   return orderCloudObject
-}
-
-const withToken = (params = {}) => ({
-  ...params,
-  token: uni.getStorageSync('token') || ''
-})
-
-const unwrapCloudResult = (result = {}) => {
-  if (result.code === 0 || result.code === undefined) {
-    return result.data === undefined ? result : result.data
-  }
-  throw new Error(result.message || result.msg || '请求失败')
 }
 
 const normalizePageParams = ({ page = 1, pageSize, size, ...rest } = {}) => ({
@@ -102,6 +93,22 @@ export const confirmRepairQuote = (id) => {
   return getCloudObject().confirmQuote(withToken(normalizeOrderId(id))).then(unwrapCloudResult)
 }
 
+export const rejectRepairQuote = (id, reason = '') => {
+  return getCloudObject().rejectQuote(withToken({ ...normalizeOrderId(id), reason })).then(unwrapCloudResult)
+}
+
+export const confirmRepairReceipt = (id) => {
+  return getCloudObject().confirmReceipt(withToken(normalizeOrderId(id))).then(unwrapCloudResult)
+}
+
+export const submitRepairReview = (id, review = {}) => {
+  return getCloudObject().submitOrderReview(withToken({ ...normalizeOrderId(id), ...review })).then(unwrapCloudResult)
+}
+
+export const getMyDevices = (params = {}) => {
+  return getCloudObject().listMyDevices(withToken(normalizePageParams(params))).then(unwrapCloudResult)
+}
+
 export const uploadRepairPaymentProof = (id, proof = {}) => {
   return getCloudObject().uploadPaymentProof(withToken({ ...normalizeOrderId(id), proof })).then(unwrapCloudResult)
 }
@@ -114,19 +121,14 @@ export const syncRepairWechatPay = (id, outTradeNo = '') => {
   return getCloudObject().syncWechatPayPayment(withToken({ ...normalizeOrderId(id), out_trade_no: outTradeNo })).then(unwrapCloudResult)
 }
 
+export const lookupDeviceBySn = (sn) => {
+  return getCloudObject().lookupDeviceBySn(withToken({ sn })).then(unwrapCloudResult)
+}
+
 export const getRepairStats = () => {
-  return Promise.resolve({})
+  return getCloudObject().getOrderStats(withToken({})).then(unwrapCloudResult)
 }
 
 export const uploadRepairImage = (filePath) => {
-  return new Promise((resolve, reject) => {
-    uniCloud.uploadFile({
-      filePath,
-      cloudPath: `repair/${Date.now()}.jpg`,
-      success: (res) => {
-        resolve({ url: res.fileID })
-      },
-      fail: reject
-    })
-  })
+  return uploadToCloud(filePath, 'repair/images', 'jpg')
 }

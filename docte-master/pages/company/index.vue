@@ -88,7 +88,14 @@
 						<view class="icon-cert"><view></view></view>
 						<text>医疗器械质量体系背书</text>
 					</view>
-					<text class="auth-desc">CICADA 产品已取得 ISO13485、CE、FDA 及国内产品注册等资质，覆盖口腔医疗设备研发、生产与合规交付关键环节。</text>
+					<text class="auth-desc">CICADA 始终坚持医疗器械质量体系标准，覆盖口腔医疗设备研发、生产与合规交付关键环节。具体资质证照以下方公示为准。</text>
+						<view v-if="qualifications.length" class="qual-list">
+							<view v-for="(item, index) in qualifications" :key="index" class="qual-item">
+								<text class="qual-name">{{ item.name }}</text>
+								<image v-if="item.type === 'image' && item.imageUrl" class="qual-image" :src="item.imageUrl" mode="widthFix" show-menu-by-longpress></image>
+								<text v-else-if="item.text" class="qual-text">{{ item.text }}</text>
+							</view>
+						</view>
 				</view>
 				<view class="adv-grid">
 					<view v-for="item in advantages" :key="item.title" class="adv-card">
@@ -118,11 +125,17 @@
 					<image class="qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress></image>
 				</view>
 				<text class="follow-title">了解产品与售后支持</text>
-				<text class="follow-desc">长按识别二维码关注官方公众号，或通过电话、邮箱咨询产品资料、维修保养与售后服务。</text>
+				<text class="follow-desc">长按识别二维码关注官方服务号，或通过电话、邮箱咨询产品资料、维修保养与售后服务。</text>
 				<view class="contact-row">
 					<view class="contact-pill tap" @click="callPhone">电话咨询</view>
 					<view class="contact-pill ghost tap" @click="copyEmail">复制邮箱</view>
 				</view>
+			</view>
+
+			<view class="compliance-links">
+				<text class="compliance-link tap" @click="openPolicy('privacy')">隐私政策</text>
+				<text class="compliance-divider">·</text>
+				<text class="compliance-link tap" @click="openPolicy('cancellation')">账号注销规则</text>
 			</view>
 		</view>
 
@@ -132,12 +145,46 @@
 		</view>
 
 		<BottomTabbar :tabs="tabs" active-id="company" @select="go" />
+		<PolicyDialog v-model:visible="policyVisible" :title="policyTitle" :content="policyContent" />
 	</view>
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
 import BottomTabbar from '@/components/BottomTabbar.vue'
+import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
+import { getCompliance } from '@/api/content.js'
+
+const qualifications = ref([])
+const complianceDocs = ref({ privacyPolicy: '', cancellationPolicy: '' })
+const policyVisible = ref(false)
+const policyTitle = ref('')
+const policyContent = ref('')
+
+onMounted(async () => {
+	try {
+		const data = await getCompliance()
+		qualifications.value = Array.isArray(data.qualifications) ? data.qualifications : []
+		complianceDocs.value = {
+			privacyPolicy: data.privacyPolicy || '',
+			cancellationPolicy: data.cancellationPolicy || ''
+		}
+	} catch (e) {
+		console.warn('加载合规信息失败', e)
+	}
+})
+
+const openPolicy = (type) => {
+	const map = {
+		privacy: { title: '隐私政策', content: complianceDocs.value.privacyPolicy },
+		cancellation: { title: '账号注销规则', content: complianceDocs.value.cancellationPolicy }
+	}
+	const target = map[type] || map.privacy
+	policyTitle.value = target.title
+	policyContent.value = target.content
+	policyVisible.value = true
+}
 
 const stats = [
 	{ value: '20', label: '年品牌积累', desc: '品牌发展经验' },
@@ -218,6 +265,14 @@ const copyEmail = () => {
 </script>
 
 <style scoped>
+.qual-list { margin-top: 20rpx; display: flex; flex-direction: column; gap: 20rpx; }
+.qual-item { background: #f7f9fc; border-radius: 14rpx; padding: 20rpx; }
+.qual-name { display: block; font-size: 27rpx; font-weight: 600; color: #1d2129; margin-bottom: 12rpx; }
+.qual-image { width: 100%; border-radius: 10rpx; }
+.qual-text { font-size: 25rpx; line-height: 1.7; color: #4e5969; }
+.compliance-links { display: flex; align-items: center; justify-content: center; gap: 14rpx; padding: 28rpx 0 8rpx; }
+.compliance-link { font-size: 25rpx; color: #1E6FE0; }
+.compliance-divider { color: #c9cdd4; font-size: 22rpx; }
 .page-shell {
 	position: relative;
 	min-height: 100vh;

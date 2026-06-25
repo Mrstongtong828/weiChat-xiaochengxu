@@ -27,9 +27,9 @@
 			</view>
 
 			<view class="profile-row">
-				<view class="avatar">
+				<view class="avatar" :class="{ 'avatar-logged': logged }">
 					<text v-if="logged">{{ userAvatarText }}</text>
-					<view v-else class="avatar-empty"></view>
+					<image v-else class="avatar-empty" src="/static/default-user-avatar.png" mode="aspectFit"></image>
 				</view>
 				<view class="profile-copy">
 					<text class="profile-name">{{ logged ? userDisplayName : '未登录' }}</text>
@@ -99,7 +99,8 @@
 import { computed, ref, onMounted } from 'vue'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { getRepairList } from '@/api/repair'
+import { getRepairList, getRepairStats } from '@/api/repair'
+import { countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
 
 const logged = ref(false)
 const currentUser = ref({})
@@ -111,25 +112,6 @@ onMounted(() => {
 	logged.value = Boolean(token)
 	if (token) loadRepairCounts()
 })
-
-const normalizeStatus = (value = '') => {
-	const raw = String(value || '').trim()
-	const map = {
-		pending: '已提交',
-		submitted: '已提交',
-		sent: '已寄出',
-		received: '已签收',
-		checking: '检测中',
-		quote_pending: '待报价',
-		waiting_confirm: '待确认',
-		fixing: '维修中',
-		repairing: '维修中',
-		shipped: '已发货',
-		completed: '已完成',
-		reviewed: '已评价'
-	}
-	return map[raw] || map[raw.toLowerCase()] || raw
-}
 
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
@@ -143,21 +125,27 @@ const statusItems = computed(() => [
 ])
 
 const loadRepairCounts = async () => {
+	// 优先用 DB 端聚合统计
+	try {
+		const stats = await getRepairStats()
+		if (stats && typeof stats === 'object' && (stats.total !== undefined || stats.byStatus)) {
+			repairCounts.value = {
+				all: Number(stats.total || 0),
+				pending: Number(stats.pending || 0),
+				fixing: Number(stats.fixing || 0),
+				shipped: Number(stats.shipped || 0)
+			}
+			return
+		}
+	} catch (error) {
+		console.warn('load repair stats failed, fallback to list count:', error)
+	}
+	// 兜底：拉列表本地分桶（与后端 getOrderStats 同口径，统一走共享分桶逻辑）
 	try {
 		const data = await getRepairList({ page: 1, size: 100 })
 		const list = Array.isArray(data) ? data : data.list
 		if (!Array.isArray(list)) return
-		repairCounts.value = list.reduce(
-			(acc, item = {}) => {
-				const status = normalizeStatus(item.statusText || item.statusName || item.status)
-				acc.all += 1
-				if (['已提交', '已寄出', '已签收', '检测中', '待报价', '待确认'].includes(status)) acc.pending += 1
-				if (status === '维修中') acc.fixing += 1
-				if (status === '已发货') acc.shipped += 1
-				return acc
-			},
-			{ all: 0, pending: 0, fixing: 0, shipped: 0 }
-		)
+		repairCounts.value = countStatusBuckets(list)
 	} catch (error) {
 		console.warn('load repair counts failed:', error)
 	}
@@ -180,14 +168,14 @@ const routes = {
 	home: '/pages/index/index',
 	company: '/pages/company/index',
 	mine: '/pages/mine/index',
-	orders: '/pages/index/index?module=orders&from=mine',
+	orders: '/pages/index/index?module=orders',
 	address: '/pages/address/index',
-	feedback: '/pages/index/index?module=feedback&from=mine',
-	products: '/pages/index/index?module=products&from=mine',
-	invoices: '/pages/index/index?module=invoices&from=mine',
-	'guide-invoice': '/pages/index/index?module=guide-invoice&from=mine',
-	warranty: '/pages/index/index?module=warranty&from=mine',
-	contact: '/pages/index/index?module=contact&from=mine'
+	feedback: '/pages/index/index?module=feedback',
+	products: '/pages/index/index?module=products',
+	invoices: '/pages/index/index?module=invoices',
+	'guide-invoice': '/pages/index/index?module=guide-invoice',
+	warranty: '/pages/index/index?module=warranty',
+	contact: '/pages/index/index?module=contact'
 }
 
 const toggleLogin = () => {
@@ -216,8 +204,7 @@ const toggleLogin = () => {
 
 const go = (id) => {
 	if (id === 'mine') return
-	const navigate = id === 'home' || id === 'company' ? uni.redirectTo : uni.navigateTo
-	navigate({
+	uni.navigateTo({
 		url: routes[id] || `/pages/${id}/index`,
 		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
 	})
@@ -225,7 +212,7 @@ const go = (id) => {
 
 const goOrder = (type) => {
 	uni.navigateTo({
-		url: `/pages/index/index?type=${type}&from=mine`,
+		url: `/pages/index/index?type=${type}`,
 		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
 	})
 }
@@ -406,39 +393,24 @@ const goOrder = (type) => {
 	flex-shrink: 0;
 	overflow: hidden;
 	border-radius: 999rpx;
-	background: #FFFFFF;
-	box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.15);
-	color: #1E6FE0;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+	color: #FFFFFF;
 	font-size: 48rpx;
 	font-weight: 700;
+	box-sizing: border-box;
+}
+
+.avatar-logged {
+	background: #FFFFFF;
+	color: #1E6FE0;
 }
 
 .avatar-empty {
-	width: 64rpx;
-	height: 64rpx;
-	position: relative;
-}
-
-.avatar-empty::before {
-	content: "";
-	position: absolute;
-	left: 18rpx;
-	top: 0;
-	width: 28rpx;
-	height: 28rpx;
-	border-radius: 999rpx;
-	background: #C4D1E4;
-}
-
-.avatar-empty::after {
-	content: "";
-	position: absolute;
-	left: 4rpx;
-	bottom: 0;
-	width: 56rpx;
-	height: 34rpx;
-	border-radius: 999rpx 999rpx 0 0;
-	background: #C4D1E4;
+	width: 120rpx;
+	height: 120rpx;
+	display: block;
 }
 
 .profile-copy {

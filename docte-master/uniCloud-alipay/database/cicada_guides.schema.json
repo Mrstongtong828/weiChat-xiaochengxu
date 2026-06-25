@@ -1,11 +1,25 @@
 {
   "bsonType": "object",
-  "required": ["category", "desc", "file_name"],
+  "required": ["category"],
   "properties": {
     "_id": { "description": "ID" },
-    "type": { "bsonType": "string", "description": "固定教程类型：quick/repair/query/invoice" },
-    "category": { "bsonType": "string" },
+    "type": { "bsonType": "string", "description": "固定教程类型：quick/repair/query/invoice；自定义教程为空" },
+    "category": { "bsonType": "string", "description": "教程栏目/分类名称" },
+    "audience": { "bsonType": "string", "description": "适用对象：client(客户端)/engineer(工程师端)" },
     "desc": { "bsonType": "string" },
+    "content": { "bsonType": "string", "description": "图文富文本内容(HTML)" },
+    "media": {
+      "bsonType": "array",
+      "description": "图片/视频/文档媒体列表",
+      "items": {
+        "bsonType": "object",
+        "properties": {
+          "type": { "bsonType": "string", "description": "image/video/doc" },
+          "url": { "bsonType": "string" },
+          "name": { "bsonType": "string" }
+        }
+      }
+    },
     "file_name": { "bsonType": "string" },
     "file_url": { "bsonType": "string" },
     "file_type": { "bsonType": "string" },

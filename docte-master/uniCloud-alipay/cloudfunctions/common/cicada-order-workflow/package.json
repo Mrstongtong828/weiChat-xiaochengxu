@@ -1,0 +1,9 @@
+{
+  "name": "cicada-order-workflow",
+  "version": "1.0.0",
+  "description": "订单状态流转与角色权限公共模块",
+  "dependencies": {
+    "uni-config-center": "file:../../../../uni_modules/uni-config-center/uniCloud/cloudfunctions/common/uni-config-center",
+    "uni-id-common": "file:../../../../uni_modules/uni-id-common/uniCloud/cloudfunctions/common/uni-id-common"
+  }
+}

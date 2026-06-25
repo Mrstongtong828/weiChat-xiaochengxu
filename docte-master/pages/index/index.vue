@@ -1,8 +1,8 @@
 <template>
 	<view class="page-shell">
-		<view v-if="activeModule" class="module-page" :class="{ 'module-page-dialog': activeModule === 'survey' }">
-			<view v-if="activeModule !== 'survey'" class="module-head" :style="moduleHeadStyle">
-				<view class="back-button tap" @click="closeModule"></view>
+		<view v-if="activeModule" class="module-page">
+			<view class="module-head" :style="moduleHeadStyle">
+				<view class="back-button tap" @click="returnFromModule"></view>
 				<view class="module-title-wrap">
 					<text class="module-title">{{ moduleInfo.title }}</text>
 					<text class="module-subtitle">{{ moduleInfo.subtitle }}</text>
@@ -14,87 +14,111 @@
 					<text class="warm-strong">温馨提示：</text>
 					<text>为了给您提供更快更好的服务，请务必在快递里面留纸条写明：寄回原因或故障描述，联系方式和收件地址。</text>
 				</view>
-
 				<view class="module-section-head">
 					<text>产品信息</text>
 					<text>共 {{ repairProducts.length }} 件 · 可增加</text>
 				</view>
 				<view v-for="(product, index) in repairProducts" :key="product.id" class="repair-product">
-					<view class="repair-product-strip">
-						<view class="repair-product-name">
-							<text>{{ index + 1 }}</text>
-							<text>报修产品 #{{ index + 1 }}</text>
-						</view>
-						<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
-					</view>
-					<view class="repair-form-card">
-						<view class="repair-field">
-							<text>产品名称</text>
-							<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
-						</view>
-						<view class="repair-field">
-							<text><text class="required-star">*</text>产品序列号</text>
-							<input v-model="product.serial" placeholder="请输入" placeholder-class="input-placeholder" />
-						</view>
-						<view class="repair-field">
-							<text>购买日期</text>
-							<picker mode="date" :value="product.buyDate" @change="(e) => onDateChange(index, e)">
-								<view class="field-action tap">
-									<text class="field-action-value" :class="{ placeholder: !product.buyDate }">{{ product.buyDate || '设备信息待同步' }}</text>
-									<view class="field-mini field-calendar"></view>
-								</view>
-							</picker>
-						</view>
-						<view class="repair-field voucher-field tap" @click="openVoucherPicker(index)">
-							<view class="field-label-wrap">
-								<text>购买凭证</text>
-								<text class="field-optional">选填</text>
+						<view class="repair-product-strip">
+							<view class="repair-product-name">
+								<text>{{ index + 1 }}</text>
+								<text>报修产品 #{{ index + 1 }}</text>
 							</view>
-							<view class="voucher-status">
-								<text v-if="product.voucherList && product.voucherList.length" class="voucher-count">{{ product.voucherList.length }} 张已上传</text>
-								<view v-else class="upload-box voucher-upload">
-									<text>+</text>
-									<text>上传凭证</text>
+							<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
+						</view>
+						<view class="repair-form-card">
+							<view class="repair-field">
+								<text>产品名称</text>
+								<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>产品序列号</text>
+								<input v-model="product.serial" placeholder="输入或扫码 SN" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
+								<view class="scan-icon tap" @click="scanSn(index)">
+									<view class="scan-corner"></view>
+									<view class="scan-corner"></view>
+									<view class="scan-corner"></view>
 								</view>
 							</view>
-							<view class="field-mini field-clip"></view>
-						</view>
-						<view v-if="product.voucherList && product.voucherList.length" class="voucher-preview">
-							<view v-for="(voucher, vIndex) in product.voucherList" :key="voucher.id" class="voucher-thumb tap" @click="previewVoucher(index, vIndex)">
-								<image class="voucher-image" :src="getPreviewUrl(voucher)" mode="aspectFill"></image>
-								<view class="voucher-remove" @click.stop="removeVoucher(index, vIndex)">×</view>
+							<!-- SN 识别结果 -->
+							<view v-if="product.snLoading" class="sn-result loading"><text>正在识别设备…</text></view>
+							<view v-else-if="product.snInfo && product.snInfo.found" class="sn-result">
+								<view class="sn-result-row">
+									<text class="sn-result-label">已识别</text>
+									<text class="sn-tag" :class="'sn-tag-' + (product.snInfo.warrantyStatus || 'unknown')">{{ snWarrantyLabel(product.snInfo) }}</text>
+								</view>
+								<text v-if="product.snInfo.model" class="sn-result-line">型号：{{ product.snInfo.model }}</text>
+								<text v-if="product.snInfo.warrantyExpire" class="sn-result-line">质保至：{{ product.snInfo.warrantyExpire }}</text>
+								<text v-if="product.snInfo.history && product.snInfo.history.length" class="sn-result-line">历史维修：{{ product.snInfo.history.length }} 单</text>
 							</view>
-						</view>
-						<view class="repair-field">
-							<text><text class="required-star">*</text>故障描述</text>
-							<input v-model="product.faultDesc" placeholder="最多2000字" placeholder-class="input-placeholder" />
-						</view>
-						<view class="media-area">
-							<view class="media-title">
-								<text><text class="required-star">*</text>产品清单 / 故障图片或视频</text>
-								<text>{{ product.media.length }}/3</text>
+							<view v-else-if="product.snInfo && !product.snInfo.found && product.serial" class="sn-result muted"><text>未匹配到已登记设备，可手动填写型号</text></view>
+							<view class="repair-field">
+								<text>产品型号</text>
+								<input v-model="product.model" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
 							</view>
-							<view class="media-grid">
-								<view v-for="media in product.media" :key="media.id" class="media-thumb">
-									<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
-									<view v-else class="media-video">
-										<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
+							<view class="repair-field">
+								<text>购买日期</text>
+								<picker mode="date" :value="product.buyDate" @change="(e) => onDateChange(index, e)">
+									<view class="field-action tap">
+										<text class="field-action-value" :class="{ placeholder: !product.buyDate }">{{ product.buyDate || '设备信息待同步' }}</text>
+										<view class="field-mini field-calendar"></view>
+									</view>
+								</picker>
+							</view>
+							<view class="repair-field voucher-field tap" @click="openVoucherPicker(index)">
+								<view class="field-label-wrap">
+									<text>购买凭证</text>
+									<text class="field-optional">选填</text>
+								</view>
+								<view class="voucher-status">
+									<text v-if="product.voucherList && product.voucherList.length" class="voucher-count">{{ product.voucherList.length }} 张已上传</text>
+									<view v-else class="upload-box voucher-upload">
+										<text>+</text>
+										<text>上传凭证</text>
+									</view>
+								</view>
+								<view class="field-mini field-clip"></view>
+							</view>
+							<view v-if="product.voucherList && product.voucherList.length" class="voucher-preview">
+								<view v-for="(voucher, vIndex) in product.voucherList" :key="voucher.id" class="voucher-thumb tap" @click="previewVoucher(index, vIndex)">
+									<image class="voucher-image" :src="getPreviewUrl(voucher)" mode="aspectFill"></image>
+									<view class="voucher-remove" @click.stop="removeVoucher(index, vIndex)">×</view>
+								</view>
+							</view>
+							<view class="repair-field column">
+								<text><text class="required-star">*</text>故障描述</text>
+								<textarea v-model="product.faultDesc" maxlength="2000" placeholder="最多2000字，描述故障现象、时间与诉求……" placeholder-class="input-placeholder"></textarea>
+							</view>
+							<view class="media-area">
+								<view class="media-title">
+									<text><text class="required-star">*</text>产品清单 / 故障图片或视频</text>
+									<text>{{ product.media.length }}/3</text>
+								</view>
+								<view class="media-grid">
+									<view v-for="media in product.media" :key="media.id" class="media-thumb">
+										<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
+										<view v-else class="media-video">
+											<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
+											<text>视频</text>
+										</view>
+										<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
+									</view>
+									<view v-if="product.media.length < 3" class="media-add tap" @click="uploadRepairImage(index)">
+										<text>+</text>
+										<text>图片</text>
+									</view>
+									<view v-if="product.media.length < 3" class="media-add tap" @click="uploadRepairVideo(index)">
+										<text>▶</text>
 										<text>视频</text>
 									</view>
-									<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
-								</view>
-								<view v-if="product.media.length < 3" class="media-add tap" @click="addRepairMedia(index)">
-									<text>+</text>
-									<text>添加</text>
 								</view>
 							</view>
 						</view>
 					</view>
-				</view>
-				<view class="dash-add tap" @click="addRepairProduct">
-					<text>+</text>
-					<text>增加报修产品</text>
-				</view>
+					<view class="dash-add tap" @click="addRepairProduct">
+						<text>+</text>
+						<text>增加报修产品</text>
+					</view>
 
 				<view class="module-section-head single">
 					<text>寄出信息</text>
@@ -223,6 +247,7 @@
 						<view><text>预计响应</text><text>30 分钟内</text></view>
 						<view><text>物流方式</text><text>顺丰到付</text></view>
 					</view>
+					<text class="success-archive-tip">本次报修的设备已记入「我的设备」档案，维修完成后保修状态与历史工单会自动更新。</text>
 				</view>
 				<view class="dual-actions">
 					<view class="ghost-button tap" @click="closeModule">返回首页</view>
@@ -231,16 +256,6 @@
 			</view>
 
 			<view v-else-if="activeModule === 'track'" class="track-module">
-				<view class="track-overview">
-					<view>
-						<text>维修进度看板</text>
-						<text>按状态快速筛选，重点工单一眼可见</text>
-					</view>
-					<view>
-						<text>{{ filteredTrackOrders.length }}</text>
-						<text>当前工单</text>
-					</view>
-				</view>
 				<view class="track-search-wrap">
 					<view class="track-search">
 						<view class="glyph glyph-search glyph-search-small"><view class="glyph-extra"></view></view>
@@ -260,10 +275,6 @@
 								<text class="track-model">{{ order.model }}</text>
 							</view>
 							<text :class="['tag', 'tag-' + order.tone]">{{ order.status }}</text>
-						</view>
-						<view class="track-card-meta-line">
-							<text>序列号 {{ order.serial || order.productSerial || '-' }}</text>
-							<text>物流 {{ order.trackingNo || '待更新' }}</text>
 						</view>
 						<view class="progress-steps">
 							<view v-for="(step, index) in repairFlow" :key="step" class="progress-step" :class="{ reached: index <= order.reached }">
@@ -321,7 +332,10 @@
 					</view>
 					<view class="package-result-grid">
 						<view><text>物流公司</text><text>{{ packageQueryResult.company || '待录入' }}</text></view>
-						<view><text>关联工单</text><text>{{ packageQueryResult.orderId || '待关联' }}</text></view>
+						<view class="package-linked-order tap" @click="openLinkedOrder(packageQueryResult.orderId)">
+							<text>关联工单</text>
+							<text :class="{ 'package-order-link': packageQueryResult.orderId }">{{ packageQueryResult.orderId || '待关联' }}{{ packageQueryResult.orderId ? ' ›' : '' }}</text>
+						</view>
 					</view>
 					<view class="package-progress">
 						<view v-for="(step, index) in packageFlow" :key="step" class="progress-step" :class="{ reached: index <= packageQueryResult.reached }">
@@ -481,7 +495,20 @@
 					</view>
 				</view>
 				<view class="module-section-head single"><text>进度时间线</text></view>
-				<view class="timeline-card">
+				<view class="progress-node-card">
+					<view v-for="(node, index) in repairProgressNodes" :key="node.label" class="progress-node-row" :class="node.state">
+						<view class="progress-node-pin">
+							<view class="progress-node-dot"></view>
+							<view v-if="index < repairProgressNodes.length - 1" class="progress-node-line"></view>
+						</view>
+						<view class="progress-node-copy">
+							<text class="progress-node-label">{{ node.label }}</text>
+							<text v-if="node.state === 'current'" class="progress-node-now">进行中</text>
+						</view>
+					</view>
+				</view>
+				<view v-if="detailOrder.timeline && detailOrder.timeline.length" class="module-section-head single"><text>处理记录</text></view>
+				<view v-if="detailOrder.timeline && detailOrder.timeline.length" class="timeline-card">
 					<view v-for="(item, index) in detailTimeline" :key="item.title + index" class="detail-timeline-row">
 						<view class="detail-timeline-pin" :class="{ pending: item.pending }">
 							<view></view>
@@ -505,7 +532,26 @@
 						</view>
 						<text :class="['tag', 'tag-' + getBillingMeta(detailOrder).tone]">{{ getBillingMeta(detailOrder).label }}</text>
 					</view>
-					<view v-if="detailQuoteItems.length" class="quote-line-list">
+					<view v-if="detailQuoteGroups.length" class="quote-line-list quote-group-list">
+						<view v-for="group in detailQuoteGroups" :key="group.key" class="quote-group">
+							<view class="quote-group-head">
+								<text>{{ group.title }}</text>
+								<text>{{ formatMoney(group.total) }}</text>
+							</view>
+							<view v-for="(item, index) in group.items" :key="group.key + item.name + index" class="quote-line-item">
+								<view class="quote-line-copy">
+									<text>{{ item.name || `费用项目 ${index + 1}` }}</text>
+									<text v-if="item.desc">{{ item.desc }}</text>
+									<view class="quote-line-fees">
+										<text v-if="item.unitPrice">单价 {{ formatMoney(item.unitPrice) }}</text>
+										<text v-if="item.quantity">数量 {{ item.quantity }}</text>
+									</view>
+								</view>
+								<text class="quote-line-price">{{ formatMoney(getQuoteDetailRowTotal(item)) }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-else-if="detailQuoteItems.length" class="quote-line-list">
 						<view v-for="(item, index) in detailQuoteItems" :key="item.name + index" class="quote-line-item">
 							<view class="quote-line-copy">
 								<text>{{ item.name || `维修项目 ${index + 1}` }}</text>
@@ -529,6 +575,20 @@
 						<text>{{ getBillingAmountText(detailOrder) }}</text>
 						<text>{{ getPaymentMeta(detailOrder).desc }}</text>
 					</view>
+					<view v-if="detailQuoteVisible" class="quote-bill-info">
+						<view class="quote-bill-row">
+							<view class="quote-bill-dot warranty"></view>
+							<text>{{ detailWarrantyText }}</text>
+						</view>
+						<view v-if="detailPaymentDeadlineText" class="quote-bill-row">
+							<view class="quote-bill-dot deadline"></view>
+							<text>请在 {{ detailPaymentDeadlineText }} 前完成付款，逾期报价可能失效</text>
+						</view>
+						<view class="quote-bill-row">
+							<view class="quote-bill-dot policy"></view>
+							<text>如对报价有疑问，可先联系客服沟通；若最终拒绝维修，设备将按原寄回地址退回（可能产生回寄运费）。</text>
+						</view>
+					</view>
 					<view v-if="detailPaymentProofs.length" class="payment-proof-grid billing-proof-grid">
 						<view v-for="(proof, index) in detailPaymentProofs" :key="proof.id || proof.url || index" class="payment-proof-thumb tap" @click="previewPaymentProof(index)">
 							<image class="payment-proof-image" :src="proof.url || proof.path" mode="aspectFill"></image>
@@ -543,28 +603,164 @@
 							{{ getPaymentProofAction(detailOrder).text }}
 						</view>
 						<text v-else-if="getPaymentProofAction(detailOrder).hint" class="quote-secondary-hint">{{ getPaymentProofAction(detailOrder).hint }}</text>
+						<view v-if="detailQuoteVisible && detailOrder.paymentStatus !== 'paid'" class="quote-contact-action tap" @click="contactSupportForQuote">
+							<text>有疑问？联系客服</text>
+						</view>
+						<view v-if="canRejectQuote(detailOrder)" class="quote-reject-action tap" @click="rejectRepairQuoteAction(detailOrder)">
+							<text>拒绝维修</text>
+						</view>
+					</view>
+				</view>
+
+				<!-- 物流信息：客户寄出 + 厂家寄回，统一挂在工单下 -->
+				<view v-if="detailOrder.trackingNo || detailOrder.returnLogisticsNo || canConfirmReceipt(detailOrder)" class="module-section-head single"><text>物流信息</text></view>
+				<view v-if="detailOrder.trackingNo" class="return-logistics-card">
+					<view class="return-logistics-info">
+						<view><text>客户寄出</text><text>{{ detailOrder.logisticsCompany || '待录入' }}</text></view>
+						<view><text>寄出单号</text><text class="return-logistics-no">{{ detailOrder.trackingNo }}</text></view>
+					</view>
+					<view class="return-logistics-actions">
+						<view class="return-logistics-btn tap" @click="copyOne(detailOrder.trackingNo, 'sendNo')">{{ copied === 'sendNo' ? '已复制' : '复制单号' }}</view>
+						<view class="return-logistics-btn primary tap" @click="trackSendLogistics(detailOrder)">查物流</view>
+					</view>
+				</view>
+				<view v-if="detailOrder.returnLogisticsNo" class="return-logistics-card">
+					<view class="return-logistics-info">
+						<view><text>厂家寄回</text><text>{{ detailOrder.returnLogisticsCompany || '待录入' }}</text></view>
+						<view><text>回寄单号</text><text class="return-logistics-no">{{ detailOrder.returnLogisticsNo }}</text></view>
+					</view>
+					<view class="return-logistics-actions">
+						<view class="return-logistics-btn tap" @click="copyOne(detailOrder.returnLogisticsNo, 'returnNo')">{{ copied === 'returnNo' ? '已复制' : '复制单号' }}</view>
+						<view class="return-logistics-btn primary tap" @click="trackReturnLogistics(detailOrder)">查物流</view>
+					</view>
+				</view>
+				<view v-if="canConfirmReceipt(detailOrder)" class="primary-button tap detail-action-button receipt-confirm-button" @click="confirmRepairReceiptAction(detailOrder)">
+					确认收货
+				</view>
+
+				<!-- 投诉与反馈：挂在本工单下 -->
+				<view class="module-section-head single"><text>投诉与反馈</text></view>
+				<view class="order-complaint-card">
+					<view v-if="detailOrderComplaints.length" class="order-complaint-list">
+						<view v-for="record in detailOrderComplaints" :key="record.ticketNo" class="order-complaint-item">
+							<view class="order-complaint-top">
+								<text class="order-complaint-type">{{ record.type || '反馈' }}</text>
+								<text :class="['tag', 'tag-' + getFeedbackMeta(record).tone]">{{ record.statusLabel || getFeedbackMeta(record).label }}</text>
+							</view>
+							<text v-if="record.content" class="order-complaint-content">{{ record.content }}</text>
+							<view v-if="record.reply" class="order-complaint-reply">
+								<text class="order-complaint-reply-label">客服回复</text>
+								<text>{{ record.reply }}</text>
+							</view>
+						</view>
+					</view>
+					<text v-else class="order-complaint-empty">本工单暂无投诉/反馈记录。遇到问题可直接发起投诉，我们会在工单内跟进处理与回复。</text>
+					<view class="order-complaint-action tap" @click="complainAboutOrder(detailOrder)">
+						<text>我要投诉</text>
+					</view>
+				</view>
+
+				<!-- 完成后引导：评价 / 保养 / 再次报修 -->
+				<view v-if="detailIsCompleted" class="complete-guide-card">
+					<view class="complete-guide-title">
+						<text class="complete-guide-emoji">🎉</text>
+						<text>维修已完成，感谢您的信任</text>
+					</view>
+					<text class="complete-guide-tip">建议定期保养设备以延长使用寿命；遇到新问题可随时再次报修。</text>
+					<view class="complete-guide-actions">
+						<view class="complete-guide-btn tap" @click="reviewOrder(detailOrder)">
+							<text class="complete-guide-ico">★</text>
+							<text>{{ detailOrder.review ? '已评价' : '去评价' }}</text>
+						</view>
+						<view class="complete-guide-btn tap" @click="showMaintenanceTip">
+							<text class="complete-guide-ico">🛠</text>
+							<text>保养提醒</text>
+						</view>
+						<view class="complete-guide-btn tap" @click="reRepair(detailOrder)">
+							<text class="complete-guide-ico">↻</text>
+							<text>再次报修</text>
+						</view>
 					</view>
 				</view>
 			</view>
 
-			<view v-else-if="activeModule === 'survey'" class="survey-module">
-				<view class="survey-mask"></view>
-				<view class="survey-modal-card survey-poster-card">
-					<view class="survey-close tap" @click="closeModule">×</view>
-					<view class="survey-ribbon"><view class="glyph glyph-gift"><view class="glyph-extra"></view></view><text>调研有礼</text></view>
-					<view class="survey-poster-wrap tap" @click="previewSurveyPoster">
-						<image
-							class="survey-poster"
-							:src="surveyPosterUrl"
-							mode="widthFix"
-							show-menu-by-longpress
-						></image>
-					</view>
-					<text class="survey-poster-tip">点击图片放大查看，长按可保存或识别二维码</text>
-					<view class="survey-actions">
-						<view class="survey-secondary tap" @click="closeModule">退出</view>
+			<view v-else-if="activeModule === 'survey'" class="module-content survey-module">
+				<view class="survey-hero-card">
+					<view class="survey-hero-icon"><view class="glyph glyph-gift"><view class="glyph-extra"></view></view></view>
+					<view>
+						<text>{{ surveyConfig.title }}</text>
+						<text>{{ surveyConfig.subtitle }}</text>
 					</view>
 				</view>
+				<view class="survey-benefits">
+					<view class="survey-benefit"><text>1</text><text>填写售后体验</text></view>
+					<view class="survey-benefit"><text>2</text><text>留下联系方式</text></view>
+					<view class="survey-benefit"><text>3</text><text>领取专属福利</text></view>
+				</view>
+
+				<view class="module-section-head single"><text>请填写</text></view>
+				<view class="survey-form-card">
+					<view class="survey-field">
+						<text class="survey-field-label">工单号 / 设备 SN</text>
+						<input v-model="surveyForm.orderNo" placeholder="选填，便于客服核对服务记录" placeholder-class="input-placeholder" />
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>整体满意度</text>
+						<view class="survey-chip-row">
+							<view
+								v-for="option in surveySatisfactionOptions"
+								:key="option.value"
+								class="survey-chip tap"
+								:class="{ on: surveyForm.satisfaction === option.value }"
+								@click="surveyForm.satisfaction = option.value"
+							>{{ option.label }}</view>
+						</view>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>服务评分</text>
+						<view class="survey-score-row">
+							<view
+								v-for="score in surveyRatingOptions"
+								:key="score"
+								class="survey-score tap"
+								:class="{ on: surveyForm.rating >= score }"
+								@click="surveyForm.rating = score"
+							>{{ score }}</view>
+						</view>
+						<text class="survey-score-tip">{{ surveyForm.rating ? surveyForm.rating + ' 分 / ' + surveyConfig.ratingMax + ' 分' : '未评分' }}</text>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>问题是否解决</text>
+						<view class="survey-chip-row">
+							<view
+								v-for="option in surveyResolveOptions"
+								:key="option.value"
+								class="survey-chip tap"
+								:class="{ on: surveyForm.resolved === option.value }"
+								@click="surveyForm.resolved = option.value"
+							>{{ option.label }}</view>
+						</view>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>您最想反馈什么</text>
+						<textarea v-model="surveyForm.comment" maxlength="500" placeholder="例如：响应速度、报价说明、维修质量、物流体验、客服沟通等" placeholder-class="input-placeholder"></textarea>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>联系方式</text>
+						<input v-model="surveyForm.contact" placeholder="手机号 / 微信号，便于发放福利" placeholder-class="input-placeholder" />
+					</view>
+				</view>
+
+				<view class="survey-actions">
+					<view class="survey-secondary tap" @click="resetSurveyForm()">重填</view>
+					<view class="survey-primary tap" :class="{ disabled: surveySubmitting }" @click="submitSurveyForm">{{ surveySubmitting ? '提交中' : '提交调研' }}</view>
+				</view>
+				<text class="survey-poster-tip tap" @click="previewSurveyPoster">{{ surveyConfig.giftText }}</text>
 			</view>
 
 			<view v-else-if="activeModule === 'diag'" class="module-content diag-module">
@@ -620,58 +816,22 @@
 			</view>
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
-				<view class="warranty-hero">
-					<view class="glyph glyph-shield"><view class="glyph-extra"></view></view>
-					<text>{{ warrantyDoc.title || '三重保修承诺' }}</text>
-					<text>{{ warrantyDoc.lead || '原厂配件 · 工艺质保 · 终身咨询' }}</text>
-				</view>
-				<view v-if="warrantyDoc.content" class="doc-paper">
-					<rich-text :nodes="warrantyDoc.content"></rich-text>
-				</view>
-				<view class="module-section-head single"><text>保修期限</text></view>
-				<view class="white-list-card">
-					<view v-for="item in warrantyDurations" :key="item.name" class="list-row">
-						<text>{{ item.name }}</text>
-						<text>{{ item.duration }}</text>
-					</view>
-				</view>
-				<view class="module-section-head single"><text>保修范围</text></view>
-				<view class="text-card">
-					<view v-for="(item, index) in warrantyRanges" :key="item" class="number-line">
-						<text>{{ index + 1 }}</text>
-						<text>{{ item }}</text>
-					</view>
-				</view>
-				<view class="module-section-head single"><text>增值服务</text></view>
-				<view class="white-list-card">
-					<view v-for="item in warrantyServices" :key="item.title" class="service-line">
-						<view class="service-line-icon"><view :class="['glyph', 'glyph-' + item.icon]"><view class="glyph-extra"></view></view></view>
-						<view><text>{{ item.title }}</text><text>{{ item.desc }}</text></view>
-					</view>
-				</view>
-				<view v-if="!warrantyDoc.content" class="doc-paper warranty-paper">
-					<text class="paper-title">保修政策</text>
-					<view v-for="section in warrantyTerms" :key="section.title" class="paper-section">
-						<text class="paper-section-title">{{ section.title }}</text>
-						<view v-for="(line, index) in section.lines" :key="line" class="paper-line">
-							<text>{{ index + 1 }})</text>
-							<text>{{ line }}</text>
-						</view>
-					</view>
+				<view class="policy-rich-content">
+					<rich-text v-if="warrantyDoc.content" :nodes="warrantyDoc.content"></rich-text>
+					<text v-else class="policy-empty">暂无保修政策内容</text>
 				</view>
 			</view>
 
 			<view v-else-if="isDocModule" class="module-content">
-				<view v-if="activeModule === 'fees'" class="doc-hero fees-hero">
-					<view class="glyph glyph-money"><view class="glyph-extra"></view></view>
-					<text>收费公开透明</text>
-					<text>免费检测 · 先报后修 · 无隐形消费</text>
-				</view>
-				<view v-else class="doc-hero">
+				<view v-if="activeModule !== 'fees'" class="doc-hero">
 					<view :class="['glyph', 'glyph-' + activeDoc.icon]"><view class="glyph-extra"></view></view>
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
-				<view v-if="activeDoc.content" class="doc-paper">
+				<view v-if="activeModule === 'fees'" class="policy-rich-content">
+					<rich-text v-if="activeDoc.content" :nodes="activeDoc.content"></rich-text>
+					<text v-else class="policy-empty">暂无收费办法内容</text>
+				</view>
+				<view v-else-if="activeDoc.content" class="doc-paper">
 					<rich-text :nodes="activeDoc.content"></rich-text>
 				</view>
 				<view v-else class="doc-paper">
@@ -684,7 +844,14 @@
 						</view>
 					</view>
 				</view>
-				<view v-if="activeDoc.fileUrl" class="guide-file-card">
+				<view v-if="activeDoc.media && activeDoc.media.length" class="guide-media-list">
+						<view v-for="(m, i) in activeDoc.media" :key="i" class="guide-media-item tap" @click="openGuideMedia(m)">
+							<text class="guide-media-type">{{ m.type === 'video' ? '▶ 视频' : m.type === 'image' ? '图片' : '文档' }}</text>
+							<text class="guide-media-name">{{ m.name }}</text>
+							<text class="guide-media-open">打开</text>
+						</view>
+					</view>
+					<view v-if="activeDoc.fileUrl" class="guide-file-card">
 					<view>
 						<text>后台上传文档</text>
 						<text>{{ activeDoc.fileName || '操作教程文档' }}</text>
@@ -743,16 +910,6 @@
 			</view>
 
 			<view v-else-if="activeModule === 'orders'" class="orders-module">
-				<view class="orders-summary-card">
-					<view>
-						<text>我的维修单</text>
-						<text>共 {{ orderList.length }} 单，处理中 {{ countOrdersByStatus('处理中') }} 单</text>
-					</view>
-					<view>
-						<text>{{ filteredOrderList.length }}</text>
-						<text>当前筛选</text>
-					</view>
-				</view>
 				<scroll-view class="progress-tabs-line orders-tabs orders-tabs-classic" scroll-x show-scrollbar="false" enhanced>
 					<view v-for="item in orderTabs" :key="item.key" class="progress-tab orders-tab-item tap" :class="{ on: item.key === activeOrdersTab }" @click="activeOrdersTab = item.key">
 						<text>{{ item.label }}</text>
@@ -768,9 +925,6 @@
 							<view v-if="order.cardMeta && order.cardMeta.length" class="order-card-meta">
 								<text v-for="meta in order.cardMeta" :key="meta">{{ meta }}</text>
 							</view>
-							<view class="order-progress-mini">
-								<view v-for="(step, index) in repairFlow" :key="step" :class="{ reached: index <= order.reached }"></view>
-							</view>
 							<text class="order-card-date">报修日期 · {{ order.date }}</text>
 						</view>
 						<view class="order-card-side">
@@ -783,34 +937,20 @@
 			</view>
 
 			<view v-else-if="activeModule === 'products'" class="module-content products-module">
-				<view class="products-hero-card">
-					<view>
-						<text>我的产品档案</text>
-						<text>集中查看序列号、购买日期和保修状态</text>
-					</view>
-					<view>
-						<text>{{ productList.length }}</text>
-						<text>台设备</text>
-					</view>
-				</view>
-				<view v-for="item in productList" :key="item.sn" class="product-card product-card-polished">
+				<view v-for="item in productList" :key="item.sn || item.title" class="product-card">
 					<view class="product-icon"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
 					<view class="product-copy">
-						<view class="product-title-row">
-							<text>{{ item.title }}</text>
-							<text :class="['tag', item.expired ? 'tag-muted' : 'tag-ok']">{{ item.warranty }}</text>
-						</view>
-						<text>序列号 · {{ item.sn || '未登记' }}</text>
-						<text>购买日期 · {{ item.date || '待补充' }}</text>
+						<text>{{ item.title }}</text>
+						<text>SN · {{ item.sn || '未登记' }}</text>
+							<text v-if="item.model">型号 · {{ item.model }}</text>
+							<text v-if="item.lastOrderNo">最近工单 · {{ item.lastOrderNo }}{{ item.repairCount ? `（累计报修 ${item.repairCount} 次）` : '' }}</text>
+						<text v-else-if="item.date">购买日期 · {{ item.date }}</text>
+						<text :class="['tag', item.expired ? 'tag-muted' : 'tag-ok']">{{ item.warranty }}</text>
 					</view>
 					<view class="ghost-mini tap" @click="go('repair')">报修</view>
 				</view>
-				<view v-if="!productList.length" class="product-empty-card">
-					<view class="product-empty-device"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
-					<text>暂无已登记设备</text>
-					<text>添加产品后，可在这里查看设备序列号、购买日期与保修状态。</text>
-				</view>
-				<view class="dash-add product-primary-add tap"><text>+</text><text>添加我的产品</text></view>
+				<view v-if="!productList.length" class="empty-hint compact">暂无已登记设备。报修提交或维修完成后，会在这里沉淀设备档案与保修状态。</view>
+				<view class="dash-add tap"><text>+</text><text>添加我的产品</text></view>
 			</view>
 
 			<view v-else-if="activeModule === 'address'" class="module-content address-module">
@@ -833,11 +973,13 @@
 						<input v-model="addressForm.phone" class="field-input" placeholder="请输入联系电话" placeholder-class="input-placeholder" type="number" />
 					</view>
 
-					<view class="address-field tap" @click="selectRegion">
-						<text class="field-label"><text class="required-star">*</text>所在地区</text>
-						<input v-model="addressForm.region" class="field-input" placeholder="请选择省 / 市 / 区" placeholder-class="input-placeholder" disabled />
-						<view class="field-arrow"></view>
-					</view>
+					<picker mode="region" :value="regionPickerValue" @change="onRegionChange">
+						<view class="address-field tap">
+							<text class="field-label"><text class="required-star">*</text>所在地区</text>
+							<input v-model="addressForm.region" class="field-input" placeholder="请选择省 / 市 / 区" placeholder-class="input-placeholder" disabled />
+							<view class="field-arrow"></view>
+						</view>
+					</picker>
 
 					<view class="address-field">
 						<text class="field-label"><text class="required-star">*</text>详细地址</text>
@@ -874,7 +1016,19 @@
 					<view class="feedback-area">
 						<text><text class="required-star">*</text>详细描述</text>
 						<textarea v-model="feedbackText" maxlength="500" :placeholder="feedbackType === '投诉' ? '请描述问题发生的时间、经过以及您的诉求……' : '请描述您的建议与期望，我们会认真评估……'" placeholder-class="input-placeholder"></textarea>
-						<view><text>可附 0/3 张图片</text><text>{{ feedbackText.length }}/500</text></view>
+						<view><text>可附 {{ feedbackImages.length }}/{{ maxFeedbackImages }} 张图片</text><text>{{ feedbackText.length }}/500</text></view>
+					</view>
+					<view class="feedback-images">
+						<view class="media-grid feedback-media-grid">
+							<view v-for="(image, index) in feedbackImages" :key="image.id" class="media-thumb tap" @click="previewFeedbackImage(index)">
+								<image class="media-image" :src="getPreviewUrl(image)" mode="aspectFill"></image>
+								<view class="media-remove tap" @click.stop="removeFeedbackImage(image.id)">×</view>
+							</view>
+							<view v-if="feedbackImages.length < maxFeedbackImages" class="media-add tap" :class="{ disabled: feedbackImageUploading || feedbackSubmitting }" @click="chooseFeedbackImages">
+								<text>+</text>
+								<text>{{ feedbackImageUploading ? '上传中' : '添加' }}</text>
+							</view>
+						</view>
 					</view>
 					<view class="feedback-contact">
 						<text><text class="required-star">*</text>联系方式</text>
@@ -892,7 +1046,7 @@
 					<text>选填 · 填写后便于我们快速定位问题</text>
 					<input v-model="feedbackOrderId" placeholder="如 DR-20260508-1147" placeholder-class="input-placeholder" />
 				</view>
-				<view class="primary-button tap save-button" @click="submitFeedback">提交{{ feedbackType }}</view>
+				<view class="primary-button tap save-button" :class="{ disabled: feedbackSubmitting }" @click="submitFeedback">{{ feedbackSubmitting ? '提交中...' : '提交' + feedbackType }}</view>
 				<text class="submit-note">提交后预计 1 至 3 个工作日内反馈结果</text>
 				<view class="feedback-history">
 					<view class="module-section-head single"><text>我的反馈单</text></view>
@@ -910,6 +1064,9 @@
 								<view><text>联系方式</text><text>{{ record.contact }}</text></view>
 							</view>
 							<text class="feedback-ticket-content">{{ record.content }}</text>
+							<view v-if="record.images && record.images.length" class="feedback-ticket-images">
+								<image v-for="(image, index) in record.images" :key="image.id || image.url || image || index" :src="image.url || image" mode="aspectFill" class="feedback-ticket-image tap" @click="previewFeedbackRecordImage(record, index)"></image>
+							</view>
 							<view class="feedback-reply">
 								<text>客服回复</text>
 								<text>{{ record.reply || '已收到反馈，客服处理后会在这里同步回复。' }}</text>
@@ -924,10 +1081,20 @@
 				<view class="login-logo"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
 				<text class="login-title">欢迎使用</text>
 				<text class="login-desc">专业牙科仪器 · 全程检修服务</text>
-				<button class="wechat-login tap" open-type="getPhoneNumber" @getphonenumber="onGetPhoneNumberLogin">微信手机号授权登录</button>
+				<button
+					class="wechat-login tap"
+					:class="{ loading: loginSubmitting }"
+					:disabled="loginSubmitting"
+					:open-type="loginPrivacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization'"
+					@agreeprivacyauthorization="onAgreeLoginPrivacyAuthorization"
+					@getphonenumber="onGetPhoneNumberLogin"
+				>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : loginPrivacyReady ? '微信手机号授权登录' : '同意隐私政策并登录' }}</button>
+				<text v-if="loginError" class="login-error">{{ loginError }}</text>
+				<!-- #ifdef H5 -->
+				<!-- 仅 H5 调试环境保留测试登录入口，微信小程序生产构建不包含此按钮 -->
 				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
-				<view class="phone-login disabled">短信验证码登录暂未开放</view>
-				<text class="login-agree">授权登录即视为您同意《用户服务协议》及《隐私政策》</text>
+				<!-- #endif -->
+				<text class="login-agree">微信手机号授权登录即视为您同意《用户服务协议》及《隐私政策》</text>
 			</view>
 		</view>
 
@@ -1008,7 +1175,7 @@
 							v-for="item in guides"
 							:key="item.id"
 							class="guide-card tap"
-							@click="go(item.id)"
+							@click="openGuideFromHome(item.id)"
 						>
 							<view class="guide-icon">
 								<view :class="['glyph', 'glyph-' + item.icon, 'glyph-guide']">
@@ -1187,7 +1354,10 @@
 			<view v-else class="mine-body">
 				<view class="mine-hero">
 					<view class="profile-row">
-						<view class="avatar"><text>{{ logged ? userAvatarText : '' }}</text></view>
+						<view class="avatar" :class="{ 'avatar-logged': logged }">
+							<text v-if="logged">{{ userAvatarText }}</text>
+							<image v-else class="avatar-image" src="/static/default-user-avatar.png" mode="aspectFit"></image>
+						</view>
 						<view class="profile-copy">
 							<text class="profile-name">{{ logged ? userDisplayName : '未登录' }}</text>
 							<view v-if="logged" class="profile-meta">
@@ -1244,6 +1414,10 @@
 					</view>
 				</view>
 
+				<view v-if="logged" class="account-cancel-row">
+					<text class="account-cancel-link tap" @click="onCancelAccount">注销账号</text>
+				</view>
+
 				<view class="mine-footer">
 					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
 					<text>佛山思科达 · 牙医仪器检修 v1.2.0</text>
@@ -1272,7 +1446,7 @@
 			<view class="official-modal" @click.stop>
 				<text class="modal-close tap" @click="showOfficial = false">×</text>
 				<view class="qr-image-wrap company-qr">
-					<image class="qr-image" :src="wechatInfo.qrcodeUrl" mode="aspectFill" show-menu-by-longpress="true"></image>
+					<image class="qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
 				</view>
 				<text class="follow-title">了解产品与售后支持</text>
 				<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
@@ -1289,7 +1463,7 @@
 				<view class="qr-image-wrap">
 					<image
 						class="qr-image"
-						:src="wechatInfo.qrcodeUrl"
+						:src="cicadaAssets.qrWechat"
 						mode="aspectFill"
 						show-menu-by-longpress
 					></image>
@@ -1325,35 +1499,48 @@
 			</view>
 			<view class="repair-tool-cancel tap" @click="showRepairTools = false">取消</view>
 		</view>
+		<PrivacyConsent />
+		<PolicyDialog v-model:visible="homeGuideVisible" title="操作指引" :content="homeGuideContent" />
 	</view>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { onLoad, onShow, onPullDownRefresh } from '@dcloudio/uni-app'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { onLoad, onShow, onPullDownRefresh, onBackPress } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
+import PrivacyConsent from '@/components/PrivacyConsent.vue'
+import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
+import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
+import { getWechatPrivacyReady, markWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import {
 	getContact,
 	getCustomerService,
 	getFaultTypes,
 	getFeePolicy,
 	getGuide,
+	getSurveyConfig,
 	getSubscriptionConfig,
-	getProductList,
 	applyInvoice,
 	getWechat,
 	getWarrantyPolicy,
+	getHomeGuidePopup,
 	queryPackageStatus,
 	searchFault,
+	searchContent,
+	getAddressList,
 	addAddress,
 	updateAddress,
 	deleteAddress,
 	addComplaint,
+	getComplaintList,
 	devLogin,
 	wechatLogin,
+	cancelAccount,
+	uploadFeedbackImage,
 	uploadImage,
-	uploadVideo
+	uploadVideo,
+	submitAfterSalesSurvey
 } from '@/api/content'
 import {
 	createRepairWechatPay,
@@ -1361,9 +1548,15 @@ import {
 	getRepairList,
 	syncRepairWechatPay,
 	uploadRepairPaymentProof,
-	submitRepair as submitRepairOrder
+	submitRepair as submitRepairOrder,
+	lookupDeviceBySn,
+	rejectRepairQuote,
+	confirmRepairReceipt,
+	submitRepairReview,
+	getMyDevices
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
+import { getCloudTempFileURL } from '@/utils/cloud.js'
 import {
 	basics,
 	companyAdvantages,
@@ -1393,12 +1586,35 @@ import {
 	formatMoney,
 	formatOrderListPrice,
 	isFileTooLarge,
+	normalizeQuoteDetail,
 	normalizeQuoteItems,
 	sumQuoteFee,
 	todayText,
 	toTextLines
 } from './composables/orderFormatters'
+import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
 import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import {
+	createRepairStatusMeta,
+	deriveDisplayStatus,
+	getOrderStatusTone,
+	getRepairProgressNodes,
+	invoiceTodoStatusKeys,
+	normalizeRepairStatus,
+	normalizeStatusTab,
+	packageStatusMeta,
+	resolveStatusKey
+} from './composables/statusMeta'
+import {
+	compressForUpload,
+	getPreviewUrl,
+	getUploadedUrl,
+	hasLoginToken,
+	isAuthError,
+	isPickerCancel,
+	normalizeUploadFileId,
+	normalizeUploadUrl
+} from './composables/uploadUtils'
 
 const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
@@ -1414,7 +1630,6 @@ const searchKeyword = ref('')
 const activeTab = ref('home')
 const activeModule = ref('')
 const previousModule = ref('')
-const moduleReturnFrom = ref('')
 const logged = ref(Boolean(uni.getStorageSync('token')))
 const currentUser = ref(uni.getStorageSync('userInfo') || {})
 const diagProduct = ref('')
@@ -1430,18 +1645,52 @@ const orderDetailOrder = ref('')
 const packageQueryLoading = ref(false)
 const packageQuerySearched = ref(false)
 const repairSubmitting = ref(false)
+const repairStep = ref(1)
 const invoiceSubmitting = ref(false)
 const paymentSubmitting = ref(false)
 const paymentProofUploading = ref(false)
 const subscriptionTemplates = ref(null)
+const feedbackSubmitting = ref(false)
+const feedbackImageUploading = ref(false)
 const feedbackType = ref('建议')
 const feedbackContactKind = ref('phone')
 const feedbackText = ref('')
+const feedbackImages = ref([])
+const surveySubmitting = ref(false)
+const loginSubmitting = ref(false)
+const loginRetrying = ref(false)
+const loginError = ref('')
+const loginPrivacyReady = ref(false)
+const surveyConfig = ref({
+	enabled: true,
+	title: '售后服务调研表',
+	subtitle: '提交一次真实售后体验反馈，工作人员核对后为您登记调研福利。',
+	giftText: '查看原调研有礼海报',
+	ratingMax: 5,
+	satisfactionOptions: ['满意', '一般', '不满意'],
+	resolvedOptions: ['已解决', '处理中', '未解决'],
+	successTitle: '提交成功',
+	successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。'
+})
+const surveyRatingOptions = computed(() => Array.from({ length: Math.max(1, Number(surveyConfig.value.ratingMax) || 5) }, (_, i) => i + 1))
+const surveySatisfactionOptions = computed(() => (Array.isArray(surveyConfig.value.satisfactionOptions) && surveyConfig.value.satisfactionOptions.length ? surveyConfig.value.satisfactionOptions : ['满意', '一般', '不满意']).map(label => ({ label, value: label })))
+const surveyResolveOptions = computed(() => (Array.isArray(surveyConfig.value.resolvedOptions) && surveyConfig.value.resolvedOptions.length ? surveyConfig.value.resolvedOptions : ['已解决', '处理中', '未解决']).map(label => ({ label, value: label })))
+const surveyForm = ref({
+	orderNo: '',
+	satisfaction: '',
+	rating: 0,
+	resolved: '',
+	comment: '',
+	contact: ''
+})
+const surveyRecords = ref([])
 
 const subscriptionSceneMap = {
 	repair_submit: ['repair_submitted', 'order_received', 'quote_issued'],
 	track_view: ['quote_issued', 'payment_confirmed', 'order_shipped'],
-	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed']
+	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed'],
+	wechat_pay: ['order_shipped', 'order_completed', 'review_invite'],
+	review_invite: ['review_invite']
 }
 
 const loadSubscriptionTemplates = async () => {
@@ -1499,21 +1748,15 @@ const addressForm = ref({
 	def: false
 })
 const repairDraftKey = 'repairDraft'
-const localOrderPatchKey = 'repairOrderLocalPatches'
 const feedbackRecordKey = 'feedbackRecords'
-const remoteContentCacheKey = 'indexRemoteContentCache'
-const remoteContentCacheTTL = 10 * 60 * 1000
-const userBusinessCacheTTL = 60 * 1000
+const surveyRecordKey = 'afterSalesSurveyRecords'
 const repairForm = ref(defaultRepairForm())
 const submittedOrderId = ref('')
 const repairProducts = ref([defaultRepairProduct()])
-const orderLocalPatches = ref({})
-const remoteContentLoaded = ref(false)
-const userBusinessLoaded = ref(false)
 
 let repairProductSeed = 1
 let repairMediaSeed = 1
-let userBusinessLoadedAt = 0
+let feedbackImageSeed = 1
 
 logBoot('base refs ready')
 
@@ -1529,7 +1772,7 @@ const moduleInfo = computed(() => moduleMap[activeModule.value] || {})
 const moduleHeadStyle = computed(() => ({
 	paddingTop: `${moduleHeadPaddingTop.value}rpx`
 }))
-const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && activeModule.value !== 'survey' && activeModule.value !== 'repair')
+const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && activeModule.value !== 'repair')
 
 const trackOrders = ref([])
 
@@ -1564,61 +1807,27 @@ const defaultDiagConfirmSections = [
 	}
 ]
 
-const warrantyDurations = [
-	{ name: '综合治疗椅', duration: '整机 1 年 · 主气路 3 年' },
-	{ name: '高速/低速手机', duration: '机芯 6 个月 · 外壳 1 年' },
-	{ name: '超声洁牙机', duration: '整机 1 年' },
-	{ name: '根管马达', duration: '整机 2 年' },
-	{ name: '光固化机', duration: '整机 1 年 · 灯头 6 个月' }
-]
-
-const warrantyRanges = [
-	'在保修期内，因产品自身材料、工艺或装配缺陷导致的故障，免费维修。',
-	'人为损坏（摔砸/进液/拆改）不在保修范围。',
-	'已超出保修期的，按照配件成本与工时收费，价格表事先确认。',
-	'所有维修配件均为原厂部件，确保品质一致。'
-]
-
-const warrantyServices = [
-	{ icon: 'truck', title: '全国寄修', desc: '顺丰到付 · 全程可追踪' },
-	{ icon: 'phone', title: '1 对 1 工程师', desc: '专属服务 · 售后无忧' },
-	{ icon: 'invoice', title: '发票协助', desc: '增值税普通 / 专用发票' }
-]
-
-const warrantyTerms = [
-	{
-		title: '一、保修时间计算方式：',
-		lines: [
-			'客户提供购买凭证，以凭证上的购买时间计算，凭证无售出单位盖章或填写信息不完整的不予保修。',
-			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
-			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
-			'如不能提供任何凭证，则以出厂时间加 1 个月来计算。',
-			'保修期限以产品说明书中所述为准。'
-		]
-	},
-	{
-		title: '二、以下状况不属于保修范围：',
-		lines: [
-			'未按说明书进行安装、操作和维修。',
-			'错误使用配件或使用非公司配件造成损坏。',
-			'非正常的化学、电力、电解损坏及摔、碰伤。',
-			'过度使用或用于牙科以外的其它科目。',
-			'因使用、维护、保管不当造成损坏。',
-			'不适当的操作或非制造商认可的人员对手机进行错误的维修。'
-		]
-	},
-	{
-		title: '三、不提供售后服务情形',
-		lines: [
-			'产品序列号被人为故意破坏、假标签、仿制等产品。',
-			'在淘宝网、拼多多、微店等平台上购买的「思科达产品」且未授权的商家销售的产品。',
-			'针对以上情形，本公司不提供任何技术支持及售后服务。'
-		]
-	},
-	{ title: '四、维修续保', lines: ['所有维修品，同一故障问题，更换同样的零件，非人为因素，续保三个月。'] }
-]
-
 logBoot('static blocks ready')
+
+// 首页教程弹窗
+const homeGuideVisible = ref(false)
+const homeGuideContent = ref('')
+const HOME_GUIDE_SEEN_KEY = 'home_guide_popup_seen'
+const maybeShowHomeGuidePopup = async () => {
+	try {
+		if (uni.getStorageSync(HOME_GUIDE_SEEN_KEY)) return
+		// 隐私同意弹窗优先；未同意时本次不弹教程
+		if (!uni.getStorageSync('privacy_consented')) return
+		const data = await getHomeGuidePopup()
+		if (data.enabled && data.content) {
+			homeGuideContent.value = data.content
+			homeGuideVisible.value = true
+			uni.setStorageSync(HOME_GUIDE_SEEN_KEY, '1')
+		}
+	} catch (e) {
+		// 忽略弹窗加载失败
+	}
+}
 
 const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-query', 'guide-invoice']
 
@@ -1626,13 +1835,10 @@ const docFallbacks = {
 	fees: {
 		title: '收费指南',
 		icon: 'money',
-		lead: '价格透明，先报价后维修，全程无隐形消费。',
-		paperTitle: '思科达维修收费指南',
-		sections: [
-			{ title: '一、收费构成', lines: ['配件费：按照思科达原厂配件官方指导价收取。', '工时费：根据维修难度及工程师等级核算，公开透明。', '物流费：保修期内非人为故障往返运费由我司承担（顺丰到付）。'] },
-			{ title: '二、核心原则', lines: ['免费检测：所有寄修设备均享免费检测，未维修不收取任何检测费用。', '先报后修：工程师检测后出具正式报价单，经客户在线确认后方动工维修。', '拒绝隐形消费：所有收费项目均在报价单中列明，无额外附加费。'] },
-			{ title: '三、质保说明', lines: ['所有维修更换的配件（非人为因素）均享受 90 天的质保续期服务。'], marker: '' }
-		]
+		lead: '',
+		paperTitle: '',
+		content: '',
+		sections: []
 	},
 	'guide-quick': {
 		title: '快速指南',
@@ -1654,7 +1860,7 @@ const docFallbacks = {
 		sections: [
 			{ title: '一、报修前准备', lines: ['产品信息：准备好产品型号、序列号等基本信息。', '故障描述：详细描述故障现象、发生时间及使用环境。', '故障照片/视频：如有可能，拍摄故障发生时的照片或视频。', '购买凭证：准备好购买发票或订单信息（用于保修确认）。'] },
 			{ title: '二、网上报修流程', lines: ['进入「立即报修」页面。', '填写产品信息。', '填写故障描述并上传图片。', '确认信息并提交。'] },
-			{ title: '三、思科达 24h 客服指引', lines: ['在线客服：8:00 - 21:00。', '服务热线：400-888-9999。'] }
+			{ title: '三、思科达客服指引', lines: ['在线客服：8:00 - 21:00。', '服务热线：0757-85775667。'] }
 		],
 		steps: [
 			{ title: '进入立即报修', desc: '在小程序首页点击「立即报修」按钮，进入报修表单页面。' },
@@ -1672,7 +1878,7 @@ const docFallbacks = {
 			{ title: '一、工单号查询', lines: ['在小程序首页顶部的搜索框中，直接输入 DR 开头的完整工单号。', '点击搜索即可查看该工单的实时物流进度、检测报告及维修状态。'] },
 			{ title: '二、序列号（SN）查询', lines: ['使用设备机身上刻印的 SN 序列号进行查询。', '该方式可追溯设备的所有历史维修记录及保修剩余时长。'] },
 			{ title: '三、个人中心查询', lines: ['登录小程序后，点击右下角「我的」。', '进入「维修订单」页面，即可查看名下绑定的所有维修申请及进度。'] },
-			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系 400 服务热线，提供报修时的手机号由客服协助查询。'], marker: '' }
+			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系客服热线 0757-85775667，提供报修时的手机号由客服协助查询。'], marker: '' }
 		]
 	},
 	'guide-invoice': {
@@ -1687,6 +1893,18 @@ const docFallbacks = {
 		]
 	}
 }
+
+;['guide-quick', 'guide-repair', 'guide-query', 'guide-invoice'].forEach((key) => {
+	if (docFallbacks[key]) {
+		docFallbacks[key].sections = []
+		docFallbacks[key].steps = []
+		docFallbacks[key].content = ''
+		docFallbacks[key].fileName = ''
+		docFallbacks[key].fileUrl = ''
+		docFallbacks[key].fileType = ''
+		docFallbacks[key].media = []
+	}
+})
 
 const docMap = ref({})
 
@@ -1732,6 +1950,7 @@ const feedbackContacts = [
 
 const feedbackTypes = ['建议', '投诉']
 const maxRepairImageSize = 10 * 1024 * 1024
+const maxFeedbackImages = 3
 const maxRepairVideoSize = 50 * 1024 * 1024
 const phoneRegex = /^1[3-9]\d{9}$/
 const trackingNoRegex = /^[A-Za-z0-9-]{6,32}$/
@@ -1751,11 +1970,13 @@ const normalizeDoc = (doc, fallback = {}) => {
 		lead: doc.description || doc.summary || fallback.lead,
 		paperTitle: doc.paperTitle || doc.title || fallback.paperTitle || fallback.title,
 		content,
-		fileUrl: doc.fileUrl || doc.fileURL || doc.fileId || doc.fileID || fallback.fileUrl,
-		fileName: doc.fileName || doc.name || fallback.fileName,
 		updateTime: doc.updateTime || fallback.updateTime,
+		fileName: doc.fileName || doc.file_name || fallback.fileName || '',
+		fileUrl: doc.fileUrl || doc.file_url || fallback.fileUrl || '',
+		fileType: doc.fileType || doc.file_type || fallback.fileType || '',
+		media: Array.isArray(doc.media) ? doc.media : fallback.media || [],
 		sections: Array.isArray(doc.sections) && doc.sections.length ? doc.sections : fallback.sections || [],
-		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps
+		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps || []
 	}
 }
 
@@ -1822,83 +2043,7 @@ const applyContact = (data = {}) => {
 	]
 }
 
-const repairStatusAliases = {
-	0: '已提交',
-	1: '处理中',
-	2: '已回寄',
-	3: '已完成',
-	submitted: '已提交',
-	created: '已提交',
-	pending: '已提交',
-	sent: '运输中',
-	mailed: '运输中',
-	received: '已签收',
-	signed: '已签收',
-	checking: '处理中',
-	inspecting: '处理中',
-	quoted: '处理中',
-	quote_pending: '处理中',
-	waiting_quote: '处理中',
-	confirming: '处理中',
-	waiting_confirm: '处理中',
-	fixing: '处理中',
-	repairing: '维修中',
-	shipped: '已回寄',
-	completed: '已完成',
-	done: '已完成',
-	reviewed: '已评价',
-	rated: '已完成',
-	'已寄出': '运输中',
-	'检测中': '处理中',
-	'待报价': '处理中',
-	'待确认': '处理中',
-	'维修中': '处理中',
-	'已发货': '已回寄',
-	'已评价': '已完成',
-	cancelled: '已取消',
-	canceled: '已取消'
-}
-
-const repairStatusMeta = repairStatusFlow.reduce((acc, label, index) => {
-	acc[label] = {
-		status: label,
-		statusGroup: label,
-		tone: index < 3 ? 'muted' : index < 5 ? 'warn' : 'ok',
-		reached: index
-	}
-	return acc
-}, {
-	'已取消': { status: '已取消', statusGroup: '已取消', tone: 'muted', reached: 0 }
-})
-
-const normalizeRepairStatus = (value, fallback = '已提交') => {
-	const raw = value === undefined || value === null ? '' : String(value).trim()
-	if (!raw) return fallback
-	return repairStatusAliases[raw] || repairStatusAliases[raw.toLowerCase()] || raw
-}
-
-const normalizeStatusTab = (value) => {
-	const raw = value === undefined || value === null ? '' : String(value).trim()
-	if (!raw || raw === '全部') return raw || '全部'
-	if (raw === 'pending' || raw === '待处理') return '待处理'
-	return repairStatusAliases[raw] || repairStatusAliases[raw.toLowerCase()] || raw
-}
-
-const packageStatusMeta = {
-	0: { status: '暂未签收', tone: 'muted', reached: 0 },
-	1: { status: '已签收待登记', tone: 'warn', reached: 1 },
-	2: { status: '已登记待检测', tone: 'warn', reached: 2 },
-	3: { status: '处理中', tone: 'warn', reached: 3 },
-	4: { status: '已关联工单', tone: 'ok', reached: 4 },
-	5: { status: '已完成', tone: 'ok', reached: 4 }
-}
-
-const getOrderStatusTone = (order = {}) => {
-	if (order.statusGroup === '处理中') return 'warn'
-	if (order.statusGroup === '已回寄' || order.statusGroup === '已完成') return 'ok'
-	if (order.statusGroup === '已取消') return 'muted'
-	return order.tone || 'info'
-}
+const repairStatusMeta = createRepairStatusMeta(repairStatusFlow)
 
 const normalizeOrder = (item = {}) => {
 	const statusText = normalizeRepairStatus(item.statusText || item.statusName || item.status)
@@ -1911,8 +2056,8 @@ const normalizeOrder = (item = {}) => {
 	const orderId = item.order_no || item.orderNo || item.orderId || item.id || item._id || ''
 	const createTime = item.create_time || item.createTime || item.createdAt || item.date || ''
 	const updateTime = item.updateTime || item.updatedAt || createTime
-	const localPatch = orderLocalPatches.value[orderId] || {}
-	const merged = { ...item, ...localPatch }
+	// 后端为唯一状态来源：不再合并本地 patch，避免旧缓存掩盖真实状态
+	const merged = { ...item }
 	const orderItems = Array.isArray(merged.items)
 		? merged.items
 		: (Array.isArray(merged.itemsList) ? merged.itemsList : [])
@@ -1924,8 +2069,11 @@ const normalizeOrder = (item = {}) => {
 	const productSerial = firstItem.sn || firstItem.serial || firstItem.productSerial || merged.sn || merged.serial || merged.productSerial || ''
 	const faultDesc = firstItem.fault_desc || firstItem.faultDesc || merged.fault_desc || merged.faultDesc || merged.fault || ''
 	const shipOutInfo = merged.ship_out_info || merged.shipOutInfo || {}
+	const shipBackInfo = merged.ship_back_info || merged.shipBackInfo || {}
 	const logisticsCompany = shipOutInfo.logistics_company || shipOutInfo.logisticsCompany || merged.logisticsCompany || ''
 	const trackingNo = shipOutInfo.logistics_no || shipOutInfo.logisticsNo || merged.trackingNo || merged.logisticsNo || merged.expressNo || ''
+	const returnLogisticsCompany = shipBackInfo.logistics_company || shipBackInfo.logisticsCompany || ''
+	const returnLogisticsNo = shipBackInfo.logistics_no || shipBackInfo.logisticsNo || shipBackInfo.return_no || shipBackInfo.returnNo || ''
 	const cardTitle = productName || productModel || (productSerial ? `SN ${productSerial}` : '') || '设备信息待同步'
 	const cardMeta = [
 		productModel && productModel !== cardTitle ? `型号 ${productModel}` : '',
@@ -1933,13 +2081,19 @@ const normalizeOrder = (item = {}) => {
 		trackingNo && `寄出 ${logisticsCompany ? `${logisticsCompany} ` : ''}${trackingNo}`
 	].filter(Boolean)
 	const quoteItems = normalizeQuoteItems({ ...merged, status: statusText, statusGroup: meta.statusGroup })
+	const quoteDetail = normalizeQuoteDetail(merged)
 	const partsFee = Number(merged.partsFee ?? merged.parts_fee ?? merged.materialFee ?? merged.material_fee ?? merged.quote?.partsFee ?? merged.quote?.parts_fee ?? sumQuoteFee(quoteItems, 'partsFee')) || 0
 	const laborFee = Number(merged.laborFee ?? merged.labor_fee ?? merged.workFee ?? merged.work_fee ?? merged.quote?.laborFee ?? merged.quote?.labor_fee ?? sumQuoteFee(quoteItems, 'laborFee')) || 0
-	const totalFee = Number(merged.totalFee ?? merged.total_fee ?? merged.total_price ?? merged.amount ?? merged.price ?? merged.quote?.totalFee ?? merged.quote?.total_price ?? partsFee + laborFee) || 0
+	const totalFee = Number(merged.totalFee ?? merged.total_fee ?? merged.total_price ?? merged.amount ?? merged.price ?? merged.quote?.totalFee ?? merged.quote?.total_price ?? quoteDetail?.finalPrice ?? partsFee + laborFee) || 0
 	const paymentProofs = Array.isArray(merged.paymentProofs)
 		? merged.paymentProofs
 		: (Array.isArray(merged.payment_proofs) ? merged.payment_proofs : [])
 	const invoiceInfo = merged.invoice_info || merged.invoiceInfo || {}
+	// 状态唯一真相：英文主状态键 + 报价/付款子状态 → 细分显示标签（与“我的”页同源）
+	const statusKey = resolveStatusKey(merged)
+	const quoteStatus = merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending')
+	const paymentStatus = merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending')
+	const displayStatus = deriveDisplayStatus({ statusKey, quoteStatus, paymentStatus, review: merged.review })
 
 	return {
 		id: orderId,
@@ -1958,7 +2112,7 @@ const normalizeOrder = (item = {}) => {
 		cardTitle,
 		cardMeta,
 		model: cardTitle,
-		status: statusText,
+		status: displayStatus,
 		statusGroup: meta.statusGroup,
 		tone: meta.tone,
 		reached: meta.reached,
@@ -1975,15 +2129,21 @@ const normalizeOrder = (item = {}) => {
 		invoiceNo: merged.invoiceNo || merged.invoice_no || invoiceInfo.invoice_no,
 		invoiceDate: merged.invoiceDate || merged.invoice_date || formatDateTime(invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
-		quoteStatus: merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending'),
-		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || (localPatch.authorizationStatus || ''),
-		authorizationTime: merged.authorizationTime || merged.authorization_time || localPatch.authorizationTime || '',
-		paymentStatus: merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending'),
+		quoteStatus,
+		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',
+		authorizationTime: merged.authorizationTime || merged.authorization_time || '',
+		paymentStatus,
+		quoteDetail,
 		quoteItems,
 		partsFee,
 		laborFee,
 		totalFee,
 		paymentProofs,
+		statusKey,
+		quoteWarrantyMonths: Number(merged.quoteWarrantyMonths ?? merged.quote_warranty_months ?? 0) || 0,
+		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
+		returnLogisticsCompany,
+		returnLogisticsNo,
 		timeline: Array.isArray(merged.timeline) ? merged.timeline : []
 	}
 }
@@ -2006,13 +2166,23 @@ const writeStorage = (key, value) => {
 	}
 }
 
-const normalizeProduct = (item = {}) => ({
-	title: item.title || item.name || item.productName || item.model || '已登记设备',
-	sn: item.sn || item.serial || item.productSerial || item.id || '',
-	date: item.buyDate || item.purchaseDate || item.date || '',
-	warranty: item.warrantyText || item.warranty || item.warrantyStatus || '保修信息待同步',
-	expired: Boolean(item.expired || item.isExpired)
-})
+const warrantyStatusLabels = { in_warranty: '保修中', extended: '延保中', expired: '已过保', unknown: '保修信息待同步' }
+const normalizeProduct = (item = {}) => {
+	const warrantyStatus = item.warrantyStatus || item.warranty_status || ''
+	const warranty = item.warrantyText || item.warranty
+		|| (warrantyStatus ? warrantyStatusLabels[warrantyStatus] : '')
+		|| (item.warrantyExpire ? `保修至 ${item.warrantyExpire}` : '保修信息待同步')
+	return {
+		title: item.title || item.name || item.productName || item.model || '已登记设备',
+		sn: item.sn || item.serial || item.productSerial || item.id || '',
+		model: item.model || '',
+		date: item.buyDate || item.purchaseDate || item.date || '',
+		warranty,
+		expired: warrantyStatus === 'expired' || Boolean(item.expired || item.isExpired),
+		lastOrderNo: item.lastOrderNo || item.last_order_no || '',
+		repairCount: Number(item.repairCount || item.repair_count || 0) || 0
+	}
+}
 
 const normalizePackageTimeline = (timeline = []) => {
 	if (!Array.isArray(timeline) || !timeline.length) {
@@ -2140,45 +2310,6 @@ const updateDoc = (key, doc) => {
 	}
 }
 
-const isFreshCache = (time, ttl) => Number(time) && Date.now() - Number(time) < ttl
-
-const readRemoteContentCache = () => readStorage(remoteContentCacheKey, null)
-
-const writeRemoteContentCache = (data = {}) => {
-	writeStorage(remoteContentCacheKey, {
-		time: Date.now(),
-		data
-	})
-}
-
-const applyRemoteContentCache = (cache = {}) => {
-	const data = cache.data || cache
-	if (!data || typeof data !== 'object') return false
-
-	if (data.docs && typeof data.docs === 'object') {
-		Object.entries(data.docs).forEach(([key, doc]) => updateDoc(key, doc))
-	}
-	if (data.contact) applyContact(data.contact)
-	if (data.customerService) {
-		customerService.value = {
-			...customerService.value,
-			...data.customerService,
-			qrcodeUrl: normalizeQrUrl(data.customerService.qrcodeUrl),
-			wechat: data.customerService.wechat || data.customerService.wechatId || customerService.value.wechat
-		}
-	}
-	if (data.wechat) {
-		wechatInfo.value = {
-			...wechatInfo.value,
-			...data.wechat,
-			qrcodeUrl: normalizeQrUrl(data.wechat.qrcodeUrl)
-		}
-	}
-	if (data.faultTypes) applyFaultTypes(data.faultTypes)
-
-	return true
-}
-
 const statusItems = computed(() => {
 	const counts = orderList.value.reduce(
 		(acc, item) => {
@@ -2208,7 +2339,6 @@ const orderTabs = computed(() => [
 	{ key: '已开票', label: '已开票', count: orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued').length }
 ])
 
-const invoiceTodoStatusKeys = ['available', 'processing', 'reviewing', 'approved', 'issuing']
 const invoiceTodoOrders = computed(() => orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))))
 const invoiceIssuedOrders = computed(() => orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued'))
 const invoiceTabs = computed(() => [
@@ -2306,16 +2436,32 @@ const filteredOrderList = computed(() => {
 	return orderList.value
 })
 
+const guideFileTypeByMime = {
+	'application/pdf': 'pdf',
+	'application/msword': 'doc',
+	'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+	'application/vnd.ms-excel': 'xls',
+	'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+	'application/vnd.ms-powerpoint': 'ppt',
+	'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'pptx'
+}
+
 const getGuideFileExt = (doc = {}) => {
-	const source = String(doc.fileName || doc.fileUrl || '').split('?')[0]
-	const match = source.match(/\.([a-zA-Z0-9]+)$/)
-	return match ? match[1].toLowerCase() : ''
+	const mimeExt = guideFileTypeByMime[String(doc.fileType || '').split(';')[0].trim().toLowerCase()]
+	if (mimeExt) return mimeExt
+	const sources = [doc.fileName, doc.name, doc.fileUrl, doc.url]
+	for (const source of sources) {
+		const cleanSource = String(source || '').split('?')[0]
+		const match = cleanSource.match(/\.([a-zA-Z0-9]+)$/)
+		if (match) return match[1].toLowerCase()
+	}
+	return ''
 }
 
 const resolveGuideFileUrl = async (fileUrl = '') => {
 	const url = String(fileUrl || '').trim()
 	if (!url || /^https?:\/\//i.test(url) || url.startsWith('wxfile://')) return url
-	const res = await uniCloud.getTempFileURL({ fileList: [url] })
+	const res = await getCloudTempFileURL([url])
 	const item = res.fileList && res.fileList[0]
 	return (item && (item.tempFileURL || item.url)) || url
 }
@@ -2328,8 +2474,8 @@ const openGuideFile = async (doc = {}) => {
 
 	try {
 		uni.showLoading({ title: '打开中' })
+		const ext = getGuideFileExt(doc)
 		const url = await resolveGuideFileUrl(doc.fileUrl)
-		const ext = getGuideFileExt({ ...doc, fileUrl: url })
 		const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif']
 
 		if (imageExts.includes(ext)) {
@@ -2350,6 +2496,67 @@ const openGuideFile = async (doc = {}) => {
 		console.warn('open guide file failed:', error)
 		uni.hideLoading()
 		uni.showToast({ title: '文档打开失败，请稍后重试', icon: 'none' })
+	}
+}
+
+const guideModuleTypeMap = {
+	'guide-quick': 'quick',
+	'guide-repair': 'repair',
+	'guide-query': 'query',
+	'guide-invoice': 'invoice'
+}
+
+const openGuideFromHome = async (id) => {
+	const type = guideModuleTypeMap[id]
+	if (!type) {
+		go(id)
+		return
+	}
+
+	let doc = docMap.value[id]
+	if (!doc || !doc.fileUrl) {
+		try {
+			const remoteDoc = await getGuide(type)
+			if (remoteDoc) {
+				updateDoc(id, remoteDoc)
+				doc = normalizeDoc(remoteDoc, docFallbacks[id] || {})
+			}
+		} catch (error) {
+			console.warn('load guide before open failed:', error)
+		}
+	}
+
+	if (doc && doc.fileUrl) {
+		await openGuideFile(doc)
+		return
+	}
+
+	uni.showToast({ title: '该教程还未上传文档', icon: 'none' })
+}
+
+// 打开教程媒体：图片内联预览，视频用 previewMedia，文档走文件打开
+const openGuideMedia = async (item = {}) => {
+	if (!item || !item.url) return
+	try {
+		uni.showLoading({ title: '打开中' })
+		const url = await resolveGuideFileUrl(item.url)
+		uni.hideLoading()
+		if (item.type === 'image') {
+			uni.previewImage({ urls: [url], current: url })
+			return
+		}
+		if (item.type === 'video') {
+			if (uni.previewMedia) {
+				uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+			} else {
+				uni.navigateTo && uni.navigateTo({ url: `/pages/index/index?video=${encodeURIComponent(url)}`, fail: () => {} })
+			}
+			return
+		}
+		await openGuideFile({ fileUrl: item.url, fileName: item.name, fileType: item.fileType })
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: '媒体打开失败，请稍后重试', icon: 'none' })
 	}
 }
 
@@ -2401,9 +2608,45 @@ const detailTimeline = computed(() => {
 		}
 	]
 })
+
+// 标准化 9 节点维修进度（已提交→已完成），状态由工单状态+报价+付款推导
+const repairProgressNodes = computed(() => getRepairProgressNodes(detailOrder.value))
+
+const detailIsCompleted = computed(() => detailOrder.value.statusKey === 'completed' || detailOrder.value.status === '已完成')
+
+// 投诉/反馈挂到本工单：按 rel_order_no 过滤已加载的反馈单
+const detailOrderComplaints = computed(() => {
+	const id = detailOrder.value.id
+	if (!id) return []
+	return feedbackRecords.value.filter((record) => record && record.orderId === id)
+})
+
+const detailQuoteVisible = computed(() => ['issued', 'confirmed', 'rejected'].includes(detailOrder.value.quoteStatus))
+
+const detailWarrantyText = computed(() => {
+	const m = Number(detailOrder.value.quoteWarrantyMonths || 0)
+	return m > 0 ? `本次维修质保 ${m} 个月` : '本次维修质保以全局质保政策为准'
+})
+
+const detailPaymentDeadlineText = computed(() => {
+	const ts = Number(detailOrder.value.paymentDeadline || 0)
+	if (!ts) return ''
+	const d = new Date(ts)
+	const pad = (n) => String(n).padStart(2, '0')
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+})
 const detailInvoiceOrder = computed(() => resolveOrderRecord(detailOrder.value))
 const activeInvoiceOrder = computed(() => orderList.value.find((item) => item.id === activeInvoiceOrderId.value) || {})
 const detailQuoteItems = computed(() => Array.isArray(detailOrder.value.quoteItems) ? detailOrder.value.quoteItems : [])
+const detailQuoteGroups = computed(() => {
+	const detail = detailOrder.value.quoteDetail
+	if (!detail) return []
+	return [
+		{ key: 'parts', title: '配件费用', items: detail.parts || [], total: detail.partsTotal },
+		{ key: 'services', title: '服务费用', items: detail.services || [], total: detail.servicesTotal },
+		{ key: 'others', title: '其他费用', items: detail.others || [], total: detail.othersTotal }
+	].filter((group) => Array.isArray(group.items) && group.items.length)
+})
 const detailPaymentProofs = computed(() => Array.isArray(detailOrder.value.paymentProofs) ? detailOrder.value.paymentProofs : [])
 
 logBoot('computed state ready')
@@ -2458,30 +2701,33 @@ function resolveOrderRecord(order = {}) {
 	return orderList.value.find((item) => item.id === order.id) || order || {}
 }
 
-const patchOrderRecord = (orderId, patch = {}) => {
-	if (!orderId) return
-	const nextPatch = {
-		...(orderLocalPatches.value[orderId] || {}),
-		...patch
+// 后端为唯一状态来源：支付/确认/收货等改动后回拉工单详情并覆盖本地数据。
+const refreshOrderFromServer = async (order = {}) => {
+	const recordId = order.recordId || order.id
+	if (!recordId) return null
+	try {
+		const detail = await getRepairDetail(recordId)
+		const normalized = normalizeOrder(detail)
+		if (!normalized.id) return null
+		const mergeInto = (list) => list.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
+		orderList.value = mergeInto(orderList.value)
+		trackOrders.value = mergeInto(trackOrders.value)
+		return normalized
+	} catch (error) {
+		console.warn('refresh order failed:', error)
+		return null
 	}
-	orderLocalPatches.value = {
-		...orderLocalPatches.value,
-		[orderId]: nextPatch
-	}
-	writeStorage(localOrderPatchKey, orderLocalPatches.value)
-
-	const applyPatch = (list) => list.map((item) => (item.id === orderId ? { ...item, ...nextPatch } : item))
-	orderList.value = applyPatch(orderList.value)
-	trackOrders.value = applyPatch(trackOrders.value)
 }
 
-const getQuoteTotal = (order = {}) => Number(order.totalFee || 0) || sumQuoteFee(order.quoteItems || [], 'partsFee') + sumQuoteFee(order.quoteItems || [], 'laborFee')
+const getQuoteTotal = (order = {}) => Number(order.totalFee || order.quoteDetail?.finalPrice || 0) || sumQuoteFee(order.quoteItems || [], 'partsFee') + sumQuoteFee(order.quoteItems || [], 'laborFee')
 
 const getQuoteItemTotal = (item = {}) => (Number(item.partsFee) || 0) + (Number(item.laborFee) || 0)
 
+const getQuoteDetailRowTotal = (item = {}) => Number(item.amount || 0) || (Number(item.unitPrice || 0) * Number(item.quantity || 0))
+
 const getQuoteMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
-	if (!Array.isArray(order.quoteItems) || !order.quoteItems.length) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
+	if ((!Array.isArray(order.quoteItems) || !order.quoteItems.length) && !order.quoteDetail) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
 	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: '客户暂未同意该维修报价。' }
 	if (order.authorizationStatus === 'confirmed') return { label: '已确认', tone: 'ok', desc: '报价已确认，工程师可继续维修。' }
 	return { label: '待确认', tone: 'warn', desc: '请确认维修项目、配件、工时和总价后再授权维修。' }
@@ -2589,7 +2835,7 @@ const payRepairQuote = (order = {}) => {
 			let loadingShown = false
 			let paymentFinished = false
 			try {
-				await requestStatusSubscription('quote_confirm')
+				await requestStatusSubscription('wechat_pay')
 				paymentSubmitting.value = true
 				uni.showLoading({ title: '创建支付' })
 				loadingShown = true
@@ -2612,21 +2858,20 @@ const payRepairQuote = (order = {}) => {
 
 				uni.showLoading({ title: '确认到账' })
 				loadingShown = true
-				const result = await syncRepairWechatPay(order.recordId || order.id, paymentOrder.outTradeNo)
-				const nextStatus = normalizeRepairStatus(result.status || result.statusGroup || 'fixing')
-				patchOrderRecord(order.id, {
-					authorizationStatus: result.authorizationStatus || result.authorization_status || 'confirmed',
-					quoteStatus: result.quoteStatus || result.quote_status || 'confirmed',
-					authorizationTime: result.authorizationTime || result.authorization_time || todayText(),
-					paymentStatus: result.paymentStatus || result.payment_status || 'paid',
-					status: nextStatus,
-					statusGroup: nextStatus,
-					tone: getOrderStatusTone({ statusGroup: nextStatus }),
-					reached: Math.max(0, repairStatusFlow.indexOf(nextStatus))
-				})
+				await syncRepairWechatPay(order.recordId || order.id, paymentOrder.outTradeNo)
+				// 后端为唯一状态来源：支付完成后回拉工单
+				await refreshOrderFromServer(order)
 				uni.hideLoading()
 				loadingShown = false
 				uni.showToast({ title: '支付成功', icon: 'success' })
+				setTimeout(() => {
+					uni.showModal({
+						title: '支付成功',
+						content: '下一步预计：工程师将在 1 个工作日内开始维修，进度会在“维修进度”中实时更新。',
+						showCancel: false,
+						confirmText: '知道了'
+					})
+				}, 600)
 			} catch (error) {
 				console.warn('wechat pay failed:', error)
 				const message = error && (error.message || error.errMsg)
@@ -2643,6 +2888,187 @@ const payRepairQuote = (order = {}) => {
 			}
 		}
 	})
+}
+
+// 报价有疑问联系客服（避免客户直接拒绝报价）
+const contactSupportForQuote = () => {
+	uni.showActionSheet({
+		itemList: ['拨打售后客服', '拨打售后技术'],
+		success: ({ tapIndex }) => {
+			const phone = tapIndex === 1 ? '13929945417' : '13929924257'
+			callPhone(phone)
+		},
+		fail: () => {}
+	})
+}
+
+// 回寄物流：跳转包裹查询并自动带入回寄单号
+const trackReturnLogistics = (order = {}) => {
+	if (!order.returnLogisticsNo) return
+	packageQuery.value.trackingNo = order.returnLogisticsNo
+	openModule('package-query')
+	queryPackage()
+}
+
+// 寄出物流：跳转包裹查询并自动带入寄出单号
+const trackSendLogistics = (order = {}) => {
+	if (!order.trackingNo) return
+	packageQuery.value.trackingNo = order.trackingNo
+	openModule('package-query')
+	queryPackage()
+}
+
+// 包裹查询：点击关联工单跳转工单详情
+const openLinkedOrder = (orderId = '') => {
+	if (!orderId) return
+	const matched = orderList.value.find((item) => item.id === orderId) || trackOrders.value.find((item) => item.id === orderId)
+	if (matched) {
+		openOrderDetail(matched)
+		return
+	}
+	uni.showToast({ title: '请登录后在“我的维修单”查看该工单', icon: 'none' })
+}
+
+// 拒绝维修报价（仅报价已发布、未支付时可用）
+const canRejectQuote = (order = {}) => Boolean(order.id && order.quoteStatus === 'issued' && order.paymentStatus !== 'paid')
+
+const rejectRepairQuoteAction = (order = {}) => {
+	if (!canRejectQuote(order)) return
+	uni.showModal({
+		title: '拒绝维修报价',
+		editable: true,
+		placeholderText: '可填写拒绝原因（选填）',
+		confirmText: '确认拒绝',
+		cancelText: '再想想',
+		success: async ({ confirm, content }) => {
+			if (!confirm) return
+			try {
+				uni.showLoading({ title: '提交中' })
+				await rejectRepairQuote(order.recordId || order.id, content || '')
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				uni.showToast({ title: '已拒绝报价', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: (error && error.message) || '操作失败', icon: 'none' })
+			}
+		}
+	})
+}
+
+// 确认收货：已回寄 → 已完成
+const canConfirmReceipt = (order = {}) => Boolean(order.id && (order.statusKey === 'shipped' || order.status === '已回寄'))
+
+const confirmRepairReceiptAction = (order = {}) => {
+	if (!canConfirmReceipt(order)) return
+	uni.showModal({
+		title: '确认收货',
+		content: '确认已收到回寄的设备？确认后工单将标记为已完成。',
+		confirmText: '确认收货',
+		cancelText: '再看看',
+		success: async ({ confirm }) => {
+			if (!confirm) return
+			try {
+				// 完成后服务端会推送"服务评价邀请"，先申请订阅授权
+				await requestStatusSubscription('review_invite')
+				uni.showLoading({ title: '提交中' })
+				await confirmRepairReceipt(order.recordId || order.id)
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				uni.showToast({ title: '已确认收货', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: (error && error.message) || '操作失败', icon: 'none' })
+			}
+		}
+	})
+}
+
+// 完成后：回访评价，绑定到已完成工单；不满意自动转投诉
+const reviewOrder = (order = {}) => {
+	if (!order.id) return
+	if (order.review) {
+		uni.showToast({ title: '该工单已评价，感谢反馈', icon: 'none' })
+		return
+	}
+	const options = [
+		{ label: '非常满意（5星）', rating: 5 },
+		{ label: '满意（4星）', rating: 4 },
+		{ label: '一般（3星）', rating: 3 },
+		{ label: '不满意（转人工投诉）', rating: 2, toComplaint: true }
+	]
+	uni.showActionSheet({
+		itemList: options.map((item) => item.label),
+		success: async ({ tapIndex }) => {
+			const choice = options[tapIndex]
+			if (!choice) return
+			try {
+				uni.showLoading({ title: '提交中' })
+				await submitRepairReview(order.recordId || order.id, {
+					rating: choice.rating,
+					to_complaint: Boolean(choice.toComplaint)
+				})
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				if (choice.toComplaint) {
+					feedbackType.value = '投诉'
+					feedbackOrderId.value = order.id || order.recordId || ''
+					uni.showModal({
+						title: '已记录',
+						content: '已为您生成投诉工单，可补充具体问题，售后会尽快跟进。',
+						showCancel: false,
+						confirmText: '去补充',
+						success: () => openModule('feedback')
+					})
+				} else {
+					uni.showToast({ title: '感谢您的评价', icon: 'success' })
+				}
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: (error && error.message) || '评价失败', icon: 'none' })
+			}
+		},
+		fail: () => {}
+	})
+}
+
+// 完成后：详细反馈（复用投诉建议，预填关联工单）
+const evaluateOrder = (order = {}) => {
+	feedbackType.value = '建议'
+	feedbackOrderId.value = order.id || order.recordId || ''
+	openModule('feedback')
+}
+
+// 工单详情：发起投诉，预填关联工单
+const complainAboutOrder = (order = {}) => {
+	feedbackType.value = '投诉'
+	feedbackOrderId.value = order.id || order.recordId || ''
+	openModule('feedback')
+}
+
+// 完成后：保养提醒
+const showMaintenanceTip = () => {
+	uni.showModal({
+		title: '保养提醒',
+		content: '建议每 6 个月对设备做一次保养维护：清洁、润滑并检查易损件，可有效延长设备寿命、降低故障率。如需上门或寄修保养，可直接发起报修。',
+		showCancel: false,
+		confirmText: '知道了'
+	})
+}
+
+// 完成后：再次报修（预填本次设备信息）
+const reRepair = (order = {}) => {
+	repairForm.value = defaultRepairForm()
+	const product = defaultRepairProduct()
+	product.name = order.productName || ''
+	product.model = order.productModel || ''
+	product.serial = order.productSerial || order.serial || ''
+	repairProducts.value = [product]
+	repairProductSeed = 1
+	repairMediaSeed = 1
+	repairStep.value = 1
+	openModule('repair')
+	if (product.serial) recognizeSn(0)
 }
 
 const uploadPaymentProof = async (order = {}) => {
@@ -2676,15 +3102,9 @@ const uploadPaymentProof = async (order = {}) => {
 			console.warn('payment proof upload fallback:', error)
 		}
 		const nextProof = { id: `pay-${Date.now()}`, path, fileID: proofFileID, url: proofUrl, time: todayText() }
-		const nextProofs = [
-			...(Array.isArray(order.paymentProofs) ? order.paymentProofs : []),
-			nextProof
-		]
-		const result = await uploadRepairPaymentProof(order.recordId || order.id, nextProof)
-		patchOrderRecord(order.id, {
-			paymentStatus: result.paymentStatus || result.payment_status || 'uploaded',
-			paymentProofs: Array.isArray(result.paymentProofs) ? result.paymentProofs : (Array.isArray(result.payment_proofs) ? result.payment_proofs : nextProofs)
-		})
+		await uploadRepairPaymentProof(order.recordId || order.id, nextProof)
+		// 后端为唯一状态来源：上传凭证后回拉工单
+		await refreshOrderFromServer(order)
 		uni.hideLoading()
 		loadingShown = false
 		uni.showToast({ title: '凭证已留痕', icon: 'success' })
@@ -2765,8 +3185,8 @@ const submitInvoiceApply = async () => {
 
 	invoiceSubmitting.value = true
 	try {
-		const invoiceResult = await applyInvoice({
-			orderId: order.id,
+		await applyInvoice({
+			orderId: order.recordId || order.id,
 			invoiceType: invoiceForm.value.invoiceType,
 			titleType: invoiceForm.value.titleType,
 			title: invoiceForm.value.title.trim(),
@@ -2775,13 +3195,8 @@ const submitInvoiceApply = async () => {
 			remark: invoiceForm.value.remark.trim()
 		})
 
-		patchOrderRecord(order.id, {
-			invoiceStatus: invoiceResult.status || '待开票',
-			invoiceType: invoiceResult.invoice_type || invoiceResult.invoiceType || invoiceForm.value.invoiceType,
-			invoiceTitle: invoiceResult.title || invoiceForm.value.title.trim(),
-			taxNo: invoiceResult.tax_no || invoiceResult.taxNo || (invoiceForm.value.titleType === 'company' ? invoiceForm.value.taxNo.trim() : ''),
-			invoiceEmail: invoiceResult.email || invoiceForm.value.email.trim()
-		})
+		// 后端为唯一状态来源：开票申请后回拉工单
+		await refreshOrderFromServer(order)
 		activeInvoiceOrderId.value = ''
 		activeInvoiceTab.value = '待开票'
 		uni.showModal({
@@ -2827,27 +3242,51 @@ const handleInvoiceAction = (order = {}) => {
 }
 
 const restoreLocalBusinessState = () => {
-	orderLocalPatches.value = readStorage(localOrderPatchKey, {})
 	const records = readStorage(feedbackRecordKey, [])
 	feedbackRecords.value = Array.isArray(records) ? records : []
+	const surveys = readStorage(surveyRecordKey, [])
+	surveyRecords.value = Array.isArray(surveys) ? surveys : []
 }
 
 const saveFeedbackRecords = () => {
 	writeStorage(feedbackRecordKey, feedbackRecords.value)
 }
 
-const getFeedbackMeta = (record = {}) => {
-	const metaMap = {
-		submitted: { label: '已提交', tone: 'info' },
-		processing: { label: '处理中', tone: 'warn' },
-		replied: { label: '已回复', tone: 'ok' },
-		closed: { label: '已完成', tone: 'ok' }
-	}
-	return metaMap[record.status] || metaMap.submitted
+const saveSurveyRecords = () => {
+	writeStorage(surveyRecordKey, surveyRecords.value)
 }
 
-const addLocalFeedbackRecord = (status = 'submitted') => {
-	const ticketNo = feedbackTicketNo()
+// 拉取服务端反馈单，覆盖本地缓存，使后台处理状态与官方回复实时同步
+const syncFeedbackRecords = async () => {
+	try {
+		const res = await getComplaintList({ page: 1, pageSize: 10 })
+		const list = (res && res.list) || []
+		if (!Array.isArray(list)) return
+		feedbackRecords.value = list.map(normalizeFeedbackRecord)
+		saveFeedbackRecords()
+	} catch (error) {
+		// 网络/登录异常时保留本地缓存，不打断页面
+		console.warn('sync feedback records fallback:', error)
+	}
+}
+
+const getFeedbackRecordImages = () => feedbackImages.value
+	.map((item) => ({
+		id: item.id,
+		url: getPreviewUrl(item),
+		fileID: item.fileID || item.fileId || ''
+	}))
+	.filter((item) => item.url)
+
+const resetFeedbackForm = () => {
+	feedbackText.value = ''
+	feedbackContactValue.value = ''
+	feedbackOrderId.value = ''
+	feedbackImages.value = []
+}
+
+const addLocalFeedbackRecord = (status = 'submitted', result = {}) => {
+	const ticketNo = result.ticketNo || result.ticket_no || result.id || feedbackTicketNo()
 	const record = {
 		ticketNo,
 		type: feedbackType.value,
@@ -2855,6 +3294,7 @@ const addLocalFeedbackRecord = (status = 'submitted') => {
 		contactType: feedbackContactKind.value,
 		contact: feedbackContactValue.value.trim(),
 		orderId: feedbackOrderId.value.trim(),
+		images: getFeedbackRecordImages(),
 		status,
 		reply: '',
 		time: todayText()
@@ -2864,11 +3304,113 @@ const addLocalFeedbackRecord = (status = 'submitted') => {
 	return record
 }
 
+const previewFeedbackRecordImage = (record = {}, index = 0) => {
+	const urls = (record.images || []).map((item) => (typeof item === 'string' ? item : item.url)).filter(Boolean)
+	if (!urls.length) return
+	uni.previewImage({
+		current: urls[index] || urls[0],
+		urls
+	})
+}
+
 const previewSurveyPoster = () => {
 	uni.previewImage({
 		current: surveyPosterUrl,
 		urls: [surveyPosterUrl]
 	})
+}
+
+const loadSurveyConfig = async () => {
+	try {
+		const config = await getSurveyConfig()
+		if (config && typeof config === 'object') {
+			surveyConfig.value = {
+				...surveyConfig.value,
+				...config,
+				ratingMax: Math.max(1, Number(config.ratingMax) || surveyConfig.value.ratingMax)
+			}
+			if (!surveyConfig.value.satisfactionOptions.includes(surveyForm.value.satisfaction)) surveyForm.value.satisfaction = ''
+			if (!surveyConfig.value.resolvedOptions.includes(surveyForm.value.resolved)) surveyForm.value.resolved = ''
+			if (surveyForm.value.rating > surveyConfig.value.ratingMax) surveyForm.value.rating = 0
+		}
+	} catch (error) {
+		console.warn('load survey config failed:', error)
+	}
+}
+
+const prefillSurveyContact = () => {
+	if (surveyForm.value.contact) return
+	const user = currentUser.value || {}
+	surveyForm.value.contact = user.phone || user.mobile || user.wechat || ''
+}
+
+const resetSurveyForm = (silent = false) => {
+	surveyForm.value = {
+		orderNo: '',
+		satisfaction: '',
+		rating: 0,
+		resolved: '',
+		comment: '',
+		contact: ''
+	}
+	if (!silent) uni.showToast({ title: '已重置调研表', icon: 'none' })
+}
+
+const saveLocalSurveyRecord = (record) => {
+	surveyRecords.value = [record, ...surveyRecords.value].slice(0, 20)
+	saveSurveyRecords()
+}
+
+const submitSurveyForm = async () => {
+	if (surveySubmitting.value) return
+	const form = surveyForm.value
+	if (surveyConfig.value.enabled === false) {
+		uni.showToast({ title: '调研表暂未启用', icon: 'none' })
+		return
+	}
+	if (!form.satisfaction || !form.resolved || !form.rating) {
+		uni.showToast({ title: '请完成必填选项', icon: 'none' })
+		return
+	}
+	if (!form.comment.trim()) {
+		uni.showToast({ title: '请填写调研反馈', icon: 'none' })
+		return
+	}
+	if (!form.contact.trim()) {
+		uni.showToast({ title: '请填写联系方式', icon: 'none' })
+		return
+	}
+
+	surveySubmitting.value = true
+	const record = {
+		id: `SUR-${Date.now()}`,
+		orderNo: form.orderNo.trim(),
+		satisfaction: form.satisfaction,
+		rating: form.rating,
+		resolved: form.resolved,
+		comment: form.comment.trim(),
+		contact: form.contact.trim(),
+		time: todayText()
+	}
+	try {
+		const res = await submitAfterSalesSurvey(record)
+		saveLocalSurveyRecord({ ...record, cloudId: res && res.id, status: 'submitted' })
+		uni.showModal({
+			title: (res && res.successTitle) || surveyConfig.value.successTitle || '提交成功',
+			content: (res && res.successMessage) || surveyConfig.value.successMessage || '感谢参与售后调研。',
+			showCancel: false
+		})
+		resetSurveyForm(true)
+	} catch (error) {
+		saveLocalSurveyRecord({ ...record, status: 'local_fallback' })
+		uni.showModal({
+			title: '已本地保存',
+			content: '当前云端暂不可用，调研内容已先保存在本机。请稍后重新提交或联系工作人员。',
+			showCancel: false
+		})
+	} finally {
+		surveySubmitting.value = false
+	}
 }
 
 const openModule = (id, type) => {
@@ -2887,6 +3429,21 @@ const openModule = (id, type) => {
 		activeInvoiceTab.value = '待开票'
 	}
 
+	if (id === 'feedback') {
+		syncFeedbackRecords()
+	}
+
+	if (id === 'survey') {
+		restoreLocalBusinessState()
+		loadSurveyConfig()
+		prefillSurveyContact()
+	}
+
+	if (id === 'repair') {
+		repairStep.value = 1
+		prefillRepairAddress()
+	}
+
 	if (id === 'orders' && type !== undefined) {
 		const typeMap = ['全部', '待处理', '处理中', '已回寄', '未开票', '已开票']
 		if (typeof type === 'string') {
@@ -2898,33 +3455,23 @@ const openModule = (id, type) => {
 
 }
 
-const returnToSourcePage = () => {
-	activeModule.value = ''
-	previousModule.value = ''
-
-	if (moduleReturnFrom.value !== 'mine') return
-
-	moduleReturnFrom.value = ''
-	uni.navigateBack({
-		delta: 1,
-		fail: () => {
-			uni.redirectTo({
-				url: '/pages/mine/index',
-				fail: () => {
-					activeTab.value = 'mine'
-				}
-			})
-		}
-	})
-}
-
 const closeModule = () => {
 	if (activeModule.value === 'order-detail' && (previousModule.value === 'track' || previousModule.value === 'orders' || previousModule.value === 'invoices')) {
 		activeModule.value = previousModule.value
 		previousModule.value = ''
 		return
 	}
-	returnToSourcePage()
+	activeModule.value = ''
+	previousModule.value = ''
+}
+
+const returnFromModule = () => {
+	if (diagOpen.value) {
+		diagOpen.value = ''
+		return true
+	}
+	closeModule()
+	return true
 }
 
 const openTrackDetail = (order) => {
@@ -2936,6 +3483,41 @@ const openTrackDetail = (order) => {
 const openOrderDetail = (order) => {
 	orderDetailOrder.value = order.id
 	openModule('order-detail')
+	// 打开详情时刷新该工单的投诉/反馈状态与客服回复
+	if (hasLoginToken()) syncFeedbackRecords().catch((error) => console.warn('sync feedback on detail failed:', error))
+}
+
+// 报修表单：自动带入默认回寄地址（仅填空字段，不覆盖用户已填）
+const cachedDefaultAddress = ref(null)
+const prefillRepairAddress = async () => {
+	if (!hasLoginToken()) return
+	const form = repairForm.value
+	if (form.receiverName || form.receiverPhone || form.receiverAddress) return
+	try {
+		if (!cachedDefaultAddress.value) {
+			const list = await getAddressList()
+			if (Array.isArray(list) && list.length) {
+				cachedDefaultAddress.value = list.find((item) => item.isDefault) || list[0]
+			}
+		}
+		const target = cachedDefaultAddress.value
+		if (!target) return
+		// 二次确认表单仍为空再写入（避免异步期间用户已开始填写）
+		const current = repairForm.value
+		if (current.receiverName || current.receiverPhone || current.receiverAddress) return
+		const region = Array.isArray(target.region) ? target.region.join(' ') : (target.region || '')
+		const fullAddress = [region, target.detail || ''].filter(Boolean).join(' ').trim()
+		repairForm.value = {
+			...current,
+			receiverName: target.receiver || target.name || '',
+			receiverPhone: target.phone || '',
+			receiverAddress: fullAddress,
+			receiverUnit: target.unit || ''
+		}
+		if (fullAddress || target.receiver) uni.showToast({ title: '已带入默认回寄地址', icon: 'none' })
+	} catch (error) {
+		console.warn('prefill repair address failed:', error)
+	}
 }
 
 const addRepairProduct = () => {
@@ -3022,19 +3604,101 @@ const removeRepairProduct = (index) => {
 	repairProducts.value.splice(index, 1)
 }
 
-const isCloudFileId = (url = '') => String(url || '').startsWith('cloud://')
-const normalizeUploadUrl = (res = {}, fallbackPath = '') => {
-	const url = res.url || res.fileUrl || res.path || res.fullUrl || ''
-	return isCloudFileId(url) ? fallbackPath : (url || fallbackPath)
+const chooseFeedbackImages = async () => {
+	if (feedbackSubmitting.value) return
+	if (feedbackImageUploading.value) return
+
+	const remaining = maxFeedbackImages - feedbackImages.value.length
+	if (remaining <= 0) {
+		uni.showToast({ title: `最多上传${maxFeedbackImages}张图片`, icon: 'none' })
+		return
+	}
+
+	let loadingShown = false
+	feedbackImageUploading.value = true
+	try {
+		const chooseRes = await uni.chooseImage({
+			count: remaining,
+			sizeType: ['compressed'],
+			sourceType: ['album', 'camera']
+		})
+		const paths = chooseRes.tempFilePaths || []
+		if (!paths.length) return
+		const oversized = (chooseRes.tempFiles || []).find((file) => isFileTooLarge(file, maxRepairImageSize))
+		if (oversized) {
+			uni.showToast({ title: `图片不能超过${formatFileSize(maxRepairImageSize)}`, icon: 'none' })
+			return
+		}
+
+		uni.showLoading({ title: '上传中' })
+		loadingShown = true
+
+		// 压缩 + 并发上传（原先串行逐张上传，多图时明显更慢）
+		const targets = paths.slice(0, remaining)
+		const results = await Promise.all(targets.map(async (path) => {
+			try {
+				const compressed = await compressForUpload(path)
+				const uploadRes = await uploadFeedbackImage(compressed)
+				return {
+					path,
+					fileID: normalizeUploadFileId(uploadRes),
+					url: normalizeUploadUrl(uploadRes, path)
+				}
+			} catch (error) {
+				console.warn('upload feedback image failed:', error)
+				return null
+			}
+		}))
+
+		const uploadedImages = []
+		let failedCount = 0
+		for (const item of results) {
+			if (feedbackImages.value.length + uploadedImages.length >= maxFeedbackImages) break
+			if (item) {
+				feedbackImageSeed += 1
+				uploadedImages.push({ id: `feedback-img-${feedbackImageSeed}`, ...item })
+			} else {
+				failedCount += 1
+			}
+		}
+
+		if (uploadedImages.length) {
+			feedbackImages.value = [...feedbackImages.value, ...uploadedImages].slice(0, maxFeedbackImages)
+		}
+
+		uni.hideLoading()
+		loadingShown = false
+		if (failedCount && uploadedImages.length) {
+			uni.showToast({ title: '部分图片上传失败', icon: 'none' })
+		} else if (failedCount) {
+			uni.showToast({ title: '图片上传失败', icon: 'none' })
+		} else {
+			uni.showToast({ title: '上传成功', icon: 'success' })
+		}
+	} catch (error) {
+		if (!isPickerCancel(error)) {
+			console.warn('choose feedback image failed:', error)
+			uni.showToast({ title: '图片选择失败', icon: 'none' })
+		}
+	} finally {
+		feedbackImageUploading.value = false
+		if (loadingShown) uni.hideLoading()
+	}
 }
-const normalizeUploadFileId = (res = {}) => res.fileID || res.fileId || res.url || res.fileUrl || ''
-const getPreviewUrl = (item = {}) => {
-	const url = item.previewUrl || item.url || item.path || ''
-	return isCloudFileId(url) ? (item.path || '') : url
+
+const previewFeedbackImage = (index = 0) => {
+	const urls = feedbackImages.value.map(getPreviewUrl).filter(Boolean)
+	if (!urls.length) return
+	uni.previewImage({
+		current: urls[index] || urls[0],
+		urls
+	})
 }
-const getUploadedUrl = (item = {}) => item.fileID || item.fileId || item.cloudUrl || item.url || item.path || ''
-const isAuthError = (error = {}) => /鉴权失败|Token|token/i.test(String(error.message || error.errMsg || ''))
-const hasLoginToken = () => Boolean(uni.getStorageSync('token'))
+
+const removeFeedbackImage = (imageId) => {
+	if (feedbackSubmitting.value || feedbackImageUploading.value) return
+	feedbackImages.value = feedbackImages.value.filter((item) => item.id !== imageId)
+}
 
 const uploadRepairImage = async (index) => {
 	const product = repairProducts.value[index]
@@ -3057,24 +3721,50 @@ const uploadRepairImage = async (index) => {
 
 		uni.showLoading({ title: '上传中' })
 		loadingShown = true
-		for (const path of paths) {
+
+		// 压缩 + 并发上传
+		const slots = Math.max(0, 3 - product.media.length)
+		const targets = paths.slice(0, slots)
+		const results = await Promise.all(targets.map(async (path) => {
+			try {
+				const compressed = await compressForUpload(path)
+				const uploadRes = await uploadImage(compressed)
+				return {
+					path,
+					fileID: normalizeUploadFileId(uploadRes),
+					url: normalizeUploadUrl(uploadRes, path)
+				}
+			} catch (error) {
+				console.warn('upload repair image failed:', error)
+				return null
+			}
+		}))
+
+		let failedCount = 0
+		for (const item of results) {
 			if (product.media.length >= 3) break
-			const uploadRes = await uploadImage(path)
-			repairMediaSeed += 1
-			product.media.push({
-				id: `img-${repairMediaSeed}`,
-				type: 'image',
-				path,
-				fileID: normalizeUploadFileId(uploadRes),
-				url: normalizeUploadUrl(uploadRes, path)
-			})
+			if (item) {
+				repairMediaSeed += 1
+				product.media.push({ id: `img-${repairMediaSeed}`, type: 'image', ...item })
+			} else {
+				failedCount += 1
+			}
 		}
+
 		uni.hideLoading()
 		loadingShown = false
-		uni.showToast({ title: '上传成功', icon: 'success' })
+		if (failedCount && failedCount === targets.length) {
+			uni.showToast({ title: '图片上传失败', icon: 'none' })
+		} else if (failedCount) {
+			uni.showToast({ title: '部分图片上传失败', icon: 'none' })
+		} else {
+			uni.showToast({ title: '上传成功', icon: 'success' })
+		}
 	} catch (error) {
+		if (isPickerCancel(error)) return
 		console.warn('upload image fallback:', error)
-		uni.showToast({ title: '图片上传失败', icon: 'none' })
+		const msg = String(error && (error.errMsg || error.message) || '')
+		uni.showToast({ title: msg.includes('privacy') ? '请先同意隐私授权后再上传' : '图片选择失败', icon: 'none' })
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
@@ -3114,8 +3804,10 @@ const uploadRepairVideo = async (index) => {
 		loadingShown = false
 		uni.showToast({ title: '上传成功', icon: 'success' })
 	} catch (error) {
+		if (isPickerCancel(error)) return
 		console.warn('upload video fallback:', error)
-		uni.showToast({ title: '视频上传失败', icon: 'none' })
+		const msg = String(error && (error.errMsg || error.message) || '')
+		uni.showToast({ title: msg.includes('privacy') ? '请先同意隐私授权后再上传' : '视频上传失败', icon: 'none' })
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
@@ -3188,6 +3880,102 @@ const buildRepairPayload = () => {
 	}
 }
 
+const repairStepLabels = ['设备信息', '故障描述', '图片/视频', '寄修信息']
+
+const validateRepairStep = (step) => {
+	const products = repairProducts.value
+	if (step === 1) {
+		for (let i = 0; i < products.length; i += 1) {
+			if (!String(products[i].serial || '').trim()) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请填写序列号`, icon: 'none' })
+				return false
+			}
+		}
+		return true
+	}
+	if (step === 2) {
+		for (let i = 0; i < products.length; i += 1) {
+			if (!String(products[i].faultDesc || '').trim()) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请填写故障描述`, icon: 'none' })
+				return false
+			}
+		}
+		return true
+	}
+	if (step === 3) {
+		for (let i = 0; i < products.length; i += 1) {
+			if (!Array.isArray(products[i].media) || !products[i].media.length) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请上传故障附件`, icon: 'none' })
+				return false
+			}
+		}
+		return true
+	}
+	return true
+}
+
+const nextRepairStep = () => {
+	if (!validateRepairStep(repairStep.value)) return
+	if (repairStep.value < 4) repairStep.value += 1
+}
+
+const prevRepairStep = () => {
+	if (repairStep.value > 1) repairStep.value -= 1
+}
+
+const goRepairStep = (step) => {
+	if (step === repairStep.value) return
+	if (step < repairStep.value) { repairStep.value = step; return }
+	for (let s = repairStep.value; s < step; s += 1) {
+		if (!validateRepairStep(s)) return
+	}
+	repairStep.value = step
+}
+
+const snWarrantyLabel = (info = {}) => {
+	const map = { in_warranty: '保修期内', extended: '延保中', expired: '已过保', unknown: '保修未知' }
+	return map[info.warrantyStatus] || '保修未知'
+}
+
+const recognizeSn = async (index) => {
+	const product = repairProducts.value[index]
+	if (!product) return
+	const sn = String(product.serial || '').trim()
+	if (!sn) { product.snInfo = null; return }
+	if (!hasLoginToken()) return
+	if (product.snLoading) return
+	if (product.snInfo && product.snInfo.sn === sn) return
+	product.snLoading = true
+	try {
+		const info = await lookupDeviceBySn(sn)
+		product.snInfo = info || { found: false, sn }
+		if (info && info.found) {
+			if (info.model && !String(product.model || '').trim()) product.model = info.model
+			if (info.productName && !String(product.name || '').trim()) product.name = info.productName
+			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
+		}
+	} catch (error) {
+		console.warn('lookup sn failed:', error)
+		product.snInfo = null
+	} finally {
+		product.snLoading = false
+	}
+}
+
+const scanSn = (index) => {
+	uni.scanCode({
+		success: (res) => {
+			const code = String(res.result || '').trim()
+			if (!code) return
+			const product = repairProducts.value[index]
+			if (!product) return
+			product.serial = code
+			recognizeSn(index)
+		},
+		fail: () => {}
+	})
+}
+
 const validateRepairForm = () => {
 	for (let index = 0; index < repairProducts.value.length; index += 1) {
 		const product = repairProducts.value[index] || {}
@@ -3258,7 +4046,7 @@ const submitRepair = async () => {
 		submittedOrderId.value = resData.order_no || resData.orderNo || resData.orderId || resData.id || ''
 		uni.removeStorageSync(repairDraftKey)
 		openModule('repair-success')
-		loadRemoteContent({ forceUser: true })
+		loadRemoteContent()
 	} catch (error) {
 		if (isAuthError(error)) {
 			logoutLocal()
@@ -3452,11 +4240,14 @@ const saveAddress = async () => {
 	}
 }
 
-const selectRegion = () => {
-	uni.showToast({
-		title: '地区选择功能开发中',
-		icon: 'none'
-	})
+const regionPickerValue = computed(() => {
+	const parts = String(addressForm.value.region || '').split(/[\/\s]+/).filter(Boolean)
+	return parts.length === 3 ? parts : ['广东省', '佛山市', '禅城区']
+})
+
+const onRegionChange = (event) => {
+	const parts = (event.detail.value || []).filter(Boolean)
+	addressForm.value.region = parts.join('/')
 }
 
 const resetAddressForm = () => {
@@ -3496,69 +4287,122 @@ const handleDeleteAddress = async () => {
 }
 
 const submitFeedback = async () => {
+	if (feedbackSubmitting.value) return
 	if (!feedbackText.value.trim() || !feedbackContactValue.value.trim()) {
 		uni.showToast({ title: '请填写反馈内容和联系方式', icon: 'none' })
 		return
 	}
+	if (feedbackImageUploading.value) {
+		uni.showToast({ title: '图片上传中，请稍后提交', icon: 'none' })
+		return
+	}
 
+	feedbackSubmitting.value = true
 	try {
-		await addComplaint({
+		const result = await addComplaint({
 			type: feedbackType.value === '投诉' ? 0 : 1,
 			content: feedbackText.value.trim(),
+			images: feedbackImages.value.map(getUploadedUrl).filter(Boolean).slice(0, maxFeedbackImages),
 			contactType: feedbackContactKind.value,
 			contact: feedbackContactValue.value.trim(),
 			orderId: feedbackOrderId.value.trim()
 		})
-		const record = addLocalFeedbackRecord('submitted')
+		const record = addLocalFeedbackRecord('submitted', result || {})
 		uni.showModal({
 			title: '提交成功',
 			content: `反馈单号：${record.ticketNo}。客服回复和处理状态会在“我的反馈单”中展示。`,
 			showCancel: false,
 			confirmText: '知道了'
 		})
-		feedbackText.value = ''
-		feedbackContactValue.value = ''
-		feedbackOrderId.value = ''
+		resetFeedbackForm()
+		syncFeedbackRecords()
 	} catch (error) {
 		console.warn('submit feedback fallback:', error)
 		const record = addLocalFeedbackRecord('submitted')
 		uni.showModal({
 			title: '已生成反馈单',
-			content: `反馈单号：${record.ticketNo}。当前投诉建议接口未开放，前端已先保留记录；后台上线后可同步客服回复与处理状态。`,
+			content: `反馈单号：${record.ticketNo}。网络或登录状态异常，已先在本机保留记录；恢复后可再次提交或由后台同步处理。`,
 			showCancel: false,
 			confirmText: '知道了'
 		})
-		feedbackText.value = ''
-		feedbackContactValue.value = ''
-		feedbackOrderId.value = ''
+		resetFeedbackForm()
+	} finally {
+		feedbackSubmitting.value = false
 	}
 }
 
-const onGetPhoneNumberLogin = async (event) => {
-	if (event.detail.errMsg !== 'getPhoneNumber:ok') {
-		if (event.detail.errMsg && event.detail.errMsg.includes('cancel')) return
-		uni.showToast({ title: '授权失败，请重试', icon: 'none' })
+const onGetPhoneNumberLogin = async (event = {}) => {
+	if (loginSubmitting.value) return
+	loginError.value = ''
+	loginRetrying.value = false
+
+	const authDetail = normalizePhoneAuthDetail(event.detail || {})
+	if (!authDetail.ok) {
+		console.warn('wechat getPhoneNumber failed:', authDetail.raw || event.detail || {})
+		if (authDetail.canceled) {
+			loginError.value = authDetail.message
+		} else {
+			showLoginError(authDetail.message)
+		}
 		return
 	}
 
-	if (!event.detail.code) {
-		uni.showToast({ title: '获取手机号授权失败', icon: 'none' })
-		return
-	}
+	loginSubmitting.value = true
 
 	try {
-		const loginRes = await uni.login({ provider: 'weixin' })
-		if (!loginRes.code) {
-			throw new Error('获取微信登录凭证失败')
-		}
-		const res = await wechatLogin({ code: loginRes.code, phoneCode: event.detail.code })
+		const res = await loginWithWechatPhoneCode(wechatLogin, authDetail.phoneCode, {
+			retries: 1,
+			onRetry: () => {
+				loginRetrying.value = true
+				loginError.value = '微信登录失败，正在自动重试...'
+			}
+		})
 		if (applyLoginSession(res)) {
-			uni.showToast({ title: '登录成功', icon: 'success' })
+			loginError.value = ''
+			uni.showToast({ title: res.offline ? '体验登录成功' : '登录成功', icon: 'success' })
 		}
 	} catch (error) {
 		console.warn('wechat phone login failed:', error)
-		uni.showToast({ title: error.message || '登录接口暂未开放', icon: 'none' })
+		const message = getLoginErrorMessage(error)
+		loginError.value = message
+		if (message.length > 16) {
+			uni.showModal({
+				title: '登录失败',
+				content: message,
+				showCancel: false,
+				confirmText: '知道了'
+			})
+		} else {
+			uni.showToast({ title: message, icon: 'none' })
+		}
+	} finally {
+		loginSubmitting.value = false
+		loginRetrying.value = false
 	}
+}
+
+const onAgreeLoginPrivacyAuthorization = () => {
+	markWechatPrivacyReady()
+	syncLoginPrivacyReady()
+	loginError.value = '已同意隐私政策，请再次点击获取手机号完成登录'
+}
+
+const syncLoginPrivacyReady = () => {
+	loginPrivacyReady.value = true
+}
+
+const showLoginError = (message) => {
+	loginError.value = message
+	if (String(message).length > 16) {
+		uni.showModal({
+			title: '登录失败',
+			content: message,
+			showCancel: false,
+			confirmText: '知道了'
+		})
+		return
+	}
+	uni.showToast({ title: message, icon: 'none' })
 }
 
 const applyLoginSession = (res = {}) => {
@@ -3597,9 +4441,32 @@ const logoutLocal = () => {
 	logged.value = false
 }
 
+// 用户自助注销账号：二次确认后调用后端软删除+脱敏，并清空本地登录态
+const onCancelAccount = () => {
+	uni.showModal({
+		title: '注销账号',
+		content: '注销后将清除您的账号信息并解绑微信，维修记录将匿名保留。此操作不可恢复，确定要注销吗？',
+		confirmText: '确认注销',
+		confirmColor: '#e54d42',
+		success: async (res) => {
+			if (!res.confirm) return
+			try {
+				uni.showLoading({ title: '注销中...', mask: true })
+				await cancelAccount()
+				uni.hideLoading()
+				currentUser.value = {}
+				logged.value = false
+				uni.showToast({ title: '账号已注销', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: error.message || '注销失败，请稍后重试', icon: 'none' })
+			}
+		}
+	})
+}
+
 const go = (id, type) => {
 	if (tabRoutes[id]) {
-		moduleReturnFrom.value = ''
 		activeTab.value = id
 		activeModule.value = ''
 		previousModule.value = ''
@@ -3613,7 +4480,6 @@ const go = (id, type) => {
 
 	if (moduleMap[id]) {
 		if (id === 'track') requestStatusSubscription('track_view')
-		moduleReturnFrom.value = ''
 		openModule(id, type)
 		return
 	}
@@ -3654,21 +4520,74 @@ const callPhone = (phoneNumber) => {
 	})
 }
 
-const handleSearch = () => {
-	// 待后端接口建立后恢复
-	// go('guide-query')
-	
-	// 临时拦截：搜索功能正在优化中
+const showSearchDetail = (item = {}) => {
+	let content = ''
+	if (item.kind === 'fault') {
+		const parts = []
+		if (item.category) parts.push(`产品类型：${item.category}`)
+		if (Array.isArray(item.solutions) && item.solutions.length) {
+			parts.push(`处理建议：\n${item.solutions.join('\n')}`)
+		} else if (Array.isArray(item.checkSteps) && item.checkSteps.length) {
+			parts.push(`自查步骤：\n${item.checkSteps.join('\n')}`)
+		}
+		if (item.isRecommendRepair) parts.push('该故障建议寄修处理。')
+		content = parts.join('\n\n') || '暂无详细说明，请联系客服。'
+	} else {
+		content = item.summary || item.content || '暂无详细说明。'
+	}
 	uni.showModal({
-		title: '提示',
-		content: '搜索功能正在优化中，敬请期待！',
+		title: (item.title || '搜索结果').slice(0, 30),
+		content: String(content).slice(0, 600),
 		showCancel: false,
 		confirmText: '知道了'
 	})
 }
 
+const showSearchResults = (list = []) => {
+	const items = list.slice(0, 6)
+	if (items.length === 1) {
+		showSearchDetail(items[0])
+		return
+	}
+	uni.showActionSheet({
+		itemList: items.map((it) => String(it.title || '未命名').slice(0, 30)),
+		success: ({ tapIndex }) => {
+			const item = items[tapIndex]
+			if (item) showSearchDetail(item)
+		},
+		fail: () => {}
+	})
+}
+
+const handleSearch = async () => {
+	const keyword = String(searchKeyword.value || '').trim()
+	if (!keyword) {
+		uni.showToast({ title: '请输入要查询的问题', icon: 'none' })
+		return
+	}
+	uni.showLoading({ title: '搜索中', mask: true })
+	try {
+		const res = await searchContent(keyword)
+		const list = (res && Array.isArray(res.list)) ? res.list : []
+		uni.hideLoading()
+		if (!list.length) {
+			uni.showModal({
+				title: '无匹配结果',
+				content: `没有找到与“${keyword}”相关的常见问题，可换个关键词或联系客服。`,
+				showCancel: false,
+				confirmText: '知道了'
+			})
+			return
+		}
+		showSearchResults(list)
+	} catch (error) {
+		uni.hideLoading()
+		console.warn('search content failed:', error)
+		uni.showToast({ title: error.message || '搜索失败，请稍后重试', icon: 'none' })
+	}
+}
+
 onLoad((options = {}) => {
-	moduleReturnFrom.value = options.from || ''
 	const type = Number(options.type)
 	const routeType = Number.isInteger(type) ? type : undefined
 
@@ -3693,68 +4612,42 @@ onShow(() => {
 onPullDownRefresh(async () => {
 	logBoot('onPullDownRefresh triggered')
 	try {
-		await loadRemoteContent({ force: true })
+		await loadRemoteContent()
 	} finally {
 		uni.stopPullDownRefresh()
 	}
 })
 
-const loadPublicRemoteContent = async (force = false) => {
-	const cache = readRemoteContentCache()
-	if (!force && cache && isFreshCache(cache.time, remoteContentCacheTTL)) {
-		applyRemoteContentCache(cache)
-		remoteContentLoaded.value = true
-		return
-	}
-	if (!force && remoteContentLoaded.value) return
+onBackPress(() => {
+	if (!activeModule.value && !diagOpen.value) return false
+	return returnFromModule()
+})
 
-	const publicContent = { docs: {} }
+const loadRemoteContent = async () => {
 	const tasks = [
 		getWarrantyPolicy()
-			.then((doc) => {
-				publicContent.docs.warranty = doc
-				updateDoc('warranty', doc)
-			})
+			.then((doc) => updateDoc('warranty', doc))
 			.catch((error) => console.warn('warranty fallback:', error)),
 		getFeePolicy()
-			.then((doc) => {
-				publicContent.docs.fees = doc
-				updateDoc('fees', doc)
-			})
+			.then((doc) => updateDoc('fees', doc))
 			.catch((error) => console.warn('fee fallback:', error)),
 		getGuide('quick')
-			.then((doc) => {
-				publicContent.docs['guide-quick'] = doc
-				updateDoc('guide-quick', doc)
-			})
+			.then((doc) => updateDoc('guide-quick', doc))
 			.catch((error) => console.warn('quick guide fallback:', error)),
 		getGuide('repair')
-			.then((doc) => {
-				publicContent.docs['guide-repair'] = doc
-				updateDoc('guide-repair', doc)
-			})
+			.then((doc) => updateDoc('guide-repair', doc))
 			.catch((error) => console.warn('repair guide fallback:', error)),
 		getGuide('query')
-			.then((doc) => {
-				publicContent.docs['guide-query'] = doc
-				updateDoc('guide-query', doc)
-			})
+			.then((doc) => updateDoc('guide-query', doc))
 			.catch((error) => console.warn('query guide fallback:', error)),
 		getGuide('invoice')
-			.then((doc) => {
-				publicContent.docs['guide-invoice'] = doc
-				updateDoc('guide-invoice', doc)
-			})
+			.then((doc) => updateDoc('guide-invoice', doc))
 			.catch((error) => console.warn('invoice guide fallback:', error)),
 		getContact()
-			.then((data) => {
-				publicContent.contact = data
-				applyContact(data)
-			})
+			.then((data) => applyContact(data))
 			.catch((error) => console.warn('contact fallback:', error)),
 		getCustomerService()
 			.then((data = {}) => {
-				publicContent.customerService = data
 				customerService.value = {
 					...customerService.value,
 					...data,
@@ -3765,7 +4658,6 @@ const loadPublicRemoteContent = async (force = false) => {
 			.catch((error) => console.warn('customer service fallback:', error)),
 		getWechat()
 			.then((data = {}) => {
-				publicContent.wechat = data
 				wechatInfo.value = {
 					...wechatInfo.value,
 					...data,
@@ -3774,65 +4666,41 @@ const loadPublicRemoteContent = async (force = false) => {
 			})
 			.catch((error) => console.warn('wechat fallback:', error)),
 		getFaultTypes()
-			.then((list) => {
-				publicContent.faultTypes = list
-				applyFaultTypes(list)
-			})
+			.then((list) => applyFaultTypes(list))
 			.catch((error) => console.warn('fault types fallback:', error))
 	]
 
-	await Promise.allSettled(tasks)
-	remoteContentLoaded.value = true
-	writeRemoteContentCache(publicContent)
-}
-
-const loadUserBusinessContent = async (force = false) => {
-	const now = Date.now()
-	if (!uni.getStorageSync('token')) {
-		userBusinessLoaded.value = false
-		userBusinessLoadedAt = 0
-		productList.value = []
-		orderList.value = []
-		trackOrders.value = []
-		return
-	}
-	if (!force && userBusinessLoaded.value && now - userBusinessLoadedAt < userBusinessCacheTTL) return
-
-	const tasks = [
-		getProductList({ page: 1, size: 50 })
+	if (hasLoginToken()) {
+		tasks.push(
+			getMyDevices({ page: 1, size: 50 })
 			.then((data = {}) => {
-				const list = Array.isArray(data) ? data : data.list
+				const list = Array.isArray(data) ? data : (data.list || [])
 				productList.value = Array.isArray(list) ? list.map(normalizeProduct).filter((item) => item.sn || item.title) : []
 			})
-			.catch((error) => console.warn('product list failed:', error)),
-		getRepairList({ page: 1, size: 30 })
+			.catch((error) => console.warn('device list failed:', error)),
+			getRepairList({ page: 1, size: 30 })
 			.then((data = {}) => {
 				const list = Array.isArray(data) ? data : (data.list || data.data || [])
 				if (!Array.isArray(list)) return
-				orderLocalPatches.value = readStorage(localOrderPatchKey, orderLocalPatches.value || {})
 				const normalized = list.map(normalizeOrder).filter((item) => item.id)
 				orderList.value = normalized
 				trackOrders.value = normalized
 				hydrateOrderDetails(normalized).catch((error) => console.warn('repair detail hydrate failed:', error))
 			})
 			.catch((error) => console.warn('repair list failed:', error))
-	]
+		)
+	}
 
 	await Promise.allSettled(tasks)
-	userBusinessLoaded.value = true
-	userBusinessLoadedAt = Date.now()
-}
-
-const loadRemoteContent = async (options = {}) => {
-	const force = options === true || Boolean(options.force)
-	await Promise.allSettled([
-		loadPublicRemoteContent(force),
-		loadUserBusinessContent(force || Boolean(options.forceUser))
-	])
+	maybeShowHomeGuidePopup()
 }
 
 onMounted(() => {
 	logBoot('onMounted start')
+	uni.$on('wechatPrivacyReady', syncLoginPrivacyReady)
+	getWechatPrivacyReady().then((ready) => {
+		loginPrivacyReady.value = ready
+	})
 	initModuleSafeArea()
 	setTimeout(() => {
 		pageBootReady.value = true
@@ -3842,8 +4710,13 @@ onMounted(() => {
 		logBoot('deferred boot start')
 		restoreLocalBusinessState()
 		restoreRepairDraft()
+		loadSurveyConfig()
 		loadRemoteContent()
 	}, 220)
+})
+
+onUnmounted(() => {
+	uni.$off('wechatPrivacyReady', syncLoginPrivacyReady)
 })
 </script>
 
@@ -5543,11 +6416,23 @@ onMounted(() => {
 	flex-shrink: 0;
 	overflow: hidden;
 	border-radius: 999rpx;
+	background: transparent;
+	box-shadow: none;
+	color: #FFFFFF;
+	font-size: 48rpx;
+	font-weight: 700;
+}
+
+.avatar-logged {
 	background: #FFFFFF;
 	box-shadow: 0 8rpx 32rpx rgba(0, 0, 0, 0.15);
 	color: #1E6FE0;
-	font-size: 48rpx;
-	font-weight: 700;
+}
+
+.avatar-image {
+	width: 120rpx;
+	height: 120rpx;
+	display: block;
 }
 
 .profile-copy {
@@ -5750,6 +6635,18 @@ onMounted(() => {
 	font-size: 22rpx;
 	line-height: 1.3;
 	color: #94A3B8;
+}
+
+.account-cancel-row {
+	display: flex;
+	justify-content: center;
+	padding: 40rpx 28rpx 0;
+}
+
+.account-cancel-link {
+	font-size: 24rpx;
+	color: #94A3B8;
+	text-decoration: underline;
 }
 
 .mine-footer {
@@ -6395,12 +7292,6 @@ onMounted(() => {
 	border-right: 4rpx solid #FFFFFF;
 }
 
-.module-page-dialog {
-	position: relative;
-	overflow: hidden;
-	padding-bottom: 0;
-}
-
 .module-section-head {
 	padding: 36rpx 4rpx 20rpx;
 	display: flex;
@@ -6913,6 +7804,11 @@ onMounted(() => {
 	font-size: 20rpx;
 }
 
+.media-add.disabled {
+	opacity: 0.58;
+	pointer-events: none;
+}
+
 .media-add text:first-child {
 	font-size: 44rpx;
 	line-height: 1;
@@ -7225,6 +8121,109 @@ onMounted(() => {
 .bottom-submit.disabled {
 	opacity: 0.68;
 	pointer-events: none;
+}
+
+.bottom-prev {
+	width: 180rpx;
+	height: 96rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 16rpx;
+	background: #EEF3FB;
+	color: #0A4FB8;
+	font-size: 28rpx;
+	font-weight: 600;
+}
+
+/* 报修分步进度 */
+.repair-steps {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 24rpx 12rpx 8rpx;
+	margin-bottom: 8rpx;
+}
+
+.repair-step-item {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+	position: relative;
+}
+
+.repair-step-item::after {
+	content: '';
+	position: absolute;
+	top: 24rpx;
+	left: 60%;
+	width: 80%;
+	height: 4rpx;
+	background: #E0E7F2;
+}
+
+.repair-step-item:last-child::after { display: none; }
+
+.repair-step-num {
+	width: 48rpx;
+	height: 48rpx;
+	border-radius: 50%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: #E0E7F2;
+	color: #8597B2;
+	font-size: 24rpx;
+	font-weight: 700;
+	position: relative;
+	z-index: 1;
+}
+
+.repair-step-text {
+	font-size: 22rpx;
+	color: #8597B2;
+}
+
+.repair-step-item.on .repair-step-num { background: linear-gradient(180deg, #2A6CD3 0%, #0A4FB8 100%); color: #FFFFFF; }
+.repair-step-item.on .repair-step-text { color: #0A4FB8; font-weight: 600; }
+.repair-step-item.done .repair-step-num { background: #10B981; color: #FFFFFF; }
+.repair-step-item.done .repair-step-text { color: #10B981; }
+.repair-step-item.done::after { background: #10B981; }
+
+/* SN 识别结果 */
+.sn-result {
+	margin: -4rpx 0 12rpx;
+	padding: 16rpx 20rpx;
+	border-radius: 14rpx;
+	background: #F1F6FF;
+	border: 2rpx solid #DCE8FB;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+}
+
+.sn-result.muted { background: #F7F8FA; border-color: #ECEEF2; }
+.sn-result.loading { background: #F7F8FA; border-color: #ECEEF2; color: #8597B2; }
+.sn-result-row { display: flex; align-items: center; justify-content: space-between; }
+.sn-result-label { font-size: 24rpx; color: #0A4FB8; font-weight: 600; }
+.sn-result-line { font-size: 24rpx; color: #324563; }
+
+.sn-tag { font-size: 22rpx; padding: 4rpx 14rpx; border-radius: 999rpx; }
+.sn-tag-in_warranty { background: #E3F8EE; color: #0F9D58; }
+.sn-tag-extended { background: #E8F0FE; color: #1E6FE0; }
+.sn-tag-expired { background: #FDECEC; color: #E0524D; }
+.sn-tag-unknown { background: #EEF1F5; color: #8597B2; }
+
+.repair-field.column { flex-direction: column; align-items: stretch; gap: 12rpx; }
+.repair-field.column textarea {
+	width: 100%;
+	min-height: 160rpx;
+	box-sizing: border-box;
+	font-size: 28rpx;
+	color: #1d2129;
+	line-height: 1.6;
 }
 
 .tool-sheet-mask {
@@ -8498,6 +9497,38 @@ onMounted(() => {
 	gap: 16rpx;
 }
 
+.quote-group-list {
+	gap: 22rpx;
+}
+
+.quote-group {
+	padding: 18rpx 20rpx;
+	border-radius: 20rpx;
+	background: #F8FBFF;
+	border: 2rpx solid #EAF1FB;
+	box-sizing: border-box;
+}
+
+.quote-group-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16rpx;
+	padding-bottom: 8rpx;
+}
+
+.quote-group-head text:first-child {
+	font-size: 25rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.quote-group-head text:last-child {
+	font-size: 25rpx;
+	font-weight: 900;
+	color: #2B5EA8;
+}
+
 .quote-line-item {
 	padding: 22rpx 0;
 	display: flex;
@@ -8642,6 +9673,315 @@ onMounted(() => {
 	text-align: center;
 }
 
+.quote-contact-action {
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #C97A1B;
+	background: #FFF7E8;
+	border: 2rpx solid #F6E0B5;
+}
+
+.quote-reject-action {
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #B23A3A;
+	background: #FDF2F2;
+	border: 2rpx solid #F0CFCF;
+}
+
+.receipt-confirm-button {
+	margin-top: 20rpx;
+}
+
+.package-order-link {
+	color: #1E6FE0;
+	font-weight: 700;
+}
+
+.order-complaint-card {
+	padding: 20rpx;
+	border-radius: 16rpx;
+	background: #F7FAFF;
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.order-complaint-list {
+	display: flex;
+	flex-direction: column;
+	gap: 16rpx;
+}
+
+.order-complaint-item {
+	padding: 18rpx;
+	border-radius: 14rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #E8EFFA;
+	display: flex;
+	flex-direction: column;
+	gap: 10rpx;
+}
+
+.order-complaint-top {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.order-complaint-type {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #1F2C44;
+}
+
+.order-complaint-content {
+	font-size: 24rpx;
+	color: #46566F;
+	line-height: 1.5;
+}
+
+.order-complaint-reply {
+	padding: 14rpx;
+	border-radius: 12rpx;
+	background: #F1F6FF;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+	font-size: 24rpx;
+	color: #1F2C44;
+}
+
+.order-complaint-reply-label {
+	font-size: 22rpx;
+	font-weight: 800;
+	color: #1E6FE0;
+}
+
+.order-complaint-empty {
+	font-size: 24rpx;
+	color: #6B7C97;
+	line-height: 1.5;
+}
+
+.order-complaint-action {
+	min-height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 24rpx;
+	font-weight: 800;
+	color: #B23A3A;
+	background: #FDF2F2;
+	border: 2rpx solid #F0CFCF;
+}
+
+.success-archive-tip {
+	margin-top: 16rpx;
+	font-size: 22rpx;
+	color: #6B7C97;
+	line-height: 1.5;
+}
+
+/* 报价账单说明 */
+.quote-bill-info {
+	margin-top: 20rpx;
+	padding: 18rpx 20rpx;
+	border-radius: 14rpx;
+	background: #F7FAFF;
+	display: flex;
+	flex-direction: column;
+	gap: 12rpx;
+}
+
+.quote-bill-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 12rpx;
+	font-size: 24rpx;
+	color: #4A5A73;
+	line-height: 1.6;
+}
+
+.quote-bill-dot {
+	width: 12rpx;
+	height: 12rpx;
+	border-radius: 50%;
+	margin-top: 10rpx;
+	flex-shrink: 0;
+}
+
+.quote-bill-dot.warranty { background: #10B981; }
+.quote-bill-dot.deadline { background: #E6A23C; }
+.quote-bill-dot.policy { background: #1E6FE0; }
+
+/* 9 节点进度时间线 */
+.progress-node-card {
+	background: #FFFFFF;
+	border-radius: 20rpx;
+	padding: 28rpx 28rpx 8rpx;
+	box-shadow: 0 8rpx 28rpx -22rpx rgba(10, 79, 184, 0.5);
+}
+
+.progress-node-row {
+	display: flex;
+	gap: 18rpx;
+	min-height: 72rpx;
+}
+
+.progress-node-pin {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.progress-node-dot {
+	width: 22rpx;
+	height: 22rpx;
+	border-radius: 50%;
+	background: #D5DCE8;
+	margin-top: 4rpx;
+	flex-shrink: 0;
+}
+
+.progress-node-line {
+	flex: 1;
+	width: 4rpx;
+	background: #E3E8F1;
+	margin: 4rpx 0;
+}
+
+.progress-node-copy {
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	padding-bottom: 20rpx;
+}
+
+.progress-node-label {
+	font-size: 26rpx;
+	color: #9AA6B8;
+}
+
+.progress-node-now {
+	font-size: 20rpx;
+	color: #1E6FE0;
+	background: #E8F1FE;
+	padding: 2rpx 14rpx;
+	border-radius: 999rpx;
+}
+
+.progress-node-row.done .progress-node-dot { background: #10B981; }
+.progress-node-row.done .progress-node-line { background: #10B981; }
+.progress-node-row.done .progress-node-label { color: #324563; }
+.progress-node-row.current .progress-node-dot { background: #1E6FE0; box-shadow: 0 0 0 6rpx rgba(30, 111, 224, 0.16); }
+.progress-node-row.current .progress-node-label { color: #0A4FB8; font-weight: 700; }
+
+/* 回寄物流 */
+.return-logistics-card {
+	background: #FFFFFF;
+	border-radius: 20rpx;
+	padding: 24rpx;
+	box-shadow: 0 8rpx 28rpx -22rpx rgba(10, 79, 184, 0.5);
+}
+
+.return-logistics-info > view {
+	display: flex;
+	justify-content: space-between;
+	font-size: 26rpx;
+	padding: 8rpx 0;
+}
+
+.return-logistics-info > view > text:first-child { color: #8597B2; }
+.return-logistics-info > view > text:last-child { color: #1d2129; }
+.return-logistics-no { font-weight: 700; }
+
+.return-logistics-actions {
+	display: flex;
+	gap: 16rpx;
+	margin-top: 16rpx;
+}
+
+.return-logistics-btn {
+	flex: 1;
+	height: 76rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 14rpx;
+	font-size: 26rpx;
+	font-weight: 600;
+	color: #1E6FE0;
+	background: #F1F6FF;
+	border: 2rpx solid #DCE8FB;
+}
+
+.return-logistics-btn.primary {
+	color: #FFFFFF;
+	background: linear-gradient(180deg, #2A6CD3 0%, #0A4FB8 100%);
+	border: none;
+}
+
+/* 完成引导 */
+.complete-guide-card {
+	margin-top: 24rpx;
+	background: linear-gradient(180deg, #F0F7FF 0%, #FFFFFF 100%);
+	border-radius: 20rpx;
+	padding: 28rpx 24rpx;
+	border: 2rpx solid #E2EDFB;
+}
+
+.complete-guide-title {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	font-size: 30rpx;
+	font-weight: 700;
+	color: #1d2129;
+}
+
+.complete-guide-emoji { font-size: 34rpx; }
+
+.complete-guide-tip {
+	display: block;
+	margin: 12rpx 0 20rpx;
+	font-size: 24rpx;
+	color: #6B7C97;
+	line-height: 1.6;
+}
+
+.complete-guide-actions {
+	display: flex;
+	gap: 16rpx;
+}
+
+.complete-guide-btn {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 8rpx;
+	padding: 20rpx 0;
+	border-radius: 16rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #E2EDFB;
+	font-size: 24rpx;
+	color: #324563;
+}
+
+.complete-guide-ico { font-size: 34rpx; color: #1E6FE0; }
+
 .payment-proof-grid {
 	margin-top: 24rpx;
 	display: grid;
@@ -8746,65 +10086,78 @@ onMounted(() => {
 }
 
 .survey-module {
-	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 20rpx;
 	min-height: 100vh;
+	padding-bottom: 24rpx;
+	box-sizing: border-box;
+}
+
+.survey-hero-card {
+	padding: 28rpx;
+	display: flex;
+	align-items: center;
+	gap: 22rpx;
+	border: 2rpx solid #D7E3FA;
+	border-radius: 28rpx;
+	background: linear-gradient(135deg, #F3F8FF 0%, #FFFFFF 100%);
+	box-shadow: 0 8rpx 24rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
+}
+
+.survey-hero-icon {
+	width: 84rpx;
+	height: 84rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding: 40rpx 32rpx;
-	background: rgba(232, 238, 250, 0.65);
-	box-sizing: border-box;
+	flex-shrink: 0;
+	border-radius: 24rpx;
+	background: #FFF7E6;
+	color: #A16207;
 }
 
-.survey-mask {
-	position: absolute;
-	inset: 0;
-	background: rgba(15, 31, 58, 0.45);
+.survey-hero-icon .glyph {
+	width: 42rpx;
+	height: 42rpx;
 }
 
-.survey-modal-card {
-	position: relative;
-	z-index: 2;
-	width: 100%;
-	padding: 44rpx 44rpx 36rpx;
-	border-radius: 36rpx;
+.survey-hero-card > view:last-child {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.survey-hero-card > view:last-child text:first-child {
+	font-size: 30rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.survey-hero-card > view:last-child text:last-child {
+	font-size: 23rpx;
+	line-height: 1.45;
+	color: #6B7C97;
+}
+
+.survey-form-card {
+	padding: 28rpx;
+	border-radius: 28rpx;
 	background: #FFFFFF;
-	box-shadow: 0 48rpx 120rpx -24rpx rgba(15, 31, 58, 0.4);
-	text-align: center;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
 	box-sizing: border-box;
+	text-align: left;
 }
 
 .survey-poster-card {
-	max-height: calc(100vh - 80rpx);
 	padding: 36rpx 28rpx 32rpx;
-	overflow-y: auto;
-}
-
-.survey-close {
-	position: absolute;
-	top: 18rpx;
-	right: 22rpx;
-	color: #94A3B8;
-	font-size: 36rpx;
-	line-height: 1;
-}
-
-.survey-ribbon {
-	margin: 0 auto;
-	padding: 8rpx 24rpx;
-	display: inline-flex;
-	align-items: center;
-	gap: 10rpx;
-	border-radius: 999rpx;
-	background: #FFF7E6;
-	color: #A16207;
-	font-size: 22rpx;
-	font-weight: 700;
-}
-
-.survey-ribbon .glyph {
-	width: 28rpx;
-	height: 28rpx;
+	border-radius: 28rpx;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
 }
 
 .survey-poster-wrap {
@@ -8844,6 +10197,147 @@ onMounted(() => {
 	font-size: 25rpx;
 	line-height: 1.7;
 	color: #6B7C97;
+	text-align: center;
+}
+
+.survey-benefits {
+	margin-top: 24rpx;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 12rpx;
+}
+
+.survey-benefit {
+	min-height: 96rpx;
+	padding: 14rpx 10rpx;
+	border-radius: 18rpx;
+	background: #F7FAFF;
+	border: 2rpx solid #E1EAF7;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8rpx;
+	box-sizing: border-box;
+}
+
+.survey-benefit text:first-child {
+	width: 34rpx;
+	height: 34rpx;
+	border-radius: 50%;
+	background: #1E6FE0;
+	color: #FFFFFF;
+	font-size: 20rpx;
+	font-weight: 800;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.survey-benefit text:last-child {
+	font-size: 21rpx;
+	line-height: 1.25;
+	color: #334155;
+	text-align: center;
+}
+
+.survey-form {
+	margin-top: 24rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 20rpx;
+}
+
+.survey-field {
+	padding: 22rpx;
+	border-radius: 20rpx;
+	background: #F8FAFC;
+	border: 2rpx solid #E5ECF6;
+	box-sizing: border-box;
+}
+
+.survey-field-label {
+	display: block;
+	margin-bottom: 14rpx;
+	font-size: 25rpx;
+	font-weight: 700;
+	color: #0F1F3A;
+}
+
+.survey-field input,
+.survey-field textarea {
+	width: 100%;
+	min-height: 72rpx;
+	font-size: 26rpx;
+	line-height: 1.5;
+	color: #0F1F3A;
+	box-sizing: border-box;
+}
+
+.survey-field textarea {
+	height: 172rpx;
+	padding: 0;
+}
+
+.survey-chip-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12rpx;
+}
+
+.survey-chip {
+	min-height: 64rpx;
+	padding: 0 22rpx;
+	border-radius: 999rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #D9E4F2;
+	color: #5B6B82;
+	font-size: 24rpx;
+	font-weight: 600;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.survey-chip.on {
+	background: #E8F1FE;
+	border-color: #1E6FE0;
+	color: #1E6FE0;
+}
+
+.survey-score-row {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	gap: 12rpx;
+}
+
+.survey-score {
+	height: 68rpx;
+	border-radius: 18rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #D9E4F2;
+	color: #5B6B82;
+	font-size: 25rpx;
+	font-weight: 800;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+}
+
+.survey-score.on {
+	background: #FFF7E6;
+	border-color: #F59E0B;
+	color: #A16207;
+}
+
+.survey-score-tip {
+	display: block;
+	margin-top: 12rpx;
+	font-size: 22rpx;
+	color: #8A97AA;
+	text-align: right;
 }
 
 .survey-qr-wrap {
@@ -8873,11 +10367,12 @@ onMounted(() => {
 .survey-actions {
 	margin-top: 36rpx;
 	display: flex;
+	gap: 18rpx;
 	justify-content: center;
 }
 
 .survey-secondary {
-	min-width: 240rpx;
+	flex: 1;
 	height: 80rpx;
 	display: flex;
 	align-items: center;
@@ -8889,6 +10384,24 @@ onMounted(() => {
 	border: 2rpx solid #D7E3FA;
 	color: #1E6FE0;
 	padding: 0 40rpx;
+}
+
+.survey-primary {
+	flex: 1.4;
+	height: 80rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	font-size: 28rpx;
+	font-weight: 700;
+	background: #1E6FE0;
+	color: #FFFFFF;
+	box-shadow: 0 16rpx 36rpx -20rpx rgba(30, 111, 224, 0.9);
+}
+
+.survey-primary.disabled {
+	opacity: 0.62;
 }
 
 .diag-hero-card {
@@ -9069,7 +10582,6 @@ onMounted(() => {
 	box-sizing: border-box;
 }
 
-.warranty-hero,
 .doc-hero {
 	padding: 36rpx;
 	border-radius: 28rpx;
@@ -9079,20 +10591,12 @@ onMounted(() => {
 	box-sizing: border-box;
 }
 
-.warranty-hero {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-}
-
-.warranty-hero .glyph,
 .doc-hero .glyph {
 	width: 72rpx;
 	height: 72rpx;
 	color: #FFFFFF;
 }
 
-.warranty-hero text:nth-child(2),
 .doc-hero > text:first-child,
 .doc-hero > text:nth-child(2),
 .doc-hero > view text:first-child {
@@ -9102,7 +10606,6 @@ onMounted(() => {
 	color: #FFFFFF;
 }
 
-.warranty-hero text:last-child,
 .doc-hero > text:last-child,
 .doc-hero > view text:last-child {
 	margin-top: 12rpx;
@@ -9122,13 +10625,6 @@ onMounted(() => {
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-}
-
-.fees-hero {
-	margin-bottom: 24rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
 }
 
 .white-list-card,
@@ -9239,8 +10735,21 @@ onMounted(() => {
 	padding: 32rpx;
 }
 
-.warranty-paper {
-	margin-top: 32rpx;
+.policy-rich-content {
+	padding: 32rpx 8rpx 80rpx;
+	box-sizing: border-box;
+	font-size: 28rpx;
+	line-height: 1.8;
+	color: #1F2A3D;
+	word-break: break-word;
+}
+
+.policy-empty {
+	display: block;
+	padding: 96rpx 0;
+	text-align: center;
+	font-size: 26rpx;
+	color: #86909C;
 }
 
 .paper-title {
@@ -10007,6 +11516,15 @@ onMounted(() => {
 	color: #94A3B8;
 }
 
+.feedback-images {
+	padding: 8rpx 28rpx 28rpx;
+	border-bottom: 2rpx solid #F1F5FB;
+}
+
+.feedback-media-grid {
+	gap: 16rpx;
+}
+
 .feedback-contact {
 	padding: 28rpx;
 }
@@ -10170,6 +11688,20 @@ onMounted(() => {
 	color: #324563;
 }
 
+.feedback-ticket-images {
+	margin-top: 18rpx;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 14rpx;
+}
+
+.feedback-ticket-image {
+	width: 112rpx;
+	height: 112rpx;
+	border-radius: 14rpx;
+	background: #F3F8FF;
+}
+
 .feedback-reply {
 	margin-top: 20rpx;
 	padding: 22rpx;
@@ -10257,16 +11789,16 @@ onMounted(() => {
 	border: none;
 }
 
+.wechat-login.loading,
+.wechat-login[disabled] {
+	opacity: 0.72;
+}
+
 .phone-login {
 	margin-top: 20rpx;
 	border: 2rpx solid #E4ECF7;
 	background: #FFFFFF;
 	color: #0F1F3A;
-}
-
-.phone-login.disabled {
-	color: #94A3B8;
-	background: #F6F8FC;
 }
 
 .login-agree {
@@ -10275,6 +11807,15 @@ onMounted(() => {
 	font-size: 23rpx;
 	line-height: 1.7;
 	color: #94A3B8;
+}
+
+.login-error {
+	display: block;
+	margin-top: 20rpx;
+	padding: 0 36rpx;
+	font-size: 23rpx;
+	line-height: 1.5;
+	color: #E5484D;
 }
 
 .glyph-cam::before {
@@ -10323,180 +11864,11 @@ onMounted(() => {
 	box-shadow: 8rpx 0 0 currentColor;
 }
 
-.track-overview,
-.orders-summary-card,
-.products-hero-card {
-	margin: 0 28rpx 22rpx;
-	padding: 28rpx;
-	border-radius: 8rpx;
-	background: linear-gradient(135deg, #FFFFFF 0%, #EFF6FF 100%);
-	border: 1rpx solid rgba(30, 111, 224, 0.12);
-	box-shadow: 0 14rpx 34rpx rgba(15, 31, 58, 0.08);
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 20rpx;
-	box-sizing: border-box;
-}
-
-.track-overview > view:first-child,
-.orders-summary-card > view:first-child,
-.products-hero-card > view:first-child {
-	min-width: 0;
-	display: flex;
-	flex-direction: column;
-	gap: 8rpx;
-}
-
-.track-overview > view:first-child text:first-child,
-.orders-summary-card > view:first-child text:first-child,
-.products-hero-card > view:first-child text:first-child {
-	font-size: 32rpx;
-	font-weight: 800;
-	color: #0F1F3A;
-}
-
-.track-overview > view:first-child text:last-child,
-.orders-summary-card > view:first-child text:last-child,
-.products-hero-card > view:first-child text:last-child {
-	font-size: 23rpx;
-	color: #60708A;
-	line-height: 1.45;
-}
-
-.track-overview > view:last-child,
-.orders-summary-card > view:last-child,
-.products-hero-card > view:last-child {
-	width: 124rpx;
-	min-width: 124rpx;
-	height: 104rpx;
-	border-radius: 8rpx;
-	background: #0F766E;
-	color: #FFFFFF;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: center;
-}
-
-.track-overview > view:last-child text:first-child,
-.orders-summary-card > view:last-child text:first-child,
-.products-hero-card > view:last-child text:first-child {
-	font-size: 34rpx;
-	font-weight: 900;
-	line-height: 1;
-}
-
-.track-overview > view:last-child text:last-child,
-.orders-summary-card > view:last-child text:last-child,
-.products-hero-card > view:last-child text:last-child {
-	margin-top: 8rpx;
-	font-size: 21rpx;
-	opacity: 0.9;
-}
-
-.track-card-meta-line {
-	margin: 18rpx 0 4rpx;
-	padding: 14rpx 18rpx;
-	border-radius: 8rpx;
-	background: #F8FAFC;
-	display: flex;
-	flex-wrap: wrap;
-	gap: 10rpx 18rpx;
-}
-
-.track-card-meta-line text {
-	font-size: 22rpx;
-	color: #56657C;
-}
-
-.order-progress-mini {
-	width: 100%;
-	height: 10rpx;
-	margin: 16rpx 0 10rpx;
-	display: grid;
-	grid-template-columns: repeat(6, 1fr);
-	gap: 8rpx;
-}
-
-.order-progress-mini view {
-	height: 10rpx;
-	border-radius: 999rpx;
-	background: #DCE5F2;
-}
-
-.order-progress-mini view.reached {
-	background: #1E6FE0;
-}
-
-.product-card-polished {
-	align-items: center;
-	border: 1rpx solid rgba(30, 111, 224, 0.12);
-	box-shadow: 0 12rpx 28rpx rgba(15, 31, 58, 0.07);
-}
-
-.product-title-row {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 12rpx;
-}
-
-.product-title-row > text:first-child {
-	min-width: 0;
-	font-size: 30rpx;
-	font-weight: 800;
-	color: #0F1F3A;
-	line-height: 1.35;
-}
-
-.product-title-row .tag {
-	flex-shrink: 0;
-}
-
-.product-empty-card {
-	margin: 8rpx 0 22rpx;
-	padding: 44rpx 32rpx;
-	border-radius: 8rpx;
-	background: #FFFFFF;
-	border: 1rpx dashed #AAB7C8;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-	box-sizing: border-box;
-}
-
-.product-empty-device {
-	width: 88rpx;
-	height: 88rpx;
-	border-radius: 50%;
-	background: #E0F2FE;
-	color: #0369A1;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	margin-bottom: 18rpx;
-}
-
-.product-empty-card > text:nth-child(2) {
-	font-size: 28rpx;
-	font-weight: 800;
-	color: #0F1F3A;
-}
-
-.product-empty-card > text:nth-child(3) {
-	margin-top: 10rpx;
-	font-size: 23rpx;
-	color: #60708A;
-	line-height: 1.5;
-}
-
-.product-primary-add {
-	border-style: solid;
-	border-color: #1E6FE0;
-	background: #EFF6FF;
-	color: #1E6FE0;
-	font-weight: 800;
-}
+/* 教程媒体列表 */
+.guide-media-list { background: #fff; border-radius: 16rpx; padding: 8rpx 24rpx; margin-bottom: 20rpx; }
+.guide-media-item { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 0; border-bottom: 1px solid #f7f8fa; }
+.guide-media-item:last-child { border-bottom: none; }
+.guide-media-type { font-size: 24rpx; color: #1E6FE0; flex-shrink: 0; }
+.guide-media-name { flex: 1; font-size: 26rpx; color: #1d2129; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.guide-media-open { font-size: 24rpx; color: #86909c; flex-shrink: 0; }
 </style>

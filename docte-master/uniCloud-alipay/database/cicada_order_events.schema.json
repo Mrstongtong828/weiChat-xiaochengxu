@@ -1,0 +1,54 @@
+{
+  "bsonType": "object",
+  "required": [
+    "order_id",
+    "order_no",
+    "source",
+    "action",
+    "actor_id",
+    "actor_role",
+    "actor_name",
+    "before",
+    "after",
+    "create_time"
+  ],
+  "properties": {
+    "_id": { "description": "ID" },
+    "order_id": { "bsonType": "string" },
+    "order_no": { "bsonType": "string" },
+    "source": {
+      "bsonType": "string",
+      "enum": ["client", "admin", "system", "wechat_pay"]
+    },
+    "action": {
+      "bsonType": "string",
+      "enum": [
+        "create_order",
+        "update_status",
+        "issue_quote",
+        "confirm_quote",
+        "upload_payment_proof",
+        "confirm_payment",
+        "apply_invoice",
+        "update_invoice",
+        "ship_return",
+        "cancel_order",
+        "update_remarks",
+        "add_timeline",
+        "assign_engineer",
+        "wechat_pay_confirmed",
+        "feedback_assign",
+        "feedback_reply",
+        "feedback_visit",
+        "feedback_close",
+        "feedback_upgrade"
+      ]
+    },
+    "actor_id": { "bsonType": "string" },
+    "actor_role": { "bsonType": "string" },
+    "actor_name": { "bsonType": "string" },
+    "before": { "bsonType": "object" },
+    "after": { "bsonType": "object" },
+    "create_time": { "bsonType": "timestamp" }
+  }
+}

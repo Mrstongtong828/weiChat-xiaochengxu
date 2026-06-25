@@ -30,8 +30,53 @@ const SUBSCRIPTION_SCENES = [
   { scene: 'quote_issued', title: '维修报价提醒' },
   { scene: 'payment_confirmed', title: '付款到账提醒' },
   { scene: 'order_shipped', title: '回寄发货提醒' },
-  { scene: 'order_completed', title: '工单完成提醒' }
+  { scene: 'order_completed', title: '工单完成提醒' },
+  { scene: 'review_invite', title: '服务评价邀请' }
 ]
+
+const DEFAULT_SURVEY_CONFIG = {
+  enabled: true,
+  title: '售后服务调研表',
+  subtitle: '提交一次真实售后体验反馈，工作人员核对后为您登记调研福利。',
+  giftText: '提交后由工作人员核对并登记福利',
+  satisfactionOptions: ['满意', '一般', '不满意'],
+  resolvedOptions: ['已解决', '处理中', '未解决'],
+  ratingMax: 5,
+  successTitle: '提交成功',
+  successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。'
+}
+
+function safeText(value, max = 500) {
+  return String(value == null ? '' : value).trim().slice(0, max)
+}
+
+function parseSurveyConfig(value) {
+  try {
+    const parsed = value ? JSON.parse(value) : {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...DEFAULT_SURVEY_CONFIG }
+    const cleanOptions = (list, fallback) => {
+      const items = Array.isArray(list)
+        ? list.map(item => safeText(item, 20)).filter(Boolean)
+        : []
+      return items.length ? items.slice(0, 8) : fallback
+    }
+    return {
+      ...DEFAULT_SURVEY_CONFIG,
+      ...parsed,
+      enabled: parsed.enabled !== false,
+      title: safeText(parsed.title, 40) || DEFAULT_SURVEY_CONFIG.title,
+      subtitle: safeText(parsed.subtitle, 120) || DEFAULT_SURVEY_CONFIG.subtitle,
+      giftText: safeText(parsed.giftText, 80) || DEFAULT_SURVEY_CONFIG.giftText,
+      satisfactionOptions: cleanOptions(parsed.satisfactionOptions, DEFAULT_SURVEY_CONFIG.satisfactionOptions),
+      resolvedOptions: cleanOptions(parsed.resolvedOptions, DEFAULT_SURVEY_CONFIG.resolvedOptions),
+      ratingMax: Math.min(10, Math.max(1, parseInt(parsed.ratingMax, 10) || DEFAULT_SURVEY_CONFIG.ratingMax)),
+      successTitle: safeText(parsed.successTitle, 20) || DEFAULT_SURVEY_CONFIG.successTitle,
+      successMessage: safeText(parsed.successMessage, 120) || DEFAULT_SURVEY_CONFIG.successMessage
+    }
+  } catch (e) {
+    return { ...DEFAULT_SURVEY_CONFIG }
+  }
+}
 
 function getEnvValue(...names) {
   for (const name of names) {
@@ -50,9 +95,13 @@ function normalizeGuide(item = {}, type = '') {
   return {
     id: item._id,
     type: item.type || type,
+    category: item.category || '操作指南',
+    audience: item.audience || 'client',
     title: item.category || '操作指南',
     description: item.desc || '',
     summary: item.desc || '',
+    content: item.content || '',
+    media: Array.isArray(item.media) ? item.media : [],
     paperTitle: item.category || '操作指南',
     sections: [{
       title: item.category || '操作指南',
@@ -72,6 +121,51 @@ module.exports = {
         .map(item => ({ ...item, templateId: getSubscriptionTemplateId(item.scene) }))
         .filter(item => item.templateId)
       return { code: 0, data: { templates } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async getSurveyConfig() {
+    try {
+      const res = await db.collection('cicada_settings').where({ key: 'survey_config' }).limit(1).get()
+      const item = res.data && res.data[0]
+      return { code: 0, data: parseSurveyConfig(item && item.value) }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async submitSurvey(data = {}) {
+    try {
+      const configRes = await db.collection('cicada_settings').where({ key: 'survey_config' }).limit(1).get()
+      const config = parseSurveyConfig(configRes.data && configRes.data[0] && configRes.data[0].value)
+      if (config.enabled === false) return { code: -1, msg: '调研表暂未启用' }
+
+      const contact = safeText(data.contact, 80)
+      const comment = safeText(data.comment, 500)
+      if (!contact) return { code: -1, msg: '请填写联系方式' }
+      if (!comment) return { code: -1, msg: '请填写调研反馈' }
+
+      const rating = Math.min(config.ratingMax, Math.max(0, parseInt(data.rating, 10) || 0))
+      if (!safeText(data.satisfaction, 30)) return { code: -1, msg: '请选择整体满意度' }
+      if (!rating) return { code: -1, msg: '请选择服务评分' }
+      if (!safeText(data.resolved, 30)) return { code: -1, msg: '请选择问题是否解决' }
+
+      const res = await db.collection('cicada_surveys').add({
+        user_id: safeText(data.user_id, 60),
+        order_no: safeText(data.orderNo || data.order_no, 80),
+        satisfaction: safeText(data.satisfaction, 30),
+        rating,
+        resolved: safeText(data.resolved, 30),
+        comment,
+        contact,
+        source: safeText(data.source, 30) || 'miniapp',
+        status: 'new',
+        create_time: Date.now(),
+        update_time: Date.now()
+      })
+      return { code: 0, data: { id: res.id, successTitle: config.successTitle, successMessage: config.successMessage } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -182,6 +276,59 @@ module.exports = {
       const guide = normalizeGuide(matched, guideType)
       setCache(cacheKey, guide)
       return { code: 0, data: guide }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 常见问题/故障库 + 操作指南 关键词搜索（首页搜索框）
+  async searchContent({ keyword = '', limit = 20 } = {}) {
+    try {
+      const kw = String(keyword || '').trim().toLowerCase()
+      if (!kw) return { code: 0, data: { list: [], keyword: '' } }
+
+      const [faultRes, categoryRes, guideRes] = await Promise.all([
+        db.collection('cicada_fault_kb').limit(1000).get(),
+        db.collection('cicada_product_categories').limit(1000).get(),
+        db.collection('cicada_guides').limit(1000).get()
+      ])
+
+      const categoryMap = (categoryRes.data || []).reduce((map, item) => {
+        map[item._id] = item.category_name
+        return map
+      }, {})
+
+      const flat = (value) => Array.isArray(value) ? value.join(' ') : String(value || '')
+      const hit = (haystack) => String(haystack || '').toLowerCase().includes(kw)
+
+      const faultHits = (faultRes.data || [])
+        .map(item => ({ ...item, category_name: categoryMap[item.category_id] || '' }))
+        .filter(item => hit(item.fault_name) || hit(flat(item.related_questions)) || hit(flat(item.fix_solutions)) || hit(flat(item.check_steps)) || hit(item.category_name))
+        .map(item => ({
+          kind: 'fault',
+          id: item._id,
+          categoryId: item.category_id,
+          category: item.category_name || '',
+          title: item.fault_name || '',
+          questions: item.related_questions || [],
+          checkSteps: item.check_steps || [],
+          solutions: item.fix_solutions || [],
+          isRecommendRepair: item.is_recommend_repair
+        }))
+
+      const guideHits = (guideRes.data || [])
+        .filter(item => hit(item.category) || hit(item.desc) || hit(item.content))
+        .map(item => ({
+          kind: 'guide',
+          id: item._id,
+          type: item.type || '',
+          title: item.category || '操作指南',
+          summary: item.desc || '',
+          content: item.content || ''
+        }))
+
+      const list = [...faultHits, ...guideHits].slice(0, Math.max(1, Number(limit) || 20))
+      return { code: 0, data: { list, keyword: kw, total: faultHits.length + guideHits.length } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

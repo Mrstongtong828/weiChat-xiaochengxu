@@ -29,7 +29,9 @@ defineEmits(['select'])
 	right: 0;
 	bottom: 0;
 	z-index: 70;
+	height: calc(84rpx + constant(safe-area-inset-bottom));
 	height: calc(84rpx + env(safe-area-inset-bottom));
+	padding: 4rpx 34rpx constant(safe-area-inset-bottom);
 	padding: 4rpx 34rpx env(safe-area-inset-bottom);
 	display: flex;
 	align-items: flex-end;

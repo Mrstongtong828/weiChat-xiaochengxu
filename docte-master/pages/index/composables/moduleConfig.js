@@ -93,7 +93,7 @@ export const moduleMap = {
 	track: { title: '维修进度', subtitle: '查看提交、物流、处理与回寄状态' },
 	'package-query': { title: '包裹查询', subtitle: '按快递单号查询是否签收和当前处理状态' },
 	'order-detail': { title: '工单详情', subtitle: '维修时间线与费用发票' },
-	survey: { title: '调研有礼', subtitle: '扫码参与调研，领取专属维保福利' },
+	survey: { title: '调研有礼', subtitle: '填写售后体验反馈，领取专属维保福利' },
 	diag: { title: '故障自查', subtitle: '选择产品类型和故障类型，查看排查建议' },
 	warranty: { title: '保修政策', subtitle: '文字形式展示保修范围、期限和注意事项' },
 	fees: { title: '收费指南', subtitle: '文字形式展示收费办法和常见项目' },

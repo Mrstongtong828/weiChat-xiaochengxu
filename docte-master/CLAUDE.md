@@ -292,7 +292,7 @@ module.exports = {
   - `E:\yayi\3号\` - Mini Program (this directory)
   - `E:\yayi\pc-admin\` - PC Admin Dashboard (sibling directory)
   - Both share the same uniCloud backend in `uniCloud-alipay/`
-- **WeChat AppID**: `wxb764380b85d5b475` (configured in manifest.json)
+- **WeChat AppID**: `wx25289fbe4a3bf011` (configured in manifest.json)
 - **Vue Version**: Vue 3 (vueVersion: "3" in manifest.json)
 - **uniCloud Provider**: Alipay Cloud (folder: uniCloud-alipay)
 - **Rate Limiting**: Implemented via `cicada_rate_limits` collection
