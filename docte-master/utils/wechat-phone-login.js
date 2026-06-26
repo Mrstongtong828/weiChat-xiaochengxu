@@ -27,7 +27,7 @@ export const normalizePhoneAuthDetail = (detail = {}) => {
 		let message = '微信手机号授权未完成，请重试'
 
 		if (privacyBlocked) {
-			message = '请先同意隐私政策授权，再重新点击微信手机号授权登录'
+			message = '请先完成微信隐私授权'
 		} else if (noPermission) {
 			message = '小程序未开通手机号授权能力，请在微信公众平台检查「获取手机号」权限和隐私协议配置'
 		} else if (unavailable) {

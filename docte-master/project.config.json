@@ -1,7 +1,60 @@
 {
   "description": "牙医仪器检修用户端微信小程序配置",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "node_modules"
+      },
+      {
+        "type": "folder",
+        "value": ".npm-cache"
+      },
+      {
+        "type": "folder",
+        "value": "unpackage"
+      },
+      {
+        "type": "folder",
+        "value": "cdn-assets"
+      },
+      {
+        "type": "file",
+        "value": "package-lock.json"
+      },
+      {
+        "type": "file",
+        "value": "package.json"
+      },
+      {
+        "type": "file",
+        "value": "README.md"
+      },
+      {
+        "type": "file",
+        "value": "CLAUDE.md"
+      },
+      {
+        "type": "file",
+        "value": "INDEX_TASK.md"
+      },
+      {
+        "type": "file",
+        "value": "logo-替换说明.md"
+      },
+      {
+        "type": "file",
+        "value": "上线配置清单.md"
+      },
+      {
+        "type": "file",
+        "value": "原型说明.md"
+      },
+      {
+        "type": "file",
+        "value": "后端对接任务清单.md"
+      }
+    ],
     "include": []
   },
   "setting": {

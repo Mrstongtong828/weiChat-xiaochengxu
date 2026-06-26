@@ -52,7 +52,7 @@ const assetCopies = [
 	['photo-building.jpg', 'photo-building.98b16d4b.jpg'],
 	['photo-factory.jpg', 'photo-factory.74afac67.jpg'],
 	['qr-wechat.jpg', 'qr-wechat.19f52a60.jpg'],
-	['survey-poster.png', 'survey-poster.7a31971d.png'],
+	['survey-poster.jpg', 'survey-poster.7a31971d.jpg'],
 	['survey-qr-wechat.jpg', 'survey-qr-wechat.d11c53e6.jpg']
 ]
 

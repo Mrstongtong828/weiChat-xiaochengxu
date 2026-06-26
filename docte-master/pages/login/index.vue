@@ -7,30 +7,23 @@
 		<button
 			class="login-auth-button tap"
 			:class="{ loading: loading, disabled: !agreed }"
-			:disabled="loading || !agreed"
-			:open-type="agreed ? (privacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization') : ''"
-			@agreeprivacyauthorization="onAgreePrivacyAuthorization"
+			:disabled="loading"
+			:open-type="agreed ? 'getPhoneNumber' : ''"
+			@click="onLoginButtonTap"
 			@getphonenumber="onGetPhoneNumber"
 		>
-			<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : privacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
+			<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : '微信一键登录' }}</text>
 		</button>
-		<view v-if="!agreed" class="login-button-mask"></view>
-		<text class="login-error login-image-error">{{ loginError || '请先同意隐私政策授权，再重新点击微信手机号授权登录' }}</text>
-		<view class="login-consent-check tap" @click="toggleAgreement">
-			<view :class="['login-checkbox', { checked: agreed }]">
-				<text v-if="agreed">✓</text>
-			</view>
-			<text>我已阅读并同意</text>
-			<text class="login-policy-link" @click.stop="openPolicy('user')">《用户协议》</text>
-			<text>与</text>
-			<text class="login-policy-link" @click.stop="openPolicy('privacy')">《隐私政策》</text>
-		</view>
-		<view class="login-agreement-clean">
-			<text>登录即表示您已阅读并同意</text>
-			<view>
-				<text @click="openPolicy('user')">《用户协议》</text>
-				<text>及</text>
-				<text @click="openPolicy('privacy')">《隐私政策》</text>
+		<view class="login-consent-panel">
+			<text v-if="!agreed" class="login-error login-image-error">请先勾选同意协议，再点击微信一键登录</text>
+			<view class="login-consent-check tap" @click="toggleAgreement">
+				<view :class="['login-checkbox', { checked: agreed }]">
+					<text v-if="agreed">✓</text>
+				</view>
+				<text>我已阅读并同意</text>
+				<text class="login-policy-link" @click.stop="openPolicy('user')">《用户协议》</text>
+				<text>与</text>
+				<text class="login-policy-link" @click.stop="openPolicy('privacy')">《隐私政策》</text>
 			</view>
 		</view>
 		<PrivacyConsent />
@@ -42,7 +35,7 @@ import { cicadaAssets } from '@/config/cicada-assets'
 import { wechatLogin } from '@/api/content'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
-import { getWechatPrivacyReady, markWechatPrivacyReady } from '@/utils/wechat-privacy.js'
+import { getWechatPrivacyReady, requestWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
 
 const agreed = ref(false)
 const loading = ref(false)
@@ -54,22 +47,38 @@ const openPolicy = (type) => {
 	uni.navigateTo({ url: `/pages/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
 }
 
-const toggleAgreement = () => {
-	agreed.value = !agreed.value
-	if (agreed.value) loginError.value = ''
+const toggleAgreement = async () => {
+	const nextValue = !agreed.value
+	agreed.value = nextValue
+	if (!nextValue) {
+		loginError.value = ''
+		return
+	}
+
+	loginError.value = ''
+	if (!privacyReady.value) {
+		try {
+			await requestWechatPrivacyAuthorization()
+			privacyReady.value = true
+		} catch (error) {
+			agreed.value = false
+			loginError.value = ''
+			uni.showToast({ title: '请先完成微信隐私授权', icon: 'none' })
+		}
+	}
+}
+
+const onLoginButtonTap = () => {
+	if (!agreed.value) onLoginDisabledTap()
+}
+
+const onLoginDisabledTap = () => {
+	loginError.value = ''
+	uni.showToast({ title: '请勾选同意《用户协议》和《隐私政策》后再登录', icon: 'none' })
 }
 
 const showLoginError = (message) => {
 	loginError.value = message
-	if (String(message).length > 16) {
-		uni.showModal({
-			title: '登录失败',
-			content: message,
-			showCancel: false,
-			confirmText: '知道了'
-		})
-		return
-	}
 	uni.showToast({ title: message, icon: 'none' })
 }
 
@@ -115,12 +124,6 @@ const syncWechatPrivacyReady = () => {
 	privacyReady.value = true
 }
 
-const onAgreePrivacyAuthorization = () => {
-	markWechatPrivacyReady()
-	syncWechatPrivacyReady()
-	loginError.value = ''
-}
-
 // 先完成微信手机号授权，再通过 wx.login code 获取 openid 作为账号身份登录。
 const onGetPhoneNumber = async (e) => {
 	if (loading.value) return
@@ -128,15 +131,23 @@ const onGetPhoneNumber = async (e) => {
 	retrying.value = false
 
 	if (!agreed.value) {
-		showLoginError('请先勾选同意用户协议与隐私政策')
+		onLoginDisabledTap()
 		return
 	}
 
 	const authDetail = normalizePhoneAuthDetail(e.detail || {})
 	if (!authDetail.ok) {
 		console.warn('wechat getPhoneNumber failed:', authDetail.raw || e.detail || {})
-		if (!authDetail.canceled) showLoginError(authDetail.message)
-		else loginError.value = authDetail.message
+		if (authDetail.privacyBlocked) {
+			agreed.value = false
+			loginError.value = ''
+			privacyReady.value = false
+			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
+		} else if (!authDetail.canceled) {
+			showLoginError(authDetail.message)
+		} else {
+			loginError.value = ''
+		}
 		return
 	}
 
@@ -224,43 +235,44 @@ const onGetPhoneNumber = async (e) => {
 	border: none;
 }
 
-.login-auth-button.loading,
 .login-auth-button[disabled] {
 	opacity: 0.01;
 }
 
-.login-button-mask {
+.login-consent-panel {
 	position: absolute;
-	left: 74rpx;
-	top: 1090rpx;
-	z-index: 4;
-	width: 602rpx;
-	height: 120rpx;
-	border-radius: 26rpx;
-	background: rgba(170, 181, 197, 0.48);
-	pointer-events: none;
+	left: 75rpx;
+	top: 1238rpx;
+	z-index: 5;
+	width: 600rpx;
+	min-height: 72rpx;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 12rpx;
+	background: transparent;
+	box-sizing: border-box;
 }
 
 .login-consent-check {
-	position: absolute;
-	left: 74rpx;
-	top: 1220rpx;
-	z-index: 5;
-	width: 602rpx;
+	width: 100%;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-wrap: wrap;
-	gap: 8rpx;
-	font-size: 24rpx;
-	line-height: 1.5;
-	color: #6C7890;
+	gap: 7rpx;
+	font-size: 23rpx;
+	line-height: 1.4;
+	color: #5F6E86;
 	text-align: center;
 }
 
 .login-checkbox {
 	width: 28rpx;
 	height: 28rpx;
+	flex: 0 0 28rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -284,46 +296,15 @@ const onGetPhoneNumber = async (e) => {
 
 .login-policy-link {
 	color: #1E7DF2;
-}
-
-.login-agreement-clean {
-	position: absolute;
-	left: 74rpx;
-	top: 1276rpx;
-	z-index: 4;
-	width: 602rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 8rpx;
-	text-align: center;
-	font-size: 25rpx;
-	line-height: 1.6;
-	color: #7B8797;
-}
-
-.login-agreement-clean view {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 10rpx;
-	flex-wrap: wrap;
-}
-
-.login-agreement-clean view text:nth-child(odd) {
-	color: #1E7DF2;
+	text-decoration: underline;
 }
 
 .login-image-error {
-	position: absolute;
-	left: 76rpx;
-	top: 1192rpx;
-	z-index: 5;
-	width: 598rpx;
+	width: 100%;
 	padding: 0;
 	text-align: center;
-	font-size: 24rpx;
-	line-height: 1.5;
+	font-size: 21rpx;
+	line-height: 1.45;
 	color: #E5484D;
 }
 

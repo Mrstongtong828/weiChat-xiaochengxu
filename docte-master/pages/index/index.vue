@@ -1085,30 +1085,23 @@
 				<button
 					class="login-auth-button tap"
 					:class="{ loading: loginSubmitting, disabled: !loginAgreementChecked }"
-					:disabled="loginSubmitting || !loginAgreementChecked"
-					:open-type="loginAgreementChecked ? (loginPrivacyReady ? 'getPhoneNumber' : 'agreePrivacyAuthorization') : ''"
-					@agreeprivacyauthorization="onAgreeLoginPrivacyAuthorization"
+					:disabled="loginSubmitting"
+					:open-type="loginAgreementChecked ? 'getPhoneNumber' : ''"
+					@click="onLoginButtonTap"
 					@getphonenumber="onGetPhoneNumberLogin"
 				>
-					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : loginPrivacyReady ? '微信一键登录' : '同意隐私政策并登录' }}</text>
+					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : '微信一键登录' }}</text>
 				</button>
-				<view v-if="!loginAgreementChecked" class="login-button-mask"></view>
-				<text class="login-error login-image-error">{{ loginError || '请先同意隐私政策授权，再重新点击微信手机号授权登录' }}</text>
-				<view class="login-consent-check tap" @click="toggleLoginAgreement">
-					<view :class="['login-checkbox', { checked: loginAgreementChecked }]">
-						<text v-if="loginAgreementChecked">✓</text>
-					</view>
-					<text>我已阅读并同意</text>
-					<text class="login-policy-link" @click.stop="openLoginPolicy('user')">《用户协议》</text>
-					<text>与</text>
-					<text class="login-policy-link" @click.stop="openLoginPolicy('privacy')">《隐私政策》</text>
-				</view>
-				<view class="login-agreement-clean">
-					<text>登录即表示您已阅读并同意</text>
-					<view>
-						<text @click="openLoginPolicy('user')">《用户协议》</text>
-						<text>及</text>
-						<text @click="openLoginPolicy('privacy')">《隐私政策》</text>
+				<view class="login-consent-panel">
+					<text v-if="!loginAgreementChecked" class="login-error login-image-error">请先勾选同意协议，再点击微信一键登录</text>
+					<view class="login-consent-check tap" @click="toggleLoginAgreement">
+						<view :class="['login-checkbox', { checked: loginAgreementChecked }]">
+							<text v-if="loginAgreementChecked">✓</text>
+						</view>
+						<text>我已阅读并同意</text>
+						<text class="login-policy-link" @click.stop="openLoginPolicy('user')">《用户协议》</text>
+						<text>与</text>
+						<text class="login-policy-link" @click.stop="openLoginPolicy('privacy')">《隐私政策》</text>
 					</view>
 				</view>
 				<!-- #ifdef H5 -->
@@ -1531,7 +1524,7 @@ import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
-import { getWechatPrivacyReady, markWechatPrivacyReady } from '@/utils/wechat-privacy.js'
+import { getWechatPrivacyReady, requestWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
 import {
 	getContact,
 	getCustomerService,
@@ -4364,8 +4357,13 @@ const onGetPhoneNumberLogin = async (event = {}) => {
 	const authDetail = normalizePhoneAuthDetail(event.detail || {})
 	if (!authDetail.ok) {
 		console.warn('wechat getPhoneNumber failed:', authDetail.raw || event.detail || {})
-		if (authDetail.canceled) {
-			loginError.value = authDetail.message
+		if (authDetail.privacyBlocked) {
+			loginAgreementChecked.value = false
+			loginError.value = ''
+			loginPrivacyReady.value = false
+			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
+		} else if (authDetail.canceled) {
+			loginError.value = ''
 		} else {
 			showLoginError(authDetail.message)
 		}
@@ -4390,35 +4388,45 @@ const onGetPhoneNumberLogin = async (event = {}) => {
 		console.warn('wechat phone login failed:', error)
 		const message = getLoginErrorMessage(error)
 		loginError.value = message
-		if (message.length > 16) {
-			uni.showModal({
-				title: '登录失败',
-				content: message,
-				showCancel: false,
-				confirmText: '知道了'
-			})
-		} else {
-			uni.showToast({ title: message, icon: 'none' })
-		}
+		uni.showToast({ title: message, icon: 'none' })
 	} finally {
 		loginSubmitting.value = false
 		loginRetrying.value = false
 	}
 }
 
-const onAgreeLoginPrivacyAuthorization = () => {
-	markWechatPrivacyReady()
-	syncLoginPrivacyReady()
-	loginError.value = ''
-}
-
 const syncLoginPrivacyReady = () => {
 	loginPrivacyReady.value = true
 }
 
-const toggleLoginAgreement = () => {
-	loginAgreementChecked.value = !loginAgreementChecked.value
-	if (loginAgreementChecked.value) loginError.value = ''
+const toggleLoginAgreement = async () => {
+	const nextValue = !loginAgreementChecked.value
+	loginAgreementChecked.value = nextValue
+	if (!nextValue) {
+		loginError.value = ''
+		return
+	}
+
+	loginError.value = ''
+	if (!loginPrivacyReady.value) {
+		try {
+			await requestWechatPrivacyAuthorization()
+			loginPrivacyReady.value = true
+		} catch (error) {
+			loginAgreementChecked.value = false
+			loginError.value = ''
+			uni.showToast({ title: '请先完成微信隐私授权', icon: 'none' })
+		}
+	}
+}
+
+const onLoginButtonTap = () => {
+	if (!loginAgreementChecked.value) onLoginDisabledTap()
+}
+
+const onLoginDisabledTap = () => {
+	loginError.value = ''
+	uni.showToast({ title: '请勾选同意《用户协议》和《隐私政策》后再登录', icon: 'none' })
 }
 
 const openLoginPolicy = (type) => {
@@ -4427,15 +4435,6 @@ const openLoginPolicy = (type) => {
 
 const showLoginError = (message) => {
 	loginError.value = message
-	if (String(message).length > 16) {
-		uni.showModal({
-			title: '登录失败',
-			content: message,
-			showCancel: false,
-			confirmText: '知道了'
-		})
-		return
-	}
 	uni.showToast({ title: message, icon: 'none' })
 }
 
@@ -11825,43 +11824,44 @@ onUnmounted(() => {
 	border: none;
 }
 
-.login-auth-button.loading,
 .login-auth-button[disabled] {
 	opacity: 0.01;
 }
 
-.login-button-mask {
+.login-consent-panel {
 	position: absolute;
-	left: 74rpx;
-	top: 1090rpx;
-	z-index: 4;
-	width: 602rpx;
-	height: 120rpx;
-	border-radius: 26rpx;
-	background: rgba(170, 181, 197, 0.48);
-	pointer-events: none;
+	left: 75rpx;
+	top: 1238rpx;
+	z-index: 5;
+	width: 600rpx;
+	min-height: 72rpx;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 12rpx;
+	background: transparent;
+	box-sizing: border-box;
 }
 
 .login-consent-check {
-	position: absolute;
-	left: 74rpx;
-	top: 1220rpx;
-	z-index: 5;
-	width: 602rpx;
+	width: 100%;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-wrap: wrap;
-	gap: 8rpx;
-	font-size: 24rpx;
-	line-height: 1.5;
-	color: #6C7890;
+	gap: 7rpx;
+	font-size: 23rpx;
+	line-height: 1.4;
+	color: #5F6E86;
 	text-align: center;
 }
 
 .login-checkbox {
 	width: 28rpx;
 	height: 28rpx;
+	flex: 0 0 28rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -11885,34 +11885,7 @@ onUnmounted(() => {
 
 .login-policy-link {
 	color: #1E7DF2;
-}
-
-.login-agreement-clean {
-	position: absolute;
-	left: 74rpx;
-	top: 1276rpx;
-	z-index: 4;
-	width: 602rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	gap: 8rpx;
-	text-align: center;
-	font-size: 25rpx;
-	line-height: 1.6;
-	color: #7B8797;
-}
-
-.login-agreement-clean view {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 10rpx;
-	flex-wrap: wrap;
-}
-
-.login-agreement-clean view text:nth-child(odd) {
-	color: #1E7DF2;
+	text-decoration: underline;
 }
 
 .phone-login {
@@ -11935,15 +11908,11 @@ onUnmounted(() => {
 
 .login-error,
 .login-image-error {
-	position: absolute;
-	left: 76rpx;
-	top: 1192rpx;
-	z-index: 5;
-	width: 598rpx;
+	width: 100%;
 	padding: 0;
 	text-align: center;
-	font-size: 24rpx;
-	line-height: 1.5;
+	font-size: 21rpx;
+	line-height: 1.45;
 	color: #E5484D;
 }
 .glyph-cam::before {
