@@ -4402,22 +4402,7 @@ const syncLoginPrivacyReady = () => {
 const toggleLoginAgreement = async () => {
 	const nextValue = !loginAgreementChecked.value
 	loginAgreementChecked.value = nextValue
-	if (!nextValue) {
-		loginError.value = ''
-		return
-	}
-
 	loginError.value = ''
-	if (!loginPrivacyReady.value) {
-		try {
-			await requestWechatPrivacyAuthorization()
-			loginPrivacyReady.value = true
-		} catch (error) {
-			loginAgreementChecked.value = false
-			loginError.value = ''
-			uni.showToast({ title: '请先完成微信隐私授权', icon: 'none' })
-		}
-	}
 }
 
 const onLoginButtonTap = () => {

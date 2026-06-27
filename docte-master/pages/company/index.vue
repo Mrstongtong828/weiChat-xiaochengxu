@@ -1,28 +1,7 @@
 <template>
 	<view class="page-shell">
-		<view class="wx-top">
-			<view class="status-row">
-				<text class="status-time">9:41</text>
-				<view class="status-icons">
-					<view class="signal">
-						<view class="signal-bar signal-one"></view>
-						<view class="signal-bar signal-two"></view>
-						<view class="signal-bar signal-three"></view>
-						<view class="signal-bar signal-four"></view>
-					</view>
-					<view class="wifi-dot"></view>
-					<view class="battery"><view class="battery-fill"></view></view>
-				</view>
-			</view>
-			<view class="nav-row">
-				<view class="nav-spacer"></view>
-				<text class="nav-title"></text>
-				<view class="capsule">
-					<view class="capsule-dots"><view></view><view></view><view></view></view>
-					<view class="capsule-line"></view>
-					<view class="capsule-circle"></view>
-				</view>
-			</view>
+		<view class="page-header">
+			<text class="page-header-title">公司介绍</text>
 		</view>
 
 		<view class="page-body">
@@ -282,7 +261,7 @@ const copyEmail = () => {
 }
 
 .page-body {
-	padding: 176rpx 28rpx 220rpx;
+	padding: calc(116rpx + env(safe-area-inset-top)) 28rpx 220rpx;
 	box-sizing: border-box;
 }
 
@@ -291,131 +270,26 @@ const copyEmail = () => {
 	transform: scale(0.98);
 }
 
-.wx-top {
+.page-header {
 	position: fixed;
 	top: 0;
 	left: 0;
 	right: 0;
 	z-index: 30;
-	height: 176rpx;
-	background: #E8EEFA;
-}
-
-.status-row {
-	height: 88rpx;
-	padding: 0 44rpx;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	justify-content: center;
+	padding: calc(24rpx + env(safe-area-inset-top)) 28rpx 18rpx;
+	background: rgba(232, 238, 250, 0.96);
+	backdrop-filter: blur(10rpx);
 	box-sizing: border-box;
 }
 
-.status-time {
-	font-size: 30rpx;
-	font-weight: 600;
+.page-header-title {
+	font-size: 32rpx;
+	font-weight: 700;
 	color: #0F1F3A;
-}
-
-.status-icons {
-	display: flex;
-	align-items: center;
-	gap: 10rpx;
-}
-
-.signal {
-	height: 22rpx;
-	display: flex;
-	align-items: flex-end;
-	gap: 4rpx;
-}
-
-.signal-bar {
-	width: 4rpx;
-	border-radius: 2rpx;
-	background: #0F1F3A;
-}
-
-.signal-one { height: 6rpx; }
-.signal-two { height: 10rpx; }
-.signal-three { height: 14rpx; }
-.signal-four { height: 20rpx; }
-
-.wifi-dot {
-	width: 12rpx;
-	height: 12rpx;
-	border-radius: 999rpx;
-	border: 4rpx solid #0F1F3A;
-	border-left-color: transparent;
-	border-bottom-color: transparent;
-	transform: rotate(-45deg);
-}
-
-.battery {
-	width: 44rpx;
-	height: 20rpx;
-	padding: 2rpx;
-	border: 2rpx solid rgba(15, 31, 58, 0.5);
-	border-radius: 5rpx;
-	box-sizing: border-box;
-}
-
-.battery-fill {
-	width: 85%;
-	height: 100%;
-	border-radius: 2rpx;
-	background: #0F1F3A;
-}
-
-.nav-row {
-	position: relative;
-	height: 88rpx;
-	padding: 0 14rpx 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	box-sizing: border-box;
-}
-
-.nav-spacer {
-	width: 48rpx;
-	height: 48rpx;
-}
-
-.capsule {
-	width: 174rpx;
-	height: 64rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-around;
-	border: 1rpx solid rgba(0, 0, 0, 0.08);
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.78);
-	box-shadow: 0 4rpx 14rpx rgba(15, 31, 58, 0.08);
-}
-
-.capsule-dots {
-	display: flex;
-	gap: 10rpx;
-}
-
-.capsule-dots view {
-	width: 7rpx;
-	height: 7rpx;
-	border-radius: 999rpx;
-	background: #000000;
-}
-
-.capsule-line {
-	width: 1rpx;
-	height: 32rpx;
-	background: rgba(0, 0, 0, 0.15);
-}
-
-.capsule-circle {
-	width: 30rpx;
-	height: 30rpx;
-	border: 4rpx solid #000000;
-	border-radius: 999rpx;
+	line-height: 1.2;
 }
 
 .brand-bar {

@@ -48,12 +48,9 @@ const loadComplianceText = async () => {
 
 onMounted(async () => {
 	// #ifdef MP-WEIXIN
-	// 接入官方隐私授权机制：由微信在需要时触发弹窗，不再依赖首启自绘弹窗强制同意
+	// 接入官方隐私授权机制：仅在 getPhoneNumber 等接口真正需要时再弹出
 	uni.$on('needPrivacyAuthorization', showPrivacyDialog)
 	setupWechatPrivacyAuthorization(showPrivacyDialog)
-	if (!uni.getStorageSync(PRIVACY_STORAGE_KEY)) {
-		showPrivacyDialog()
-	}
 	return
 	// #endif
 	// 非微信端 / 低版本：首启展示一次自绘同意弹窗
@@ -84,28 +81,12 @@ const agree = () => {
 }
 
 const reject = () => {
-	// #ifdef MP-WEIXIN
-	// 官方机制下：拒绝即放弃本次隐私接口调用，但允许用户继续浏览公开内容（不强制退出）
 	if (typeof privacyResolve === 'function') {
 		privacyResolve({ event: 'disagree' })
 		privacyResolve = null
-		show.value = false
-		uni.showToast({ title: '已取消授权，可继续浏览', icon: 'none' })
-		return
 	}
-	// #endif
-	uni.showModal({
-		title: '温馨提示',
-		content: '未同意隐私政策时，仅可浏览基础内容，登录与报修等功能将无法使用。',
-		confirmText: '我再看看',
-		cancelText: '仅浏览',
-		success: (res) => {
-			if (res.cancel) {
-				// 允许游客浏览公开内容，不再强制退出小程序
-				show.value = false
-			}
-		}
-	})
+	show.value = false
+	uni.showToast({ title: '未完成授权，暂时无法使用登录能力', icon: 'none' })
 }
 </script>
 

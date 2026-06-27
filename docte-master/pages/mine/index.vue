@@ -1,29 +1,8 @@
 <template>
 	<view class="page-shell">
 		<view class="mine-hero">
-			<view class="wx-top dark">
-				<view class="status-row">
-					<text class="status-time">9:41</text>
-					<view class="status-icons">
-						<view class="signal">
-							<view class="signal-bar signal-one"></view>
-							<view class="signal-bar signal-two"></view>
-							<view class="signal-bar signal-three"></view>
-							<view class="signal-bar signal-four"></view>
-						</view>
-						<view class="wifi-dot"></view>
-						<view class="battery"><view class="battery-fill"></view></view>
-					</view>
-				</view>
-				<view class="nav-row">
-					<view class="nav-spacer"></view>
-					<text class="nav-title">我的</text>
-					<view class="capsule">
-						<view class="capsule-dots"><view></view><view></view><view></view></view>
-						<view class="capsule-line"></view>
-						<view class="capsule-circle"></view>
-					</view>
-				</view>
+			<view class="mine-topbar">
+				<text class="mine-topbar-title">我的</text>
 			</view>
 
 			<view class="profile-row">
@@ -236,146 +215,30 @@ const goOrder = (type) => {
 
 .mine-hero {
 	position: relative;
-	padding: 188rpx 36rpx 160rpx;
+	padding: calc(118rpx + env(safe-area-inset-top)) 36rpx 160rpx;
 	background: linear-gradient(180deg, #1E6FE0 0%, #3A86FF 100%);
 	color: #FFFFFF;
 	box-sizing: border-box;
 }
 
-.wx-top {
+.mine-topbar {
 	position: absolute;
 	top: 0;
 	left: 0;
 	right: 0;
 	z-index: 30;
-	height: 176rpx;
-}
-
-.status-row {
-	height: 88rpx;
-	padding: 0 44rpx;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	justify-content: center;
+	padding: calc(24rpx + env(safe-area-inset-top)) 36rpx 0;
 	box-sizing: border-box;
 }
 
-.status-time {
-	font-size: 30rpx;
-	font-weight: 600;
-	line-height: 1;
-	color: #FFFFFF;
-}
-
-.status-icons {
-	display: flex;
-	align-items: center;
-	gap: 10rpx;
-}
-
-.signal {
-	height: 22rpx;
-	display: flex;
-	align-items: flex-end;
-	gap: 4rpx;
-}
-
-.signal-bar {
-	width: 4rpx;
-	border-radius: 2rpx;
-	background: #FFFFFF;
-}
-
-.signal-one { height: 6rpx; }
-.signal-two { height: 10rpx; }
-.signal-three { height: 14rpx; }
-.signal-four { height: 20rpx; }
-
-.wifi-dot {
-	width: 12rpx;
-	height: 12rpx;
-	border-radius: 999rpx;
-	border: 4rpx solid #FFFFFF;
-	border-left-color: transparent;
-	border-bottom-color: transparent;
-	transform: rotate(-45deg);
-}
-
-.battery {
-	width: 44rpx;
-	height: 20rpx;
-	padding: 2rpx;
-	border: 2rpx solid rgba(255, 255, 255, 0.6);
-	border-radius: 5rpx;
-	box-sizing: border-box;
-}
-
-.battery-fill {
-	width: 85%;
-	height: 100%;
-	border-radius: 2rpx;
-	background: #FFFFFF;
-}
-
-.nav-row {
-	position: relative;
-	height: 88rpx;
-	padding: 0 14rpx 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	box-sizing: border-box;
-}
-
-.nav-spacer {
-	width: 48rpx;
-	height: 48rpx;
-}
-
-.nav-title {
-	position: absolute;
-	left: 50%;
+.mine-topbar-title {
 	font-size: 32rpx;
-	font-weight: 600;
+	font-weight: 700;
 	line-height: 1;
 	color: #FFFFFF;
-	transform: translateX(-50%);
-}
-
-.capsule {
-	width: 174rpx;
-	height: 64rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-around;
-	border: 1rpx solid rgba(255, 255, 255, 0.25);
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.12);
-}
-
-.capsule-dots {
-	display: flex;
-	gap: 10rpx;
-}
-
-.capsule-dots view {
-	width: 7rpx;
-	height: 7rpx;
-	border-radius: 999rpx;
-	background: #FFFFFF;
-}
-
-.capsule-line {
-	width: 1rpx;
-	height: 32rpx;
-	background: rgba(255, 255, 255, 0.3);
-}
-
-.capsule-circle {
-	width: 30rpx;
-	height: 30rpx;
-	border: 3rpx solid #FFFFFF;
-	border-radius: 999rpx;
 }
 
 .profile-row {

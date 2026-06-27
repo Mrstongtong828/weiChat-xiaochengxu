@@ -30,18 +30,16 @@
 	</view>
 </template>
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { ref } from 'vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import { wechatLogin } from '@/api/content'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
-import { getWechatPrivacyReady, requestWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
 
 const agreed = ref(false)
 const loading = ref(false)
 const retrying = ref(false)
 const loginError = ref('')
-const privacyReady = ref(false)
 
 const openPolicy = (type) => {
 	uni.navigateTo({ url: `/pages/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
@@ -50,22 +48,7 @@ const openPolicy = (type) => {
 const toggleAgreement = async () => {
 	const nextValue = !agreed.value
 	agreed.value = nextValue
-	if (!nextValue) {
-		loginError.value = ''
-		return
-	}
-
 	loginError.value = ''
-	if (!privacyReady.value) {
-		try {
-			await requestWechatPrivacyAuthorization()
-			privacyReady.value = true
-		} catch (error) {
-			agreed.value = false
-			loginError.value = ''
-			uni.showToast({ title: '请先完成微信隐私授权', icon: 'none' })
-		}
-	}
 }
 
 const onLoginButtonTap = () => {
@@ -111,19 +94,6 @@ const applyLoginSuccess = (res = {}, message = '') => {
 	return false
 }
 
-onMounted(async () => {
-	uni.$on('wechatPrivacyReady', syncWechatPrivacyReady)
-	privacyReady.value = await getWechatPrivacyReady()
-})
-
-onUnmounted(() => {
-	uni.$off('wechatPrivacyReady', syncWechatPrivacyReady)
-})
-
-const syncWechatPrivacyReady = () => {
-	privacyReady.value = true
-}
-
 // 先完成微信手机号授权，再通过 wx.login code 获取 openid 作为账号身份登录。
 const onGetPhoneNumber = async (e) => {
 	if (loading.value) return
@@ -141,7 +111,6 @@ const onGetPhoneNumber = async (e) => {
 		if (authDetail.privacyBlocked) {
 			agreed.value = false
 			loginError.value = ''
-			privacyReady.value = false
 			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
 		} else if (!authDetail.canceled) {
 			showLoginError(authDetail.message)
