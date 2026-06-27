@@ -222,7 +222,7 @@ const routes = {
 
 const go = (id) => {
 	if (id === 'company') return
-	uni.navigateTo({
+	uni.redirectTo({
 		url: routes[id] || `/pages/${id}/index`,
 		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
 	})

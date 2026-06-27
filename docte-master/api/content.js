@@ -118,6 +118,13 @@ const getLocalDevLoginSession = () => ({
 	}
 })
 
+const allowOfflineLoginFallback = () => {
+	// #ifdef H5
+	return true
+	// #endif
+	return false
+}
+
 const isCloudUnavailableError = (error) => /云服务未连接|云服务未初始化|uniCloud 服务空间|importObject|uniCloud/i.test(String(error && (error.message || error.errMsg || error)))
 
 export const wechatLogin = (data = {}) => {
@@ -127,14 +134,14 @@ export const wechatLogin = (data = {}) => {
 			throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
 		}
 		return cloudObject.login(data).then(unwrapCloudResult).catch((error) => {
-			if (isCloudUnavailableError(error)) {
+			if (allowOfflineLoginFallback() && isCloudUnavailableError(error)) {
 				console.warn('cloud login unavailable, using offline session:', error)
 				return getLocalDevLoginSession()
 			}
 			throw error
 		})
 	} catch (error) {
-		if (isCloudUnavailableError(error)) {
+		if (allowOfflineLoginFallback() && isCloudUnavailableError(error)) {
 			console.warn('cloud login unavailable, using offline session:', error)
 			return Promise.resolve(getLocalDevLoginSession())
 		}

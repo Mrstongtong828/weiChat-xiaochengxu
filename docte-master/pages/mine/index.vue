@@ -78,18 +78,22 @@
 import { computed, ref, onMounted } from 'vue'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { getRepairList, getRepairStats } from '@/api/repair'
+import { getMyDevices, getRepairList, getRepairStats } from '@/api/repair'
 import { countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
 
 const logged = ref(false)
 const currentUser = ref({})
 const repairCounts = ref({ all: 0, pending: 0, fixing: 0, shipped: 0 })
+const productCount = ref(0)
 
 onMounted(() => {
 	const token = uni.getStorageSync('token')
 	currentUser.value = uni.getStorageSync('userInfo') || {}
 	logged.value = Boolean(token)
-	if (token) loadRepairCounts()
+	if (token) {
+		loadRepairCounts()
+		loadProductCount()
+	}
 })
 
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
@@ -130,12 +134,25 @@ const loadRepairCounts = async () => {
 	}
 }
 
-const menus = [
+const loadProductCount = async () => {
+	try {
+		const data = await getMyDevices({ page: 1, size: 100 })
+		const list = Array.isArray(data) ? data : (data?.list || [])
+		const total = Number(data?.total || data?.count || list.length)
+		if (Number.isFinite(total) && total >= 0) {
+			productCount.value = total
+		}
+	} catch (error) {
+		console.warn('load product count failed:', error)
+	}
+}
+
+const menus = computed(() => [
 	{ icon: 'pin', title: '收货地址管理', desc: '多地址 · 默认回寄地址', go: 'address' },
 	{ icon: 'edit', title: '投诉和建议', desc: '问题反馈 / 改进建议', go: 'feedback' },
-	{ icon: 'box', title: '我的产品', desc: '已登记 3 件设备', go: 'products' },
+	{ icon: 'box', title: '我的产品', desc: `${productCount.value} 件设备档案`, go: 'products' },
 	{ icon: 'invoice', title: '发票与开票', desc: '申请开票 / 下载电子发票', go: 'invoices' }
-]
+])
 
 const tabs = [
 	{ id: 'home', label: '首页', icon: 'home' },
@@ -183,14 +200,22 @@ const toggleLogin = () => {
 
 const go = (id) => {
 	if (id === 'mine') return
+	const url = routes[id] || `/pages/${id}/index`
+	if (id === 'home' || id === 'company') {
+		uni.redirectTo({
+			url,
+			fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
+		})
+		return
+	}
 	uni.navigateTo({
-		url: routes[id] || `/pages/${id}/index`,
+		url,
 		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
 	})
 }
 
 const goOrder = (type) => {
-	uni.navigateTo({
+	uni.redirectTo({
 		url: `/pages/index/index?type=${type}`,
 		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
 	})

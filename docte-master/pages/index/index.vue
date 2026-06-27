@@ -877,7 +877,7 @@
 						<text>{{ customerService.title || '在线客服' }}</text>
 						<text>{{ customerService.description || '7×24 小时 · 即时响应' }}</text>
 					</view>
-					<view class="soft-button">立即咨询</view>
+					<view class="soft-button tap" @click="openCustomerService">立即咨询</view>
 				</view>
 				<view class="module-section-head single"><text>服务热线</text></view>
 				<view class="hotline-grid">
@@ -885,7 +885,7 @@
 						<view><view class="glyph glyph-phone"><view class="glyph-extra"></view></view><text>{{ item.title }}</text></view>
 						<text>{{ item.number }}</text>
 						<text>{{ item.time }}</text>
-						<view class="small-primary">一键拨号</view>
+						<view class="small-primary tap" @click="callPhone(item.number)">一键拨号</view>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>收件地址</text></view>
@@ -950,7 +950,7 @@
 					<view class="ghost-mini tap" @click="go('repair')">报修</view>
 				</view>
 				<view v-if="!productList.length" class="empty-hint compact">暂无已登记设备。报修提交或维修完成后，会在这里沉淀设备档案与保修状态。</view>
-				<view class="dash-add tap"><text>+</text><text>添加我的产品</text></view>
+				<view class="dash-add tap" @click="go('repair')"><text>+</text><text>添加我的产品</text></view>
 			</view>
 
 			<view v-else-if="activeModule === 'address'" class="module-content address-module">
@@ -4513,18 +4513,20 @@ const openAddressPage = () => {
 }
 
 const openCustomerService = () => {
-	uni.showToast({ title: '正在连接客服...', icon: 'none' })
+	if (customerService.value.wechat) {
+		uni.setClipboardData({
+			data: customerService.value.wechat,
+			success: () => uni.showToast({ title: '客服微信已复制，请前往添加', icon: 'success' }),
+			fail: () => uni.showToast({ title: '复制失败，请稍后重试', icon: 'none' })
+		})
+		return
+	}
+	uni.showToast({ title: '客服方式暂未配置', icon: 'none' })
 }
 
 const makePhoneCall = () => {
-	uni.makePhoneCall({
-		phoneNumber: '13929198537',
-		success: () => {},
-		fail: (error) => {
-			console.warn('make phone call failed:', error)
-			uni.showToast({ title: '拨打电话失败', icon: 'none' })
-		}
-	})
+	const phoneNumber = (contactInfo.value.phone || contactHotlines.value[0]?.number || '13929198537').replace(/\s/g, '')
+	callPhone(phoneNumber)
 }
 
 const callPhone = (phoneNumber) => {
