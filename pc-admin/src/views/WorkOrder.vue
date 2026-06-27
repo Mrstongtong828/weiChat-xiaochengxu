@@ -994,7 +994,7 @@ import { getSettings, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
-import { openPrintWindow, parsePrintConfig, pickPrintTemplate } from '../utils/orderPrint.js'
+import { getLodopInstallTip, openPrintWindow, parsePrintConfig, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
 
 const route = useRoute()
@@ -2417,23 +2417,28 @@ const confirmSaveRemark = async () => {
   }
 }
 
-const printOrder = () => {
-  if (!currentOrder.value) return
-  if (!openPrintWindow([currentOrder.value])) {
+const handlePrintResult = (result) => {
+  if (!result || !result.ok) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
+    return
+  }
+  if (result.fallback && result.reason === 'missing') {
+    ElMessage.warning(getLodopInstallTip())
   }
 }
 
-const printSelectedOrders = () => {
+const printOrder = async () => {
+  if (!currentOrder.value) return
+  handlePrintResult(await openPrintWindow([currentOrder.value]))
+}
+
+const printSelectedOrders = async () => {
   if (!selectedOrders.value.length) {
     ElMessage.warning('请先勾选要打印的工单')
     return
   }
-  if (!openPrintWindow(selectedOrders.value)) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
+  handlePrintResult(await openPrintWindow(selectedOrders.value))
 }
-
 const handleBatchPrint = async () => {
   if (!selectedOrders.value.length) {
     ElMessage.warning('请先勾选要打印的工单')
@@ -2505,34 +2510,27 @@ const printDoc = async (docType) => {
   const raw = printSettingsRaw.value || {}
   const template = pickPrintTemplate(raw.print_templates, raw.print_config, docType)
   await resolvePrintLogo(template)
-  if (!openPrintWindow([currentOrder.value], template, docType)) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
+  handlePrintResult(await openPrintWindow([currentOrder.value], template, docType))
 }
 const handlePrintCommand = (command) => {
   if (command === 'repair_order') return printConfiguredOrder()
   return printDoc(command)
 }
 
-const printConfiguredOrder = () => {
+const printConfiguredOrder = async () => {
   if (!currentOrder.value) return
   const config = { ...printConfig.value, fields: { ...(printConfig.value.fields || {}), showCost: true } }
-  if (!openPrintWindow([currentOrder.value], config)) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
+  handlePrintResult(await openPrintWindow([currentOrder.value], config))
 }
 
-const handleConfiguredBatchPrint = () => {
+const handleConfiguredBatchPrint = async () => {
   if (!selectedOrders.value.length) {
     ElMessage.warning('请先勾选要打印的工单')
     return
   }
   const config = { ...printConfig.value, fields: { ...(printConfig.value.fields || {}), showCost: true } }
-  if (!openPrintWindow(selectedOrders.value, config)) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
+  handlePrintResult(await openPrintWindow(selectedOrders.value, config))
 }
-
 const openImportDialog = (type = 'return') => {
   if (!canPerformOrderAction('import_logistics')) {
     ElMessage.error('当前角色无权导入物流')

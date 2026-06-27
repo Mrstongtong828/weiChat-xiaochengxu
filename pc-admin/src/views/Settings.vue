@@ -205,6 +205,43 @@
         <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与公众号配置</el-button></div>
       </el-tab-pane>
 
+      <el-tab-pane label="打印配置" name="print">
+        <el-alert
+          title="可选择浏览器打印，或通过 C-Lodop 指定本地/网络打印机打印。当前直连模式默认打开预览确认，不做静默打印。"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin: 20px 0;"
+        />
+        <el-form :model="printDirectConfig" label-width="130px" class="print-form">
+          <el-form-item label="打印方式">
+            <el-radio-group v-model="printDirectConfig.printMode">
+              <el-radio-button label="browser">浏览器打印</el-radio-button>
+              <el-radio-button label="lodop">直连指定打印机</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="printDirectConfig.printMode === 'lodop'" label="默认打印机">
+            <el-input v-model="printDirectConfig.printerName" placeholder="例如：KONICA MINOLTA Universal PS" />
+          </el-form-item>
+          <el-form-item v-if="printDirectConfig.printMode === 'lodop'" label="打印确认">
+            <el-switch v-model="printDirectConfig.lodopPreview" active-text="打开预览确认" inactive-text="直接打印" />
+          </el-form-item>
+          <el-form-item label="打印单标题"><el-input v-model="printDirectConfig.title" placeholder="例如：设备维修回寄单" /></el-form-item>
+          <el-form-item label="纸张规格">
+            <el-select v-model="printDirectConfig.paperSize" style="width: 220px;">
+              <el-option label="A4" value="A4" />
+              <el-option label="A5" value="A5" />
+              <el-option label="热敏小票 80mm" value="receipt-80" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="默认份数"><el-input-number v-model="printDirectConfig.copies" :min="1" :max="5" /></el-form-item>
+          <el-form-item label="页脚提示"><el-input v-model="printDirectConfig.footer" type="textarea" :rows="3" placeholder="打印单底部展示给客户的提示" /></el-form-item>
+          <el-form-item>
+            <el-button type="primary" :loading="savingPrint" @click="savePrintConfig">保存打印配置</el-button>
+            <el-button plain @click="previewPrintConfig">预览打印模板</el-button>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
       <el-tab-pane label="调研有礼" name="survey">
         <el-alert
           title="这里维护小程序「调研有礼」页面。保存后小程序会动态读取最新标题、说明、选项和提交成功提示；客户后续修改内容无需重新发布小程序。"
@@ -286,10 +323,59 @@ import { ElMessage } from 'element-plus'
 import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus } from '../api/admin.js'
 import RichEditor from '../components/RichEditor.vue'
 import { uploadFileToCloud } from '../utils/upload.js'
+import { getLodopInstallTip, openPrintWindow, parsePrintConfig } from '../utils/orderPrint.js'
 
 const activeContentTab = ref('policy')
 const config = reactive({ warranty: '', feePolicy: '' })
 const isWebUrl = (url = '') => /^https?:\/\//i.test(url)
+
+// ===== 打印配置 =====
+const savingPrint = ref(false)
+const printDirectConfig = reactive(parsePrintConfig())
+const mockPrintOrder = {
+  id: 'TEST-20260627-001',
+  submitTime: '2026-06-27 16:30:00',
+  status: '待处理',
+  clinicName: '思科达牙科诊所',
+  customerName: '测试客户',
+  phone: '13800000000',
+  address: '广东省广州市测试地址 1 号',
+  itemsList: [
+    { product_name: '牙科高速手机', product_model: 'CX-100', sn: 'SN20260627001', buy_date: '2025-09-01', fault_desc: '转速异常，需要检测维修' }
+  ],
+  logisticsCompany: '顺丰速运',
+  logisticsNo: 'SF1234567890',
+  returnCompany: '顺丰速运',
+  returnNo: 'SF0987654321',
+  printRemark: '请随件放入检测报告，并确认设备序列号。'
+}
+
+const handlePrintResult = (result) => {
+  if (!result || !result.ok) {
+    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
+    return
+  }
+  if (result.fallback && result.reason === 'missing') {
+    ElMessage.warning(getLodopInstallTip())
+  }
+}
+
+const previewPrintConfig = async () => {
+  handlePrintResult(await openPrintWindow([mockPrintOrder], printDirectConfig))
+}
+
+const savePrintConfig = async () => {
+  try {
+    savingPrint.value = true
+    const token = localStorage.getItem('adminToken')
+    await saveSettings(token, { print_config: JSON.stringify(printDirectConfig) })
+    ElMessage.success('打印配置保存成功')
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingPrint.value = false
+  }
+}
 
 // ===== 保修与收费 =====
 const savingPolicy = ref(false)
@@ -413,6 +499,7 @@ const loadSettings = async () => {
     applyPolicyDocument(warrantyDocument, data.warranty_policy_file)
     applyPolicyDocument(feeDocument, data.fee_policy_file)
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
+    Object.assign(printDirectConfig, parsePrintConfig(data.print_config))
     applyCompliance(data)
     applyContactInfo(data)
     applySurveyConfig(data.survey_config)

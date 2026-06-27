@@ -17,7 +17,10 @@ const defaultPrintConfig = {
   watermarkEnabled: false,
   watermarkText: '',
   watermarkOpacity: 0.12,
-  fields: defaultFields()
+  fields: defaultFields(),
+  printMode: 'browser',
+  printerName: '',
+  lodopPreview: true
 }
 
 // 四类打印模板默认配置
@@ -305,15 +308,12 @@ const buildSection = (order, config, docType) => {
   return buildPrintSection(order, config)
 }
 
-export const openPrintWindow = (printOrders = [], rawConfig = {}, docType = 'repair_order') => {
-  if (!printOrders.length) return true
+const buildPrintHtml = (printOrders = [], rawConfig = {}, docType = 'repair_order') => {
   const config = parsePrintConfig(rawConfig)
   const copies = Math.min(Math.max(Number(config.copies) || 1, 1), 5)
   const expandedOrders = Array.from({ length: copies }).flatMap(() => printOrders)
-  const printWindow = window.open('', '_blank', 'width=900,height=700')
-  if (!printWindow) return false
 
-  printWindow.document.write(`
+  return `
     <!doctype html>
     <html>
       <head>
@@ -349,9 +349,81 @@ export const openPrintWindow = (printOrders = [], rawConfig = {}, docType = 'rep
         ${expandedOrders.map(order => buildSection(order, config, docType)).join('')}
       </body>
     </html>
-  `)
+  `
+}
+
+export const getLodopInstallTip = () => '未检测到 C-Lodop/Lodop 打印插件，已回退为浏览器打印。需要直连指定打印机时，请先在这台 Windows 电脑安装并启动 C-Lodop。'
+
+const loadScript = (src) => new Promise((resolve, reject) => {
+  const existed = Array.from(document.scripts).find(item => item.src === src)
+  if (existed) {
+    resolve()
+    return
+  }
+  const script = document.createElement('script')
+  script.src = src
+  script.onload = resolve
+  script.onerror = reject
+  document.head.appendChild(script)
+})
+
+const resolveLodop = async () => {
+  if (window.getCLodop || window.LODOP) return (window.getCLodop && window.getCLodop()) || window.LODOP
+  const candidates = [
+    'https://localhost:8443/CLodopfuncs.js',
+    'http://localhost:8000/CLodopfuncs.js'
+  ]
+  for (const src of candidates) {
+    try {
+      await loadScript(src)
+      if (window.getCLodop || window.LODOP) return (window.getCLodop && window.getCLodop()) || window.LODOP
+    } catch (error) {
+      // Try the next C-Lodop endpoint.
+    }
+  }
+  return null
+}
+
+export const openBrowserPrintWindow = (printOrders = [], rawConfig = {}, docType = 'repair_order') => {
+  if (!printOrders.length) return true
+  const printWindow = window.open('', '_blank', 'width=900,height=700')
+  if (!printWindow) return false
+
+  printWindow.document.write(buildPrintHtml(printOrders, rawConfig, docType))
   printWindow.document.close()
   printWindow.focus()
   printWindow.print()
   return true
+}
+
+const openLodopPrint = async (printOrders = [], rawConfig = {}, docType = 'repair_order') => {
+  if (!printOrders.length) return { ok: true }
+  const config = parsePrintConfig(rawConfig)
+  const lodop = await resolveLodop()
+  if (!lodop) return { ok: false, reason: 'missing' }
+
+  const paper = getLodopPaper(config.paperSize)
+  lodop.PRINT_INIT(config.title || '工单打印')
+  if (config.printerName) {
+    lodop.SET_PRINTER_INDEXA(config.printerName)
+  }
+  lodop.SET_PRINT_PAGESIZE(1, paper.width, paper.height, paper.name)
+  lodop.ADD_PRINT_HTM(0, 0, '100%', '100%', buildPrintHtml(printOrders, config, docType))
+  if (config.lodopPreview === false) {
+    lodop.PRINTA()
+  } else {
+    lodop.PREVIEW()
+  }
+  return { ok: true }
+}
+
+export const openPrintWindow = async (printOrders = [], rawConfig = {}, docType = 'repair_order') => {
+  const config = parsePrintConfig(rawConfig)
+  if (config.printMode === 'lodop') {
+    const result = await openLodopPrint(printOrders, config, docType)
+    if (result.ok) return { ok: true, fallback: false }
+    const fallbackOk = openBrowserPrintWindow(printOrders, config, docType)
+    return { ok: fallbackOk, fallback: true, reason: result.reason }
+  }
+  return { ok: openBrowserPrintWindow(printOrders, config, docType), fallback: false }
 }
