@@ -194,6 +194,11 @@
 							<text class="contact-title">服务热线（微信同号）</text>
 							<text class="contact-desc">（8:00至21:00）</text>
 							<view class="contact-phone-list">
+								<view class="phone-item tap" @click="callPhone('0757-85775667')">
+									<text class="phone-label">服务热线:</text>
+									<text class="phone-number">0757-85775667</text>
+									<text class="phone-region">（全国）</text>
+								</view>
 								<view class="phone-item tap" @click="callPhone('13929945417')">
 									<text class="phone-label">售后技术:</text>
 									<text class="phone-number">13929945417</text>
@@ -1216,7 +1221,7 @@
 							</view>
 							<view class="contact-copy">
 								<text class="contact-title">服务热线</text>
-								<text class="contact-desc">13929198537</text>
+								<text class="contact-desc">0757-85775667</text>
 							</view>
 						</view>
 					</view>
@@ -1912,7 +1917,7 @@ logBoot('doc fallbacks ready')
 
 const contactInfo = ref({
 	companyName: '佛山市思科达医疗器械有限公司',
-	phone: '13929198537',
+	phone: '0757-85775667',
 	email: '',
 	address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
 	workTime: '周一至周五 08:00 - 21:00'
@@ -1932,8 +1937,8 @@ const wechatInfo = ref({
 })
 
 const contactHotlines = ref([
-	{ title: '售后技术', number: '13929198537', time: '工作日 08:00-21:00' },
-	{ title: '购买咨询', number: '13929198537', time: '工作日 08:00-21:00' }
+	{ title: '售后技术', number: '0757-85775667', time: '工作日 08:00-21:00' },
+	{ title: '购买咨询', number: '0757-85775667', time: '工作日 08:00-21:00' }
 ])
 
 const workTimes = ref([
