@@ -11,9 +11,19 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     keyword: filters.keyword || '',
     deviceModel: filters.deviceModel || '',
     invoiceStatus: filters.invoiceStatus || '',
+    warrantyStatus: filters.warrantyStatus || '',
     todoType: filters.todoType || '',
     slaLevel: filters.slaLevel || '',
     responseMode: filters.responseMode || 'array'
+  })
+}
+
+// 保存工单产品/设备信息（SN 回填后落库，并重算在保快照）
+export const saveOrderItems = (token, orderId, items) => {
+  return request.post(`${API_BASE.adminOrder}/saveOrderItems`, {
+    token,
+    order_id: orderId,
+    items
   })
 }
 

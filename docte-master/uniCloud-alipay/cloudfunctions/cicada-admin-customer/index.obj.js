@@ -65,6 +65,10 @@ function getPermissionConfigForRole(role) {
 
 function normalizeText(v) { return String(v == null ? '' : v).trim() }
 
+// SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
+// 口径必须与 cicada-client-order / cicada-admin-order 中的同名函数保持一致。
+function normalizeSn(v) { return normalizeText(v).toUpperCase().replace(/[\s-]+/g, '') }
+
 function escapeRegExp(value) {
   return normalizeText(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -549,12 +553,19 @@ module.exports = {
       const productName = normalizeText(dv.product_name)
       if (!productName) return { code: -1, msg: '设备名称不能为空' }
       const sn = normalizeText(dv.sn)
+      const snKey = normalizeSn(sn)
 
-      // SN 唯一校验（同一 SN 不可绑定到多处）
+      // SN 唯一校验（同一 SN 不可绑定到多处）：按规范化键判重，兼容横杠/大小写差异
       if (sn) {
-        const dupWhere = { sn }
+        const dupWhere = { sn_normalized: snKey }
         if (dv._id) dupWhere._id = dbCmd.neq(dv._id)
-        const dup = await db.collection('cicada_user_devices').where(dupWhere).limit(1).get()
+        let dup = await db.collection('cicada_user_devices').where(dupWhere).limit(1).get()
+        if (!dup.data.length) {
+          // 存量未回填 sn_normalized 时回退精确 SN 判重
+          const legacyWhere = { sn }
+          if (dv._id) legacyWhere._id = dbCmd.neq(dv._id)
+          dup = await db.collection('cicada_user_devices').where(legacyWhere).limit(1).get()
+        }
         if (dup.data.length) return { code: -1, msg: `SN[${sn}]已被其他设备占用` }
       }
 
@@ -563,6 +574,7 @@ module.exports = {
         product_name: productName,
         model: normalizeText(dv.model),
         sn,
+        sn_normalized: snKey,
         purchase_channel: normalizeText(dv.purchase_channel),
         dealer_name: normalizeText(dv.dealer_name),
         buy_date: normalizeText(dv.buy_date),
@@ -604,6 +616,109 @@ module.exports = {
       const r = await db.collection('cicada_user_devices').doc(deviceId).remove()
       if (!r.deleted) return { code: -1, msg: '设备不存在' }
       await writeLog(this, admin, 'device_delete', { _id: customerId }, `解绑设备 ${deviceId}`)
+      return { code: 0 }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // ============== 按 SN 识别设备（后台工单录入回填用） ==============
+  async lookupDeviceBySn(params) {
+    try {
+      const p = pickParam(this, params)
+      const admin = await verifyAdminToken(p.token)
+      requirePermission(admin, 'view')
+      const serial = normalizeText(p.sn)
+      if (!serial) return { code: -1, msg: '请输入设备序列号' }
+      const snKey = normalizeSn(serial)
+
+      // 优先按规范化键匹配，存量未回填时回退精确 SN
+      let res = await db.collection('cicada_user_devices').where({ sn_normalized: snKey }).limit(1).get()
+      if (!res.data || !res.data.length) {
+        res = await db.collection('cicada_user_devices').where({ sn: serial }).limit(1).get()
+      }
+      const device = res.data && res.data[0]
+
+      // 历史维修工单（按 SN 跨工单，后台可见全部）
+      let itemRes = await db.collection('cicada_order_items')
+        .where({ sn_normalized: snKey }).field({ order_id: true }).limit(50).get()
+      if (!itemRes.data || !itemRes.data.length) {
+        itemRes = await db.collection('cicada_order_items')
+          .where({ sn: serial }).field({ order_id: true }).limit(50).get()
+      }
+      const orderIds = [...new Set((itemRes.data || []).map(i => i.order_id).filter(Boolean))]
+      let history = []
+      if (orderIds.length) {
+        const ordersRes = await db.collection('cicada_orders')
+          .where({ _id: dbCmd.in(orderIds) })
+          .field({ order_no: true, status: true, create_time: true })
+          .orderBy('create_time', 'desc').limit(10).get()
+        history = (ordersRes.data || []).map(o => ({ id: o._id, orderNo: o.order_no, status: o.status, createTime: o.create_time }))
+      }
+
+      if (!device && !history.length) {
+        return { code: 0, data: { found: false, sn: serial, history: [] } }
+      }
+
+      const warranty = device ? computeWarranty(device) : { effective_expire: '', warranty_state: 'unknown' }
+      const inWarranty = ['in_warranty', 'extended'].includes(warranty.warranty_state)
+
+      // 关联客户名称（便于后台核对归属）
+      let customerName = ''
+      const customerId = device ? normalizeText(device.customer_id) : ''
+      if (customerId) {
+        try {
+          const cr = await db.collection('cicada_customers').doc(customerId).get()
+          customerName = (cr.data && cr.data[0] && cr.data[0].name) || ''
+        } catch (e) { customerName = '' }
+      }
+
+      return {
+        code: 0,
+        data: {
+          found: Boolean(device),
+          sn: serial,
+          deviceId: device ? device._id : '',
+          customerId,
+          customerName,
+          productName: device ? (device.product_name || '') : '',
+          productCategory: device ? (device.product_category || '') : '',
+          model: device ? (device.model || '') : '',
+          buyDate: device ? (device.buy_date || '') : '',
+          warrantyExpire: warranty.effective_expire || '',
+          warrantyStatus: warranty.warranty_state,
+          inWarranty,
+          maintenanceCycle: device ? (device.maintenance_cycle || '') : '',
+          history
+        }
+      }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // ============== SN 操作埋点（后台扫码无相机，仅手动查询；失败静默） ==============
+  async logSnAction(params) {
+    try {
+      const p = pickParam(this, params)
+      const admin = await verifyAdminToken(p.token)
+      const act = normalizeText(p.action)
+      if (!['sn_scan', 'sn_query'].includes(act)) return { code: -1, msg: '操作类型不正确' }
+      const serial = normalizeText(p.sn)
+      if (!serial) return { code: -1, msg: '缺少 SN' }
+      await db.collection('cicada_sn_logs').add({
+        action: act,
+        sn: serial,
+        sn_normalized: normalizeSn(serial),
+        source: 'admin',
+        actor_id: admin._id || '',
+        actor_role: admin.role || '',
+        actor_name: normalizeText(admin.name || admin.username || ''),
+        matched: Boolean(p.matched),
+        device_id: normalizeText(p.device_id),
+        warranty_status: normalizeText(p.warranty_status),
+        create_time: Date.now()
+      }).catch(() => {})
       return { code: 0 }
     } catch (e) {
       return { code: -1, msg: e.message }

@@ -54,6 +54,11 @@
             <el-option label="未发票" value="未发票"></el-option>
             <el-option label="已发票" value="已发票"></el-option>
           </el-select>
+          <el-select v-model="wo.warrantyFilter" placeholder="在保状态" clearable>
+            <el-option label="全部" value=""></el-option>
+            <el-option label="在保" value="in_warranty"></el-option>
+            <el-option label="已过保" value="expired"></el-option>
+          </el-select>
           <el-select v-model="slaFilter" placeholder="SLA 超时" clearable>
             <el-option label="全部" value=""></el-option>
             <el-option label="已超时" value="overdue"></el-option>
@@ -178,6 +183,9 @@
         <el-table-column label="设备与故障" width="200">
           <template #default="{row}">
             <div class="product-model">{{ row.itemsSummary || row.productModel }}</div>
+            <el-tag v-if="warrantyTagMeta(row.warrantyStatus)" :type="warrantyTagMeta(row.warrantyStatus).type" effect="light" round size="small" class="warranty-tag">
+              {{ warrantyTagMeta(row.warrantyStatus).label }}
+            </el-tag>
             <div class="fault-desc">{{ row.fault }}</div>
           </template>
         </el-table-column>
@@ -381,9 +389,23 @@
               <div v-if="currentOrder.itemsList && currentOrder.itemsList.length" class="product-detail-list">
                 <div v-for="(item, itemIndex) in currentOrder.itemsList" :key="item._id || itemIndex" class="product-detail-card">
                   <div class="product-card-title">产品 {{ itemIndex + 1 }}：{{ item.product_name || '未命名产品' }}</div>
-                  <p>产品型号：{{item.product_model || '-'}}</p>
-                  <p>SN码：{{item.sn || '-'}}</p>
-                  <p>购买日期：{{item.buy_date || '-'}}</p>
+                  <div class="sn-edit-row">
+                    <span class="sn-edit-label">SN：</span>
+                    <el-input v-model="item.sn" placeholder="输入 SN 序列号" size="small" class="sn-edit-input" @blur="lookupOrderItemSn(itemIndex)" @keyup.enter="lookupOrderItemSn(itemIndex, true)" />
+                    <el-button size="small" type="primary" :loading="snLookupLoading[itemIndex]" @click="lookupOrderItemSn(itemIndex, true)">查询</el-button>
+                    <el-tag v-if="warrantyTagMeta(snItemWarranty(itemIndex))" :type="warrantyTagMeta(snItemWarranty(itemIndex)).type" size="small" effect="light" round>
+                      {{ warrantyTagMeta(snItemWarranty(itemIndex)).label }}
+                    </el-tag>
+                  </div>
+                  <div class="sn-fields-grid">
+                    <el-input v-model="item.product_category" placeholder="设备分类" size="small" />
+                    <el-input v-model="item.product_model" placeholder="设备型号" size="small" />
+                    <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="采购日期" size="small" style="width:100%;" />
+                  </div>
+                  <p v-if="snLookupResults[itemIndex] && snLookupResults[itemIndex].warrantyExpire" class="sn-warranty-expire">质保至：{{ snLookupResults[itemIndex].warrantyExpire }}</p>
+                  <el-button v-if="snLookupResults[itemIndex] && snLookupResults[itemIndex].history && snLookupResults[itemIndex].history.length" type="primary" link size="small" @click="openSnHistory(itemIndex)">
+                    查看该设备历史工单（{{ snLookupResults[itemIndex].history.length }}）›
+                  </el-button>
                   <p>故障描述：{{item.fault_desc || '-'}}</p>
                   <template v-if="item.voucher_urls && item.voucher_urls.length">
                     <p class="attachment-title">购买凭证：</p>
@@ -410,6 +432,10 @@
                     </div>
                   </template>
                 </div>
+                <div class="product-detail-actions">
+                  <el-button size="small" type="primary" :loading="savingOrderItems" @click="saveOrderItemsInfo">保存设备信息</el-button>
+                  <span class="product-detail-tip">录入/扫码 SN 后点【查询】自动回填分类、型号、采购日期与在保状态，保存后写入工单。</span>
+                </div>
               </div>
               <p v-else class="empty-text">暂无产品明细</p>
             </div>
@@ -418,6 +444,14 @@
                 <p class="drawer-section-title">维修报价</p>
                 <el-tag :type="getQuoteStatusType(quoteForm.status)" size="small">{{ getQuoteStatusText(quoteForm.status) }}</el-tag>
               </div>
+              <el-alert
+                v-if="currentOrderWarrantyHint.show"
+                :title="currentOrderWarrantyHint.text"
+                :type="currentOrderWarrantyHint.type"
+                :closable="false"
+                show-icon
+                class="quote-warranty-alert"
+              ></el-alert>
               <div class="quote-summary-bar">
                 <div><span>配件费</span><strong>{{ formatMoney(quotePartsFee) }}</strong></div>
                 <div><span>服务费</span><strong>{{ formatMoney(quoteServicesFee) }}</strong></div>
@@ -988,8 +1022,9 @@
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, refundOrderPayment, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, refundOrderPayment, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList } from '../api/inventory.js'
+import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
@@ -1384,6 +1419,7 @@ const loadOrders = async () => {
       keyword: wo.search.trim(),
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
+      warrantyStatus: wo.warrantyFilter,
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
       responseMode: 'page'
@@ -1415,6 +1451,7 @@ const fetchAllFilteredOrders = async () => {
       keyword: wo.search.trim(),
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
+      warrantyStatus: wo.warrantyFilter,
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
       responseMode: 'page'
@@ -1429,7 +1466,7 @@ const fetchAllFilteredOrders = async () => {
   return allOrders
 }
 
-const wo = reactive({ search: '', filter: '', deviceFilter: '', page: 1, pageSize: 10 })
+const wo = reactive({ search: '', filter: '', deviceFilter: '', warrantyFilter: '', page: 1, pageSize: 10 })
 
 const deviceModels = computed(() => {
   const models = [...new Set([
@@ -1466,7 +1503,7 @@ onMounted(async () => {
 })
 
 watch(
-  () => [wo.search, wo.filter, wo.deviceFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
+  () => [wo.search, wo.filter, wo.deviceFilter, wo.warrantyFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
   () => {
     if (wo.page === 1) {
       loadOrders()
@@ -1494,6 +1531,10 @@ watch(
 
 const drawerVisible = ref(false)
 const currentOrder = ref(null)
+// SN 回填：每个工单项的查询结果与 loading 状态（按下标）
+const snLookupResults = reactive({})
+const snLookupLoading = reactive({})
+const savingOrderItems = ref(false)
 const currentQuickOrder = ref(null)
 const currentRemarkOrder = ref(null)
 const quickShipDialogVisible = ref(false)
@@ -1781,6 +1822,9 @@ const openExportDialog = () => {
 
 const openDrawer = (row) => {
   currentOrder.value = row
+  // 重置 SN 回填态
+  Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
+  Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
   newStatus.value = getAllowedStatusOptions(row)[0] || row.status
   invoiceStatus.value = normalizeInvoiceStatus(row)
   invoiceForm.title = row.invoiceTitle || ''
@@ -1795,6 +1839,127 @@ const addQuoteRow = (type) => {
   if (type === 'services') quoteForm.services.push(createServiceRow())
   if (type === 'others') quoteForm.others.push(createOtherRow())
 }
+
+// ============== SN 识别回填（后台工单录入） ==============
+// 在保状态 → 标签元数据；仅对在保/已过保展示彩色标签
+const warrantyTagMeta = (status) => {
+  if (status === 'in_warranty') return { type: 'success', label: '在保' }
+  if (status === 'extended') return { type: 'success', label: '延保中' }
+  if (status === 'expired') return { type: 'danger', label: '已过保' }
+  return null
+}
+
+// 取某工单项当前在保状态：优先 SN 查询结果，回退工单级快照
+const snItemWarranty = (itemIndex) => {
+  const r = snLookupResults[itemIndex]
+  if (r && r.warrantyStatus) return r.warrantyStatus
+  return (currentOrder.value && currentOrder.value.warrantyStatus) || ''
+}
+
+// SN 清洗：去空格/换行（后端再规范化匹配）
+const cleanSn = (raw) => String(raw == null ? '' : raw).replace(/\s+/g, '').trim()
+
+// 按 SN 查询设备档案并回填（force=true 立即查询，否则失焦防抖；同一 SN 不重复请求）
+let snLookupTimer = null
+const lookupOrderItemSn = (itemIndex, force = false) => {
+  const item = currentOrder.value && currentOrder.value.itemsList && currentOrder.value.itemsList[itemIndex]
+  if (!item) return
+  const sn = cleanSn(item.sn)
+  if (sn !== item.sn) item.sn = sn
+  if (snLookupTimer) { clearTimeout(snLookupTimer); snLookupTimer = null }
+  if (!sn) { delete snLookupResults[itemIndex]; return }
+  const existing = snLookupResults[itemIndex]
+  if (existing && existing.sn === sn && !force) return // 节流：同 SN 不重复
+  const run = () => doLookupOrderItemSn(itemIndex, sn)
+  if (force) run()
+  else snLookupTimer = setTimeout(run, 400)
+}
+
+const doLookupOrderItemSn = async (itemIndex, sn) => {
+  const item = currentOrder.value && currentOrder.value.itemsList && currentOrder.value.itemsList[itemIndex]
+  if (!item) return
+  if (snLookupLoading[itemIndex]) return
+  snLookupLoading[itemIndex] = true
+  let info = null
+  try {
+    info = await lookupDeviceBySnApi(sn)
+    info = info && (info.data !== undefined ? info.data : info)
+    if (info && info.found) {
+      if (info.productCategory && !String(item.product_category || '').trim()) item.product_category = info.productCategory
+      if (info.model && !String(item.product_model || '').trim()) item.product_model = info.model
+      if (info.buyDate && !String(item.buy_date || '').trim()) item.buy_date = info.buyDate
+      snLookupResults[itemIndex] = { ...info, sn }
+    } else {
+      snLookupResults[itemIndex] = { found: false, sn, history: (info && info.history) || [] }
+      ElMessage.warning('未查询到该设备档案，请核对SN编号，或联系管理员录入设备台账')
+    }
+  } catch (error) {
+    // 失败不阻断录入
+    ElMessage.error(error.message || 'SN 查询失败')
+  } finally {
+    snLookupLoading[itemIndex] = false
+  }
+  // 埋点：后台手动查询
+  logSnAction('sn_query', sn, {
+    matched: Boolean(info && info.found),
+    warranty_status: (info && info.warrantyStatus) || '',
+    device_id: (info && info.deviceId) || ''
+  })
+}
+
+// 历史工单：按 SN 过滤工单列表（关闭抽屉并以 SN 作为搜索关键词）
+const openSnHistory = (itemIndex) => {
+  const item = currentOrder.value && currentOrder.value.itemsList && currentOrder.value.itemsList[itemIndex]
+  if (!item || !item.sn) return
+  drawerVisible.value = false
+  wo.search = item.sn
+}
+
+// 保存工单产品/设备信息并重算在保快照
+const saveOrderItemsInfo = async () => {
+  const order = currentOrder.value
+  if (!order || !Array.isArray(order.itemsList) || !order.itemsList.length) return
+  const items = order.itemsList
+    .filter((it) => it && it._id)
+    .map((it) => ({
+      _id: it._id,
+      product_category: it.product_category || '',
+      product_model: it.product_model || '',
+      sn: cleanSn(it.sn),
+      buy_date: it.buy_date || ''
+    }))
+  if (!items.length) { ElMessage.warning('无可保存的产品明细'); return }
+  savingOrderItems.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const res = await saveOrderItems(token, order._id, items)
+    const data = res && (res.data !== undefined ? res.data : res)
+    if (data && data.warranty_status) {
+      order.warrantyStatus = data.warranty_status
+      order.inWarranty = Boolean(data.in_warranty)
+      order.chargeType = data.charge_type || order.chargeType
+    }
+    ElMessage.success('设备信息已保存')
+    loadOrders()
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingOrderItems.value = false
+  }
+}
+
+// 报价区在保提示栏
+const currentOrderWarrantyHint = computed(() => {
+  const order = currentOrder.value || {}
+  const status = order.warrantyStatus || ''
+  if (order.inWarranty || status === 'in_warranty' || status === 'extended') {
+    return { show: true, type: 'success', text: '该设备处于原厂质保期，可享受质保减免政策' }
+  }
+  if (status === 'expired') {
+    return { show: true, type: 'error', text: '该设备已超出质保期，维修收取全额工时、上门及配件费用' }
+  }
+  return { show: false, type: 'info', text: '' }
+})
 
 const loadPickerParts = async () => {
   partPickerLoading.value = true
@@ -2749,6 +2914,15 @@ const confirmExportExcel = async () => {
 .product-detail-card { background: #fff; border: 1px solid #e5e6eb; border-radius: 8px; padding: 12px; }
 .product-detail-card p { margin: 0; }
 .product-card-title { font-weight: 600; color: #1d2129; margin-bottom: 6px; }
+.sn-edit-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sn-edit-label { font-size: 13px; color: #4e5969; flex: none; }
+.sn-edit-input { width: 200px; }
+.sn-fields-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.sn-warranty-expire { font-size: 12px; color: #86909c; margin: 2px 0 4px; }
+.product-detail-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.product-detail-tip { font-size: 12px; color: #86909c; }
+.warranty-tag { margin: 2px 0; }
+.quote-warranty-alert { margin-bottom: 12px; }
 .attachment-title { margin: 8px 0 6px; color: #86909c; }
 .attachment-list { display: flex; gap: 8px; flex-wrap: wrap; }
 .attachment-thumb { width: 72px; height: 72px; border-radius: 8px; }

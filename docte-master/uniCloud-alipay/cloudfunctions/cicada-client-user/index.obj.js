@@ -121,6 +121,12 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+// SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
+// 口径必须与 cicada-client-order / cicada-admin-customer 中的同名函数保持一致。
+function normalizeSn(value) {
+  return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
+}
+
 function normalizeFeedbackImages(images) {
   if (!Array.isArray(images)) return []
   return images
@@ -483,8 +489,12 @@ module.exports = {
         const sn = normalizeText(data.sn)
         if (!sn) return { code: -1, msg: '请填写设备序列号(SN)' }
         data.sn = sn
-        // SN 全局查重：同一物理设备不应被多个账号重复绑定，避免设备台账脏数据
-        const dup = await col.where({ sn }).limit(1).get()
+        const snKey = normalizeSn(sn)
+        data.sn_normalized = snKey
+        // SN 全局查重：同一物理设备不应被多个账号重复绑定，避免设备台账脏数据。
+        // 按规范化键判重（兼容横杠/大小写），存量未回填时回退精确 SN。
+        let dup = await col.where({ sn_normalized: snKey }).limit(1).get()
+        if (!dup.data || !dup.data.length) dup = await col.where({ sn }).limit(1).get()
         const dupDevice = dup.data && dup.data[0]
         if (dupDevice) {
           return dupDevice.user_id === userId
@@ -502,7 +512,10 @@ module.exports = {
           const sn = normalizeText(data.sn)
           if (!sn) return { code: -1, msg: '设备序列号(SN)不能为空' }
           data.sn = sn
-          const dup = await col.where({ sn, _id: db.command.neq(device._id) }).limit(1).get()
+          const snKey = normalizeSn(sn)
+          data.sn_normalized = snKey
+          let dup = await col.where({ sn_normalized: snKey, _id: db.command.neq(device._id) }).limit(1).get()
+          if (!dup.data || !dup.data.length) dup = await col.where({ sn, _id: db.command.neq(device._id) }).limit(1).get()
           const dupDevice = dup.data && dup.data[0]
           if (dupDevice) {
             return dupDevice.user_id === userId

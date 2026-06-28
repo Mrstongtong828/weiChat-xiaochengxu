@@ -34,6 +34,7 @@
 							<view class="repair-field">
 								<text><text class="required-star">*</text>产品序列号</text>
 								<input v-model="product.serial" placeholder="输入或扫码 SN" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
+								<text class="sn-query-btn tap" @click="recognizeSn(index, true)">查询</text>
 								<view class="scan-icon tap" @click="scanSn(index)">
 									<view class="scan-corner"></view>
 									<view class="scan-corner"></view>
@@ -47,11 +48,18 @@
 									<text class="sn-result-label">已识别</text>
 									<text class="sn-tag" :class="'sn-tag-' + (product.snInfo.warrantyStatus || 'unknown')">{{ snWarrantyLabel(product.snInfo) }}</text>
 								</view>
+								<text v-if="product.snInfo.productCategory" class="sn-result-line">分类：{{ product.snInfo.productCategory }}</text>
 								<text v-if="product.snInfo.model" class="sn-result-line">型号：{{ product.snInfo.model }}</text>
 								<text v-if="product.snInfo.warrantyExpire" class="sn-result-line">质保至：{{ product.snInfo.warrantyExpire }}</text>
-								<text v-if="product.snInfo.history && product.snInfo.history.length" class="sn-result-line">历史维修：{{ product.snInfo.history.length }} 单</text>
+								<view v-if="product.snInfo.history && product.snInfo.history.length" class="sn-result-history tap" @click="openSnHistory(index)">
+									<text class="sn-result-line link">历史维修：{{ product.snInfo.history.length }} 单 ›</text>
+								</view>
 							</view>
-							<view v-else-if="product.snInfo && !product.snInfo.found && product.serial" class="sn-result muted"><text>未匹配到已登记设备，可手动填写型号</text></view>
+							<view v-else-if="product.snInfo && !product.snInfo.found && product.serial" class="sn-result muted"><text>未匹配到已登记设备，可手动填写分类/型号</text></view>
+							<view class="repair-field">
+								<text>设备分类</text>
+								<input v-model="product.category" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
+							</view>
 							<view class="repair-field">
 								<text>产品型号</text>
 								<input v-model="product.model" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
@@ -532,6 +540,9 @@
 						</view>
 						<text :class="['tag', 'tag-' + getBillingMeta(detailOrder).tone]">{{ getBillingMeta(detailOrder).label }}</text>
 					</view>
+					<view v-if="detailWarrantyHint.show" class="quote-warranty-hint" :class="'quote-warranty-hint-' + detailWarrantyHint.tone">
+						<text>{{ detailWarrantyHint.text }}</text>
+					</view>
 					<view v-if="detailQuoteGroups.length" class="quote-line-list quote-group-list">
 						<view v-for="group in detailQuoteGroups" :key="group.key" class="quote-group">
 							<view class="quote-group-head">
@@ -899,8 +910,7 @@
 				</view>
 				<view class="address-actions">
 					<view class="ghost-button tap" @click="copyAll">复制地址</view>
-					<view class="primary-button tap">查看地图</view>
-				</view>
+											</view>
 				<view class="module-section-head single"><text>工作时间</text></view>
 				<view class="white-list-card">
 					<view v-for="item in workTimes" :key="item.day" class="list-row">
@@ -1262,11 +1272,6 @@
 						<view class="mini-icon mini-check mini-check-white"></view>
 						<text>{{ copied === 'all' ? '已复制' : '一键复制以上收件信息' }}</text>
 					</view>
-					<view class="chat-round tap" @click="go('contact')">
-						<view class="glyph glyph-chat">
-							<view class="glyph-extra"></view>
-						</view>
-					</view>
 				</view>
 			</view>
 
@@ -1564,6 +1569,7 @@ import {
 	uploadRepairPaymentProof,
 	submitRepair as submitRepairOrder,
 	lookupDeviceBySn,
+	logSnAction,
 	rejectRepairQuote,
 	confirmRepairReceipt,
 	submitRepairReview,
@@ -2154,6 +2160,8 @@ const normalizeOrder = (item = {}) => {
 		paymentProofs,
 		statusKey,
 		quoteWarrantyMonths: Number(merged.quoteWarrantyMonths ?? merged.quote_warranty_months ?? 0) || 0,
+		warrantyStatus: merged.warrantyStatus || merged.warranty_status || '',
+		inWarranty: Boolean(merged.inWarranty ?? merged.in_warranty),
 		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
 		returnLogisticsCompany,
 		returnLogisticsNo,
@@ -2652,6 +2660,18 @@ const detailQuoteVisible = computed(() => ['issued', 'confirmed', 'rejected'].in
 const detailWarrantyText = computed(() => {
 	const m = Number(detailOrder.value.quoteWarrantyMonths || 0)
 	return m > 0 ? `本次维修质保 ${m} 个月` : '本次维修质保以全局质保政策为准'
+})
+
+// 报价弹窗顶部在保/过保提示栏：读取工单下单时的在保快照
+const detailWarrantyHint = computed(() => {
+	const status = detailOrder.value.warrantyStatus || ''
+	if (detailOrder.value.inWarranty || status === 'in_warranty' || status === 'extended') {
+		return { show: true, tone: 'in', text: '该设备处于原厂质保期，可享受质保减免政策' }
+	}
+	if (status === 'expired') {
+		return { show: true, tone: 'out', text: '该设备已超出质保期，维修收取全额工时、上门及配件费用' }
+	}
+	return { show: false, tone: '', text: '' }
 })
 
 const detailPaymentDeadlineText = computed(() => {
@@ -3893,6 +3913,7 @@ const buildRepairPayload = () => {
 			const voucherUrls = (item.voucherList || []).map(getUploadedUrl).filter(Boolean)
 			return {
 				productName: (item.name || item.model || '维修产品').trim(),
+				productCategory: String(item.category || '').trim(),
 				productModel: String(item.model || '').trim(),
 				productSerial: String(item.serial || '').trim(),
 				buyDate: item.buyDate,
@@ -3959,26 +3980,50 @@ const goRepairStep = (step) => {
 }
 
 const snWarrantyLabel = (info = {}) => {
-	const map = { in_warranty: '保修期内', extended: '延保中', expired: '已过保', unknown: '保修未知' }
+	const map = { in_warranty: '在保', extended: '延保中', expired: '已过保', unknown: '保修未知' }
 	return map[info.warrantyStatus] || '保修未知'
 }
 
-const recognizeSn = async (index) => {
+// SN 清洗：去除空格/换行/制表符与首尾空白，保留横杠/字母数字（后端再做规范化匹配）
+const cleanSn = (raw) => String(raw == null ? '' : raw).replace(/[\s　]+/g, '').trim()
+
+// 防抖定时器（按产品下标）与最近一次扫码时间戳（节流）
+const snQueryTimers = {}
+let lastScanAt = 0
+
+// 报修页 SN 查询：失焦/点【查询】触发，带防抖；force=true 时立即查询（点击查询按钮）
+const recognizeSn = (index, force = false) => {
 	const product = repairProducts.value[index]
 	if (!product) return
-	const sn = String(product.serial || '').trim()
+	// 清洗并回填输入框
+	const sn = cleanSn(product.serial)
+	if (sn !== product.serial) product.serial = sn
+	if (snQueryTimers[index]) { clearTimeout(snQueryTimers[index]); snQueryTimers[index] = null }
 	if (!sn) { product.snInfo = null; return }
+	const run = () => doRecognizeSn(index, sn)
+	if (force) run()
+	else snQueryTimers[index] = setTimeout(run, 500)
+}
+
+const doRecognizeSn = async (index, sn) => {
+	const product = repairProducts.value[index]
+	if (!product) return
 	if (!hasLoginToken()) return
 	if (product.snLoading) return
+	// 同一 SN 已有结果则不重复请求（节流）
 	if (product.snInfo && product.snInfo.sn === sn) return
 	product.snLoading = true
+	let info = null
 	try {
-		const info = await lookupDeviceBySn(sn)
+		info = await lookupDeviceBySn(sn)
 		product.snInfo = info || { found: false, sn }
 		if (info && info.found) {
 			if (info.model && !String(product.model || '').trim()) product.model = info.model
+			if (info.productCategory && !String(product.category || '').trim()) product.category = info.productCategory
 			if (info.productName && !String(product.name || '').trim()) product.name = info.productName
 			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
+		} else {
+			handleSnNotFound(index)
 		}
 	} catch (error) {
 		console.warn('lookup sn failed:', error)
@@ -3986,19 +4031,70 @@ const recognizeSn = async (index) => {
 	} finally {
 		product.snLoading = false
 	}
+	// 埋点：手动查询（fire-and-forget）
+	logSnAction('sn_query', sn, {
+		matched: Boolean(info && info.found),
+		warranty_status: (info && info.warrantyStatus) || '',
+		device_id: (info && info.deviceId) || ''
+	})
+}
+
+// 未匹配档案兜底：弹窗提示，确认后清空回填的设备字段，开放手填
+const handleSnNotFound = (index) => {
+	uni.showModal({
+		title: '未找到设备档案',
+		content: '未查询到该设备档案，请核对SN编号，或联系管理员录入设备台账',
+		showCancel: false,
+		confirmText: '我知道了',
+		success: () => {
+			const product = repairProducts.value[index]
+			if (!product) return
+			product.category = ''
+			product.model = ''
+			product.buyDate = ''
+		}
+	})
+}
+
+// 历史维修工单跳转：列出该 SN 的历史工单，选择后进入工单详情
+const openSnHistory = (index) => {
+	const product = repairProducts.value[index]
+	const history = (product && product.snInfo && product.snInfo.history) || []
+	if (!history.length) return
+	const snStatusMap = { pending: '待处理', sent: '已寄出', received: '已签收', inspecting: '检测中', fixing: '维修中', shipped: '已回寄', completed: '已完成', cancelled: '已取消' }
+	const itemList = history.map((h) => `${h.orderNo || '工单'}（${snStatusMap[h.status] || h.status || '处理中'}）`)
+	uni.showActionSheet({
+		itemList,
+		success: ({ tapIndex }) => {
+			const target = history[tapIndex]
+			if (target && target.id) openOrderDetail({ id: target.id })
+			else uni.showToast({ title: '该工单暂无法打开', icon: 'none' })
+		},
+		fail: () => {}
+	})
 }
 
 const scanSn = (index) => {
+	const now = Date.now()
+	if (now - lastScanAt < 800) return // 连续扫码节流
+	lastScanAt = now
 	uni.scanCode({
+		scanType: ['barCode', 'qrCode'],
 		success: (res) => {
-			const code = String(res.result || '').trim()
-			if (!code) return
+			const code = cleanSn(res && res.result)
+			if (!code) {
+				uni.showModal({ title: '扫码失败', content: '未识别到有效设备 SN 码，请对准条码或手动输入序列号', showCancel: false })
+				return
+			}
 			const product = repairProducts.value[index]
 			if (!product) return
 			product.serial = code
-			recognizeSn(index)
+			logSnAction('sn_scan', code) // 埋点：扫码
+			recognizeSn(index, true) // 扫码成功自动查询，无需二次点击
 		},
-		fail: () => {}
+		fail: () => {
+			uni.showModal({ title: '扫码失败', content: '未识别到有效设备 SN 码，请对准条码或手动输入序列号', showCancel: false })
+		}
 	})
 }
 
@@ -8248,6 +8344,30 @@ onUnmounted(() => {
 .sn-tag-extended { background: #E8F0FE; color: #1E6FE0; }
 .sn-tag-expired { background: #FDECEC; color: #E0524D; }
 .sn-tag-unknown { background: #EEF1F5; color: #8597B2; }
+
+.sn-query-btn {
+	flex: none;
+	margin-left: 12rpx;
+	padding: 6rpx 20rpx;
+	border-radius: 999rpx;
+	background: #E8F0FE;
+	color: #0A4FB8;
+	font-size: 24rpx;
+	font-weight: 600;
+}
+.sn-result-history { margin-top: 2rpx; }
+.sn-result-line.link { color: #0A4FB8; font-weight: 600; }
+
+/* 报价弹窗在保/过保提示栏 */
+.quote-warranty-hint {
+	margin: 4rpx 0 14rpx;
+	padding: 16rpx 20rpx;
+	border-radius: 14rpx;
+	font-size: 24rpx;
+	line-height: 1.5;
+}
+.quote-warranty-hint-in { background: #E3F8EE; color: #0F8A4F; border: 2rpx solid #BDEBD3; }
+.quote-warranty-hint-out { background: #FDECEC; color: #D23E39; border: 2rpx solid #F6CFCD; }
 
 .repair-field.column { flex-direction: column; align-items: stretch; gap: 12rpx; }
 .repair-field.column textarea {

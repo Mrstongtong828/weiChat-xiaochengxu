@@ -619,6 +619,69 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+// SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
+// 口径必须与 cicada-client-order / cicada-admin-customer 中的同名函数保持一致。
+function normalizeSn(value) {
+  return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
+}
+
+const DEFAULT_WARRANTY_MONTHS = 12
+
+// 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串（与 client-order 口径一致）
+function addMonthsToDateStr(dateStr, months) {
+  const s = normalizeText(dateStr)
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (!m) return ''
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(d.getTime())) return ''
+  d.setMonth(d.getMonth() + Number(months || 0))
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+// 由设备/工单项推算质保到期日：优先 warranty_expire，否则 buy_date + warranty_months(默认12)
+function deriveWarrantyExpire(source = {}) {
+  const stored = normalizeText(source.warranty_expire)
+  if (stored) return stored
+  const months = Number(source.warranty_months) > 0 ? Number(source.warranty_months) : DEFAULT_WARRANTY_MONTHS
+  return addMonthsToDateStr(source.buy_date, months)
+}
+
+// 重算工单级在保结论：逐个 SN 优先查已建档设备，否则用工单项购机日期推算。
+// 返回 { in_warranty, warranty_status, charge_type }
+async function computeOrderWarrantyFromItems(items = []) {
+  let anyInWarranty = false
+  let anyEvaluated = false
+  for (const item of items) {
+    const sn = normalizeText(item && item.sn)
+    let device = null
+    if (sn) {
+      try {
+        const snKey = normalizeSn(sn)
+        let res = await db.collection('cicada_user_devices').where({ sn_normalized: snKey }).limit(1).get()
+        if (!res.data || !res.data.length) {
+          res = await db.collection('cicada_user_devices').where({ sn }).limit(1).get()
+        }
+        device = res.data && res.data[0]
+      } catch (e) { device = null }
+    }
+    const source = device || { buy_date: item && item.buy_date }
+    const expire = deriveWarrantyExpire(source)
+    if (!expire) continue
+    anyEvaluated = true
+    const expireTs = new Date(`${expire}T23:59:59`).getTime()
+    if (!Number.isNaN(expireTs) && Date.now() <= expireTs) anyInWarranty = true
+  }
+  if (!anyEvaluated) return { in_warranty: false, warranty_status: 'unknown', charge_type: 'pending' }
+  return {
+    in_warranty: anyInWarranty,
+    warranty_status: anyInWarranty ? 'in_warranty' : 'expired',
+    charge_type: anyInWarranty ? 'free' : 'paid'
+  }
+}
+
 function normalizeInvoiceStatusFilter(value = '') {
   const text = normalizeText(value)
   if (!text) return ''
@@ -1516,6 +1579,7 @@ module.exports = {
         keyword = '',
         deviceModel = '',
         invoiceStatus = '',
+        warrantyStatus = '',
         todoType = '',
         slaLevel = '',
         responseMode = 'array'
@@ -1527,9 +1591,10 @@ module.exports = {
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
       const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
+      const normalizedWarrantyStatus = normalizeText(warrantyStatus)
       const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
-      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedSlaLevel
+      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedSlaLevel
 
       let list = []
       let total = 0
@@ -1579,6 +1644,7 @@ module.exports = {
             (!normalizedKeyword || searchableText.includes(normalizedKeyword)) &&
             (!normalizedDeviceModel || productModels.includes(normalizedDeviceModel)) &&
             (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
+            (!normalizedWarrantyStatus || normalizeText(order.warranty_status) === normalizedWarrantyStatus) &&
             matchesSlaFilter(order, normalizedSlaLevel)
         })
 
@@ -2260,6 +2326,62 @@ module.exports = {
       })
 
       return { code: 0, data: remarkData }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 保存工单产品/设备信息（后台按 SN 回填后落库），并按新 SN 重算工单在保快照
+  async saveOrderItems(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_remarks')
+      const { order_id, orderId, items } = pickParam(this, params)
+      const targetOrderId = order_id || orderId
+      if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
+      if (!Array.isArray(items) || !items.length) return { code: -1, msg: '缺少产品信息' }
+
+      const found = await db.collection('cicada_orders').doc(targetOrderId).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+
+      const now = Date.now()
+      // 逐条更新工单项（仅限本工单下的项，按 _id 精确更新）
+      const itemKeys = [order._id, order.order_no].filter(Boolean)
+      for (const item of items) {
+        const itemId = normalizeText(item && item._id)
+        if (!itemId) continue
+        const sn = normalizeText(item.sn)
+        await db.collection('cicada_order_items').doc(itemId).update({
+          product_category: normalizeText(item.product_category),
+          product_model: normalizeText(item.product_model),
+          sn,
+          sn_normalized: normalizeSn(sn),
+          buy_date: normalizeText(item.buy_date)
+        }).catch(() => {})
+      }
+
+      // 拉取本工单最新全部产品项，重算在保结论
+      const itemsRes = itemKeys.length
+        ? await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+        : { data: [] }
+      const warranty = await computeOrderWarrantyFromItems(itemsRes.data || [])
+
+      await db.collection('cicada_orders').doc(targetOrderId).update({
+        in_warranty: warranty.in_warranty,
+        warranty_status: warranty.warranty_status,
+        charge_type: warranty.charge_type,
+        update_time: now
+      })
+
+      await logOrderEvent({
+        order,
+        action: 'update_order_items',
+        actor: currentAdmin,
+        before: { warranty_status: order.warranty_status || '', in_warranty: Boolean(order.in_warranty) },
+        after: { warranty_status: warranty.warranty_status, in_warranty: warranty.in_warranty, item_count: items.length }
+      })
+
+      return { code: 0, data: warranty }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

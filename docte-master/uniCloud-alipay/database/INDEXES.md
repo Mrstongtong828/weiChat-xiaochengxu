@@ -28,11 +28,14 @@ Create these indexes in the uniCloud database console before production traffic.
 ## cicada_order_items
 
 - `order_id`
+- `sn_normalized` — SN 容错检索键（lookupDeviceBySn 按 SN 跨工单查历史；回填见 cicada-maintenance.backfillSnNormalized）
 
 ## cicada_user_devices
 
 - `user_id, create_time desc`
 - `user_id, sn`
+- `user_id, sn_normalized` — 按规范化键检索本人设备（lookupDeviceBySn / 设备沉淀去重）
+- `sn_normalized` — SN 容错检索键（大写、去空格/横杠）；全局查重与后台 lookupDeviceBySn 使用
 - `customer_id, create_time desc`
 - `sn` — **UNIQUE**（同一物理设备序列号全局唯一，防止跨账号重复绑定；建唯一索引前需先清洗存量重复 SN）
 
@@ -96,6 +99,12 @@ Create these indexes in the uniCloud database console before production traffic.
 - `order_no, create_time desc`
 - `action, create_time desc`
 - `actor_id, create_time desc`
+
+## cicada_sn_logs
+
+- `create_time desc`                 # 全局 SN 扫码/查询埋点日志，按时间倒序查看
+- `sn_normalized, create_time desc`  # 按设备 SN 聚合操作轨迹
+- `source, action, create_time desc` # 按来源端/操作类型筛选
 
 ## cicada_parts
 

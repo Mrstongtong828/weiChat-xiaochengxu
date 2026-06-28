@@ -64,6 +64,7 @@ const normalizeSubmitRepairPayload = (data = {}) => {
     },
     items: products.map((item = {}) => ({
       product_name: item.productName || item.name || data.productName || '维修产品',
+      product_category: item.productCategory || item.category || data.productCategory || '',
       product_model: item.productModel || item.model || data.productModel || '',
       sn: item.productSerial || item.serial || data.productSerial || '',
       buy_date: item.buyDate || data.buyDate || '',
@@ -126,6 +127,16 @@ export const syncRepairWechatPay = (id, outTradeNo = '') => {
 
 export const lookupDeviceBySn = (sn) => {
   return getCloudObject().lookupDeviceBySn(withToken({ sn })).then(unwrapCloudResult)
+}
+
+// SN 操作埋点（扫码/手动查询）。fire-and-forget：失败静默，绝不阻断报修主流程。
+export const logSnAction = (action, sn, extra = {}) => {
+  try {
+    return getCloudObject().logSnAction(withToken({ action, sn, ...extra }))
+      .then(() => {}).catch(() => {})
+  } catch (e) {
+    return Promise.resolve()
+  }
 }
 
 export const getRepairStats = () => {

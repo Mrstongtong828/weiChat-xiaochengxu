@@ -27,6 +27,7 @@ const normalizeOrderItems = (order) => {
   return sourceItems.map((item = {}) => ({
     _id: item._id,
     product_name: item.product_name || '',
+    product_category: item.product_category || '',
     product_model: item.product_model || '',
     sn: item.sn || '',
     buy_date: item.buy_date || '',
@@ -131,6 +132,11 @@ export const transformOrder = (order) => {
     status: toChineseStatus(order.status),
     statusEn: order.status,
     slaInfo: order.sla_info || order.slaInfo || null,
+
+    // 在保快照（下单时判定，后台 SN 回填后可重算）
+    warrantyStatus: order.warranty_status || order.warrantyStatus || '',
+    inWarranty: Boolean(order.in_warranty ?? order.inWarranty),
+    chargeType: order.charge_type || order.chargeType || '',
 
     // 工程师和时间线
     engineerId: order.engineer_id || '',

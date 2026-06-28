@@ -7,6 +7,8 @@
     "product_name": { "bsonType": "string" },
     "product_model": { "bsonType": "string" },
     "sn": { "bsonType": "string" },
+    "sn_normalized": { "bsonType": "string", "description": "SN 规范化键（大写、去空格/横杠），用于容错检索匹配" },
+    "product_category": { "bsonType": "string", "description": "设备分类（后台回填）" },
     "buy_date": { "bsonType": "string" },
     "fault_desc": { "bsonType": "string" },
     "media_urls": { "bsonType": "array" },

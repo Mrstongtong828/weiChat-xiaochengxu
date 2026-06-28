@@ -41,7 +41,8 @@
         "feedback_reply",
         "feedback_visit",
         "feedback_close",
-        "feedback_upgrade"
+        "feedback_upgrade",
+        "update_order_items"
       ]
     },
     "actor_id": { "bsonType": "string" },

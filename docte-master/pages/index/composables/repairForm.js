@@ -11,6 +11,7 @@ export const defaultRepairForm = () => ({
 export const createRepairProduct = (id = 1) => ({
 	id,
 	name: '',
+	category: '',
 	model: '',
 	serial: '',
 	buyDate: '',

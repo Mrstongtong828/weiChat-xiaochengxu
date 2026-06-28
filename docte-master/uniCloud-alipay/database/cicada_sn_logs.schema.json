@@ -1,0 +1,26 @@
+{
+  "bsonType": "object",
+  "required": ["action", "sn", "source", "create_time"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "action": {
+      "bsonType": "string",
+      "enum": ["sn_scan", "sn_query"],
+      "description": "操作类型：扫码识别 / 手动查询"
+    },
+    "sn": { "bsonType": "string", "description": "用户录入/扫描的原始 SN（清洗后）" },
+    "sn_normalized": { "bsonType": "string", "description": "SN 规范化键（大写、去空格/横杠）" },
+    "source": {
+      "bsonType": "string",
+      "enum": ["client", "admin"],
+      "description": "来源端：小程序客户端 / PC 后台"
+    },
+    "actor_id": { "bsonType": "string", "description": "操作人 ID" },
+    "actor_role": { "bsonType": "string", "description": "操作人角色" },
+    "actor_name": { "bsonType": "string", "description": "操作人名称" },
+    "matched": { "bsonType": "bool", "description": "是否命中设备档案" },
+    "device_id": { "bsonType": "string", "description": "命中的设备档案 ID" },
+    "warranty_status": { "bsonType": "string", "description": "命中设备的质保状态快照" },
+    "create_time": { "bsonType": "timestamp" }
+  }
+}

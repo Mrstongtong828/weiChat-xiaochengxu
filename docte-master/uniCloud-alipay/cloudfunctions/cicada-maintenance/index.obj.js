@@ -109,7 +109,57 @@ async function findBrokenOrders() {
   return { scanned: orders.data.length, broken }
 }
 
+// SN 规范化键：大写、去空格/横杠（与各业务云函数 normalizeSn 口径一致）
+function normalizeSn(v) {
+  return String(v == null ? '' : v).trim().toUpperCase().replace(/[\s-]+/g, '')
+}
+
+// 回填存量记录的 sn_normalized：扫描 cicada_user_devices 与 cicada_order_items，
+// 为有 sn 但缺规范化键（或键不匹配）的记录补算。分批扫描避免单次超量。
+async function backfillCollectionSn(collection, { dryRun }) {
+  const PAGE = 500
+  let skip = 0
+  let scanned = 0
+  let updated = 0
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const res = await db.collection(collection)
+      .field({ _id: true, sn: true, sn_normalized: true })
+      .skip(skip).limit(PAGE).get()
+    const rows = res.data || []
+    if (!rows.length) break
+    scanned += rows.length
+    for (const row of rows) {
+      const sn = String(row.sn || '').trim()
+      if (!sn) continue
+      const key = normalizeSn(sn)
+      if (row.sn_normalized === key) continue
+      updated += 1
+      if (!dryRun) {
+        await db.collection(collection).doc(row._id).update({ sn_normalized: key }).catch(() => {})
+      }
+    }
+    if (rows.length < PAGE) break
+    skip += PAGE
+  }
+  return { scanned, updated }
+}
+
 module.exports = {
+  // 回填 sn_normalized（SN 容错检索字段）。先 dryRun:true 验证条数，再正式执行。
+  async backfillSnNormalized({ token, dryRun = true } = {}) {
+    try {
+      await verifyAdminToken(token)
+      const [devices, orderItems] = await Promise.all([
+        backfillCollectionSn('cicada_user_devices', { dryRun }),
+        backfillCollectionSn('cicada_order_items', { dryRun })
+      ])
+      return { code: 0, data: { dryRun, devices, orderItems } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async run({ token, dryRun = true } = {}) {
     try {
       await verifyAdminToken(token)

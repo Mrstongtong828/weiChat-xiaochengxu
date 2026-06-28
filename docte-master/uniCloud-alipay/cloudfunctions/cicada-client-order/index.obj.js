@@ -229,6 +229,12 @@ function normalizePhoneLast4(value) {
   return normalizeText(value).replace(/\D/g, '').slice(-4)
 }
 
+// SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
+// 口径必须与 cicada-admin-customer / cicada-admin-order 中的同名函数保持一致。
+function normalizeSn(value) {
+  return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
+}
+
 // 默认整机质保月数：当设备无显式 warranty_expire/warranty_months 时，用购机日期推算到期日
 const DEFAULT_WARRANTY_MONTHS = 12
 
@@ -783,9 +789,15 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
   for (const item of items) {
     const sn = normalizeText(item && (item.sn || item.serial))
     if (!sn) continue // 无 SN 不沉淀，避免脏档案
+    const snKey = normalizeSn(sn)
     try {
-      const existRes = await db.collection('cicada_user_devices')
-        .where({ sn, user_id: userId }).limit(1).get()
+      // 优先按规范化键匹配（容错横杠/大小写/空格）；存量未回填时回退精确 SN
+      let existRes = await db.collection('cicada_user_devices')
+        .where({ sn_normalized: snKey, user_id: userId }).limit(1).get()
+      if (!existRes.data || !existRes.data.length) {
+        existRes = await db.collection('cicada_user_devices')
+          .where({ sn, user_id: userId }).limit(1).get()
+      }
       const existing = existRes.data && existRes.data[0]
       const buyDate = normalizeText(item.buy_date) || (existing && existing.buy_date) || ''
       const baseFields = {
@@ -817,6 +829,7 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
         const updatePayload = {
           ...baseFields,
           ...trackFields,
+          sn_normalized: snKey,
           repair_count: Number(existing.repair_count || 0) + (orderMeta.countRepair ? 1 : 0)
         }
         // 回填 customer_id，让小程序设备与后台 CRM 设备台账合流
@@ -827,6 +840,7 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
           user_id: userId,
           customer_id: customerId,
           sn,
+          sn_normalized: snKey,
           ...baseFields,
           ...trackFields,
           repair_count: orderMeta.countRepair ? 1 : 0,
@@ -851,7 +865,11 @@ async function computeOrderWarranty(userId, items = []) {
     let device = null
     if (sn && userId) {
       try {
-        const res = await db.collection('cicada_user_devices').where({ sn, user_id: userId }).limit(1).get()
+        const snKey = normalizeSn(sn)
+        let res = await db.collection('cicada_user_devices').where({ sn_normalized: snKey, user_id: userId }).limit(1).get()
+        if (!res.data || !res.data.length) {
+          res = await db.collection('cicada_user_devices').where({ sn, user_id: userId }).limit(1).get()
+        }
         device = res.data && res.data[0]
       } catch (e) {
         device = null
@@ -975,6 +993,7 @@ module.exports = {
       await Promise.all(items.map(item => {
         const data = pickFields(item, [
           'product_name',
+          'product_category',
           'product_model',
           'sn',
           'buy_date',
@@ -989,6 +1008,7 @@ module.exports = {
         data.voucher_urls = normalizeArray(data.voucher_urls)
         data.image_urls = normalizeArray(data.image_urls)
         data.video_urls = normalizeArray(data.video_urls)
+        data.sn_normalized = normalizeSn(data.sn) // 容错检索键
         return db.collection('cicada_order_items').add({ ...data, order_id: orderId })
       }))
 
@@ -1164,21 +1184,30 @@ module.exports = {
       const user = await verifyUserToken(token)
       const serial = normalizeText(sn)
       if (!serial) return { code: -1, msg: '请输入设备序列号' }
+      const snKey = normalizeSn(serial) // 容错检索键（大写、去空格/横杠）
 
       // 设备 SN 期望全局唯一（手动绑定 manageDevice 已做全局查重）：优先取当前用户名下设备，
-      // 其次取任意匹配设备（仅返回型号/质保等非敏感信息，不泄露归属账号）
-      const ownRes = await db.collection('cicada_user_devices')
-        .where({ sn: serial, user_id: user._id }).limit(1).get()
-      let device = ownRes.data && ownRes.data[0]
-      if (!device) {
-        const anyRes = await db.collection('cicada_user_devices')
-          .where({ sn: serial }).limit(1).get()
-        device = anyRes.data && anyRes.data[0]
+      // 其次取任意匹配设备（仅返回型号/质保等非敏感信息，不泄露归属账号）。
+      // 优先按规范化键匹配，存量未回填时回退精确 SN。
+      const findDevice = async (extra = {}) => {
+        let res = await db.collection('cicada_user_devices')
+          .where({ sn_normalized: snKey, ...extra }).limit(1).get()
+        if (!res.data || !res.data.length) {
+          res = await db.collection('cicada_user_devices')
+            .where({ sn: serial, ...extra }).limit(1).get()
+        }
+        return res.data && res.data[0]
       }
+      let device = await findDevice({ user_id: user._id })
+      if (!device) device = await findDevice()
 
-      // 历史维修记录：当前用户名下、含该 SN 的工单
-      const itemRes = await db.collection('cicada_order_items')
-        .where({ sn: serial }).field({ order_id: true, fault_desc: true }).limit(50).get()
+      // 历史维修记录：当前用户名下、含该 SN 的工单（按规范化键，回退精确 SN）
+      let itemRes = await db.collection('cicada_order_items')
+        .where({ sn_normalized: snKey }).field({ order_id: true, fault_desc: true }).limit(50).get()
+      if (!itemRes.data || !itemRes.data.length) {
+        itemRes = await db.collection('cicada_order_items')
+          .where({ sn: serial }).field({ order_id: true, fault_desc: true }).limit(50).get()
+      }
       const orderIds = [...new Set((itemRes.data || []).map(i => i.order_id).filter(Boolean))]
       let history = []
       if (orderIds.length) {
@@ -1187,6 +1216,7 @@ module.exports = {
           .field({ order_no: true, status: true, create_time: true })
           .orderBy('create_time', 'desc').limit(10).get()
         history = (ordersRes.data || []).map(o => ({
+          id: o._id,
           orderNo: o.order_no,
           status: o.status,
           createTime: o.create_time
@@ -1217,6 +1247,34 @@ module.exports = {
           history
         }
       }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // SN 操作埋点：记录每次扫码/手动查询（写入全局操作日志 cicada_sn_logs）。
+  // 失败静默，绝不阻断主流程。
+  async logSnAction({ token, action, sn, matched, warranty_status, device_id } = {}) {
+    try {
+      const user = await verifyUserToken(token)
+      const act = normalizeText(action)
+      if (!['sn_scan', 'sn_query'].includes(act)) return { code: -1, msg: '操作类型不正确' }
+      const serial = normalizeText(sn)
+      if (!serial) return { code: -1, msg: '缺少 SN' }
+      await db.collection('cicada_sn_logs').add({
+        action: act,
+        sn: serial,
+        sn_normalized: normalizeSn(serial),
+        source: 'client',
+        actor_id: user._id || '',
+        actor_role: 'client',
+        actor_name: normalizeText(user.name || user.nickname || user.phone || ''),
+        matched: Boolean(matched),
+        device_id: normalizeText(device_id),
+        warranty_status: normalizeText(warranty_status),
+        create_time: Date.now()
+      }).catch(() => {})
+      return { code: 0 }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
