@@ -2345,26 +2345,33 @@ module.exports = {
       if (!order) return { code: -1, msg: '工单不存在' }
 
       const now = Date.now()
-      // 逐条更新工单项（仅限本工单下的项，按 _id 精确更新）
+      // 先取本工单的全部产品项，构建归属白名单，杜绝按 _id 改到其它工单的项
       const itemKeys = [order._id, order.order_no].filter(Boolean)
+      const existingRes = itemKeys.length
+        ? await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+        : { data: [] }
+      const ownedItems = existingRes.data || []
+      const ownedById = new Map(ownedItems.map(it => [String(it._id), it]))
+
+      // 逐条更新工单项（仅限本工单下的项，按 _id 精确更新）
       for (const item of items) {
         const itemId = normalizeText(item && item._id)
-        if (!itemId) continue
+        const owned = itemId && ownedById.get(itemId)
+        if (!owned) continue // 跳过不属于本工单的项
         const sn = normalizeText(item.sn)
-        await db.collection('cicada_order_items').doc(itemId).update({
+        const patch = {
           product_category: normalizeText(item.product_category),
           product_model: normalizeText(item.product_model),
           sn,
           sn_normalized: normalizeSn(sn),
           buy_date: normalizeText(item.buy_date)
-        }).catch(() => {})
+        }
+        await db.collection('cicada_order_items').doc(itemId).update(patch).catch(() => {})
+        Object.assign(owned, patch) // 同步内存副本，供下方在保重算
       }
 
-      // 拉取本工单最新全部产品项，重算在保结论
-      const itemsRes = itemKeys.length
-        ? await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
-        : { data: [] }
-      const warranty = await computeOrderWarrantyFromItems(itemsRes.data || [])
+      // 用更新后的本工单产品项重算在保结论
+      const warranty = await computeOrderWarrantyFromItems(ownedItems)
 
       await db.collection('cicada_orders').doc(targetOrderId).update({
         in_warranty: warranty.in_warranty,

@@ -125,6 +125,7 @@ async function backfillCollectionSn(collection, { dryRun }) {
   while (true) {
     const res = await db.collection(collection)
       .field({ _id: true, sn: true, sn_normalized: true })
+      .orderBy('_id', 'asc') // 固定顺序，保证 skip/limit 分页稳定、不漏扫
       .skip(skip).limit(PAGE).get()
     const rows = res.data || []
     if (!rows.length) break

@@ -4067,11 +4067,31 @@ const openSnHistory = (index) => {
 		itemList,
 		success: ({ tapIndex }) => {
 			const target = history[tapIndex]
-			if (target && target.id) openOrderDetail({ id: target.id })
+			if (target && target.id) openHistoryOrder(target.id)
 			else uni.showToast({ title: '该工单暂无法打开', icon: 'none' })
 		},
 		fail: () => {}
 	})
+}
+
+// 按工单 _id 拉取详情并打开：历史工单可能不在已加载列表中，故先拉取规范化后并入列表，
+// 再以规范化 id（order_no 优先）打开，避免 detailOrder 因 _id/order_no 键不一致而空白。
+const openHistoryOrder = async (orderId) => {
+	try {
+		uni.showLoading({ title: '加载中' })
+		const detail = await getRepairDetail(orderId)
+		const normalized = normalizeOrder(detail)
+		uni.hideLoading()
+		if (!normalized.id) { uni.showToast({ title: '工单暂无法打开', icon: 'none' }); return }
+		const exists = orderList.value.some((o) => o.id === normalized.id)
+		orderList.value = exists
+			? orderList.value.map((o) => (o.id === normalized.id ? { ...o, ...normalized } : o))
+			: [normalized, ...orderList.value]
+		openOrderDetail({ id: normalized.id })
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: (error && error.message) || '工单加载失败', icon: 'none' })
+	}
 }
 
 const scanSn = (index) => {
