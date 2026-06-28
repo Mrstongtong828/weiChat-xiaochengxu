@@ -67,7 +67,7 @@ Permissions are gated by the `PERMISSIONS` map in `cicada-order-workflow`, e.g. 
 
 ### Database collections (all prefixed `cicada_`)
 
-Core: `cicada_users` (client + staff, `role` field), `cicada_orders`, `cicada_order_items`, `cicada_order_events` (order timeline/audit), `cicada_user_devices`, `cicada_addresses`.
+Core: `cicada_users` (client + staff, `role` field), `cicada_orders`, `cicada_order_items`, `cicada_order_events` (order timeline/audit), `cicada_user_devices`, `cicada_addresses`, `cicada_sn_logs` (SN 扫码/手动查询埋点; `action` `sn_scan`/`sn_query`, `source` `client`/`admin`).
 CRM: `cicada_customers`, `cicada_customer_logs` (compliance/access log), `cicada_customer_tags`.
 Inventory/billing: `cicada_parts` (parts/配件 catalog), `cicada_inventory_flows` (stock movement log).
 Content/system: `cicada_fault_kb`, `cicada_product_categories`, `cicada_guides`, `cicada_feedbacks` (投诉/建议: `type` enum `投诉`/`建议`, `status` enum `待处理`/`已处理`, optional `rel_order_no` linking to an order), `cicada_settings`, `cicada_subscription_logs`, `cicada_rate_limits` (API rate limiting).
@@ -92,6 +92,11 @@ Schemas: `docte-master/uniCloud-alipay/database/*.schema.json`. Init/test data: 
 - **Mini-program navigation**: all pages use `navigationStyle: "custom"`.
 - **Mini-program API layer** (`api/*.js`): wraps cloud calls; `USE_CLOUD` toggle switches between `callCloudFunction()` and HTTP fallback.
 - **WeChat AppID**: `wx25289fbe4a3bf011` (manifest.json). uniCloud provider: Alipay Cloud (`uniCloud-alipay`).
+- **Device SN matching**: SN lookup/dedup is **normalized**, not exact. Every function that touches SNs keeps an identical `normalizeSn(v) = String(v).trim().toUpperCase().replace(/[\s-]+/g,'')` and stores the result in a `sn_normalized` field on `cicada_user_devices` and `cicada_order_items` (queries match on it, falling back to exact `sn` for un-backfilled rows). The helper is **intentionally duplicated** across `cicada-client-order`, `cicada-admin-customer`, `cicada-admin-order`, `cicada-client-user`, `cicada-maintenance` (no shared module, to avoid changing client-function bundling) — when you change the rule, change all copies. Backfill existing rows via `cicada-maintenance.backfillSnNormalized({ token, dryRun })`.
+
+### Git remotes (non-obvious)
+
+Three remotes are configured: `origin` → `huaxie602/docte` (the issue/PRD tracker referenced below), `weichat` → `Mrstongtong828/weiChat-xiaochengxu`, `data-guard` → `Mrstongtong828/data-guard`. Feature branches (e.g. `su/after-sales-launch-config`) track **`weichat`**, so a bare `git push` goes there, **not** `origin`. Check the branch's upstream before pushing and don't assume `origin`.
 
 ### Adding things
 
