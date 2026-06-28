@@ -41,20 +41,44 @@ function resolveUniPlugin() {
 loadLocalUniCloudSpaces()
 const uni = resolveUniPlugin()
 
-const assetCopies = [
-	['brand-cicada-tooth-blue.png', 'brand-cicada-tooth-blue.e5ad1cd6.png'],
-	['brand-cicada-tooth-blue-original.png', 'brand-cicada-tooth-blue-original.9fbcc731.png'],
-	['default-user-avatar.png', 'default-user-avatar.77e1bac2.png'],
-	['logo-banner.jpg', 'logo-banner.915b9c74.jpg'],
-	['logo-cicada-full.jpg', 'logo-cicada-full.bc8283ed.jpg'],
-	['logo-cicada-mark.jpg', 'logo-cicada-mark.eed3d60f.jpg'],
-	['new-logo.png', 'new-logo.33fff49f.png'],
-	['photo-building.jpg', 'photo-building.98b16d4b.jpg'],
-	['photo-factory.jpg', 'photo-factory.74afac67.jpg'],
-	['qr-wechat.jpg', 'qr-wechat.19f52a60.jpg'],
-	['survey-poster.png', 'survey-poster.7a31971d.png'],
-	['survey-qr-wechat.jpg', 'survey-qr-wechat.d11c53e6.jpg']
+const assetSources = [
+	'brand-cicada-tooth-blue.png',
+	'brand-cicada-tooth-blue-original.png',
+	'default-user-avatar.png',
+	'login-auth-bg.jpg',
+	'logo-banner.jpg',
+	'logo-cicada-full.jpg',
+	'logo-cicada-mark.jpg',
+	'new-logo.png',
+	'photo-building.jpg',
+	'photo-factory.jpg',
+	'qr-wechat.jpg',
+	'survey-poster.jpg',
+	'survey-qr-wechat.jpg'
 ]
+
+function escapeRegex(text) {
+	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function readBuiltAssetMappings(outDir) {
+	const assetsManifestPath = path.resolve(__dirname, outDir, 'common', 'assets.js')
+	if (!fs.existsSync(assetsManifestPath)) return {}
+	const content = fs.readFileSync(assetsManifestPath, 'utf8')
+	const mappings = {}
+
+	assetSources.forEach((sourceName) => {
+		const ext = path.extname(sourceName)
+		const base = path.basename(sourceName, ext)
+		const pattern = new RegExp(`/assets/${escapeRegex(base)}\\.([a-z0-9]+)${escapeRegex(ext)}`, 'i')
+		const match = content.match(pattern)
+		if (match) {
+			mappings[sourceName] = `${base}.${match[1]}${ext}`
+		}
+	})
+
+	return mappings
+}
 
 function copyMiniappAssets() {
 	const outDir = process.env.UNI_OUTPUT_DIR || path.join('unpackage', 'dist', 'build', 'mp-weixin')
@@ -64,8 +88,11 @@ function copyMiniappAssets() {
 
 	const assetsDir = path.resolve(__dirname, outDir, 'assets')
 	fs.mkdirSync(assetsDir, { recursive: true })
+	const builtAssetMappings = readBuiltAssetMappings(outDir)
 
-	assetCopies.forEach(([sourceName, outputName]) => {
+	assetSources.forEach((sourceName) => {
+		const outputName = builtAssetMappings[sourceName]
+		if (!outputName) return
 		const sourcePath = path.resolve(__dirname, 'static', sourceName)
 		if (fs.existsSync(sourcePath)) {
 			fs.copyFileSync(sourcePath, path.join(assetsDir, outputName))

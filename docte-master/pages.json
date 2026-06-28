@@ -14,27 +14,41 @@
 				"navigationStyle": "custom",
 				"navigationBarTitleText": "登录"
 			}
-		},
+		}
+	],
+	"subPackages": [
 		{
-			"path": "pages/company/index",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "公司介绍"
-			}
-		},
-		{
-			"path": "pages/mine/index",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "个人中心"
-			}
-		},
-		{
-			"path": "pages/address/index",
-			"style": {
-				"navigationStyle": "custom",
-				"navigationBarTitleText": "收货地址管理"
-			}
+			"root": "pages-sub",
+			"pages": [
+				{
+					"path": "legal/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": ""
+					}
+				},
+				{
+					"path": "company/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": "公司介绍"
+					}
+				},
+				{
+					"path": "mine/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": "个人中心"
+					}
+				},
+				{
+					"path": "address/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": "收货地址管理"
+					}
+				}
+			]
 		}
 	],
 	"globalStyle": {

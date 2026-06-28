@@ -7,6 +7,9 @@ const getCloudObject = () => {
   if (!orderCloudObject) {
     orderCloudObject = importCloudObject('cicada-client-order')
   }
+  if (!orderCloudObject) {
+    throw new Error('云服务暂不可用，请稍后重试或联系客服')
+  }
   return orderCloudObject
 }
 

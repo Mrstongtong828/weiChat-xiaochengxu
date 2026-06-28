@@ -27,6 +27,20 @@ function getWechatAppConfig() {
   }
 }
 
+function buildWechatErrorMessage(data = {}, fallback = '微信接口调用失败') {
+  const errcode = Number(data.errcode || 0)
+  const errmsg = data.errmsg || ''
+  const suffix = errcode ? `（${errcode}${errmsg ? `：${errmsg}` : ''}）` : ''
+
+  if ([40013, 40125].includes(errcode)) return `微信小程序 AppID 或 Secret 配置不正确${suffix}`
+  if ([40029, 40163].includes(errcode)) return `授权凭证已失效，请重新点击微信手机号授权登录${suffix}`
+  if ([40001, 42001].includes(errcode)) return `微信 access_token 失效，请稍后重试或联系管理员检查小程序后台配置${suffix}`
+  if (errcode === 45011) return `微信接口调用过于频繁，请稍后重试${suffix}`
+  if (errcode === 43101) return `用户未授权手机号，请重新点击微信手机号授权登录${suffix}`
+  if (errcode) return `${fallback}${suffix}`
+  return errmsg || fallback
+}
+
 async function getAccessToken() {
   const { appId, secret } = getWechatAppConfig()
   if (!appId || !secret) {
@@ -37,7 +51,48 @@ async function getAccessToken() {
     `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(secret)}`,
     { dataType: 'json' }
   )
-  return res.data.access_token
+  const data = res.data || {}
+  if (!data.access_token) {
+    throw new Error(buildWechatErrorMessage(data, '获取微信 access_token 失败'))
+  }
+  return data.access_token
+}
+
+async function getWechatOpenid(appId, secret, code) {
+  if (!code) throw new Error('缺少微信登录凭证，请重新点击登录')
+  const wxRes = await uniCloud.httpclient.request(
+    `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`,
+    { dataType: 'json' }
+  )
+  const data = wxRes.data || {}
+  if (!data.openid) {
+    throw new Error(buildWechatErrorMessage(data, '获取微信 openid 失败'))
+  }
+  return data.openid
+}
+
+async function getPhoneNumberByCode(phoneCode) {
+  if (!phoneCode) return ''
+  const phoneRes = await uniCloud.httpclient.request(
+    'https://api.weixin.qq.com/wxa/business/getuserphonenumber',
+    {
+      method: 'POST',
+      data: JSON.stringify({ code: phoneCode }),
+      headers: { 'Content-Type': 'application/json' },
+      dataType: 'json',
+      params: { access_token: await getAccessToken() }
+    }
+  )
+  const data = phoneRes.data || {}
+  if (Number(data.errcode || 0) !== 0) {
+    throw new Error(buildWechatErrorMessage(data, '获取微信手机号失败，请确认小程序后台已开通手机号能力并完成隐私协议配置'))
+  }
+  const phoneInfo = data.phone_info || {}
+  const phone = phoneInfo.phoneNumber || phoneInfo.purePhoneNumber || ''
+  if (!phone) {
+    throw new Error('微信未返回手机号，请确认小程序后台已开通手机号能力并完成隐私协议配置')
+  }
+  return phone
 }
 
 async function verifyUserToken(token) {
@@ -237,29 +292,10 @@ module.exports = {
       await checkRateLimit('login', `${getClientIdentity(this)}:${code || 'empty'}`)
 
       // 1. 换取 openid
-      const wxRes = await uniCloud.httpclient.request(
-        `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(secret)}&js_code=${encodeURIComponent(code)}&grant_type=authorization_code`,
-        { dataType: 'json' }
-      )
-      const { openid, errmsg } = wxRes.data
-      if (!openid) return { code: -1, msg: errmsg || '获取openid失败' }
+      const openid = await getWechatOpenid(appId, secret, code)
 
-      // 2. 换取手机号
-      let phone = ''
-      if (phoneCode) {
-        const phoneRes = await uniCloud.httpclient.request(
-          'https://api.weixin.qq.com/wxa/business/getuserphonenumber',
-          {
-            method: 'POST',
-            data: JSON.stringify({ code: phoneCode }),
-            headers: { 'Content-Type': 'application/json' },
-            dataType: 'json',
-            params: { access_token: await getAccessToken() }
-          }
-        )
-        const phoneInfo = phoneRes.data && phoneRes.data.phone_info
-        phone = (phoneInfo && phoneInfo.phoneNumber) || ''
-      }
+      // 2. 换取手机号。若当前小程序账号没有手机号能力，允许降级为 openid 登录。
+      const phone = await getPhoneNumberByCode(phoneCode)
 
       const col = db.collection('cicada_users')
       const now = Date.now()
@@ -269,6 +305,7 @@ module.exports = {
       // 3. 查询或创建用户
       const found = await col.where({ openid }).limit(1).get()
       let userId, role
+      let savedPhone = phone
       if (found.data.length === 0) {
         const ins = await col.add({
           openid,
@@ -276,6 +313,7 @@ module.exports = {
           role: 'user',
           token,
           token_expire: tokenExpire,
+          phone_authorized: Boolean(phone),
           create_time: now,
           last_login: now
         })
@@ -285,8 +323,12 @@ module.exports = {
         const user = found.data[0]
         userId = user._id
         role = user.role
+        savedPhone = phone || user.phone || ''
         const update = { last_login: now, token, token_expire: tokenExpire }
-        if (phone) update.phone = phone
+        if (phone) {
+          update.phone = phone
+          update.phone_authorized = true
+        }
         await col.doc(userId).update(update)
       }
 
@@ -299,7 +341,8 @@ module.exports = {
           token,
           userId,
           role,
-          userInfo: buildUserInfo({ phone, role }, userId)
+          phoneAuthorized: Boolean(phone),
+          userInfo: buildUserInfo({ phone: savedPhone, role }, userId)
         }
       }
     } catch (e) {

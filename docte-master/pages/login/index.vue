@@ -1,487 +1,297 @@
-<template>
-	<view class="page-shell">
-		<view class="wx-top">
-			<view class="status-row">
-				<text class="status-time">9:41</text>
-				<view class="status-icons">
-					<view class="signal">
-						<view class="signal-bar signal-one"></view>
-						<view class="signal-bar signal-two"></view>
-						<view class="signal-bar signal-three"></view>
-						<view class="signal-bar signal-four"></view>
-					</view>
-					<view class="wifi-dot"></view>
-					<view class="battery"><view class="battery-fill"></view></view>
+﻿<template>
+	<view class="page-shell login-image-page">
+		<view class="login-back-button tap" @click="goBack">
+			<view></view>
+		</view>
+		<image class="login-auth-image" :src="cicadaAssets.loginAuthBg" mode="widthFix"></image>
+		<button
+			class="login-auth-button tap"
+			:class="{ loading: loading, disabled: !agreed }"
+			:disabled="loading"
+			:open-type="agreed ? 'getPhoneNumber' : ''"
+			@click="onLoginButtonTap"
+			@getphonenumber="onGetPhoneNumber"
+		>
+			<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : '微信一键登录' }}</text>
+		</button>
+		<view class="login-consent-panel">
+			<text v-if="!agreed" class="login-error login-image-error">请先勾选同意协议，再点击微信一键登录</text>
+			<view class="login-consent-check tap" @click="toggleAgreement">
+				<view :class="['login-checkbox', { checked: agreed }]">
+					<text v-if="agreed">✓</text>
 				</view>
-			</view>
-			<view class="nav-row">
-				<view class="back-btn tap" @click="goBack">
-					<view class="chevron-left"></view>
-				</view>
-				<text class="nav-title">登录</text>
-				<view class="nav-spacer"></view>
+				<text>我已阅读并同意</text>
+				<text class="login-policy-link" @click.stop="openPolicy('user')">《用户协议》</text>
+				<text>与</text>
+				<text class="login-policy-link" @click.stop="openPolicy('privacy')">《隐私政策》</text>
 			</view>
 		</view>
-
-		<view class="login-content">
-			<view class="brand-section">
-				<image class="brand-logo" :src="cicadaAssets.brandToothBlue" mode="aspectFit"></image>
-				<text class="brand-name">佛山思科达</text>
-				<text class="brand-desc">牙医仪器检修</text>
-			</view>
-
-			<view class="form-section">
-				<view class="form-card">
-					<view class="form-title">微信手机号授权登录</view>
-					<text class="login-tip">短信验证码暂未开放，请通过微信授权手机号完成正式登录。</text>
-
-					<button class="wechat-btn" :class="{ loading: loading }" open-type="getPhoneNumber" @getphonenumber="onGetPhoneNumber">
-						<view class="wechat-icon"></view>
-						<text>{{ loading ? '登录中...' : '微信手机号授权登录' }}</text>
-					</button>
-
-					<view class="agreement-wrap">
-						<checkbox-group @change="onAgreeChange">
-							<label class="agreement-item">
-								<checkbox value="agree" color="#1E6FE0" :checked="agreed" />
-								<text class="agreement-text">已阅读并同意</text>
-							</label>
-						</checkbox-group>
-						<text class="link tap" @click="openPolicy('privacy')">《用户服务协议》</text>
-						<text class="link tap" @click="openPolicy('privacy')">《隐私政策》</text>
-					</view>
-				</view>
-			</view>
-		</view>
-		<PolicyDialog v-model:visible="policyVisible" :title="policyTitle" :content="policyContent" />
+		<PrivacyConsent />
 	</view>
 </template>
-
 <script setup>
 import { ref } from 'vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { wechatLogin, getCompliance } from '@/api/content'
-import PolicyDialog from '@/components/PolicyDialog.vue'
+import { wechatLogin } from '@/api/content'
+import PrivacyConsent from '@/components/PrivacyConsent.vue'
+import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
 
 const agreed = ref(false)
 const loading = ref(false)
+const retrying = ref(false)
+const loginError = ref('')
 
-const policyVisible = ref(false)
-const policyTitle = ref('')
-const policyContent = ref('')
-
-const openPolicy = async (type) => {
-	policyTitle.value = type === 'privacy' ? '隐私政策' : '用户服务协议'
-	policyVisible.value = true
-	if (!policyContent.value) {
-		try {
-			const data = await getCompliance()
-			policyContent.value = data.privacyPolicy || ''
-		} catch (e) {
-			policyContent.value = ''
-		}
-	}
+const openPolicy = (type) => {
+	uni.navigateTo({ url: `/pages/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
 }
 
-// 微信手机号一键登录：uni.login 取登录凭证(换 openid) + getPhoneNumber 取手机号凭证(换真实手机号)
+const toggleAgreement = async () => {
+	const nextValue = !agreed.value
+	agreed.value = nextValue
+	loginError.value = ''
+}
+
+const onLoginButtonTap = () => {
+	if (!agreed.value) onLoginDisabledTap()
+}
+
+const onLoginDisabledTap = () => {
+	loginError.value = ''
+	uni.showToast({ title: '请勾选同意《用户协议》和《隐私政策》后再登录', icon: 'none' })
+}
+
+const showLoginError = (message) => {
+	loginError.value = message
+	uni.showToast({ title: message, icon: 'none' })
+}
+
+const goBackAfterLogin = () => {
+	uni.navigateBack({
+		fail: () => uni.reLaunch({ url: '/pages/index/index' })
+	})
+}
+
+const goBack = () => {
+	uni.navigateBack({
+		fail: () => uni.reLaunch({ url: '/pages/index/index' })
+	})
+}
+
+const applyLoginSuccess = (res = {}, message = '') => {
+	if (res && res.token) {
+		uni.setStorageSync('token', res.token)
+		uni.setStorageSync('userInfo', res.userInfo || {})
+		uni.setStorageSync('isLoggedIn', true)
+
+		uni.showToast({ title: message || (res.offline ? '体验登录成功' : '登录成功'), icon: 'success' })
+
+		setTimeout(() => {
+			goBackAfterLogin()
+		}, 1200)
+		return true
+	}
+	showLoginError('登录响应缺少 token')
+	return false
+}
+
+// 先完成微信手机号授权，再通过 wx.login code 获取 openid 作为账号身份登录。
 const onGetPhoneNumber = async (e) => {
 	if (loading.value) return
+	loginError.value = ''
+	retrying.value = false
 
 	if (!agreed.value) {
-		uni.showToast({ title: '请先阅读并同意用户协议', icon: 'none' })
+		onLoginDisabledTap()
 		return
 	}
 
-	const detail = e.detail || {}
-	if (detail.errMsg !== 'getPhoneNumber:ok') {
-		if (detail.errMsg && detail.errMsg.includes('cancel')) {
-			return
+	const authDetail = normalizePhoneAuthDetail(e.detail || {})
+	if (!authDetail.ok) {
+		console.warn('wechat getPhoneNumber failed:', authDetail.raw || e.detail || {})
+		if (authDetail.privacyBlocked) {
+			agreed.value = false
+			loginError.value = ''
+			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
+		} else if (!authDetail.canceled) {
+			showLoginError(authDetail.message)
+		} else {
+			loginError.value = ''
 		}
-		uni.showToast({ title: '授权失败，请重试', icon: 'none' })
-		return
-	}
-
-	if (!detail.code) {
-		uni.showToast({ title: '获取手机号失败', icon: 'none' })
 		return
 	}
 
 	loading.value = true
 
 	try {
-		const loginRes = await uni.login({ provider: 'weixin' })
-		if (!loginRes || !loginRes.code) {
-			throw new Error('获取微信登录凭证失败')
-		}
+		const res = await loginWithWechatPhoneCode(wechatLogin, authDetail.phoneCode, {
+			retries: 1,
+			onRetry: () => {
+				retrying.value = true
+				loginError.value = '微信登录失败，正在自动重试...'
+			}
+		})
 
-		const res = await wechatLogin({ code: loginRes.code, phoneCode: detail.code })
-
-		loading.value = false
-
-		if (res && res.token) {
-			uni.setStorageSync('token', res.token)
-			uni.setStorageSync('userInfo', res.userInfo || {})
-			uni.setStorageSync('isLoggedIn', true)
-
-			uni.showToast({ title: '登录成功', icon: 'success' })
-
-			setTimeout(() => {
-				uni.navigateBack()
-			}, 1500)
-		} else {
-			uni.showToast({ title: '登录失败', icon: 'none' })
-		}
+		applyLoginSuccess(res, '登录成功')
 	} catch (error) {
+		showLoginError(getLoginErrorMessage(error))
+	} finally {
 		loading.value = false
-		uni.showToast({ title: error.message || '登录失败', icon: 'none' })
+		retrying.value = false
 	}
 }
 
-const onAgreeChange = (e) => {
-	agreed.value = e.detail.value.includes('agree')
-}
-
-const goBack = () => {
-	uni.navigateBack()
-}
 </script>
 
 <style scoped>
-.page-shell {
+.login-image-page {
 	position: relative;
 	min-height: 100vh;
-	background: #E8EEFA;
-	color: #0F1F3A;
-	font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+	overflow: hidden;
+	background: #F4F9FF;
 	box-sizing: border-box;
 }
 
-.tap:active {
-	opacity: 0.82;
-	transform: scale(0.98);
-}
-
-.wx-top {
-	position: relative;
-	z-index: 30;
-	padding-top: 44rpx;
-	background: #E8EEFA;
-}
-
-.status-row {
-	height: 88rpx;
-	padding: 0 44rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	box-sizing: border-box;
-}
-
-.status-time {
-	font-size: 30rpx;
-	font-weight: 600;
-	line-height: 1;
-	color: #0F1F3A;
-}
-
-.status-icons {
-	display: flex;
-	align-items: center;
-	gap: 10rpx;
-}
-
-.signal {
-	height: 22rpx;
-	display: flex;
-	align-items: flex-end;
-	gap: 4rpx;
-}
-
-.signal-bar {
-	width: 4rpx;
-	border-radius: 2rpx;
-	background: #0F1F3A;
-}
-
-.signal-one { height: 6rpx; }
-.signal-two { height: 10rpx; }
-.signal-three { height: 14rpx; }
-.signal-four { height: 20rpx; }
-
-.wifi-dot {
-	width: 12rpx;
-	height: 12rpx;
-	border-radius: 999rpx;
-	border: 4rpx solid #0F1F3A;
-	border-left-color: transparent;
-	border-bottom-color: transparent;
-	transform: rotate(-45deg);
-}
-
-.battery {
-	width: 44rpx;
-	height: 20rpx;
-	padding: 2rpx;
-	border: 2rpx solid rgba(15, 31, 58, 0.6);
-	border-radius: 5rpx;
-	box-sizing: border-box;
-}
-
-.battery-fill {
-	width: 85%;
-	height: 100%;
-	border-radius: 2rpx;
-	background: #0F1F3A;
-}
-
-.nav-row {
-	position: relative;
-	height: 88rpx;
-	padding: 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	box-sizing: border-box;
-}
-
-.nav-spacer {
-	width: 48rpx;
-	height: 48rpx;
-}
-
-.nav-title {
+.login-auth-image {
 	position: absolute;
 	left: 50%;
-	font-size: 32rpx;
-	font-weight: 600;
-	line-height: 1;
-	color: #0F1F3A;
+	top: 52rpx;
+	width: 750rpx;
+	z-index: 1;
 	transform: translateX(-50%);
 }
 
-.back-btn {
-	width: 48rpx;
-	height: 48rpx;
+.login-back-button {
+	position: absolute;
+	left: 32rpx;
+	top: 88rpx;
+	z-index: 8;
+	width: 72rpx;
+	height: 72rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.94);
+	box-shadow: 0 10rpx 24rpx rgba(30, 111, 224, 0.14);
 }
 
-.chevron-left {
+.login-back-button view {
 	width: 20rpx;
 	height: 20rpx;
-	border-top: 4rpx solid #0F1F3A;
-	border-left: 4rpx solid #0F1F3A;
-	transform: rotate(-45deg);
+	margin-left: 8rpx;
+	border-left: 4rpx solid #2B7DE9;
+	border-bottom: 4rpx solid #2B7DE9;
+	transform: rotate(45deg);
 }
 
-.login-content {
-	padding: 40rpx 36rpx;
+.login-auth-button {
+	position: absolute;
+	left: 74rpx;
+	top: 1090rpx;
+	z-index: 3;
+	width: 602rpx;
+	height: 120rpx;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: transparent;
+	font-size: 1rpx;
+	line-height: 120rpx;
+	opacity: 0.01;
 }
 
-.brand-section {
-	padding: 80rpx 0 60rpx;
+.login-auth-button::after {
+	border: none;
+}
+
+.login-auth-button[disabled] {
+	opacity: 0.01;
+}
+
+.login-consent-panel {
+	position: absolute;
+	left: 75rpx;
+	top: 1238rpx;
+	z-index: 5;
+	width: 600rpx;
+	min-height: 72rpx;
+	padding: 0;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-}
-
-.brand-logo {
-	width: 160rpx;
-	height: 160rpx;
-	margin-bottom: 24rpx;
-}
-
-.brand-name {
-	font-size: 40rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-	margin-bottom: 8rpx;
-}
-
-.brand-desc {
-	font-size: 26rpx;
-	color: #6B7C97;
-}
-
-.form-section {
-	padding: 0 8rpx;
-}
-
-.form-card {
-	background: #FFFFFF;
-	border-radius: 32rpx;
-	padding: 48rpx 36rpx;
-	box-shadow: 0 4rpx 24rpx rgba(30, 111, 224, 0.1);
-}
-
-.form-title {
-	font-size: 36rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-	margin-bottom: 18rpx;
-	text-align: center;
-}
-
-.login-tip {
-	display: block;
-	margin-bottom: 48rpx;
-	text-align: center;
-	font-size: 25rpx;
-	line-height: 1.6;
-	color: #6B7C97;
-}
-
-.field-wrap {
-	margin-bottom: 40rpx;
-}
-
-.field-label {
-	font-size: 26rpx;
-	color: #324563;
-	margin-bottom: 12rpx;
-	font-weight: 500;
-}
-
-.input-field {
-	position: relative;
-	height: 96rpx;
-	background: #F8FBFF;
-	border: 2rpx solid #E4ECF7;
-	border-radius: 16rpx;
-	display: flex;
-	align-items: center;
-	padding: 0 28rpx;
+	justify-content: flex-start;
+	gap: 12rpx;
+	background: transparent;
 	box-sizing: border-box;
 }
 
-.input-control {
-	flex: 1;
-	height: 100%;
-	font-size: 28rpx;
-	color: #0F1F3A;
-}
-
-.clear-btn {
-	width: 44rpx;
-	height: 44rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 40rpx;
-	color: #94A3B8;
-	line-height: 1;
-}
-
-.btn-wrap {
-	margin-top: 56rpx;
-}
-
-.login-btn {
-	height: 100rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: linear-gradient(180deg, #2A6CD3 0%, #0A4FB8 100%);
-	border-radius: 999rpx;
-	color: #FFFFFF;
-	font-size: 30rpx;
-	font-weight: 700;
-	box-shadow: 0 12rpx 32rpx rgba(10, 79, 184, 0.35);
-}
-
-.login-btn.disabled {
-	background: #C4D1E4;
-	box-shadow: none;
-}
-
-.login-btn.loading {
-	opacity: 0.7;
-}
-
-.divider {
-	margin: 36rpx 0;
-	display: flex;
-	align-items: center;
-	gap: 20rpx;
-}
-
-.divider-line {
-	flex: 1;
-	height: 1rpx;
-	background: #E4ECF7;
-}
-
-.divider-text {
-	font-size: 24rpx;
-	color: #94A3B8;
-}
-
-.wechat-btn {
+.login-consent-check {
 	width: 100%;
-	height: 96rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 16rpx;
-	background: #07C160;
-	border-radius: 999rpx;
-	color: #FFFFFF;
-	font-size: 28rpx;
-	font-weight: 600;
-	border: none;
-	outline: none;
-}
-
-.wechat-btn.loading {
-	opacity: 0.72;
-}
-
-.wechat-btn::after {
-	border: none;
-}
-
-.wechat-icon {
-	width: 44rpx;
-	height: 44rpx;
-	background: #FFFFFF;
-	border-radius: 999rpx;
-	position: relative;
-}
-
-.wechat-icon::after {
-	content: '';
-	position: absolute;
-	left: 50%;
-	top: 50%;
-	width: 20rpx;
-	height: 20rpx;
-	background: #07C160;
-	border-radius: 999rpx;
-	transform: translate(-50%, -50%);
-}
-
-.agreement-wrap {
-	margin-top: 36rpx;
-	display: flex;
-	align-items: center;
 	flex-wrap: wrap;
-	gap: 6rpx;
-	justify-content: center;
-	font-size: 22rpx;
+	gap: 7rpx;
+	font-size: 23rpx;
+	line-height: 1.4;
+	color: #5F6E86;
+	text-align: center;
 }
 
-.agreement-item {
+.login-checkbox {
+	width: 28rpx;
+	height: 28rpx;
+	flex: 0 0 28rpx;
 	display: flex;
 	align-items: center;
-	gap: 6rpx;
+	justify-content: center;
+	border: 2rpx solid #9AA9BF;
+	border-radius: 6rpx;
+	background: rgba(255, 255, 255, 0.9);
+	box-sizing: border-box;
 }
 
-.agreement-text {
-	color: #6B7C97;
+.login-checkbox.checked {
+	border-color: #1E7DF2;
+	background: #1E7DF2;
 }
 
-.link {
-	color: #1E6FE0;
+.login-checkbox text {
+	font-size: 22rpx;
+	line-height: 1;
+	color: #FFFFFF;
+	font-weight: 900;
+}
+
+.login-policy-link {
+	color: #1E7DF2;
+	text-decoration: underline;
+}
+
+.login-image-error {
+	width: 100%;
+	padding: 0;
+	text-align: center;
+	font-size: 21rpx;
+	line-height: 1.45;
+	color: #E5484D;
+}
+
+.phone-login {
+	position: absolute;
+	left: 220rpx;
+	top: 1280rpx;
+	z-index: 4;
+	width: 310rpx;
+	height: 72rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2rpx solid #E4ECF7;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.82);
+	color: #0F1F3A;
+	font-size: 26rpx;
+	font-weight: 700;
 }
 </style>

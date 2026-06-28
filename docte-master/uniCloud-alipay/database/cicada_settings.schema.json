@@ -4,7 +4,10 @@
   "properties": {
     "_id": { "description": "ID" },
     "key": { "bsonType": "string" },
-    "value": { "bsonType": "string" },
+    "value": {
+      "bsonType": "string",
+      "description": "配置值。保修政策、收费办法、隐私政策等富文本配置以 HTML 字符串存储。"
+    },
     "update_time": { "bsonType": "timestamp" }
   }
 }

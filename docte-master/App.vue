@@ -1,7 +1,16 @@
 <script>
+	import { setupWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
+
 	export default {
 		onLaunch: function() {
 			console.log('App Launch')
+			// #ifdef MP-WEIXIN
+			setupWechatPrivacyAuthorization((resolve) => {
+				if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
+					uni.$emit('needPrivacyAuthorization', resolve)
+				}
+			})
+			// #endif
 		},
 		onShow: function() {
 			console.log('App Show')

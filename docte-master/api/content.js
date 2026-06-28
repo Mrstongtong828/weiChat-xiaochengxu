@@ -1,5 +1,6 @@
 import { unwrapCloudResult, uploadToCloud, withToken } from './cloudHelpers.js'
-import { getCloudTempFileURL, importCloudObject } from '@/utils/cloud.js'
+import { getCloudTempFileURL, importCloudObject, checkCloudAvailable } from '@/utils/cloud.js'
+import request from '@/utils/request.js'
 
 let publicCloudObject = null
 let userCloudObject = null
@@ -7,16 +8,25 @@ let orderCloudObject = null
 
 const getPublicCloudObject = () => {
 	if (!publicCloudObject) publicCloudObject = importCloudObject('cicada-client-public')
+	if (!publicCloudObject) {
+		throw new Error('云服务暂不可用，请稍后重试或联系客服')
+	}
 	return publicCloudObject
 }
 
 const getUserCloudObject = () => {
 	if (!userCloudObject) userCloudObject = importCloudObject('cicada-client-user')
+	if (!userCloudObject) {
+		throw new Error('云服务暂不可用，请稍后重试或联系客服')
+	}
 	return userCloudObject
 }
 
 const getOrderCloudObject = () => {
 	if (!orderCloudObject) orderCloudObject = importCloudObject('cicada-client-order')
+	if (!orderCloudObject) {
+		throw new Error('云服务暂不可用，请稍后重试或联系客服')
+	}
 	return orderCloudObject
 }
 
@@ -43,7 +53,7 @@ const resolveCloudUrl = async (value) => {
 
 const settingDoc = (title, content = '', file = null) => ({
 	title,
-	content: String(content || '').replace(/\n/g, '<br/>'),
+	content: String(content || ''),
 	...(file && file.fileUrl ? {
 		fileName: file.fileName || title,
 		fileUrl: file.fileUrl,
@@ -104,38 +114,60 @@ const displayName = (value) => {
 }
 
 const getLocalDevLoginSession = () => ({
-	token: `local-dev-token-${Date.now()}`,
+	token: `local-offline-token-${Date.now()}`,
+	offline: true,
+	phoneAuthorized: false,
 	userInfo: {
-		id: 'local-dev-user',
-		userId: 'local-dev-user',
-		phone: '13800138000',
-		nickname: '开发测试用户',
+		id: 'local-offline-user',
+		userId: 'local-offline-user',
+		phone: '',
+		nickname: '微信体验用户',
 		avatar: '',
-		unit: '本地调试',
+		unit: '云服务未连接',
 		role: 'user'
 	}
 })
 
+const allowOfflineLoginFallback = () => {
+	// #ifdef H5
+	return true
+	// #endif
+	return false
+}
+
+const isCloudUnavailableError = (error) => /云服务未连接|云服务未初始化|uniCloud 服务空间|importObject|uniCloud/i.test(String(error && (error.message || error.errMsg || error)))
+
 export const wechatLogin = (data = {}) => {
-	const cloudObject = getUserCloudObject()
-	if (!cloudObject || typeof cloudObject.login !== 'function') {
-		throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
+	try {
+		const cloudObject = getUserCloudObject()
+		if (!cloudObject || typeof cloudObject.login !== 'function') {
+			throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
+		}
+		return cloudObject.login(data).then(unwrapCloudResult).catch((error) => {
+			if (allowOfflineLoginFallback() && isCloudUnavailableError(error)) {
+				console.warn('cloud login unavailable, using offline session:', error)
+				return getLocalDevLoginSession()
+			}
+			throw error
+		})
+	} catch (error) {
+		if (allowOfflineLoginFallback() && isCloudUnavailableError(error)) {
+			console.warn('cloud login unavailable, using offline session:', error)
+			return Promise.resolve(getLocalDevLoginSession())
+		}
+		return Promise.reject(error)
 	}
-	return cloudObject.login(data).then(unwrapCloudResult)
 }
 
 export const devLogin = async () => {
-	// 仅开发环境允许本地假登录兜底；生产构建必须连云，云未连时抛错而非伪造登录态
-	const allowLocalFallback = process.env.NODE_ENV !== 'production'
 	try {
 		const cloudObject = getUserCloudObject()
 		if (!cloudObject || typeof cloudObject.devLogin !== 'function') {
-			if (allowLocalFallback) return getLocalDevLoginSession()
-			throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
+			return getLocalDevLoginSession()
 		}
 		return await cloudObject.devLogin({}).then(unwrapCloudResult)
 	} catch (error) {
-		if (allowLocalFallback) {
+		if (isCloudUnavailableError(error)) {
 			console.warn('cloud devLogin unavailable, using local dev session:', error)
 			return getLocalDevLoginSession()
 		}
@@ -167,58 +199,13 @@ export const uploadVideo = (filePath) => uploadToCloud(filePath, 'repair/videos'
 export const uploadFeedbackImage = (filePath) => uploadToCloud(filePath, 'feedback/images', 'jpg')
 
 export const getWarrantyPolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy', 'warranty_policy_file'] }).then(unwrapCloudResult)
-	return settingDoc('保修政策', settings.warranty_policy, parseSettingFile(settings.warranty_policy_file))
+	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy'] }).then(unwrapCloudResult)
+	return settingDoc('保修政策', settings.warranty_policy)
 }
 
 export const getFeePolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy', 'fee_policy_file'] }).then(unwrapCloudResult)
-	return settingDoc('收费指南', settings.fee_description || settings.fee_policy, parseSettingFile(settings.fee_policy_file))
-}
-
-// 按机型保修规则 + 延保政策
-export const getWarrantyExtra = async () => {
-	const settings = await getPublicCloudObject().getSettings({
-		keys: ['warranty_rules', 'extended_warranty_desc', 'extended_warranty_fee', 'extended_warranty_rules']
-	}).then(unwrapCloudResult)
-
-	let rules = []
-	try {
-		const parsed = settings.warranty_rules ? JSON.parse(settings.warranty_rules) : []
-		if (Array.isArray(parsed)) rules = parsed
-	} catch (e) {
-		rules = []
-	}
-
-	// 按机型分类分组
-	const groupMap = {}
-	const order = []
-	rules.forEach(rule => {
-		const category = (rule.category || '其他').trim() || '其他'
-		if (!groupMap[category]) { groupMap[category] = []; order.push(category) }
-		groupMap[category].push({ model: rule.model || '', warrantyPeriod: rule.warrantyPeriod || '', terms: rule.terms || '' })
-	})
-	const groups = order.map(category => ({ category, items: groupMap[category] }))
-
-	return {
-		groups,
-		extended: {
-			desc: settings.extended_warranty_desc || '',
-			fee: settings.extended_warranty_fee || '',
-			rules: settings.extended_warranty_rules || ''
-		}
-	}
-}
-
-// 过保收费阶梯模板
-export const getFeeTiers = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_tier_templates'] }).then(unwrapCloudResult)
-	try {
-		const parsed = settings.fee_tier_templates ? JSON.parse(settings.fee_tier_templates) : []
-		return Array.isArray(parsed) ? parsed : []
-	} catch (e) {
-		return []
-	}
+	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy'] }).then(unwrapCloudResult)
+	return settingDoc('收费指南', settings.fee_description || settings.fee_policy)
 }
 
 export const getGuide = (type) => getPublicCloudObject().getGuide({ type }).then(unwrapCloudResult)

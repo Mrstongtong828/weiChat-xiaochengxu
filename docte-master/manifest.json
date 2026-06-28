@@ -1,6 +1,6 @@
 {
     "name" : "牙医仪器检修-用户端",
-    "appid" : "__UNI__D55405E",
+    "appid" : "__UNI__EF7C307",
     "description" : "",
     "versionName" : "1.0.0",
     "versionCode" : "100",
@@ -54,7 +54,10 @@
         },
         "lazyCodeLoading" : "requiredComponents",
         "usingComponents" : true,
-        "__usePrivacyCheck__" : true
+        "__usePrivacyCheck__" : true,
+        "optimization" : {
+            "subPackages" : true
+        }
     },
     "mp-alipay" : {
         "usingComponents" : true

@@ -1,8 +1,8 @@
 <template>
 	<view class="page-shell">
-		<view v-if="activeModule" class="module-page" :class="{ 'module-page-dialog': activeModule === 'survey' }">
-			<view v-if="activeModule !== 'survey'" class="module-head" :style="moduleHeadStyle">
-				<view class="back-button tap" @click="closeModule"></view>
+		<view v-if="activeModule" class="module-page">
+			<view v-if="activeModule !== 'login'" class="module-head" :style="moduleHeadStyle">
+				<view class="back-button tap" @click="returnFromModule"></view>
 				<view class="module-title-wrap">
 					<text class="module-title">{{ moduleInfo.title }}</text>
 					<text class="module-subtitle">{{ moduleInfo.subtitle }}</text>
@@ -684,83 +684,83 @@
 				</view>
 			</view>
 
-			<view v-else-if="activeModule === 'survey'" class="survey-module">
-				<view class="survey-mask"></view>
-				<view class="survey-modal-card survey-form-card">
-					<view class="survey-close tap" @click="closeModule">×</view>
-					<view class="survey-ribbon"><view class="glyph glyph-gift"><view class="glyph-extra"></view></view><text>调研有礼</text></view>
-					<text class="survey-title">{{ surveyConfig.title }}</text>
-					<text class="survey-desc">{{ surveyConfig.subtitle }}</text>
-
-					<view class="survey-benefits">
-						<view class="survey-benefit"><text>1</text><text>填写售后体验</text></view>
-						<view class="survey-benefit"><text>2</text><text>留下联系方式</text></view>
-						<view class="survey-benefit"><text>3</text><text>领取专属福利</text></view>
+			<view v-else-if="activeModule === 'survey'" class="module-content survey-module">
+				<view class="survey-hero-card">
+					<view class="survey-hero-icon"><view class="glyph glyph-gift"><view class="glyph-extra"></view></view></view>
+					<view>
+						<text>{{ surveyConfig.title }}</text>
+						<text>{{ surveyConfig.subtitle }}</text>
 					</view>
-
-					<view class="survey-form">
-						<view class="survey-field">
-							<text class="survey-field-label">工单号 / 设备 SN</text>
-							<input v-model="surveyForm.orderNo" placeholder="选填，便于客服核对服务记录" placeholder-class="input-placeholder" />
-						</view>
-
-						<view class="survey-field">
-							<text class="survey-field-label"><text class="required-star">*</text>整体满意度</text>
-							<view class="survey-chip-row">
-								<view
-									v-for="option in surveySatisfactionOptions"
-									:key="option.value"
-									class="survey-chip tap"
-									:class="{ on: surveyForm.satisfaction === option.value }"
-									@click="surveyForm.satisfaction = option.value"
-								>{{ option.label }}</view>
-							</view>
-						</view>
-
-						<view class="survey-field">
-							<text class="survey-field-label"><text class="required-star">*</text>服务评分</text>
-							<view class="survey-score-row">
-								<view
-									v-for="score in surveyRatingOptions"
-									:key="score"
-									class="survey-score tap"
-									:class="{ on: surveyForm.rating >= score }"
-									@click="surveyForm.rating = score"
-								>{{ score }}</view>
-							</view>
-							<text class="survey-score-tip">{{ surveyForm.rating ? surveyForm.rating + ' 分 / ' + surveyConfig.ratingMax + ' 分' : '未评分' }}</text>
-						</view>
-
-						<view class="survey-field">
-							<text class="survey-field-label"><text class="required-star">*</text>问题是否解决</text>
-							<view class="survey-chip-row">
-								<view
-									v-for="option in surveyResolveOptions"
-									:key="option.value"
-									class="survey-chip tap"
-									:class="{ on: surveyForm.resolved === option.value }"
-									@click="surveyForm.resolved = option.value"
-								>{{ option.label }}</view>
-							</view>
-						</view>
-
-						<view class="survey-field">
-							<text class="survey-field-label"><text class="required-star">*</text>您最想反馈什么</text>
-							<textarea v-model="surveyForm.comment" maxlength="500" placeholder="例如：响应速度、报价说明、维修质量、物流体验、客服沟通等" placeholder-class="input-placeholder"></textarea>
-						</view>
-
-						<view class="survey-field">
-							<text class="survey-field-label"><text class="required-star">*</text>联系方式</text>
-							<input v-model="surveyForm.contact" placeholder="手机号 / 微信号，便于发放福利" placeholder-class="input-placeholder" />
-						</view>
-					</view>
-
-					<view class="survey-actions">
-						<view class="survey-secondary tap" @click="resetSurveyForm()">重填</view>
-						<view class="survey-primary tap" :class="{ disabled: surveySubmitting }" @click="submitSurveyForm">{{ surveySubmitting ? '提交中' : '提交调研' }}</view>
-					</view>
-					<text class="survey-poster-tip tap" @click="previewSurveyPoster">{{ surveyConfig.giftText }}</text>
 				</view>
+				<view class="survey-benefits">
+					<view class="survey-benefit"><text>1</text><text>填写售后体验</text></view>
+					<view class="survey-benefit"><text>2</text><text>留下联系方式</text></view>
+					<view class="survey-benefit"><text>3</text><text>领取专属福利</text></view>
+				</view>
+
+				<view class="module-section-head single"><text>请填写</text></view>
+				<view class="survey-form-card">
+					<view class="survey-field">
+						<text class="survey-field-label">工单号 / 设备 SN</text>
+						<input v-model="surveyForm.orderNo" placeholder="选填，便于客服核对服务记录" placeholder-class="input-placeholder" />
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>整体满意度</text>
+						<view class="survey-chip-row">
+							<view
+								v-for="option in surveySatisfactionOptions"
+								:key="option.value"
+								class="survey-chip tap"
+								:class="{ on: surveyForm.satisfaction === option.value }"
+								@click="surveyForm.satisfaction = option.value"
+							>{{ option.label }}</view>
+						</view>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>服务评分</text>
+						<view class="survey-score-row">
+							<view
+								v-for="score in surveyRatingOptions"
+								:key="score"
+								class="survey-score tap"
+								:class="{ on: surveyForm.rating >= score }"
+								@click="surveyForm.rating = score"
+							>{{ score }}</view>
+						</view>
+						<text class="survey-score-tip">{{ surveyForm.rating ? surveyForm.rating + ' 分 / ' + surveyConfig.ratingMax + ' 分' : '未评分' }}</text>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>问题是否解决</text>
+						<view class="survey-chip-row">
+							<view
+								v-for="option in surveyResolveOptions"
+								:key="option.value"
+								class="survey-chip tap"
+								:class="{ on: surveyForm.resolved === option.value }"
+								@click="surveyForm.resolved = option.value"
+							>{{ option.label }}</view>
+						</view>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>您最想反馈什么</text>
+						<textarea v-model="surveyForm.comment" maxlength="500" placeholder="例如：响应速度、报价说明、维修质量、物流体验、客服沟通等" placeholder-class="input-placeholder"></textarea>
+					</view>
+
+					<view class="survey-field">
+						<text class="survey-field-label"><text class="required-star">*</text>联系方式</text>
+						<input v-model="surveyForm.contact" placeholder="手机号 / 微信号，便于发放福利" placeholder-class="input-placeholder" />
+					</view>
+				</view>
+
+				<view class="survey-actions">
+					<view class="survey-secondary tap" @click="resetSurveyForm()">重填</view>
+					<view class="survey-primary tap" :class="{ disabled: surveySubmitting }" @click="submitSurveyForm">{{ surveySubmitting ? '提交中' : '提交调研' }}</view>
+				</view>
+				<text class="survey-poster-tip tap" @click="previewSurveyPoster">{{ surveyConfig.giftText }}</text>
 			</view>
 
 			<view v-else-if="activeModule === 'diag'" class="module-content diag-module">
@@ -816,88 +816,22 @@
 			</view>
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
-				<view class="warranty-hero">
-					<view class="glyph glyph-shield"><view class="glyph-extra"></view></view>
-					<text>{{ warrantyDoc.title || '三重保修承诺' }}</text>
-					<text>{{ warrantyDoc.lead || '原厂配件 · 工艺质保 · 终身咨询' }}</text>
-				</view>
-				<view v-if="warrantyDoc.content" class="doc-paper">
-					<rich-text :nodes="warrantyDoc.content"></rich-text>
-				</view>
-				<view class="module-section-head single"><text>保修期限</text></view>
-				<view class="white-list-card">
-					<view v-for="item in warrantyDurations" :key="item.name" class="list-row">
-						<text>{{ item.name }}</text>
-						<text>{{ item.duration }}</text>
-					</view>
-				</view>
-				<template v-if="warrantyGroups.length">
-						<view class="module-section-head single"><text>按机型保修</text></view>
-						<view v-for="group in warrantyGroups" :key="group.category" class="warranty-group">
-							<view class="warranty-group-title">{{ group.category }}</view>
-							<view class="white-list-card">
-								<view v-for="(rule, idx) in group.items" :key="idx" class="warranty-rule-row">
-									<view class="warranty-rule-head">
-										<text class="warranty-rule-model">{{ rule.model || group.category }}</text>
-										<text class="warranty-rule-period">{{ rule.warrantyPeriod }}</text>
-									</view>
-									<text v-if="rule.terms" class="warranty-rule-terms">{{ rule.terms }}</text>
-								</view>
-							</view>
-						</view>
-					</template>
-					<view class="module-section-head single"><text>保修范围</text></view>
-				<view class="text-card">
-					<view v-for="(item, index) in warrantyRanges" :key="item" class="number-line">
-						<text>{{ index + 1 }}</text>
-						<text>{{ item }}</text>
-					</view>
-				</view>
-				<view class="module-section-head single"><text>增值服务</text></view>
-				<view class="white-list-card">
-					<view v-for="item in warrantyServices" :key="item.title" class="service-line">
-						<view class="service-line-icon"><view :class="['glyph', 'glyph-' + item.icon]"><view class="glyph-extra"></view></view></view>
-						<view><text>{{ item.title }}</text><text>{{ item.desc }}</text></view>
-					</view>
-				</view>
-				<template v-if="extendedWarranty.desc || extendedWarranty.fee || extendedWarranty.rules">
-						<view class="module-section-head single"><text>延保政策</text></view>
-						<view class="text-card warranty-extended">
-							<view v-if="extendedWarranty.desc" class="ext-block"><text class="ext-label">服务说明</text><text class="ext-text">{{ extendedWarranty.desc }}</text></view>
-							<view v-if="extendedWarranty.fee" class="ext-block"><text class="ext-label">收费标准</text><text class="ext-text">{{ extendedWarranty.fee }}</text></view>
-							<view v-if="extendedWarranty.rules" class="ext-block"><text class="ext-label">生效规则</text><text class="ext-text">{{ extendedWarranty.rules }}</text></view>
-						</view>
-					</template>
-					<view v-if="!warrantyDoc.content" class="doc-paper warranty-paper">
-					<text class="paper-title">保修政策</text>
-					<view v-for="section in warrantyTerms" :key="section.title" class="paper-section">
-						<text class="paper-section-title">{{ section.title }}</text>
-						<view v-for="(line, index) in section.lines" :key="line" class="paper-line">
-							<text>{{ index + 1 }})</text>
-							<text>{{ line }}</text>
-						</view>
-					</view>
+				<view class="policy-rich-content">
+					<rich-text v-if="warrantyDoc.content" :nodes="warrantyDoc.content"></rich-text>
+					<text v-else class="policy-empty">暂无保修政策内容</text>
 				</view>
 			</view>
 
 			<view v-else-if="isDocModule" class="module-content">
-				<view v-if="activeModule === 'fees'" class="doc-hero fees-hero">
-					<view class="glyph glyph-money"><view class="glyph-extra"></view></view>
-					<text>收费公开透明</text>
-					<text>免费检测 · 先报后修 · 无隐形消费</text>
-				</view>
-				<view v-else class="doc-hero">
+				<view v-if="activeModule !== 'fees'" class="doc-hero">
 					<view :class="['glyph', 'glyph-' + activeDoc.icon]"><view class="glyph-extra"></view></view>
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
-				<view v-if="activeModule === 'fees' && feeTiers.length" class="fee-tier-card">
-						<view class="fee-tier-head"><text>收费项</text><text>标准价</text></view>
-						<view v-for="(tier, idx) in feeTiers" :key="idx" class="fee-tier-row">
-							<view class="fee-tier-name"><text>{{ tier.name }}</text><text v-if="tier.note" class="fee-tier-note">{{ tier.note }}</text></view>
-							<text class="fee-tier-price">¥{{ tier.price }}<text v-if="tier.unit" class="fee-tier-unit">/{{ tier.unit }}</text></text>
-						</view>
-					</view>
-					<view v-if="activeDoc.content" class="doc-paper">
+				<view v-if="activeModule === 'fees'" class="policy-rich-content">
+					<rich-text v-if="activeDoc.content" :nodes="activeDoc.content"></rich-text>
+					<text v-else class="policy-empty">暂无收费办法内容</text>
+				</view>
+				<view v-else-if="activeDoc.content" class="doc-paper">
 					<rich-text :nodes="activeDoc.content"></rich-text>
 				</view>
 				<view v-else class="doc-paper">
@@ -930,10 +864,11 @@
 						<view><text>{{ step.title }}</text><text>{{ step.desc }}</text></view>
 					</view>
 				</view>
-				<view v-if="activeModule !== 'fees'" class="dual-actions doc-actions">
+				<!-- 精简底部按钮：已移除「联系客服」和「立即报修」 -->
+				<!-- <view v-if="activeModule !== 'fees'" class="dual-actions doc-actions">
 					<view class="ghost-button tap" @click="go('contact')">联系客服</view>
 					<view class="primary-button tap" @click="go('repair')">立即报修</view>
-				</view>
+				</view> -->
 			</view>
 
 			<view v-else-if="activeModule === 'contact'" class="module-content contact-module">
@@ -943,7 +878,7 @@
 						<text>{{ customerService.title || '在线客服' }}</text>
 						<text>{{ customerService.description || '7×24 小时 · 即时响应' }}</text>
 					</view>
-					<view class="soft-button">立即咨询</view>
+					<view class="soft-button tap" @click="openCustomerService">立即咨询</view>
 				</view>
 				<view class="module-section-head single"><text>服务热线</text></view>
 				<view class="hotline-grid">
@@ -951,7 +886,7 @@
 						<view><view class="glyph glyph-phone"><view class="glyph-extra"></view></view><text>{{ item.title }}</text></view>
 						<text>{{ item.number }}</text>
 						<text>{{ item.time }}</text>
-						<view class="small-primary">一键拨号</view>
+						<view class="small-primary tap" @click="callPhone(item.number)">一键拨号</view>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>收件地址</text></view>
@@ -1016,7 +951,7 @@
 					<view class="ghost-mini tap" @click="go('repair')">报修</view>
 				</view>
 				<view v-if="!productList.length" class="empty-hint compact">暂无已登记设备。报修提交或维修完成后，会在这里沉淀设备档案与保修状态。</view>
-				<view class="dash-add tap"><text>+</text><text>添加我的产品</text></view>
+				<view class="dash-add tap" @click="go('repair')"><text>+</text><text>添加我的产品</text></view>
 			</view>
 
 			<view v-else-if="activeModule === 'address'" class="module-content address-module">
@@ -1143,16 +1078,36 @@
 				</view>
 			</view>
 
-			<view v-else-if="activeModule === 'login'" class="module-content login-module">
-				<view class="login-logo"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
-				<text class="login-title">欢迎使用</text>
-				<text class="login-desc">专业牙科仪器 · 全程检修服务</text>
-				<button class="wechat-login tap" open-type="getPhoneNumber" @getphonenumber="onGetPhoneNumberLogin">微信手机号授权登录</button>
+			<view v-else-if="activeModule === 'login'" class="module-content login-module login-image-module">
+				<view class="login-back-button tap" @click="returnFromModule">
+					<view></view>
+				</view>
+				<image class="login-auth-image" :src="cicadaAssets.loginAuthBg" mode="widthFix"></image>
+				<button
+					class="login-auth-button tap"
+					:class="{ loading: loginSubmitting, disabled: !loginAgreementChecked }"
+					:disabled="loginSubmitting"
+					:open-type="loginAgreementChecked ? 'getPhoneNumber' : ''"
+					@click="onLoginButtonTap"
+					@getphonenumber="onGetPhoneNumberLogin"
+				>
+					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : '微信一键登录' }}</text>
+				</button>
+				<view class="login-consent-panel">
+					<text v-if="!loginAgreementChecked" class="login-error login-image-error">请先勾选同意协议，再点击微信一键登录</text>
+					<view class="login-consent-check tap" @click="toggleLoginAgreement">
+						<view :class="['login-checkbox', { checked: loginAgreementChecked }]">
+							<text v-if="loginAgreementChecked">✓</text>
+						</view>
+						<text>我已阅读并同意</text>
+						<text class="login-policy-link" @click.stop="openLoginPolicy('user')">《用户协议》</text>
+						<text>与</text>
+						<text class="login-policy-link" @click.stop="openLoginPolicy('privacy')">《隐私政策》</text>
+					</view>
+				</view>
 				<!-- #ifdef H5 -->
-				<!-- 仅 H5 调试环境保留测试登录入口，微信小程序生产构建不包含此按钮 -->
 				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
 				<!-- #endif -->
-				<text class="login-agree">授权登录即视为您同意《用户服务协议》及《隐私政策》</text>
 			</view>
 		</view>
 
@@ -1323,14 +1278,15 @@
 				</view>
 
 				<view class="company-hero">
-					<image class="company-hero-image" :src="cicadaAssets.photoFactory" mode="aspectFill"></image>
-					<view class="company-hero-mask"></view>
-					<image class="company-hero-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-					<view class="company-hero-title-wrap">
+					<image class="company-hero-image" src="/static/company-intro-header.png" mode="aspectFill"></image>
+					<!-- 新图片已自带文字和Logo，注释掉原有叠加组件以防重叠 -->
+					<!-- <view class="company-hero-mask"></view> -->
+					<!-- <image class="company-hero-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image> -->
+					<!-- <view class="company-hero-title-wrap">
 						<text class="company-hero-kicker">CICADA Dental · 登煌医疗</text>
 						<text class="company-hero-title">20年专注口腔设备研发制造</text>
 						<text class="company-hero-subtitle">从光固化设备起步，持续拓展根管治疗、电动微马达、牙科手机与牙齿美白等专业产品。</text>
-					</view>
+					</view> -->
 				</view>
 
 				<view class="company-stats-grid">
@@ -1563,12 +1519,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
-import { onLoad, onShow, onPullDownRefresh } from '@dcloudio/uni-app'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { onLoad, onShow, onPullDownRefresh, onBackPress } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
+import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
+import { getWechatPrivacyReady, requestWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
 import {
 	getContact,
 	getCustomerService,
@@ -1580,8 +1538,6 @@ import {
 	applyInvoice,
 	getWechat,
 	getWarrantyPolicy,
-	getWarrantyExtra,
-	getFeeTiers,
 	getHomeGuidePopup,
 	queryPackageStatus,
 	searchFault,
@@ -1715,6 +1671,11 @@ const feedbackContactKind = ref('phone')
 const feedbackText = ref('')
 const feedbackImages = ref([])
 const surveySubmitting = ref(false)
+const loginSubmitting = ref(false)
+const loginRetrying = ref(false)
+const loginError = ref('')
+const loginPrivacyReady = ref(false)
+const loginAgreementChecked = ref(false)
 const surveyConfig = ref({
 	enabled: true,
 	title: '售后服务调研表',
@@ -1826,7 +1787,7 @@ const moduleInfo = computed(() => moduleMap[activeModule.value] || {})
 const moduleHeadStyle = computed(() => ({
 	paddingTop: `${moduleHeadPaddingTop.value}rpx`
 }))
-const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && activeModule.value !== 'survey' && activeModule.value !== 'repair')
+const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && !['repair', 'login'].includes(activeModule.value))
 
 const trackOrders = ref([])
 
@@ -1861,66 +1822,7 @@ const defaultDiagConfirmSections = [
 	}
 ]
 
-const warrantyDurations = [
-	{ name: '综合治疗椅', duration: '整机 1 年 · 主气路 3 年' },
-	{ name: '高速/低速手机', duration: '机芯 6 个月 · 外壳 1 年' },
-	{ name: '超声洁牙机', duration: '整机 1 年' },
-	{ name: '根管马达', duration: '整机 2 年' },
-	{ name: '光固化机', duration: '整机 1 年 · 灯头 6 个月' }
-]
-
-const warrantyRanges = [
-	'在保修期内，因产品自身材料、工艺或装配缺陷导致的故障，免费维修。',
-	'人为损坏（摔砸/进液/拆改）不在保修范围。',
-	'已超出保修期的，按照配件成本与工时收费，价格表事先确认。',
-	'所有维修配件均为原厂部件，确保品质一致。'
-]
-
-const warrantyServices = [
-	{ icon: 'truck', title: '全国寄修', desc: '顺丰到付 · 全程可追踪' },
-	{ icon: 'phone', title: '1 对 1 工程师', desc: '专属服务 · 售后无忧' },
-	{ icon: 'invoice', title: '发票协助', desc: '增值税普通 / 专用发票' }
-]
-
-const warrantyTerms = [
-	{
-		title: '一、保修时间计算方式：',
-		lines: [
-			'客户提供购买凭证，以凭证上的购买时间计算，凭证无售出单位盖章或填写信息不完整的不予保修。',
-			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
-			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
-			'如不能提供任何凭证，则以出厂时间加 1 个月来计算。',
-			'保修期限以产品说明书中所述为准。'
-		]
-	},
-	{
-		title: '二、以下状况不属于保修范围：',
-		lines: [
-			'未按说明书进行安装、操作和维修。',
-			'错误使用配件或使用非公司配件造成损坏。',
-			'非正常的化学、电力、电解损坏及摔、碰伤。',
-			'过度使用或用于牙科以外的其它科目。',
-			'因使用、维护、保管不当造成损坏。',
-			'不适当的操作或非制造商认可的人员对手机进行错误的维修。'
-		]
-	},
-	{
-		title: '三、不提供售后服务情形',
-		lines: [
-			'产品序列号被人为故意破坏、假标签、仿制等产品。',
-			'在淘宝网、拼多多、微店等平台上购买的「思科达产品」且未授权的商家销售的产品。',
-			'针对以上情形，本公司不提供任何技术支持及售后服务。'
-		]
-	},
-	{ title: '四、维修续保', lines: ['所有维修品，同一故障问题，更换同样的零件，非人为因素，续保三个月。'] }
-]
-
 logBoot('static blocks ready')
-
-// 按机型保修分组 / 延保政策 / 过保收费阶梯（来自后台配置）
-const warrantyGroups = ref([])
-const extendedWarranty = ref({ desc: '', fee: '', rules: '' })
-const feeTiers = ref([])
 
 // 首页教程弹窗
 const homeGuideVisible = ref(false)
@@ -1948,13 +1850,10 @@ const docFallbacks = {
 	fees: {
 		title: '收费指南',
 		icon: 'money',
-		lead: '价格透明，先报价后维修，全程无隐形消费。',
-		paperTitle: '思科达维修收费指南',
-		sections: [
-			{ title: '一、收费构成', lines: ['配件费：按照思科达原厂配件官方指导价收取。', '工时费：根据维修难度及工程师等级核算，公开透明。', '物流费：保修期内非人为故障往返运费由我司承担（顺丰到付）。'] },
-			{ title: '二、核心原则', lines: ['免费检测：所有寄修设备均享免费检测，未维修不收取任何检测费用。', '先报后修：工程师检测后出具正式报价单，经客户在线确认后方动工维修。', '拒绝隐形消费：所有收费项目均在报价单中列明，无额外附加费。'] },
-			{ title: '三、质保说明', lines: ['所有维修更换的配件（非人为因素）均享受 90 天的质保续期服务。'], marker: '' }
-		]
+		lead: '',
+		paperTitle: '',
+		content: '',
+		sections: []
 	},
 	'guide-quick': {
 		title: '快速指南',
@@ -2012,8 +1911,6 @@ const docFallbacks = {
 
 ;['guide-quick', 'guide-repair', 'guide-query', 'guide-invoice'].forEach((key) => {
 	if (docFallbacks[key]) {
-		docFallbacks[key].sections = []
-		docFallbacks[key].steps = []
 		docFallbacks[key].content = ''
 		docFallbacks[key].fileName = ''
 		docFallbacks[key].fileUrl = ''
@@ -2629,8 +2526,9 @@ const openGuideFromHome = async (id) => {
 		return
 	}
 
-	let doc = docMap.value[id]
-	if (!doc || !doc.fileUrl) {
+	const fallbackDoc = docFallbacks[id]
+	let doc = docMap.value[id] || fallbackDoc
+	if ((!doc || (!doc.fileUrl && !doc.content && !(Array.isArray(doc.sections) && doc.sections.length) && !(Array.isArray(doc.steps) && doc.steps.length))) && type) {
 		try {
 			const remoteDoc = await getGuide(type)
 			if (remoteDoc) {
@@ -2644,6 +2542,16 @@ const openGuideFromHome = async (id) => {
 
 	if (doc && doc.fileUrl) {
 		await openGuideFile(doc)
+		return
+	}
+
+	if (doc && ((Array.isArray(doc.sections) && doc.sections.length) || (Array.isArray(doc.steps) && doc.steps.length) || doc.content)) {
+		go(id)
+		return
+	}
+
+	if (fallbackDoc && ((Array.isArray(fallbackDoc.sections) && fallbackDoc.sections.length) || (Array.isArray(fallbackDoc.steps) && fallbackDoc.steps.length) || fallbackDoc.content)) {
+		go(id)
 		return
 	}
 
@@ -3581,6 +3489,15 @@ const closeModule = () => {
 	previousModule.value = ''
 }
 
+const returnFromModule = () => {
+	if (diagOpen.value) {
+		diagOpen.value = ''
+		return true
+	}
+	closeModule()
+	return true
+}
+
 const openTrackDetail = (order) => {
 	requestStatusSubscription('track_view')
 	trackDetailOrder.value = order.id
@@ -4439,32 +4356,82 @@ const submitFeedback = async () => {
 }
 
 const onGetPhoneNumberLogin = async (event = {}) => {
-	const detail = event.detail || {}
+	if (loginSubmitting.value) return
+	loginError.value = ''
+	loginRetrying.value = false
 
-	if (detail.errMsg !== 'getPhoneNumber:ok') {
-		if (detail.errMsg && detail.errMsg.includes('cancel')) return
-		uni.showToast({ title: '授权失败，请重试', icon: 'none' })
+	if (!loginAgreementChecked.value) {
+		showLoginError('请先勾选同意用户协议与隐私政策')
 		return
 	}
 
-	if (!detail.code) {
-		uni.showToast({ title: '获取手机号授权失败', icon: 'none' })
+	const authDetail = normalizePhoneAuthDetail(event.detail || {})
+	if (!authDetail.ok) {
+		console.warn('wechat getPhoneNumber failed:', authDetail.raw || event.detail || {})
+		if (authDetail.privacyBlocked) {
+			loginAgreementChecked.value = false
+			loginError.value = ''
+			loginPrivacyReady.value = false
+			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
+		} else if (authDetail.canceled) {
+			loginError.value = ''
+		} else {
+			showLoginError(authDetail.message)
+		}
 		return
 	}
+
+	loginSubmitting.value = true
 
 	try {
-		const loginRes = await uni.login({ provider: 'weixin' })
-		if (!loginRes.code) {
-			throw new Error('获取微信登录凭证失败')
-		}
-		const res = await wechatLogin({ code: loginRes.code, phoneCode: detail.code })
+		const res = await loginWithWechatPhoneCode(wechatLogin, authDetail.phoneCode, {
+			retries: 1,
+			onRetry: () => {
+				loginRetrying.value = true
+				loginError.value = '微信登录失败，正在自动重试...'
+			}
+		})
 		if (applyLoginSession(res)) {
-			uni.showToast({ title: '登录成功', icon: 'success' })
+			loginError.value = ''
+			uni.showToast({ title: res.offline ? '体验登录成功' : '登录成功', icon: 'success' })
 		}
 	} catch (error) {
 		console.warn('wechat phone login failed:', error)
-		uni.showToast({ title: error.message || '登录接口暂未开放', icon: 'none' })
+		const message = getLoginErrorMessage(error)
+		loginError.value = message
+		uni.showToast({ title: message, icon: 'none' })
+	} finally {
+		loginSubmitting.value = false
+		loginRetrying.value = false
 	}
+}
+
+const syncLoginPrivacyReady = () => {
+	loginPrivacyReady.value = true
+}
+
+const toggleLoginAgreement = async () => {
+	const nextValue = !loginAgreementChecked.value
+	loginAgreementChecked.value = nextValue
+	loginError.value = ''
+}
+
+const onLoginButtonTap = () => {
+	if (!loginAgreementChecked.value) onLoginDisabledTap()
+}
+
+const onLoginDisabledTap = () => {
+	loginError.value = ''
+	uni.showToast({ title: '请勾选同意《用户协议》和《隐私政策》后再登录', icon: 'none' })
+}
+
+const openLoginPolicy = (type) => {
+	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
+}
+
+const showLoginError = (message) => {
+	loginError.value = message
+	uni.showToast({ title: message, icon: 'none' })
 }
 
 const applyLoginSession = (res = {}) => {
@@ -4551,24 +4518,26 @@ const go = (id, type) => {
 
 const openAddressPage = () => {
 	uni.navigateTo({
-		url: '/pages/address/index',
+		url: '/pages-sub/address/index',
 		fail: () => uni.showToast({ title: '收货地址页面暂不可用', icon: 'none' })
 	})
 }
 
 const openCustomerService = () => {
-	uni.showToast({ title: '正在连接客服...', icon: 'none' })
+	if (customerService.value.wechat) {
+		uni.setClipboardData({
+			data: customerService.value.wechat,
+			success: () => uni.showToast({ title: '客服微信已复制，请前往添加', icon: 'success' }),
+			fail: () => uni.showToast({ title: '复制失败，请稍后重试', icon: 'none' })
+		})
+		return
+	}
+	uni.showToast({ title: '客服方式暂未配置', icon: 'none' })
 }
 
 const makePhoneCall = () => {
-	uni.makePhoneCall({
-		phoneNumber: '13929198537',
-		success: () => {},
-		fail: (error) => {
-			console.warn('make phone call failed:', error)
-			uni.showToast({ title: '拨打电话失败', icon: 'none' })
-		}
-	})
+	const phoneNumber = (contactInfo.value.phone || contactHotlines.value[0]?.number || '13929198537').replace(/\s/g, '')
+	callPhone(phoneNumber)
 }
 
 const callPhone = (phoneNumber) => {
@@ -4680,6 +4649,11 @@ onPullDownRefresh(async () => {
 	}
 })
 
+onBackPress(() => {
+	if (!activeModule.value && !diagOpen.value) return false
+	return returnFromModule()
+})
+
 const loadRemoteContent = async () => {
 	const tasks = [
 		getWarrantyPolicy()
@@ -4688,15 +4662,6 @@ const loadRemoteContent = async () => {
 		getFeePolicy()
 			.then((doc) => updateDoc('fees', doc))
 			.catch((error) => console.warn('fee fallback:', error)),
-		getWarrantyExtra()
-			.then((data = {}) => {
-				warrantyGroups.value = Array.isArray(data.groups) ? data.groups : []
-				extendedWarranty.value = data.extended || { desc: '', fee: '', rules: '' }
-			})
-			.catch((error) => console.warn('warranty extra fallback:', error)),
-		getFeeTiers()
-			.then((list) => { feeTiers.value = Array.isArray(list) ? list : [] })
-			.catch((error) => console.warn('fee tiers fallback:', error)),
 		getGuide('quick')
 			.then((doc) => updateDoc('guide-quick', doc))
 			.catch((error) => console.warn('quick guide fallback:', error)),
@@ -4763,6 +4728,10 @@ const loadRemoteContent = async () => {
 
 onMounted(() => {
 	logBoot('onMounted start')
+	uni.$on('wechatPrivacyReady', syncLoginPrivacyReady)
+	getWechatPrivacyReady().then((ready) => {
+		loginPrivacyReady.value = ready
+	})
 	initModuleSafeArea()
 	setTimeout(() => {
 		pageBootReady.value = true
@@ -4775,6 +4744,10 @@ onMounted(() => {
 		loadSurveyConfig()
 		loadRemoteContent()
 	}, 220)
+})
+
+onUnmounted(() => {
+	uni.$off('wechatPrivacyReady', syncLoginPrivacyReady)
 })
 </script>
 
@@ -7348,12 +7321,6 @@ onMounted(() => {
 	height: 14rpx;
 	border-top: 4rpx solid #FFFFFF;
 	border-right: 4rpx solid #FFFFFF;
-}
-
-.module-page-dialog {
-	position: relative;
-	overflow: hidden;
-	padding-bottom: 0;
 }
 
 .module-section-head {
@@ -10150,72 +10117,78 @@ onMounted(() => {
 }
 
 .survey-module {
-	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 20rpx;
 	min-height: 100vh;
+	padding-bottom: 24rpx;
+	box-sizing: border-box;
+}
+
+.survey-hero-card {
+	padding: 28rpx;
+	display: flex;
+	align-items: center;
+	gap: 22rpx;
+	border: 2rpx solid #D7E3FA;
+	border-radius: 28rpx;
+	background: linear-gradient(135deg, #F3F8FF 0%, #FFFFFF 100%);
+	box-shadow: 0 8rpx 24rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
+}
+
+.survey-hero-icon {
+	width: 84rpx;
+	height: 84rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	padding: 40rpx 32rpx;
-	background: rgba(232, 238, 250, 0.65);
-	box-sizing: border-box;
+	flex-shrink: 0;
+	border-radius: 24rpx;
+	background: #FFF7E6;
+	color: #A16207;
 }
 
-.survey-mask {
-	position: absolute;
-	inset: 0;
-	background: rgba(15, 31, 58, 0.45);
+.survey-hero-icon .glyph {
+	width: 42rpx;
+	height: 42rpx;
 }
 
-.survey-modal-card {
-	position: relative;
-	z-index: 2;
-	width: 100%;
-	padding: 44rpx 44rpx 36rpx;
-	border-radius: 36rpx;
-	background: #FFFFFF;
-	box-shadow: 0 48rpx 120rpx -24rpx rgba(15, 31, 58, 0.4);
-	text-align: center;
-	box-sizing: border-box;
+.survey-hero-card > view:last-child {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
 }
 
-.survey-poster-card {
-	max-height: calc(100vh - 80rpx);
-	padding: 36rpx 28rpx 32rpx;
-	overflow-y: auto;
+.survey-hero-card > view:last-child text:first-child {
+	font-size: 30rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.survey-hero-card > view:last-child text:last-child {
+	font-size: 23rpx;
+	line-height: 1.45;
+	color: #6B7C97;
 }
 
 .survey-form-card {
-	max-height: calc(100vh - 80rpx);
-	padding: 36rpx 28rpx 32rpx;
-	overflow-y: auto;
+	padding: 28rpx;
+	border-radius: 28rpx;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
 	text-align: left;
 }
 
-.survey-close {
-	position: absolute;
-	top: 18rpx;
-	right: 22rpx;
-	color: #94A3B8;
-	font-size: 36rpx;
-	line-height: 1;
-}
-
-.survey-ribbon {
-	margin: 0 auto;
-	padding: 8rpx 24rpx;
-	display: inline-flex;
-	align-items: center;
-	gap: 10rpx;
-	border-radius: 999rpx;
-	background: #FFF7E6;
-	color: #A16207;
-	font-size: 22rpx;
-	font-weight: 700;
-}
-
-.survey-ribbon .glyph {
-	width: 28rpx;
-	height: 28rpx;
+.survey-poster-card {
+	padding: 36rpx 28rpx 32rpx;
+	border-radius: 28rpx;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
 }
 
 .survey-poster-wrap {
@@ -10640,7 +10613,6 @@ onMounted(() => {
 	box-sizing: border-box;
 }
 
-.warranty-hero,
 .doc-hero {
 	padding: 36rpx;
 	border-radius: 28rpx;
@@ -10650,20 +10622,12 @@ onMounted(() => {
 	box-sizing: border-box;
 }
 
-.warranty-hero {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-}
-
-.warranty-hero .glyph,
 .doc-hero .glyph {
 	width: 72rpx;
 	height: 72rpx;
 	color: #FFFFFF;
 }
 
-.warranty-hero text:nth-child(2),
 .doc-hero > text:first-child,
 .doc-hero > text:nth-child(2),
 .doc-hero > view text:first-child {
@@ -10673,7 +10637,6 @@ onMounted(() => {
 	color: #FFFFFF;
 }
 
-.warranty-hero text:last-child,
 .doc-hero > text:last-child,
 .doc-hero > view text:last-child {
 	margin-top: 12rpx;
@@ -10693,13 +10656,6 @@ onMounted(() => {
 	min-width: 0;
 	display: flex;
 	flex-direction: column;
-}
-
-.fees-hero {
-	margin-bottom: 24rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
 }
 
 .white-list-card,
@@ -10810,8 +10766,21 @@ onMounted(() => {
 	padding: 32rpx;
 }
 
-.warranty-paper {
-	margin-top: 32rpx;
+.policy-rich-content {
+	padding: 32rpx 8rpx 80rpx;
+	box-sizing: border-box;
+	font-size: 28rpx;
+	line-height: 1.8;
+	color: #1F2A3D;
+	word-break: break-word;
+}
+
+.policy-empty {
+	display: block;
+	padding: 96rpx 0;
+	text-align: center;
+	font-size: 26rpx;
+	color: #86909C;
 }
 
 .paper-title {
@@ -11787,85 +11756,163 @@ onMounted(() => {
 }
 
 .login-module {
-	padding-top: 80rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
+	position: relative;
+	overflow: hidden;
+	margin: 0 -28rpx;
+	padding: 0;
+	min-height: 1334rpx;
+	background: #F4F9FF;
+	box-sizing: border-box;
 }
 
-.login-logo {
-	width: 152rpx;
-	height: 152rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 44rpx;
-	background: linear-gradient(135deg, #3A86FF 0%, #1E6FE0 100%);
-	box-shadow: 0 24rpx 56rpx -16rpx rgba(30, 111, 224, 0.45);
-	color: #FFFFFF;
+.login-image-module {
+	display: block;
 }
 
-.login-logo .glyph {
-	width: 84rpx;
-	height: 84rpx;
+.login-auth-image {
+	position: absolute;
+	left: 50%;
+	top: 52rpx;
+	width: 750rpx;
+	z-index: 1;
+	transform: translateX(-50%);
 }
 
-.login-title {
-	margin-top: 36rpx;
-	font-size: 44rpx;
-	font-weight: 800;
-	color: #0F1F3A;
-}
-
-.login-desc {
-	margin-top: 12rpx;
-	font-size: 26rpx;
-	color: #6B7C97;
-}
-
-.wechat-login,
-.phone-login {
-	width: 100%;
-	height: 100rpx;
-	margin-top: 72rpx;
+.login-back-button {
+	position: absolute;
+	left: 32rpx;
+	top: 88rpx;
+	z-index: 8;
+	width: 72rpx;
+	height: 72rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	border-radius: 999rpx;
-	font-size: 30rpx;
-	font-weight: 700;
+	background: rgba(255, 255, 255, 0.94);
+	box-shadow: 0 10rpx 24rpx rgba(30, 111, 224, 0.14);
+}
+
+.login-back-button view {
+	width: 20rpx;
+	height: 20rpx;
+	margin-left: 8rpx;
+	border-left: 4rpx solid #2B7DE9;
+	border-bottom: 4rpx solid #2B7DE9;
+	transform: rotate(45deg);
+}
+
+.login-auth-button {
+	position: absolute;
+	left: 74rpx;
+	top: 1090rpx;
+	z-index: 3;
+	width: 602rpx;
+	height: 120rpx;
+	padding: 0;
+	border: none;
+	background: transparent;
+	color: transparent;
+	font-size: 1rpx;
+	line-height: 120rpx;
+	opacity: 0.01;
+}
+
+.login-auth-button::after {
+	border: none;
+}
+
+.login-auth-button[disabled] {
+	opacity: 0.01;
+}
+
+.login-consent-panel {
+	position: absolute;
+	left: 75rpx;
+	top: 1238rpx;
+	z-index: 5;
+	width: 600rpx;
+	min-height: 72rpx;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 12rpx;
+	background: transparent;
 	box-sizing: border-box;
 }
 
-.wechat-login {
-	background: #07C160;
-	box-shadow: 0 16rpx 36rpx -12rpx rgba(7, 193, 96, 0.45);
-	color: #FFFFFF;
-	border: none;
-	line-height: 100rpx;
-	padding: 0;
+.login-consent-check {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-wrap: wrap;
+	gap: 7rpx;
+	font-size: 23rpx;
+	line-height: 1.4;
+	color: #5F6E86;
+	text-align: center;
 }
 
-.wechat-login::after {
-	border: none;
+.login-checkbox {
+	width: 28rpx;
+	height: 28rpx;
+	flex: 0 0 28rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2rpx solid #9AA9BF;
+	border-radius: 6rpx;
+	background: rgba(255, 255, 255, 0.9);
+	box-sizing: border-box;
+}
+
+.login-checkbox.checked {
+	border-color: #1E7DF2;
+	background: #1E7DF2;
+}
+
+.login-checkbox text {
+	font-size: 22rpx;
+	line-height: 1;
+	color: #FFFFFF;
+	font-weight: 900;
+}
+
+.login-policy-link {
+	color: #1E7DF2;
+	text-decoration: underline;
 }
 
 .phone-login {
-	margin-top: 20rpx;
+	position: absolute;
+	left: 220rpx;
+	top: 1280rpx;
+	z-index: 4;
+	width: 310rpx;
+	height: 72rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
 	border: 2rpx solid #E4ECF7;
-	background: #FFFFFF;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.82);
 	color: #0F1F3A;
+	font-size: 26rpx;
+	font-weight: 700;
 }
 
-.login-agree {
-	margin-top: 48rpx;
-	padding: 0 40rpx;
-	font-size: 23rpx;
-	line-height: 1.7;
-	color: #94A3B8;
+.login-error,
+.login-image-error {
+	width: 100%;
+	padding: 0;
+	text-align: center;
+	font-size: 21rpx;
+	line-height: 1.45;
+	color: #E5484D;
 }
-
 .glyph-cam::before {
 	left: 5rpx;
 	top: 14rpx;
@@ -11912,28 +11959,6 @@ onMounted(() => {
 	box-shadow: 8rpx 0 0 currentColor;
 }
 
-/* 按机型保修 / 延保 / 收费阶梯 */
-.warranty-group { margin-bottom: 16rpx; }
-.warranty-group-title { font-size: 27rpx; font-weight: 600; color: #1E6FE0; margin: 12rpx 0 8rpx; }
-.warranty-rule-row { padding: 16rpx 0; border-bottom: 1px solid #f0f2f5; }
-.warranty-rule-row:last-child { border-bottom: none; }
-.warranty-rule-head { display: flex; justify-content: space-between; align-items: center; }
-.warranty-rule-model { font-size: 27rpx; color: #1d2129; font-weight: 500; }
-.warranty-rule-period { font-size: 25rpx; color: #C97A6B; font-weight: 600; }
-.warranty-rule-terms { display: block; margin-top: 6rpx; font-size: 24rpx; line-height: 1.6; color: #86909c; }
-.warranty-extended .ext-block { margin-bottom: 14rpx; }
-.warranty-extended .ext-block:last-child { margin-bottom: 0; }
-.ext-label { display: block; font-size: 25rpx; font-weight: 600; color: #1d2129; margin-bottom: 4rpx; }
-.ext-text { font-size: 25rpx; line-height: 1.7; color: #4e5969; white-space: pre-wrap; }
-.fee-tier-card { background: #fff; border-radius: 16rpx; padding: 8rpx 24rpx; margin-bottom: 20rpx; }
-.fee-tier-head { display: flex; justify-content: space-between; padding: 16rpx 0; font-size: 24rpx; color: #86909c; border-bottom: 1px solid #f0f2f5; }
-.fee-tier-row { display: flex; justify-content: space-between; align-items: center; padding: 18rpx 0; border-bottom: 1px solid #f7f8fa; }
-.fee-tier-row:last-child { border-bottom: none; }
-.fee-tier-name { display: flex; flex-direction: column; }
-.fee-tier-name > text:first-child { font-size: 27rpx; color: #1d2129; }
-.fee-tier-note { font-size: 22rpx; color: #86909c; margin-top: 4rpx; }
-.fee-tier-price { font-size: 29rpx; font-weight: 700; color: #D97706; }
-.fee-tier-unit { font-size: 22rpx; font-weight: 400; color: #86909c; }
 /* 教程媒体列表 */
 .guide-media-list { background: #fff; border-radius: 16rpx; padding: 8rpx 24rpx; margin-bottom: 20rpx; }
 .guide-media-item { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 0; border-bottom: 1px solid #f7f8fa; }
@@ -11942,3 +11967,6 @@ onMounted(() => {
 .guide-media-name { flex: 1; font-size: 26rpx; color: #1d2129; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .guide-media-open { font-size: 24rpx; color: #86909c; flex-shrink: 0; }
 </style>
+
+
+

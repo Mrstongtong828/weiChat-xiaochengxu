@@ -6,7 +6,10 @@ const envBaseURL =
 	processEnv.VUE_APP_BASE_API ||
 	processEnv.VITE_API_BASE_URL
 
-export const baseURL = (envBaseURL || 'http://localhost:8080/api').replace(/\/$/, '')
+// 线上生产环境 API 地址（.env.example 中配置的正式域名）
+const FALLBACK_BASE_URL = 'https://api.cisco-d.com/api/v1'
+
+export const baseURL = (envBaseURL || FALLBACK_BASE_URL).replace(/\/$/, '')
 
 const isAbsoluteUrl = (url = '') => /^https?:\/\//i.test(url)
 
