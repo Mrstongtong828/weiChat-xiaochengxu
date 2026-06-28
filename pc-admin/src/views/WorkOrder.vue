@@ -1825,6 +1825,7 @@ const openDrawer = (row) => {
   // 重置 SN 回填态
   Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
   Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
+  Object.keys(snLookupTimers).forEach((k) => { clearTimeout(snLookupTimers[k]); delete snLookupTimers[k] })
   newStatus.value = getAllowedStatusOptions(row)[0] || row.status
   invoiceStatus.value = normalizeInvoiceStatus(row)
   invoiceForm.title = row.invoiceTitle || ''
@@ -1860,19 +1861,20 @@ const snItemWarranty = (itemIndex) => {
 const cleanSn = (raw) => String(raw == null ? '' : raw).replace(/\s+/g, '').trim()
 
 // 按 SN 查询设备档案并回填（force=true 立即查询，否则失焦防抖；同一 SN 不重复请求）
-let snLookupTimer = null
+// 防抖定时器按产品下标隔离，避免编辑下一项时取消上一项尚未触发的查询
+const snLookupTimers = {}
 const lookupOrderItemSn = (itemIndex, force = false) => {
   const item = currentOrder.value && currentOrder.value.itemsList && currentOrder.value.itemsList[itemIndex]
   if (!item) return
   const sn = cleanSn(item.sn)
   if (sn !== item.sn) item.sn = sn
-  if (snLookupTimer) { clearTimeout(snLookupTimer); snLookupTimer = null }
+  if (snLookupTimers[itemIndex]) { clearTimeout(snLookupTimers[itemIndex]); snLookupTimers[itemIndex] = null }
   if (!sn) { delete snLookupResults[itemIndex]; return }
   const existing = snLookupResults[itemIndex]
   if (existing && existing.sn === sn && !force) return // 节流：同 SN 不重复
   const run = () => doLookupOrderItemSn(itemIndex, sn)
   if (force) run()
-  else snLookupTimer = setTimeout(run, 400)
+  else snLookupTimers[itemIndex] = setTimeout(run, 400)
 }
 
 const doLookupOrderItemSn = async (itemIndex, sn) => {
