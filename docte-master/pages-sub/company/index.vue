@@ -6,7 +6,7 @@
 
 		<view class="page-body">
 			<view class="company-hero">
-				<image class="hero-image" src="/static/company-intro-header.png" mode="aspectFill"></image>
+				<image class="hero-image" src="/static/company-intro-header.jpg" mode="aspectFill"></image>
 			</view>
 
 			<view class="stats-grid">

@@ -1278,7 +1278,7 @@
 				</view>
 
 				<view class="company-hero">
-					<image class="company-hero-image" src="/static/company-intro-header.png" mode="aspectFill"></image>
+					<image class="company-hero-image" src="/static/company-intro-header.jpg" mode="aspectFill"></image>
 					<!-- 新图片已自带文字和Logo，注释掉原有叠加组件以防重叠 -->
 					<!-- <view class="company-hero-mask"></view> -->
 					<!-- <image class="company-hero-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image> -->
