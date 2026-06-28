@@ -319,11 +319,6 @@ export const getInvoiceList = (params = {}) => getOrderCloudObject()
 	.getInvoiceList(withToken({ page: params.page || 1, pageSize: params.pageSize || params.size || 10 }))
 	.then(unwrapCloudResult)
 
-// 常见问题/故障库 + 指南 关键词搜索（首页搜索框）
-export const searchContent = (keyword = '') => getPublicCloudObject()
-	.searchContent({ keyword: String(keyword || '').trim() })
-	.then(unwrapCloudResult)
-
 export const getProductList = async (params = {}) => {
 	const list = await getUserCloudObject().manageDevice(withToken({ action: 'list' })).then(unwrapCloudResult)
 	return {

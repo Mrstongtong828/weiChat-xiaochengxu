@@ -1129,23 +1129,6 @@
 					</view>
 				</view>
 
-				<view class="search-wrap">
-					<view class="search-box">
-						<view class="glyph glyph-search glyph-search-small">
-							<view class="glyph-extra"></view>
-						</view>
-						<input
-							v-model="searchKeyword"
-							class="search-input"
-							placeholder="请输入常见问题"
-							placeholder-class="input-placeholder"
-							confirm-type="search"
-							@confirm="handleSearch"
-						/>
-						<text class="search-action tap" @click="handleSearch">搜索</text>
-					</view>
-				</view>
-
 				<view class="new-brand-banner" style="margin: 12px; overflow: hidden; border-radius: 8px; position: relative; z-index: 10;"> 
 					<image src="/static/logo-banner.jpg" mode="widthFix" style="width: 100%; display: block;"></image> 
 				</view>
@@ -1546,7 +1529,6 @@ import {
 	getHomeGuidePopup,
 	queryPackageStatus,
 	searchFault,
-	searchContent,
 	getAddressList,
 	addAddress,
 	updateAddress,
@@ -1646,7 +1628,6 @@ const showRepairTools = ref(false)
 const surveyPosterUrl = cicadaAssets.surveyPoster
 const moduleHeadPaddingTop = ref(72)
 const pageBootReady = ref(false)
-const searchKeyword = ref('')
 const activeTab = ref('home')
 const activeModule = ref('')
 const previousModule = ref('')
@@ -1896,8 +1877,8 @@ const docFallbacks = {
 		lead: '随时随地掌握维修进度，信息透明更安心。',
 		paperTitle: '思科达维修查询指南',
 		sections: [
-			{ title: '一、工单号查询', lines: ['在小程序首页顶部的搜索框中，直接输入 DR 开头的完整工单号。', '点击搜索即可查看该工单的实时物流进度、检测报告及维修状态。'] },
-			{ title: '二、序列号（SN）查询', lines: ['使用设备机身上刻印的 SN 序列号进行查询。', '该方式可追溯设备的所有历史维修记录及保修剩余时长。'] },
+			{ title: '一、工单号查询', lines: ['登录后进入「我的 · 维修订单」页面，在顶部搜索框输入 DR 开头的完整工单号。', '即可查看该工单的实时物流进度、检测报告及维修状态。'] },
+			{ title: '二、序列号（SN）查询', lines: ['在「我的 · 维修订单」页面顶部搜索框，输入设备机身刻印的 SN 序列号进行查询。', '该方式可追溯设备的所有历史维修记录及保修剩余时长。'] },
 			{ title: '三、个人中心查询', lines: ['登录小程序后，点击右下角「我的」。', '进入「维修订单」页面，即可查看名下绑定的所有维修申请及进度。'] },
 			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系客服热线 0757-85775667，提供报修时的手机号由客服协助查询。'], marker: '' }
 		]
@@ -4669,73 +4650,6 @@ const callPhone = (phoneNumber) => {
 	})
 }
 
-const showSearchDetail = (item = {}) => {
-	let content = ''
-	if (item.kind === 'fault') {
-		const parts = []
-		if (item.category) parts.push(`产品类型：${item.category}`)
-		if (Array.isArray(item.solutions) && item.solutions.length) {
-			parts.push(`处理建议：\n${item.solutions.join('\n')}`)
-		} else if (Array.isArray(item.checkSteps) && item.checkSteps.length) {
-			parts.push(`自查步骤：\n${item.checkSteps.join('\n')}`)
-		}
-		if (item.isRecommendRepair) parts.push('该故障建议寄修处理。')
-		content = parts.join('\n\n') || '暂无详细说明，请联系客服。'
-	} else {
-		content = item.summary || item.content || '暂无详细说明。'
-	}
-	uni.showModal({
-		title: (item.title || '搜索结果').slice(0, 30),
-		content: String(content).slice(0, 600),
-		showCancel: false,
-		confirmText: '知道了'
-	})
-}
-
-const showSearchResults = (list = []) => {
-	const items = list.slice(0, 6)
-	if (items.length === 1) {
-		showSearchDetail(items[0])
-		return
-	}
-	uni.showActionSheet({
-		itemList: items.map((it) => String(it.title || '未命名').slice(0, 30)),
-		success: ({ tapIndex }) => {
-			const item = items[tapIndex]
-			if (item) showSearchDetail(item)
-		},
-		fail: () => {}
-	})
-}
-
-const handleSearch = async () => {
-	const keyword = String(searchKeyword.value || '').trim()
-	if (!keyword) {
-		uni.showToast({ title: '请输入要查询的问题', icon: 'none' })
-		return
-	}
-	uni.showLoading({ title: '搜索中', mask: true })
-	try {
-		const res = await searchContent(keyword)
-		const list = (res && Array.isArray(res.list)) ? res.list : []
-		uni.hideLoading()
-		if (!list.length) {
-			uni.showModal({
-				title: '无匹配结果',
-				content: `没有找到与“${keyword}”相关的常见问题，可换个关键词或联系客服。`,
-				showCancel: false,
-				confirmText: '知道了'
-			})
-			return
-		}
-		showSearchResults(list)
-	} catch (error) {
-		uni.hideLoading()
-		console.warn('search content failed:', error)
-		uni.showToast({ title: error.message || '搜索失败，请稍后重试', icon: 'none' })
-	}
-}
-
 onLoad((options = {}) => {
 	const type = Number(options.type)
 	const routeType = Number.isInteger(type) ? type : undefined
@@ -5536,38 +5450,8 @@ onUnmounted(() => {
 	color: #10264A;
 }
 
-.search-wrap {
-	padding: 0 28rpx;
-}
-
-.search-box {
-	height: 76rpx;
-	padding: 0 28rpx;
-	display: flex;
-	align-items: center;
-	gap: 16rpx;
-	border-radius: 24rpx;
-	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.03), 0 8rpx 24rpx rgba(30, 111, 224, 0.04);
-	box-sizing: border-box;
-}
-
-.search-input {
-	min-width: 0;
-	flex: 1;
-	height: 76rpx;
-	font-size: 27rpx;
-	color: #0F1F3A;
-}
-
 .input-placeholder {
 	color: #94A3B8;
-}
-
-.search-action {
-	font-size: 26rpx;
-	font-weight: 600;
-	color: #1E6FE0;
 }
 
 .official-follow-bar {
