@@ -4,9 +4,9 @@ Create these indexes in the uniCloud database console before production traffic.
 
 ## cicada_users
 
-- `token`
+- `token` — 登录态校验 `where({ token })` 全靠它（verifyUserToken / verifyAdminToken）。**务必保持健康**：若客户端登录后用刚写入的 token 调接口报"鉴权失败"、而记录在库里确实存在且 token 一致，说明该索引未收录新写入项——**删除后重建** `idx_token` 即可恢复。
 - `openid`
-- `username`
+- `username` — **若建唯一索引，必须勾选「稀疏 sparse」**。客户端用户（role=user / 微信登录）不写 `username`，非稀疏的唯一索引会把多条"空 username"判为重复，导致**所有新用户注册失败**（报 `document is already exists`）。员工账号才有 username，稀疏唯一即可同时保证员工用户名唯一、又放行无 username 的客户。
 - `role`
 
 ## cicada_orders
