@@ -1486,6 +1486,15 @@ module.exports = {
     this.currentAdminUser = await verifyAdminToken(token)
   },
 
+  // 统一错误出口：_before/方法体抛出的异常（如鉴权失败）转成 { code: -1 } 正常返回，
+  // 避免 URL 化下未捕获异常导致 HTTP 500（前端据 code 处理/跳登录）
+  _after(error, result) {
+    if (error) {
+      return { code: -1, msg: (error && error.message) ? error.message : '请求失败' }
+    }
+    return result
+  },
+
   async getWorkflowConfig(params) {
     try {
       const user = requireAdminPermission(this, 'get_workflow_config')
