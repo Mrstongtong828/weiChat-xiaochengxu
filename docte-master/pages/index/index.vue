@@ -2528,12 +2528,14 @@ const openGuideFromHome = async (id) => {
 
 	const fallbackDoc = docFallbacks[id]
 	let doc = docMap.value[id] || fallbackDoc
-	if ((!doc || (!doc.fileUrl && !doc.content && !(Array.isArray(doc.sections) && doc.sections.length) && !(Array.isArray(doc.steps) && doc.steps.length))) && type) {
+	// 总是尝试拉取后台最新指南（可能含上传的文档文件）；本地兜底自带文本，不能因此跳过远程拉取，
+	// 否则后台上传的文档会被本地兜底文本遮蔽。仅当已缓存到带 fileUrl 的远程文档时才免拉。
+	if (type && !(docMap.value[id] && docMap.value[id].fileUrl)) {
 		try {
 			const remoteDoc = await getGuide(type)
 			if (remoteDoc) {
 				updateDoc(id, remoteDoc)
-				doc = normalizeDoc(remoteDoc, docFallbacks[id] || {})
+				doc = docMap.value[id] || normalizeDoc(remoteDoc, docFallbacks[id] || {})
 			}
 		} catch (error) {
 			console.warn('load guide before open failed:', error)
