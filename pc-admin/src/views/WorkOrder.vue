@@ -656,8 +656,17 @@
                 <el-form-item label="企业税号">
                   <el-input v-model="invoiceForm.taxNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="请输入企业税号"></el-input>
                 </el-form-item>
+                <el-form-item label="发票链接">
+                  <el-input v-model="invoiceForm.fileUrl" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票下载/查看链接，客户可复制"></el-input>
+                </el-form-item>
+                <el-form-item label="发票号码">
+                  <el-input v-model="invoiceForm.invoiceNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="开具后的电子发票号码"></el-input>
+                </el-form-item>
+                <el-form-item label="开票日期">
+                  <el-input v-model="invoiceForm.invoiceDate" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 2026-06-28"></el-input>
+                </el-form-item>
                 <el-form-item label="备注">
-                  <el-input v-model="invoiceForm.remark" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子票号/财务备注"></el-input>
+                  <el-input v-model="invoiceForm.remark" :disabled="!canPerformOrderAction('update_invoice')" placeholder="财务备注/特殊说明"></el-input>
                 </el-form-item>
               </el-form>
               <el-tooltip v-if="canPerformOrderAction('update_invoice')" content="保存后会更新该工单的财务开票状态，列表发票状态同步变化" placement="top">
@@ -1541,7 +1550,7 @@ const quickShipDialogVisible = ref(false)
 const remarkDialogVisible = ref(false)
 const newStatus = ref('')
 const invoiceStatus = ref('无需开票')
-const invoiceForm = reactive({ title: '', taxNo: '', remark: '' })
+const invoiceForm = reactive({ title: '', taxNo: '', remark: '', fileUrl: '', invoiceNo: '', invoiceDate: '' })
 const remarkSaving = ref(false)
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
@@ -1831,6 +1840,9 @@ const openDrawer = (row) => {
   invoiceForm.title = row.invoiceTitle || ''
   invoiceForm.taxNo = row.taxId || ''
   invoiceForm.remark = row.invoiceRemark || ''
+  invoiceForm.fileUrl = row.invoiceUrl || ''
+  invoiceForm.invoiceNo = row.invoiceNo || ''
+  invoiceForm.invoiceDate = row.invoiceDate || ''
   resetQuoteForm(row)
   drawerVisible.value = true
 }
@@ -2054,6 +2066,9 @@ const syncCurrentOrderFromList = (row) => {
     invoiceForm.title = fresh.invoiceTitle || ''
     invoiceForm.taxNo = fresh.taxId || ''
     invoiceForm.remark = fresh.invoiceRemark || ''
+    invoiceForm.fileUrl = fresh.invoiceUrl || ''
+    invoiceForm.invoiceNo = fresh.invoiceNo || ''
+    invoiceForm.invoiceDate = fresh.invoiceDate || ''
     resetQuoteForm(fresh)
   }
 }
@@ -2365,7 +2380,10 @@ const saveInvoiceStatus = async () => {
     await updateInvoiceStatus(token, currentOrder.value._id, invoiceStatus.value, {
       title: invoiceForm.title,
       taxNo: invoiceForm.taxNo,
-      remark: invoiceForm.remark
+      remark: invoiceForm.remark,
+      invoice_url: invoiceForm.fileUrl,
+      invoice_no: invoiceForm.invoiceNo,
+      invoice_date: invoiceForm.invoiceDate
     })
     ElMessage.success('发票状态已登记')
     await loadOrders()

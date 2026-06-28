@@ -2132,7 +2132,7 @@ const normalizeOrder = (item = {}) => {
 		invoiceEmail: merged.invoiceEmail || merged.invoice_email || invoiceInfo.email,
 		invoiceRemark: merged.invoiceRemark || merged.invoice_remark || invoiceInfo.remark,
 		invoiceNo: merged.invoiceNo || merged.invoice_no || invoiceInfo.invoice_no,
-		invoiceDate: merged.invoiceDate || merged.invoice_date || formatDateTime(invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
+		invoiceDate: merged.invoiceDate || merged.invoice_date || invoiceInfo.invoice_date || formatDateTime(invoiceInfo.issued_time || invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
 		quoteStatus,
 		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',

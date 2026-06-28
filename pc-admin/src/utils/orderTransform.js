@@ -167,6 +167,9 @@ export const transformOrder = (order) => {
     taxId: invoiceInfo.tax_no || '',
     invoiceStatus: invoiceInfo.status || '',
     invoiceRemark: invoiceInfo.remark || '',
+    invoiceUrl: invoiceInfo.invoice_url || invoiceInfo.file_url || '',
+    invoiceNo: invoiceInfo.invoice_no || '',
+    invoiceDate: invoiceInfo.invoice_date || '',
 
     // 时间
     submitTime: order.create_time ? new Date(order.create_time).toLocaleString('zh-CN', { hour12: false }) : '',

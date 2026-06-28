@@ -2408,6 +2408,8 @@ module.exports = {
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
       const oldInvoice = order.invoice_info || {}
+      // 电子发票链接/号码/日期：财务开具后回填，客户端「已开票」据此复制下载（兼容 file_url 旧字段）
+      const nextInvoiceUrl = normalizeText(invoice.invoice_url || invoice.file_url || invoice.fileUrl || invoice.url) || oldInvoice.invoice_url || oldInvoice.file_url || ''
       const invoiceInfo = {
         ...oldInvoice,
         need_invoice: nextStatus !== '无需开票',
@@ -2415,13 +2417,29 @@ module.exports = {
         title: normalizeText(invoice.title) || oldInvoice.title || '',
         tax_no: normalizeText(invoice.tax_no || invoice.taxNo) || oldInvoice.tax_no || '',
         remark: normalizeText(invoice.remark) || oldInvoice.remark || '',
+        invoice_url: nextInvoiceUrl,
+        invoice_no: normalizeText(invoice.invoice_no || invoice.invoiceNo) || oldInvoice.invoice_no || '',
+        invoice_date: normalizeText(invoice.invoice_date || invoice.invoiceDate) || oldInvoice.invoice_date || '',
         update_time: now
       }
+      if (nextStatus === '已开具') invoiceInfo.issued_time = oldInvoice.issued_time || now
 
-      const res = await db.collection('cicada_orders').doc(order_id).update({
-        invoice_info: invoiceInfo,
-        update_time: now
-      })
+      const updateData = { invoice_info: invoiceInfo, update_time: now }
+      // 首次置为「已开具」时补一条时间线，客户端进度可见
+      if (nextStatus === '已开具' && oldInvoice.status !== '已开具') {
+        const timeline = Array.isArray(order.timeline) ? order.timeline : []
+        updateData.timeline = [
+          ...timeline,
+          {
+            title: '电子发票已开具',
+            desc: nextInvoiceUrl ? '可在「发票与开票」复制链接查看并下载' : `发票抬头：${invoiceInfo.title || '-'}`,
+            time: now,
+            done: true
+          }
+        ]
+      }
+
+      const res = await db.collection('cicada_orders').doc(order_id).update(updateData)
       if (!res.updated) return { code: -1, msg: '工单更新失败' }
       await logOrderEvent({
         order,

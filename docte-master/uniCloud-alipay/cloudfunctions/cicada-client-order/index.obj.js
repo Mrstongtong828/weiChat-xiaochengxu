@@ -1148,6 +1148,9 @@ module.exports = {
           remark: info.remark || '',
           status: info.status || '待开票',
           fileUrl: info.file_url || info.invoice_url || '',
+          invoiceUrl: info.invoice_url || info.file_url || '',
+          invoiceNo: info.invoice_no || '',
+          invoiceDate: info.invoice_date || '',
           applyTime: info.apply_time || order.create_time || 0,
           updateTime: info.update_time || order.update_time || 0
         }

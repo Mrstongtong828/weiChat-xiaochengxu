@@ -1,3 +1,15 @@
+// 开票状态有两套命名，这里是唯一映射处，改动需与后端同步：
+//   后端 invoice_info.status 枚举（cicada-admin-order / cicada-client-order）：
+//     无需开票 / 待开票 / 开具中 / 已开具
+//   用户可见阶段（本文件 + 《开票指南》）：
+//     待申请 / 审核中 / 开票中 / 已开票
+// 对应关系：
+//   待开票、未发票 → 审核中(processing)   （客户已提交、客服/财务核对中）
+//   开具中、未发票 → 开票中(issuing)
+//   已开具、已发票 → 已开票(issued)
+//   无需开票       → 不可开票(disabled)
+// 注意：「待申请(available)」不来自 invoice_info.status，而是 getInvoiceStatusKey()
+//       根据订单是否完成（已完成/已评价）派生——即“工单可申请但尚未提交开票资料”。
 export const invoiceFlow = [
 	{ title: '待申请', desc: '选择已完成工单' },
 	{ title: '审核中', desc: '客服核对抬头与金额' },
