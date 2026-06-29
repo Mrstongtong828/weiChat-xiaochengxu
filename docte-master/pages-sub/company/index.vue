@@ -40,6 +40,25 @@
 				</view>
 			</view>
 
+			<view v-if="maintenanceGuides.length" class="section">
+				<view class="section-head">
+					<view class="section-rule"></view>
+					<text>维护保养</text>
+				</view>
+				<view class="maint-list">
+					<view v-for="item in maintenanceGuides" :key="item.id" class="maint-card tap" @click="playMaintenance(item)">
+						<view class="maint-cover">
+							<image v-if="item.cover" class="maint-cover-img" :src="item.cover" mode="aspectFill"></image>
+							<view class="maint-play-badge"><text>▶</text></view>
+						</view>
+						<view class="maint-info">
+							<text class="maint-title">{{ item.title }}</text>
+							<text v-if="item.desc" class="maint-desc">{{ item.desc }}</text>
+						</view>
+					</view>
+				</view>
+			</view>
+
 			<view class="section">
 				<view class="section-head">
 					<view class="section-rule"></view>
@@ -116,9 +135,11 @@ import { ref, onMounted } from 'vue'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { getCompliance } from '@/api/content.js'
+import { getCompliance, getGuides } from '@/api/content.js'
+import { getCloudTempFileURL } from '@/utils/cloud.js'
 
 const qualifications = ref([])
+const maintenanceGuides = ref([])
 const complianceDocs = ref({ privacyPolicy: '', cancellationPolicy: '' })
 const policyVisible = ref(false)
 const policyTitle = ref('')
@@ -135,7 +156,73 @@ onMounted(async () => {
 	} catch (e) {
 		console.warn('加载合规信息失败', e)
 	}
+	loadMaintenanceGuides()
 })
+
+// 把 cloud:// 文件地址解析为可访问临时地址（https/wxfile 直接返回）
+const resolveFileUrl = async (url = '') => {
+	const u = String(url || '').trim()
+	if (!u || /^https?:\/\//i.test(u) || u.startsWith('wxfile://')) return u
+	try {
+		const res = await getCloudTempFileURL([u])
+		const item = res.fileList && res.fileList[0]
+		return (item && (item.tempFileURL || item.url)) || u
+	} catch (e) {
+		return u
+	}
+}
+
+// 加载「维护保养」分类、面向客户端、且含视频的指南
+const loadMaintenanceGuides = async () => {
+	try {
+		const list = await getGuides()
+		const arr = Array.isArray(list) ? list : []
+		const picked = arr.filter(g =>
+			String(g.category || '').includes('维护保养') &&
+			(g.audience === 'client' || !g.audience)
+		)
+		const result = []
+		for (const g of picked) {
+			const media = Array.isArray(g.media) ? g.media : []
+			const video = media.find(m => m && m.type === 'video' && m.url)
+			if (!video) continue
+			const image = media.find(m => m && m.type === 'image' && m.url)
+			let cover = ''
+			if (image) cover = await resolveFileUrl(image.url)
+			result.push({
+				id: g.id,
+				title: g.title || g.category || '维护保养',
+				desc: g.description || '',
+				videoUrl: video.url,
+				cover
+			})
+		}
+		maintenanceGuides.value = result
+	} catch (e) {
+		console.warn('加载维护保养指南失败', e)
+	}
+}
+
+// 点击播放维护保养视频
+const playMaintenance = async (item = {}) => {
+	if (!item.videoUrl) {
+		uni.showToast({ title: '暂无视频', icon: 'none' })
+		return
+	}
+	try {
+		uni.showLoading({ title: '加载中' })
+		const url = await resolveFileUrl(item.videoUrl)
+		uni.hideLoading()
+		if (uni.previewMedia) {
+			uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+		} else {
+			uni.navigateTo({ url: `/pages-sub/legal/index?type=user`, fail: () => {} })
+		}
+	} catch (e) {
+		uni.hideLoading()
+		uni.showToast({ title: '视频打开失败', icon: 'none' })
+	}
+}
 
 const openPolicy = (type) => {
 	const map = {
@@ -390,6 +477,41 @@ const copyEmail = () => {
 	border-radius: 4rpx;
 	background: #1E6FE0;
 }
+
+.maint-list { display: flex; flex-direction: column; gap: 20rpx; }
+.maint-card {
+	border-radius: 24rpx;
+	overflow: hidden;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+}
+.maint-cover {
+	position: relative;
+	width: 100%;
+	height: 320rpx;
+	background: linear-gradient(135deg, #2C5985 0%, #6BB0CC 100%);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.maint-cover-img { width: 100%; height: 100%; }
+.maint-play-badge {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 88rpx;
+	height: 88rpx;
+	border-radius: 999rpx;
+	background: rgba(0, 0, 0, 0.42);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.maint-play-badge text { color: #FFFFFF; font-size: 36rpx; margin-left: 6rpx; }
+.maint-info { padding: 24rpx 28rpx; }
+.maint-title { display: block; font-size: 28rpx; font-weight: 700; line-height: 1.3; color: #0F1F3A; }
+.maint-desc { display: block; margin-top: 10rpx; font-size: 24rpx; line-height: 1.6; color: #6B7C97; }
 
 .auth-card {
 	margin-bottom: 20rpx;

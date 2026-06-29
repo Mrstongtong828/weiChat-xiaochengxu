@@ -210,6 +210,9 @@ export const getFeePolicy = async () => {
 
 export const getGuide = (type) => getPublicCloudObject().getGuide({ type }).then(unwrapCloudResult)
 
+// 全部教程/指南（含 category 分类与 media 视频，用于公司介绍「维护保养」等栏目）
+export const getGuides = () => getPublicCloudObject().getGuides({}).then(unwrapCloudResult)
+
 // 首页教程弹窗配置
 export const getHomeGuidePopup = async () => {
 	const settings = await getPublicCloudObject().getSettings({
