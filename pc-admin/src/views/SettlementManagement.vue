@@ -17,8 +17,10 @@
         <el-option label="待付款" value="pending"></el-option>
         <el-option label="待核销" value="uploaded"></el-option>
         <el-option label="已付款" value="paid"></el-option>
+        <el-option label="已退款" value="refunded"></el-option>
       </el-select>
       <el-button type="primary" plain @click="loadSettlements">查询</el-button>
+      <el-button type="success" plain :loading="exporting" @click="exportReconcile">导出对账Excel</el-button>
     </div>
 
     <div class="table-responsive">
@@ -48,6 +50,15 @@
           <el-tag :type="paymentTag(row.payment_status)" effect="plain">{{ paymentText(row.payment_status) }}</el-tag>
         </template>
       </el-table-column>
+      <el-table-column label="付款时间" width="150">
+        <template #default="{ row }">{{ row.payment_paid_time ? formatTime(row.payment_paid_time) : '-' }}</template>
+      </el-table-column>
+      <el-table-column label="微信支付单号" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.wechat_transaction_id || '-' }}</template>
+      </el-table-column>
+      <el-table-column label="运单号(寄出/回寄)" min-width="170" show-overflow-tooltip>
+        <template #default="{ row }">{{ [row.logistics_no_out, row.logistics_no_back].filter(Boolean).join(' / ') || '-' }}</template>
+      </el-table-column>
       <el-table-column label="库存出库" width="110">
         <template #default="{ row }">
           <el-tag :type="row.inventory_deducted ? 'success' : 'info'" effect="plain">{{ row.inventory_deducted ? '已出库' : '未出库' }}</el-tag>
@@ -55,6 +66,9 @@
       </el-table-column>
       <el-table-column label="发票状态" width="120">
         <template #default="{ row }">{{ row.invoice_info?.status || (row.invoice_info?.need_invoice ? '待开票' : '无需开票') }}</template>
+      </el-table-column>
+      <el-table-column label="发票号码" min-width="160" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.invoice_info?.invoice_no || '-' }}</template>
       </el-table-column>
       <el-table-column label="操作" width="160" align="right" fixed="right">
         <template #default="{ row }">
@@ -92,10 +106,62 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const filters = reactive({ keyword: '', paymentStatus: '' })
+const exporting = ref(false)
 const getToken = () => localStorage.getItem('adminToken')
 
-const paymentText = (status = 'pending') => ({ pending: '待付款', uploaded: '待核销', paid: '已付款' }[status] || '待付款')
-const paymentTag = (status = 'pending') => ({ pending: 'warning', uploaded: 'primary', paid: 'success' }[status] || 'warning')
+const paymentText = (status = 'pending') => ({ pending: '待付款', uploaded: '待核销', paid: '已付款', refunded: '已退款' }[status] || '待付款')
+const paymentTag = (status = 'pending') => ({ pending: 'warning', uploaded: 'primary', paid: 'success', refunded: 'info' }[status] || 'warning')
+
+const formatTime = (ts) => {
+  if (!ts) return ''
+  const d = new Date(Number(ts))
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// 导出对账 Excel（CSV，带 BOM 以便 Excel 正确显示中文）
+const exportReconcile = async () => {
+  exporting.value = true
+  try {
+    const data = await getSettlementList(getToken(), {
+      keyword: filters.keyword,
+      paymentStatus: filters.paymentStatus,
+      page: 1,
+      pageSize: 1000
+    })
+    const list = data.list || []
+    if (!list.length) { ElMessage.warning('当前条件下没有可导出的结算记录'); return }
+    const headers = ['工单号', '商户单号', '客户', '联系电话', '实付金额', '付款状态', '付款方式', '付款时间', '微信支付单号', '寄出运单号', '回寄运单号', '开票状态', '发票号码', '开票日期']
+    const esc = (v) => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`
+    const lines = [headers.join(',')]
+    list.forEach(r => {
+      const inv = r.invoice_info || {}
+      lines.push([
+        r.order_no, r.out_trade_no, r.customer_name, r.contact_phone,
+        Number(r.total_price || 0).toFixed(2),
+        paymentText(r.payment_status),
+        (r.payment_proofs || []).length ? '对公凭证' : (r.payment_method === 'wechat_pay' ? '微信支付' : '待付款'),
+        r.payment_paid_time ? formatTime(r.payment_paid_time) : '',
+        r.wechat_transaction_id, r.logistics_no_out, r.logistics_no_back,
+        inv.status || (inv.need_invoice ? '待开票' : '无需开票'),
+        inv.invoice_no || '', inv.invoice_date || ''
+      ].map(esc).join(','))
+    })
+    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    const d = new Date(); const p = (n) => String(n).padStart(2, '0')
+    a.href = url
+    a.download = `结算对账_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    ElMessage.success(`已导出 ${list.length} 条对账记录`)
+  } catch (error) {
+    ElMessage.error(error.message || '导出失败')
+  } finally {
+    exporting.value = false
+  }
+}
 
 const loadSettlements = async () => {
   loading.value = true

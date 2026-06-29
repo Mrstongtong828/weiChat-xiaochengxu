@@ -619,6 +619,36 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+// ============ 一键开票适配层（对接微信电子发票 / 开票服务商）============
+// 拿到服务商 API 凭证后，只需在 callInvoiceProvider 内实现"开票+查结果"，其余闭环已就绪。
+// 未配置时抛出明确错误：「一键开票」按钮会提示"开票服务商未配置"，绝不会误判为成功。
+function getInvoiceProviderConfig() {
+  return {
+    provider: getEnvValue('INVOICE_PROVIDER'),             // 服务商标识，如 nuonuo / baiwang
+    appKey: getEnvValue('INVOICE_PROVIDER_APP_KEY'),
+    appSecret: getEnvValue('INVOICE_PROVIDER_APP_SECRET'),
+    apiBase: getEnvValue('INVOICE_PROVIDER_API_BASE'),
+    sellerTaxNo: getEnvValue('INVOICE_SELLER_TAX_NO'),     // 销方税号
+    taxCode: getEnvValue('INVOICE_TAX_CODE'),              // 商品税收分类编码（维修服务）
+    taxRate: getEnvValue('INVOICE_TAX_RATE'),              // 税率，如 0.06
+    pushWechat: getEnvValue('INVOICE_PUSH_WECHAT') === '1' // 是否推送到微信电子发票卡包
+  }
+}
+
+// 调用开票服务商：开票 + 查结果，约定返回 { invoice_no, invoice_date, invoice_url }
+// TODO[发票服务商]：按所签服务商（诺诺/百望等）API 文档在此实现下单开票 + 轮询/回调取版式文件URL。
+async function callInvoiceProvider(req) {
+  const cfg = getInvoiceProviderConfig()
+  if (!cfg.provider || !cfg.appKey || !cfg.appSecret || !cfg.apiBase) {
+    throw new Error('开票服务商未配置：请先配置环境变量 INVOICE_PROVIDER / INVOICE_PROVIDER_APP_KEY / INVOICE_PROVIDER_APP_SECRET / INVOICE_PROVIDER_API_BASE，并在 callInvoiceProvider 内对接服务商开票接口')
+  }
+  // ↓↓↓ 在此实现：1) 调服务商开票接口下单（带 req.title/tax_no/amount/cfg.taxCode 等）
+  //              2) 轮询或回调查开票结果，拿到版式文件URL / 发票号码 / 开票日期
+  //              3) 如 cfg.pushWechat，调用微信电子发票推送到客户卡包 ↓↓↓
+  throw new Error(`开票服务商[${cfg.provider}]开票接口待对接（callInvoiceProvider 未实现）`)
+  // 实现完成后返回：return { invoice_no, invoice_date, invoice_url }
+}
+
 // SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
 // 口径必须与 cicada-client-order / cicada-admin-customer 中的同名函数保持一致。
 function normalizeSn(value) {
@@ -2455,6 +2485,70 @@ module.exports = {
     }
   },
 
+  // 一键开票：财务确认到账后，调用开票服务商 API 自动开票并回填（对接微信电子发票/服务商）
+  async issueInvoice(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_invoice')
+      const { order_id } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      const found = await db.collection('cicada_orders').doc(order_id).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      const oldInvoice = order.invoice_info || {}
+
+      // 业务前置校验
+      if (!oldInvoice.need_invoice) return { code: -1, msg: '该工单尚无开票申请' }
+      if (oldInvoice.status === '已开具') return { code: -1, msg: '该工单发票已开具' }
+      // ⭐ 必须财务先确认到账，才能开票
+      if (order.payment_status !== 'paid') {
+        return { code: -1, msg: '需财务先确认到账（payment_status=paid）后才能开票' }
+      }
+
+      // 组装开票请求（抬头/税号来自客户申请，金额取工单结算/报价金额）
+      const req = {
+        order_no: order.order_no || '',
+        invoice_type: oldInvoice.invoice_type || '电子普通发票',
+        title_type: oldInvoice.title_type || 'company',
+        title: normalizeText(oldInvoice.title),
+        tax_no: normalizeText(oldInvoice.tax_no),
+        email: normalizeText(oldInvoice.email),
+        amount: Number(order.total_price || 0)
+      }
+      if (!req.title) return { code: -1, msg: '缺少发票抬头，无法开票' }
+      if (req.title_type === 'company' && !req.tax_no) return { code: -1, msg: '企业抬头缺少税号' }
+      if (!(req.amount > 0)) return { code: -1, msg: '开票金额需大于 0，请先发布报价/确认结算金额' }
+
+      // 调用服务商开票（未对接时抛错，不会误判成功）
+      const result = await callInvoiceProvider(req)
+
+      const now = Date.now()
+      const invoiceInfo = {
+        ...oldInvoice,
+        need_invoice: true,
+        status: '已开具',
+        invoice_no: normalizeText(result && result.invoice_no) || oldInvoice.invoice_no || '',
+        invoice_date: normalizeText(result && result.invoice_date) || oldInvoice.invoice_date || '',
+        invoice_url: normalizeText(result && (result.invoice_url || result.pdf_url)) || oldInvoice.invoice_url || '',
+        issued_time: now,
+        issued_channel: 'provider',
+        update_time: now
+      }
+      const upd = await db.collection('cicada_orders').doc(order_id).update({ invoice_info: invoiceInfo, update_time: now })
+      if (!upd.updated) return { code: -1, msg: '工单更新失败' }
+      await logOrderEvent({
+        order,
+        action: 'issue_invoice',
+        actor: currentAdmin,
+        before: { invoice_info: oldInvoice },
+        after: { invoice_info: invoiceInfo }
+      })
+      // TODO[通知]：开票成功后发订阅消息 + 邮件到 oldInvoice.email
+      return { code: 0, data: invoiceInfo }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 后台手动填写/发布维修报价
   async updateOrderQuote(params) {
     try {
@@ -2737,6 +2831,13 @@ module.exports = {
         labor_fee: Number(order.labor_fee || 0),
         invoice_info: order.invoice_info || {},
         inventory_deducted: Boolean(order.inventory_deducted),
+        // 对账维度：支付渠道/付款时间/微信单号 + 物流单号（四流合一）
+        payment_method: order.payment_method || '',
+        payment_paid_time: order.payment_paid_time || 0,
+        wechat_transaction_id: order.wechat_pay_transaction_id || '',
+        out_trade_no: order.order_no || '',
+        logistics_no_out: (order.ship_out_info && (order.ship_out_info.logistics_no || order.ship_out_info.tracking_no)) || '',
+        logistics_no_back: (order.ship_back_info && (order.ship_back_info.logistics_no || order.ship_back_info.tracking_no)) || '',
         create_time: order.create_time || 0,
         update_time: order.update_time || 0
       }))

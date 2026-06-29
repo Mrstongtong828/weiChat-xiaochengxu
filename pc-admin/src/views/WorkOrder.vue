@@ -672,6 +672,9 @@
               <el-tooltip v-if="canPerformOrderAction('update_invoice')" content="保存后会更新该工单的财务开票状态，列表发票状态同步变化" placement="top">
                 <el-button type="primary" plain size="small" @click="saveInvoiceStatus">保存发票状态</el-button>
               </el-tooltip>
+              <el-tooltip v-if="canPerformOrderAction('update_invoice') && autoInvoiceEnabled" content="需先确认到账。点此调用开票服务商自动开票并回填链接/号码/日期（未对接服务商前会提示未配置）" placement="top">
+                <el-button type="success" plain size="small" :loading="invoiceIssuing" @click="onIssueInvoice">一键开票</el-button>
+              </el-tooltip>
             </div>
           </el-tab-pane>
           <el-tab-pane label="维修/回寄">
@@ -1031,7 +1034,7 @@
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, refundOrderPayment, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getTempFileURL } from '../api/admin.js'
@@ -1551,6 +1554,10 @@ const remarkDialogVisible = ref(false)
 const newStatus = ref('')
 const invoiceStatus = ref('无需开票')
 const invoiceForm = reactive({ title: '', taxNo: '', remark: '', fileUrl: '', invoiceNo: '', invoiceDate: '' })
+const invoiceIssuing = ref(false)
+// 一键开票（自动开票）开关：默认隐藏；对接好开票服务商后，在 pc-admin/.env.local 设
+// VITE_ENABLE_AUTO_INVOICE=1 并重新构建即可显示「一键开票」按钮。人工阶段保持隐藏。
+const autoInvoiceEnabled = import.meta.env.VITE_ENABLE_AUTO_INVOICE === '1'
 const remarkSaving = ref(false)
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
@@ -2365,6 +2372,31 @@ const confirmStatus = async () => {
   const changed = await handleQuickStatusChange(currentOrder.value, newStatus.value)
   if (changed) {
     drawerVisible.value = false
+  }
+}
+
+// 一键开票：财务确认到账后，调用开票服务商自动开票并回填
+const onIssueInvoice = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('update_invoice')) {
+    ElMessage.error('当前角色无权开票')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确认该工单已收款到账，并自动开具电子发票？', '一键开票', { type: 'warning' })
+  } catch (e) { return }
+  invoiceIssuing.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    await issueInvoice(token, currentOrder.value._id)
+    ElMessage.success('开票成功，已回填发票信息')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
+    if (fresh) currentOrder.value = fresh
+  } catch (error) {
+    if (!error?.__displayed) ElMessage.error(error?.message || '开票失败')
+  } finally {
+    invoiceIssuing.value = false
   }
 }
 

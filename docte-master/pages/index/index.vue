@@ -34,7 +34,6 @@
 							<view class="repair-field">
 								<text><text class="required-star">*</text>产品序列号</text>
 								<input v-model="product.serial" placeholder="输入或扫码 SN" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
-								<text class="sn-query-btn tap" @click="recognizeSn(index, true)">查询</text>
 								<view class="scan-icon tap" @click="scanSn(index)">
 									<view class="scan-corner"></view>
 									<view class="scan-corner"></view>
@@ -173,61 +172,6 @@
 					</view>
 				</view>
 
-				<view class="module-section-head single">
-					<text>联系我们</text>
-				</view>
-				<view class="contact-card-wrap">
-					<view class="contact-card-item">
-						<view class="contact-icon-wrap">
-							<view class="glyph glyph-chat"><view class="glyph-extra"></view></view>
-						</view>
-						<view class="contact-content">
-							<text class="contact-title">在线客服</text>
-							<text class="contact-desc">（8:00至21:00 节假日除外）</text>
-						</view>
-					</view>
-					<view class="contact-card-item contact-card-divider">
-						<view class="contact-icon-wrap phone-icon">
-							<view class="glyph glyph-phone"><view class="glyph-extra"></view></view>
-						</view>
-						<view class="contact-content">
-							<text class="contact-title">服务热线（微信同号）</text>
-							<text class="contact-desc">（8:00至21:00）</text>
-							<view class="contact-phone-list">
-								<view class="phone-item tap" @click="callPhone('0757-85775667')">
-									<text class="phone-label">服务热线:</text>
-									<text class="phone-number">0757-85775667</text>
-									<text class="phone-region">（全国）</text>
-								</view>
-								<view class="phone-item tap" @click="callPhone('13929945417')">
-									<text class="phone-label">售后技术:</text>
-									<text class="phone-number">13929945417</text>
-									<text class="phone-region">（全国）</text>
-								</view>
-								<view class="phone-item tap" @click="callPhone('13929924257')">
-									<text class="phone-label">售后客服1:</text>
-									<text class="phone-number">13929924257</text>
-									<text class="phone-region">（华东,湖北,湖南,海南）</text>
-								</view>
-								<view class="phone-item tap" @click="callPhone('13927263445')">
-									<text class="phone-label">售后客服2:</text>
-									<text class="phone-number">13927263445</text>
-									<text class="phone-region">（东北,华北,西北,西南）</text>
-								</view>
-								<view class="phone-item tap" @click="callPhone('13927700164')">
-									<text class="phone-label">售后客服3:</text>
-									<text class="phone-number">13927700164</text>
-									<text class="phone-region">（广东,河南）</text>
-								</view>
-								<view class="phone-item tap" @click="callPhone('+8613929924346')">
-									<text class="phone-label">国际售后技术:</text>
-									<text class="phone-number">+86 13929924346</text>
-									<text class="phone-region">（International after-sales technology）</text>
-								</view>
-							</view>
-						</view>
-					</view>
-				</view>
 				<view class="repair-bottom-bar">
 					<view class="bottom-more tap" @click="showRepairTools = true"><view></view><text>工具</text></view>
 					<view class="bottom-submit tap" :class="{ disabled: repairSubmitting }" @click="submitRepair">{{ repairSubmitting ? '提交中...' : '立即提交报修' }}</view>
@@ -2043,6 +1987,7 @@ const applyContact = (data = {}) => {
 	workTimes.value = splitWorkTimes(next.workTime)
 	receiver.value = [
 		{ label: '收件公司', value: next.companyName },
+		{ label: '收件人', value: '姚兵' },
 		{ label: '收件电话', value: next.phone },
 		{ label: '收件地址', value: next.address }
 	]

@@ -96,6 +96,14 @@ export const updateInvoiceStatus = (token, orderId, status, invoice = {}) => {
   })
 }
 
+// 一键开票（财务确认到账后，调用开票服务商 API 自动开票并回填）
+export const issueInvoice = (token, orderId) => {
+  return request.post(`${API_BASE.adminOrder}/issueInvoice`, {
+    token,
+    order_id: orderId
+  })
+}
+
 // 更新/发布维修报价
 export const updateOrderQuote = (token, orderId, quote = {}) => {
   return request.post(`${API_BASE.adminOrder}/updateOrderQuote`, {
