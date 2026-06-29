@@ -459,6 +459,36 @@ function buildPackageTimeline(order = {}, matchedType = 'out', fullAccess = fals
   return rows
 }
 
+// 单段物流（寄出 out / 回寄 back）：公司+单号+进度(0揽收/1运输/2签收)+时间轴
+function buildPackageSegment(order = {}, type = 'out', fullAccess = false) {
+  const info = getShipInfo(order, type)
+  const status = order.status || 'pending'
+  let reached = 0
+  let statusText = ''
+  let tone = 'muted'
+  let available = Boolean(info.trackingNo)
+  if (type === 'out') {
+    if (['received', 'inspecting', 'fixing', 'shipped', 'completed'].includes(status)) { reached = 2; statusText = '厂家已签收'; tone = 'ok'; available = true }
+    else if (status === 'sent') { reached = 1; statusText = '运输中'; tone = 'warn'; available = true }
+    else if (info.trackingNo) { reached = 1; statusText = '运输中'; tone = 'warn'; available = true }
+    else { reached = 0; statusText = '待寄出'; tone = 'muted'; available = false }
+  } else {
+    if (status === 'completed') { reached = 2; statusText = '客户已签收'; tone = 'ok'; available = true }
+    else if (status === 'shipped') { reached = 1; statusText = '运输中'; tone = 'warn'; available = true }
+    else { reached = 0; statusText = '待回寄'; tone = 'muted'; available = Boolean(info.trackingNo) }
+  }
+  return {
+    type,
+    company: info.company,
+    trackingNo: info.trackingNo,
+    status: statusText,
+    tone,
+    reached,
+    available,
+    timeline: available ? buildPackageTimeline(order, type, fullAccess) : []
+  }
+}
+
 async function findOrderByTrackingNo(trackingNo) {
   const checks = [
     { field: 'ship_out_info.logistics_no', type: 'out' },
@@ -925,20 +955,15 @@ module.exports = {
       }
 
       const fullAccess = Boolean(isOwner || (storedLast4 && inputLast4 && storedLast4 === inputLast4))
-      const matchedInfo = getShipInfo(order, matchedType)
-      const statusMeta = getPackageStatus(order)
-
+      // 返回寄出 + 回寄两段，供前端双 tab 展示（matchedType 用于默认选中输入单号匹配的那段）
       return {
         code: 0,
         data: {
           trackingNo: normalizedTrackingNo,
-          company: matchedInfo.company,
           orderId: fullAccess ? (order.order_no || order._id || '') : '',
-          status: statusMeta.status,
-          statusText: statusMeta.statusText,
-          tone: statusMeta.tone,
-          reached: statusMeta.reached,
-          timeline: buildPackageTimeline(order, matchedType, fullAccess)
+          matchedType,
+          out: buildPackageSegment(order, 'out', fullAccess),
+          back: buildPackageSegment(order, 'back', fullAccess)
         }
       }
     } catch (e) {

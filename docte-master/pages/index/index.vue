@@ -220,7 +220,7 @@
 					</view>
 				</view>
 				<scroll-view class="progress-tabs-line progress-tabs-compact" scroll-x show-scrollbar="false" enhanced>
-					<view v-for="item in progressTabs" :key="item" class="progress-tab tap" :class="{ on: activeTrackTab === item }" @click="activeTrackTab = item">
+					<view v-for="item in trackTabs" :key="item" class="progress-tab tap" :class="{ on: activeTrackTab === item }" @click="activeTrackTab = item">
 						<text>{{ item }}</text>
 					</view>
 				</scroll-view>
@@ -280,42 +280,48 @@
 				</view>
 				<view class="primary-button tap save-button" :class="{ disabled: packageQueryLoading }" @click="queryPackage">{{ packageQueryLoading ? '查询中...' : '立即查询' }}</view>
 				<view v-if="packageQueryResult" class="package-result-card">
-					<view class="package-result-head">
-						<view>
-							<text class="muted-line">快递单号</text>
-							<text class="package-no">{{ packageQueryResult.trackingNo }}</text>
-						</view>
-						<text :class="['tag', 'tag-' + packageQueryResult.tone]">{{ packageQueryResult.status }}</text>
+					<view class="package-tabs">
+						<view v-for="tb in packageTabs" :key="tb.key" class="package-tab tap" :class="{ on: activePackageTab === tb.key }" @click="activePackageTab = tb.key">{{ tb.label }}</view>
 					</view>
-					<view class="package-result-grid">
-						<view><text>物流公司</text><text>{{ packageQueryResult.company || '待录入' }}</text></view>
-						<view class="package-linked-order tap" @click="openLinkedOrder(packageQueryResult.orderId)">
-							<text>关联工单</text>
-							<text :class="{ 'package-order-link': packageQueryResult.orderId }">{{ packageQueryResult.orderId || '待关联' }}{{ packageQueryResult.orderId ? ' ›' : '' }}</text>
+					<block v-if="currentPackage && currentPackage.available">
+						<view class="package-result-head">
+							<view>
+								<text class="muted-line">快递单号</text>
+								<text class="package-no">{{ currentPackage.trackingNo || '待录入' }}</text>
+							</view>
+							<text :class="['tag', 'tag-' + currentPackage.tone]">{{ currentPackage.status }}</text>
 						</view>
-					</view>
-					<view class="package-progress">
-						<view v-for="(step, index) in packageFlow" :key="step" class="progress-step" :class="{ reached: index <= packageQueryResult.reached }">
-							<view></view>
-							<text>{{ step }}</text>
+						<view class="package-result-grid">
+							<view><text>物流公司</text><text>{{ currentPackage.company || '待录入' }}</text></view>
+							<view class="package-linked-order tap" @click="openLinkedOrder(packageQueryResult.orderId)">
+								<text>关联工单</text>
+								<text :class="{ 'package-order-link': packageQueryResult.orderId }">{{ packageQueryResult.orderId || '待关联' }}{{ packageQueryResult.orderId ? ' ›' : '' }}</text>
+							</view>
 						</view>
-					</view>
-					<view class="module-section-head single package-timeline-title"><text>包裹记录</text></view>
-					<view class="package-timeline">
-						<view v-for="(item, index) in packageQueryResult.timeline" :key="item.title + index" class="detail-timeline-row">
-							<view class="detail-timeline-pin" :class="{ pending: item.pending }">
+						<view class="package-progress">
+							<view v-for="(step, index) in packageTabFlow[activePackageTab]" :key="step" class="progress-step" :class="{ reached: index <= currentPackage.reached }">
 								<view></view>
-								<view v-if="index < packageQueryResult.timeline.length - 1"></view>
-							</view>
-							<view class="detail-timeline-copy">
-								<view>
-									<text :class="{ muted: item.pending }">{{ item.title }}</text>
-									<text>{{ item.time }}</text>
-								</view>
-								<text>{{ item.desc }}</text>
+								<text>{{ step }}</text>
 							</view>
 						</view>
-					</view>
+						<view class="module-section-head single package-timeline-title"><text>包裹记录</text></view>
+						<view class="package-timeline">
+							<view v-for="(item, index) in currentPackage.timeline" :key="item.title + index" class="detail-timeline-row">
+								<view class="detail-timeline-pin" :class="{ pending: item.pending }">
+									<view></view>
+									<view v-if="index < currentPackage.timeline.length - 1"></view>
+								</view>
+								<view class="detail-timeline-copy">
+									<view>
+										<text :class="{ muted: item.pending }">{{ item.title }}</text>
+										<text>{{ item.time }}</text>
+									</view>
+									<text>{{ item.desc }}</text>
+								</view>
+							</view>
+						</view>
+					</block>
+					<view v-else class="empty-hint compact package-empty">{{ activePackageTab === 'back' ? '设备尚未回寄，修好寄回后可在此查看回寄物流。' : '暂无寄出物流记录。' }}</view>
 				</view>
 				<view v-else-if="packageQuerySearched" class="empty-hint compact package-empty">暂未查到这票包裹。请确认快递单号是否正确，或等我们签收录入后再查询。</view>
 			</view>
@@ -1154,7 +1160,7 @@
 							</view>
 							<view class="contact-copy">
 								<text class="contact-title">在线客服</text>
-								<text class="contact-desc">8:00至21:00</text>
+								<text class="contact-desc">8:00-17:30</text>
 							</view>
 						</button>
 						<view class="contact-card tap" @click="makePhoneCall">
@@ -1386,7 +1392,7 @@
 
 		<view v-if="!activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="showOfficial = true">
 			<view class="vi-side-wordmark">
-				<text class="vi-en">CICADA</text><text class="vi-tm">®</text>
+				<image class="vi-side-logo" :src="cicadaAssets.wordmarkWhite" mode="aspectFit"></image>
 			</view>
 			<text class="side-text">思科达公众号</text>
 		</view>
@@ -1586,6 +1592,20 @@ const diagProduct = ref('')
 const diagFault = ref('')
 const diagOpen = ref('')
 const activeTrackTab = ref('全部')
+// 维修进度 tab：进度合并 + 发票维度（待处理/维修中/已发货 按进度；未开票/已开票 按发票状态）
+const trackTabs = ['全部', '待处理', '维修中', '已发货', '未开票', '已开票']
+const orderMatchesTrackTab = (item = {}, tab = '全部') => {
+	if (tab === '全部') return true
+	const group = item.statusGroup || ''
+	if (tab === '待处理') return ['已提交', '运输中', '已签收'].includes(group)
+	if (tab === '维修中') return group === '处理中'
+	if (tab === '已发货') return ['已回寄', '已完成'].includes(group)
+	const inv = String(item.invoiceStatus || '')
+	const issued = Boolean(item.invoiced) || ['已开具', '已开票', '已发票'].includes(inv)
+	if (tab === '已开票') return issued
+	if (tab === '未开票') return !issued && ['待开票', '开具中', '未发票'].includes(inv)
+	return false
+}
 const activeOrdersTab = ref('全部')
 const trackSearchKeyword = ref('')
 const activeInvoiceTab = ref('待开票')
@@ -1681,6 +1701,20 @@ const packageQuery = ref({
 	phoneLast4: ''
 })
 const packageQueryResult = ref(null)
+const activePackageTab = ref('out')
+const packageTabs = [
+	{ key: 'out', label: '我寄出的设备' },
+	{ key: 'back', label: '厂家寄回设备' }
+]
+const packageTabFlow = {
+	out: ['已寄出', '运输中', '厂家签收'],
+	back: ['厂家发货', '运输中', '客户签收']
+}
+const currentPackage = computed(() => {
+	const r = packageQueryResult.value
+	if (!r) return null
+	return r[activePackageTab.value] || r.out
+})
 const invoiceForm = ref({
 	invoiceType: '电子普通发票',
 	titleType: 'company',
@@ -2149,24 +2183,36 @@ const normalizePackageTimeline = (timeline = []) => {
 	}))
 }
 
+const normalizeSegment = (seg = {}) => ({
+	company: seg.company || seg.expressCompany || seg.logisticsCompany || '',
+	trackingNo: seg.trackingNo || seg.expressNo || seg.waybillNo || '',
+	status: seg.status || seg.statusText || (seg.available ? '已录入' : '暂无记录'),
+	tone: seg.tone || 'muted',
+	reached: Math.max(0, Math.min(2, Number(seg.reached) || 0)),
+	available: Boolean(seg.available),
+	timeline: normalizePackageTimeline(seg.timeline || seg.logs || seg.records)
+})
+
 const normalizePackageResult = (data = {}) => {
-	const rawStatus = data.status
-	const meta = packageStatusMeta[rawStatus] || {
-		status: data.statusText || data.statusName || rawStatus || '已录入',
-		tone: data.tone || 'muted',
-		reached: Number.isFinite(Number(data.reached)) ? Number(data.reached) : 1
+	// 新格式：含 out/back 两段
+	if (data.out || data.back) {
+		return {
+			trackingNo: data.trackingNo || packageQuery.value.trackingNo,
+			orderId: data.orderId || '',
+			matchedType: data.matchedType === 'back' ? 'back' : 'out',
+			out: normalizeSegment(data.out || {}),
+			back: normalizeSegment(data.back || {})
+		}
 	}
-
-	const reachedValue = data.reached !== undefined && data.reached !== null ? data.reached : meta.reached
-
+	// 旧格式兜底：单段 → 放进匹配的 tab
+	const mt = data.matchedType === 'back' ? 'back' : 'out'
+	const single = normalizeSegment({ ...data, available: true })
 	return {
-		trackingNo: data.trackingNo || data.expressNo || data.waybillNo || packageQuery.value.trackingNo,
-		company: data.company || data.expressCompany || data.logisticsCompany || '',
+		trackingNo: data.trackingNo || packageQuery.value.trackingNo,
 		orderId: data.orderId || data.repairOrderId || '',
-		status: data.statusText || data.statusName || meta.status,
-		tone: data.tone || meta.tone,
-		reached: Math.max(0, Math.min(packageFlow.length - 1, Number(reachedValue) || 0)),
-		timeline: normalizePackageTimeline(data.timeline || data.logs || data.records)
+		matchedType: mt,
+		out: mt === 'out' ? single : normalizeSegment({}),
+		back: mt === 'back' ? single : normalizeSegment({})
 	}
 }
 
@@ -2189,6 +2235,7 @@ const queryPackage = async () => {
 			phoneLast4: packageQuery.value.phoneLast4.trim()
 		})
 		packageQueryResult.value = res ? normalizePackageResult(res) : null
+		if (packageQueryResult.value) activePackageTab.value = packageQueryResult.value.matchedType
 		packageQuerySearched.value = true
 	} catch (error) {
 		console.warn('package query failed:', error)
@@ -2358,7 +2405,7 @@ const receiverLastIndex = computed(() => receiver.value.length - 1)
 const filteredTrackOrders = computed(() => {
 	const keyword = trackSearchKeyword.value.trim().toLowerCase()
 	return trackOrders.value.filter((item) => {
-		const statusMatched = activeTrackTab.value === '全部' || item.statusGroup === activeTrackTab.value
+		const statusMatched = orderMatchesTrackTab(item, activeTrackTab.value)
 		if (!statusMatched) return false
 		if (!keyword) return true
 		const itemSearchable = Array.isArray(item.items)
@@ -5282,7 +5329,7 @@ onUnmounted(() => {
 }
 
 .vi-en {
-	font-family: "Times New Roman", Times, Georgia, serif !important;
+	font-family: "Times New Roman", Georgia, "Songti SC", STSong, "宋体", SimSun, serif !important;
 	color: #00AEEF;
 	font-weight: bold;
 	letter-spacing: 0.5px;
@@ -5350,6 +5397,12 @@ onUnmounted(() => {
 
 .vi-side-tab {
 	padding: 24rpx 20rpx 24rpx 32rpx !important;
+	background: #1C2834 !important;
+}
+
+.vi-side-logo {
+	width: 108rpx;
+	height: 26rpx;
 }
 
 .vi-side-wordmark {
@@ -8919,6 +8972,29 @@ onUnmounted(() => {
 	background: #FFFFFF;
 	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
 	box-sizing: border-box;
+}
+
+.package-tabs {
+	display: flex;
+	gap: 12rpx;
+	margin-bottom: 24rpx;
+	padding: 6rpx;
+	border-radius: 999rpx;
+	background: #F2F5FB;
+}
+.package-tab {
+	flex: 1;
+	text-align: center;
+	padding: 16rpx 0;
+	border-radius: 999rpx;
+	font-size: 26rpx;
+	font-weight: 600;
+	color: #6B7C97;
+}
+.package-tab.on {
+	background: #1E6FE0;
+	color: #FFFFFF;
+	box-shadow: 0 6rpx 16rpx -6rpx rgba(30, 111, 224, 0.55);
 }
 
 .package-result-head {
