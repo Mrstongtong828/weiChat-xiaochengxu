@@ -8,67 +8,19 @@
     </div>
     <el-tabs v-model="activeContentTab" class="modern-tabs">
       <el-tab-pane label="保修与收费" name="policy">
-        <div class="field-title" style="margin-top:20px;">保修政策总述</div>
-        <div class="policy-document-card">
-          <div class="policy-document-main">
-            <el-icon class="policy-document-icon"><Document /></el-icon>
-            <div class="policy-document-copy">
-              <div class="policy-document-title">上传保修政策文件</div>
-              <div class="policy-document-desc">支持 PDF、Word 文档；保存后作为小程序保修政策页的正式文件来源。</div>
-              <div v-if="warrantyDocument.fileName" class="policy-document-file">
-                <span>{{ warrantyDocument.fileName }}</span>
-                <em v-if="warrantyDocument.updatedAt">更新于 {{ warrantyDocument.updatedAt }}</em>
-              </div>
-              <div v-else class="policy-document-empty">暂未上传保修政策文件</div>
-            </div>
-          </div>
-          <div class="policy-document-actions">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".pdf,.doc,.docx" :on-change="handleWarrantyDocumentUpload">
-              <el-button type="primary" :loading="uploadingWarrantyDocument"><el-icon><Upload /></el-icon>{{ warrantyDocument.fileUrl ? '替换文件' : '上传文件' }}</el-button>
-            </el-upload>
-            <el-button v-if="warrantyDocument.fileUrl" plain @click="openWarrantyDocument"><el-icon><View /></el-icon>预览</el-button>
-            <el-button v-if="warrantyDocument.fileUrl" type="danger" link @click="removeWarrantyDocument">移除</el-button>
-          </div>
+        <div class="field-title policy-field-title" style="margin-top:20px;">
+          <span>保修政策总述</span>
+          <el-button type="primary" link @click="openPolicyPreview('warranty')"><el-icon><View /></el-icon>预览小程序效果</el-button>
         </div>
-        <el-alert
-          v-if="config.warranty"
-          title="检测到旧版富文本保修政策内容，保存后会继续保留为兼容内容；当前后台主入口已改为文档上传。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-top:12px;"
-        />
+        <div class="sub-label">直接填写保修政策内容，支持图文；保存后同步至小程序「保修政策」页展示。</div>
+        <RichEditor v-model="config.warranty" upload-dir="warranty/" placeholder="填写保修政策总述，如质保范围、保修期限、免责情形等…" />
 
-        <div class="field-title" style="margin-top:24px;">收费办法说明</div>
-        <div class="policy-document-card">
-          <div class="policy-document-main">
-            <el-icon class="policy-document-icon"><Document /></el-icon>
-            <div class="policy-document-copy">
-              <div class="policy-document-title">上传收费办法文件</div>
-              <div class="policy-document-desc">支持 PDF、Word 文档；保存后作为小程序收费指南页的正式文件来源。</div>
-              <div v-if="feeDocument.fileName" class="policy-document-file">
-                <span>{{ feeDocument.fileName }}</span>
-                <em v-if="feeDocument.updatedAt">更新于 {{ feeDocument.updatedAt }}</em>
-              </div>
-              <div v-else class="policy-document-empty">暂未上传收费办法文件</div>
-            </div>
-          </div>
-          <div class="policy-document-actions">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".pdf,.doc,.docx" :on-change="handleFeeDocumentUpload">
-              <el-button type="primary" :loading="uploadingFeeDocument"><el-icon><Upload /></el-icon>{{ feeDocument.fileUrl ? '替换文件' : '上传文件' }}</el-button>
-            </el-upload>
-            <el-button v-if="feeDocument.fileUrl" plain @click="openFeeDocument"><el-icon><View /></el-icon>预览</el-button>
-            <el-button v-if="feeDocument.fileUrl" type="danger" link @click="removeFeeDocument">移除</el-button>
-          </div>
+        <div class="field-title policy-field-title" style="margin-top:24px;">
+          <span>收费办法说明</span>
+          <el-button type="primary" link @click="openPolicyPreview('fees')"><el-icon><View /></el-icon>预览小程序效果</el-button>
         </div>
-        <el-alert
-          v-if="config.feePolicy"
-          title="检测到旧版文本收费办法内容，保存后会继续保留为兼容内容；当前后台主入口已改为文档上传。"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-top:12px;"
-        />
+        <div class="sub-label">直接填写收费办法说明，支持图文；保存后同步至小程序「收费指南」页展示。</div>
+        <RichEditor v-model="config.feePolicy" upload-dir="fees/" placeholder="填写收费办法说明，如检测费、维修费、加急费的计费规则等…" />
 
         <div class="qual-head">
           <span>过保收费阶梯模板</span>
@@ -136,6 +88,45 @@
           </div>
         </div>
         <div class="save-row"><el-button type="primary" :loading="savingGuides" @click="saveGuideDocuments">保存操作教程配置</el-button></div>
+      </el-tab-pane>
+
+      <el-tab-pane label="产品视频" name="productVideo">
+        <el-alert
+          title="在这里上传产品介绍视频，保存后展示在小程序「公司介绍」页的「产品视频」区。建议单个视频不超过 30MB（过大可能上传失败，可先压缩或截取要点）。封面图可选，不传则显示默认底图。"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin: 20px 0;"
+        />
+        <div class="product-video-list">
+          <div v-for="(video, index) in productVideos" :key="video._key" class="policy-document-card product-video-card">
+            <div class="product-video-cover">
+              <img v-if="video.coverPreview" :src="video.coverPreview" class="product-video-cover-img" />
+              <div v-else class="product-video-cover-empty">无封面</div>
+              <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(file) => handleVideoCoverUpload(file, video)">
+                <el-button size="small" plain><el-icon><Upload /></el-icon>{{ video.cover_url ? '换封面' : '封面' }}</el-button>
+              </el-upload>
+            </div>
+            <div class="product-video-fields">
+              <el-input v-model="video.title" placeholder="视频标题，如：根管马达使用演示" maxlength="40" show-word-limit />
+              <el-input v-model="video.intro" type="textarea" :rows="2" placeholder="一句话简介（可选）" maxlength="120" show-word-limit style="margin-top:8px;" />
+              <div class="product-video-fileline">
+                <el-tag v-if="video.video_name" type="success" effect="plain"><el-icon><VideoPlay /></el-icon> {{ video.video_name }}</el-tag>
+                <span v-else class="policy-document-empty">暂未上传视频</span>
+                <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="video/*,.mp4,.mov,.m4v,.webm" :on-change="(file) => handleVideoUpload(file, video)">
+                  <el-button type="primary" size="small" :loading="uploadingVideoKey === video._key"><el-icon><Upload /></el-icon>{{ video.video_url ? '替换视频' : '上传视频' }}</el-button>
+                </el-upload>
+                <el-button v-if="video.video_url" plain size="small" @click="previewVideo(video)"><el-icon><View /></el-icon>预览</el-button>
+              </div>
+            </div>
+            <el-button class="product-video-del" type="danger" link @click="removeProductVideo(index)">删除</el-button>
+          </div>
+          <div v-if="!productVideos.length" class="empty-tip">还没有产品视频，点击下方「新增视频」添加。</div>
+        </div>
+        <div class="save-row">
+          <el-button plain @click="addProductVideo"><el-icon><Plus /></el-icon>新增视频</el-button>
+          <el-button type="primary" :loading="savingProductVideos" @click="saveProductVideos">保存产品视频</el-button>
+        </div>
       </el-tab-pane>
 
       <el-tab-pane label="隐私与合规" name="compliance">
@@ -211,6 +202,23 @@
           <el-form-item label="联系邮箱"><el-input v-model="contactInfo.contact_email" placeholder="选填" /></el-form-item>
           <el-form-item label="联系地址"><el-input v-model="contactInfo.contact_address" placeholder="寄修/办公地址" /></el-form-item>
           <el-form-item label="工作时间"><el-input v-model="contactInfo.work_time" placeholder="如 周一至周六 9:00-18:00" /></el-form-item>
+        </el-form>
+
+        <div class="field-title" style="margin-top:20px;">对公转账账户</div>
+        <el-alert
+          title="客户小程序「对公银行转账」弹窗会读取这里；转账备注仍要求填写工单编号。"
+          type="warning"
+          show-icon
+          :closable="false"
+          style="margin-bottom: 12px;"
+        />
+        <el-form :model="contactInfo" label-width="110px" class="print-form">
+          <el-form-item label="户名"><el-input v-model="contactInfo.bank_transfer_company_name" placeholder="收款公司全称" /></el-form-item>
+          <el-form-item label="纳税人识别号"><el-input v-model="contactInfo.bank_transfer_tax_no" placeholder="选填，用于财务核对" /></el-form-item>
+          <el-form-item label="地址及电话"><el-input v-model="contactInfo.bank_transfer_address_phone" placeholder="营业地址 / 电话" /></el-form-item>
+          <el-form-item label="开户行"><el-input v-model="contactInfo.bank_transfer_bank_name" placeholder="开户银行全称" /></el-form-item>
+          <el-form-item label="对公账号"><el-input v-model="contactInfo.bank_transfer_account_no" placeholder="对公银行账号" /></el-form-item>
+          <el-form-item label="行号"><el-input v-model="contactInfo.bank_transfer_line_no" placeholder="开户行行号 / 联行号" /></el-form-item>
         </el-form>
 
         <div class="field-title" style="margin-top:20px;">在线客服</div>
@@ -319,13 +327,45 @@
         </div>
       </el-tab-pane>
     </el-tabs>
+
+    <!-- 小程序页面效果预览 -->
+    <el-dialog v-model="policyPreviewVisible" title="小程序效果预览" width="440px" append-to-body class="policy-preview-dialog">
+      <div class="mp-preview-switch">
+        <el-radio-group v-model="policyPreviewTab" size="small">
+          <el-radio-button label="warranty">保修政策</el-radio-button>
+          <el-radio-button label="fees">收费指南</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="mp-phone">
+        <div class="mp-phone-notch"></div>
+        <div class="mp-phone-header">{{ policyPreviewTab === 'warranty' ? '保修政策' : '收费指南' }}</div>
+        <div class="mp-phone-body">
+          <template v-if="policyPreviewTab === 'warranty'">
+            <div v-if="config.warranty" class="mp-rich" v-html="config.warranty"></div>
+            <div v-else class="mp-empty">暂无保修政策内容</div>
+          </template>
+          <template v-else>
+            <div v-if="feeTiers.length" class="mp-fee-table">
+              <div class="mp-fee-row mp-fee-head"><span>收费项</span><span>标准价</span></div>
+              <div v-for="(t, i) in feeTiers" :key="i" class="mp-fee-row">
+                <span class="mp-fee-name">{{ t.name || '未命名' }}<em v-if="t.note">{{ t.note }}</em></span>
+                <span class="mp-fee-price">¥{{ t.price || 0 }}<i v-if="t.unit">/{{ t.unit }}</i></span>
+              </div>
+            </div>
+            <div v-if="config.feePolicy" class="mp-rich" v-html="config.feePolicy"></div>
+            <div v-if="!feeTiers.length && !config.feePolicy" class="mp-empty">暂无收费办法内容</div>
+          </template>
+        </div>
+      </div>
+      <div class="mp-preview-note">预览为后台配置示意，最终以小程序端实际展示为准。</div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide } from '../api/admin.js'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
 import RichEditor from '../components/RichEditor.vue'
 import { uploadFileToCloud } from '../utils/upload.js'
 
@@ -336,11 +376,14 @@ const isWebUrl = (url = '') => /^https?:\/\//i.test(url)
 // ===== 保修与收费 =====
 const savingPolicy = ref(false)
 const feeTiers = ref([])
-const warrantyDocument = reactive({ fileName: '', fileUrl: '', fileType: '', updatedAt: '' })
-const feeDocument = reactive({ fileName: '', fileUrl: '', fileType: '', updatedAt: '' })
-const policyDocumentPreviewMap = reactive({})
-const uploadingWarrantyDocument = ref(false)
-const uploadingFeeDocument = ref(false)
+
+// 小程序页面效果预览（保修政策页 / 收费指南页）
+const policyPreviewVisible = ref(false)
+const policyPreviewTab = ref('warranty')
+const openPolicyPreview = (tab = 'warranty') => {
+  policyPreviewTab.value = tab
+  policyPreviewVisible.value = true
+}
 
 const parseJsonArray = (value) => {
   try {
@@ -351,98 +394,17 @@ const parseJsonArray = (value) => {
   }
 }
 
-const parseJsonObject = (value) => {
-  try {
-    const parsed = value ? JSON.parse(value) : {}
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-  } catch (error) {
-    return {}
-  }
-}
-
-const applyPolicyDocument = (target, value) => {
-  const doc = parseJsonObject(value)
-  target.fileName = doc.fileName || ''
-  target.fileUrl = doc.fileUrl || ''
-  target.fileType = doc.fileType || ''
-  target.updatedAt = doc.updatedAt || ''
-  resolvePolicyDocumentPreview(target)
-}
-
-const resolvePolicyDocumentPreview = async (target) => {
-  if (!target.fileUrl || isWebUrl(target.fileUrl) || policyDocumentPreviewMap[target.fileUrl]) return
-  const token = localStorage.getItem('adminToken')
-  try {
-    const map = await getTempFileURL(token, [target.fileUrl])
-    if (map && map[target.fileUrl]) {
-      policyDocumentPreviewMap[target.fileUrl] = map[target.fileUrl]
-    }
-  } catch (error) {
-    console.error('解析政策文件地址失败:', error)
-  }
-}
-
-const handlePolicyDocumentUpload = async (uploadFile, target, loading, dir, successMessage) => {
-  const raw = uploadFile && uploadFile.raw
-  if (!raw) return
-  if (!/\.(pdf|doc|docx)$/i.test(raw.name || '')) {
-    ElMessage.warning('请上传 PDF 或 Word 文档')
-    return
-  }
-  try {
-    loading.value = true
-    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, dir, 20 * 1024 * 1024)
-    target.fileName = raw.name
-    target.fileUrl = fileUrl
-    target.fileType = raw.type || ''
-    target.updatedAt = new Date().toISOString().slice(0, 10)
-    if (tempUrl) policyDocumentPreviewMap[fileUrl] = tempUrl
-    ElMessage.success(successMessage)
-  } catch (error) {
-    ElMessage.error(error.message || '上传失败')
-  } finally {
-    loading.value = false
-  }
-}
-
-const openPolicyDocument = async (target, emptyMessage) => {
-  if (!target.fileUrl) {
-    ElMessage.warning(emptyMessage)
-    return
-  }
-  if (isWebUrl(target.fileUrl)) {
-    window.open(target.fileUrl, '_blank', 'noopener,noreferrer')
-    return
-  }
-  await resolvePolicyDocumentPreview(target)
-  const url = policyDocumentPreviewMap[target.fileUrl]
-  if (url) {
+// 在线查看文档：PDF 浏览器内联预览；Word/Excel/PPT 浏览器不支持内联（会直接下载），
+// 改用微软 Office Online Viewer 在线渲染，实现「看效果」而非下载。需 url 为公网可访问地址。
+const isOfficeDoc = (name = '') => /\.(docx?|xlsx?|pptx?)$/i.test(String(name || ''))
+const openDocInViewer = (url, fileName = '') => {
+  if (!url) return
+  if (isOfficeDoc(fileName || url)) {
+    window.open(`https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`, '_blank', 'noopener,noreferrer')
+  } else {
     window.open(url, '_blank', 'noopener,noreferrer')
-    return
   }
-  ElMessage.info('文件已上传到云存储，暂时无法生成后台预览链接')
 }
-
-const removePolicyDocument = (target) => {
-  target.fileName = ''
-  target.fileUrl = ''
-  target.fileType = ''
-  target.updatedAt = ''
-}
-
-const serializePolicyDocument = (target) => target.fileUrl ? JSON.stringify({
-  fileName: target.fileName,
-  fileUrl: target.fileUrl,
-  fileType: target.fileType,
-  updatedAt: target.updatedAt
-}) : ''
-
-const handleWarrantyDocumentUpload = (uploadFile) => handlePolicyDocumentUpload(uploadFile, warrantyDocument, uploadingWarrantyDocument, 'warranty/', '保修政策文件上传成功')
-const handleFeeDocumentUpload = (uploadFile) => handlePolicyDocumentUpload(uploadFile, feeDocument, uploadingFeeDocument, 'fees/', '收费办法文件上传成功')
-const openWarrantyDocument = () => openPolicyDocument(warrantyDocument, '请先上传保修政策文件')
-const openFeeDocument = () => openPolicyDocument(feeDocument, '请先上传收费办法文件')
-const removeWarrantyDocument = () => removePolicyDocument(warrantyDocument)
-const removeFeeDocument = () => removePolicyDocument(feeDocument)
 
 const addFeeTier = () => feeTiers.value.push({ name: '', price: 0, unit: '次', note: '' })
 
@@ -535,13 +497,13 @@ const openGuideDocument = async (guide) => {
     return
   }
   if (isWebUrl(guide.file_url)) {
-    window.open(guide.file_url, '_blank', 'noopener,noreferrer')
+    openDocInViewer(guide.file_url, guide.file_name)
     return
   }
   await resolveGuideDocumentPreview(guide)
   const url = guidePreviewMap[guide.file_url]
   if (url) {
-    window.open(url, '_blank', 'noopener,noreferrer')
+    openDocInViewer(url, guide.file_name)
     return
   }
   ElMessage.info('文件已上传到云存储，暂时无法生成后台预览链接')
@@ -579,14 +541,203 @@ const saveGuideDocuments = async () => {
   }
 }
 
+// ===== 产品视频（cicada_guides，category=产品视频；desc=标题，content=简介，media=[视频,封面]）=====
+const PRODUCT_VIDEO_CATEGORY = '产品视频'
+const productVideos = ref([])
+const savingProductVideos = ref(false)
+const uploadingVideoKey = ref('')
+let videoKeySeq = 0
+
+const loadProductVideos = async () => {
+  try {
+    const token = localStorage.getItem('adminToken')
+    const list = await getGuides(token)
+    const arr = (Array.isArray(list) ? list : []).filter(g => String(g.category || '').includes(PRODUCT_VIDEO_CATEGORY))
+    arr.sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
+    productVideos.value = arr.map(g => {
+      const media = Array.isArray(g.media) ? g.media : []
+      const video = media.find(m => m && m.type === 'video') || {}
+      const cover = media.find(m => m && m.type === 'image') || {}
+      return {
+        _id: g._id || g.id || '',
+        _key: g._id || g.id || `new-${++videoKeySeq}`,
+        title: g.desc || '',
+        intro: g.content || '',
+        video_url: video.url || '',
+        video_name: video.name || '',
+        cover_url: cover.url || '',
+        cover_name: cover.name || '',
+        coverPreview: '',
+        sort: Number(g.sort) || 99
+      }
+    })
+    resolveVideoCoverPreviews()
+  } catch (error) {
+    console.error('加载产品视频失败:', error)
+  }
+}
+
+const resolveVideoCoverPreviews = async () => {
+  productVideos.value.forEach(v => {
+    if (v.cover_url && isWebUrl(v.cover_url)) v.coverPreview = v.cover_url
+  })
+  const token = localStorage.getItem('adminToken')
+  const ids = productVideos.value
+    .filter(v => v.cover_url && !isWebUrl(v.cover_url) && !v.coverPreview)
+    .map(v => v.cover_url)
+  if (!ids.length) return
+  try {
+    const map = await getTempFileURL(token, ids)
+    productVideos.value.forEach(v => {
+      if (v.cover_url && map && map[v.cover_url]) v.coverPreview = map[v.cover_url]
+    })
+  } catch (error) {
+    console.error('解析视频封面地址失败:', error)
+  }
+}
+
+const handleVideoUpload = async (uploadFile, video) => {
+  const raw = uploadFile && uploadFile.raw
+  if (!raw) return
+  if (!/^video\//i.test(raw.type || '') && !/\.(mp4|mov|m4v|webm)$/i.test(raw.name || '')) {
+    ElMessage.warning('请上传视频文件（建议 mp4）')
+    return
+  }
+  try {
+    uploadingVideoKey.value = video._key
+    const { fileUrl } = await uploadFileToCloud(raw, 'product-video/', 30 * 1024 * 1024)
+    video.video_url = fileUrl
+    video.video_name = raw.name
+    ElMessage.success('视频上传成功')
+  } catch (error) {
+    ElMessage.error(error.message || '上传失败（视频过大时易失败，请压缩后重试）')
+  } finally {
+    uploadingVideoKey.value = ''
+  }
+}
+
+const handleVideoCoverUpload = async (uploadFile, video) => {
+  const raw = uploadFile && uploadFile.raw
+  if (!raw) return
+  try {
+    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, 'product-video/', 5 * 1024 * 1024)
+    video.cover_url = fileUrl
+    video.cover_name = raw.name
+    video.coverPreview = tempUrl || ''
+    ElMessage.success('封面上传成功')
+  } catch (error) {
+    ElMessage.error(error.message || '封面上传失败')
+  }
+}
+
+const previewVideo = async (video) => {
+  if (!video.video_url) {
+    ElMessage.warning('请先上传视频')
+    return
+  }
+  if (isWebUrl(video.video_url)) {
+    window.open(video.video_url, '_blank', 'noopener,noreferrer')
+    return
+  }
+  try {
+    const token = localStorage.getItem('adminToken')
+    const map = await getTempFileURL(token, [video.video_url])
+    const url = map && map[video.video_url]
+    if (url) window.open(url, '_blank', 'noopener,noreferrer')
+    else ElMessage.info('视频已上传到云存储，暂时无法生成后台预览链接')
+  } catch (error) {
+    ElMessage.error('预览失败')
+  }
+}
+
+const addProductVideo = () => {
+  productVideos.value.push({
+    _id: '',
+    _key: `new-${++videoKeySeq}`,
+    title: '',
+    intro: '',
+    video_url: '',
+    video_name: '',
+    cover_url: '',
+    cover_name: '',
+    coverPreview: '',
+    sort: productVideos.value.length + 1
+  })
+}
+
+const removeProductVideo = async (index) => {
+  const video = productVideos.value[index]
+  if (!video) return
+  // 未保存的新增项直接前端移除
+  if (!video._id) {
+    productVideos.value.splice(index, 1)
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确定删除该产品视频？删除后小程序端将不再展示。', '提示', { type: 'warning' })
+  } catch (e) {
+    return
+  }
+  try {
+    const token = localStorage.getItem('adminToken')
+    await deleteGuide(token, video._id)
+    productVideos.value.splice(index, 1)
+    ElMessage.success('已删除')
+  } catch (error) {
+    ElMessage.error(error.message || '删除失败')
+  }
+}
+
+const saveProductVideos = async () => {
+  for (const v of productVideos.value) {
+    if (!String(v.title || '').trim()) {
+      ElMessage.warning('请为每个视频填写标题')
+      return
+    }
+    if (!v.video_url) {
+      ElMessage.warning(`「${v.title || '未命名'}」还没有上传视频`)
+      return
+    }
+  }
+  try {
+    savingProductVideos.value = true
+    const token = localStorage.getItem('adminToken')
+    for (let i = 0; i < productVideos.value.length; i++) {
+      const v = productVideos.value[i]
+      const media = [{ type: 'video', url: v.video_url, name: v.video_name || '' }]
+      if (v.cover_url) media.push({ type: 'image', url: v.cover_url, name: v.cover_name || '' })
+      const payload = {
+        category: PRODUCT_VIDEO_CATEGORY,
+        audience: 'client',
+        desc: String(v.title).trim(),
+        content: v.intro || '',
+        media,
+        sort: i + 1
+      }
+      if (v._id) {
+        await updateGuide(token, v._id, payload)
+      } else {
+        const res = await createGuide(token, payload)
+        v._id = (res && (res._id || res.id)) || ''
+        if (v._id) v._key = v._id
+      }
+      v.sort = i + 1
+    }
+    ElMessage.success('产品视频已保存')
+    await loadProductVideos()
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingProductVideos.value = false
+  }
+}
+
 const loadSettings = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
     config.warranty = data.warranty_policy || ''
     config.feePolicy = data.fee_description || ''
-    applyPolicyDocument(warrantyDocument, data.warranty_policy_file)
-    applyPolicyDocument(feeDocument, data.fee_policy_file)
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
     applyCompliance(data)
     applyContactInfo(data)
@@ -603,9 +754,10 @@ const saveConfig = async () => {
     const cleanFeeTiers = feeTiers.value.filter(t => t.name || t.price)
     await saveSettings(token, {
       warranty_policy: config.warranty,
-      warranty_policy_file: serializePolicyDocument(warrantyDocument),
       fee_description: config.feePolicy,
-      fee_policy_file: serializePolicyDocument(feeDocument),
+      // 已下线「文档上传」入口：清空旧文档字段，避免小程序端读到过期文档
+      warranty_policy_file: '',
+      fee_policy_file: '',
       fee_tier_templates: JSON.stringify(cleanFeeTiers)
     })
     ElMessage.success('配置保存成功')
@@ -742,6 +894,7 @@ const saveCompliance = async () => {
 // ===== 联系方式 / 在线客服 / 公众号 =====
 const CONTACT_KEYS = [
   'company_name', 'contact_phone', 'contact_email', 'contact_address', 'work_time',
+  'bank_transfer_company_name', 'bank_transfer_tax_no', 'bank_transfer_address_phone', 'bank_transfer_bank_name', 'bank_transfer_account_no', 'bank_transfer_line_no',
   'customer_service_title', 'customer_service_desc', 'customer_service_wechat', 'customer_service_qrcode',
   'wechat_name', 'wechat_desc', 'wechat_qrcode'
 ]
@@ -917,6 +1070,7 @@ const changeSurveyStatus = async (row, status) => {
 onMounted(() => {
   loadSettings()
   loadGuides()
+  loadProductVideos()
   loadSurveyRecords()
 })
 </script>
@@ -924,9 +1078,45 @@ onMounted(() => {
 <style scoped>
 .glass-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); margin-bottom: 20px; }
 .field-title { font-weight:600; margin-bottom:12px; }
+.policy-field-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.policy-field-title span { flex:0 0 auto; }
+/* 小程序效果预览弹窗 */
+.mp-preview-switch { display:flex; justify-content:center; margin-bottom:16px; }
+.mp-phone { width:340px; margin:0 auto; border-radius:28px; background:#F4F9FF; border:8px solid #1d2b4a; box-shadow:0 12px 32px rgba(16,32,68,0.24); overflow:hidden; }
+.mp-phone-notch { width:120px; height:20px; margin:0 auto; background:#1d2b4a; border-radius:0 0 14px 14px; }
+.mp-phone-header { text-align:center; font-size:16px; font-weight:800; color:#102044; padding:10px 0 12px; }
+.mp-phone-body { height:440px; overflow-y:auto; padding:4px 18px 24px; box-sizing:border-box; }
+.mp-doc-card { display:flex; align-items:center; gap:12px; background:#fff; border:1px solid #dce8ff; border-radius:12px; padding:14px; margin-bottom:14px; cursor:pointer; transition:box-shadow .2s; }
+.mp-doc-card:hover { box-shadow:0 6px 16px rgba(30,111,224,0.14); }
+.mp-doc-icon { flex:0 0 40px; width:40px; height:40px; border-radius:9px; background:#e8f1ff; color:#165dff; font-size:22px; display:flex; align-items:center; justify-content:center; }
+.mp-doc-info { flex:1; min-width:0; display:flex; flex-direction:column; gap:4px; }
+.mp-doc-name { font-size:14px; font-weight:600; color:#1d2129; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mp-doc-sub { font-size:12px; color:#86909c; }
+.mp-doc-open { flex:0 0 auto; font-size:13px; color:#165dff; font-weight:600; }
+.mp-fee-table { background:#fff; border:1px solid #e5eefb; border-radius:12px; overflow:hidden; margin-bottom:14px; }
+.mp-fee-row { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid #f0f4fb; font-size:13px; color:#4e5f7e; }
+.mp-fee-row:last-child { border-bottom:none; }
+.mp-fee-head { background:#f2f7ff; font-weight:700; color:#16325f; }
+.mp-fee-name { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.mp-fee-name em { font-style:normal; font-size:11px; color:#a8b1c0; }
+.mp-fee-price { flex:0 0 auto; font-weight:700; color:#f5713d; }
+.mp-fee-price i { font-style:normal; font-size:11px; color:#a8b1c0; font-weight:400; }
+.mp-rich { font-size:13px; line-height:1.75; color:#4e5f7e; word-break:break-word; }
+.mp-rich :deep(img) { max-width:100%; border-radius:8px; }
+.mp-empty { text-align:center; color:#a8b1c0; font-size:13px; padding:60px 0; }
+.mp-preview-note { text-align:center; font-size:12px; color:#a8b1c0; margin-top:14px; }
 .sub-label { font-size:13px; color:#4e5969; margin-bottom:8px; }
 .save-row { margin-top:20px; text-align:center; }
 .print-form { max-width: 720px; margin-top: 20px; }
+.product-video-list { display:flex; flex-direction:column; gap:14px; }
+.product-video-card { align-items:flex-start; }
+.product-video-cover { flex:0 0 150px; width:150px; display:flex; flex-direction:column; align-items:center; gap:8px; }
+.product-video-cover-img { width:150px; height:96px; object-fit:cover; border-radius:8px; background:#e8f1ff; }
+.product-video-cover-empty { width:150px; height:96px; border-radius:8px; background:#eef2f8; color:#a8b1c0; font-size:13px; display:flex; align-items:center; justify-content:center; }
+.product-video-fields { flex:1; min-width:0; }
+.product-video-fileline { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:10px; }
+.product-video-fileline .el-tag { max-width:280px; overflow:hidden; text-overflow:ellipsis; }
+.product-video-del { flex:0 0 auto; align-self:flex-start; }
 .policy-document-card { display:flex; justify-content:space-between; gap:18px; align-items:center; border:1px solid #dce8ff; background:#f7fbff; border-radius:8px; padding:18px; }
 .policy-document-main { display:flex; align-items:flex-start; gap:14px; min-width:0; }
 .policy-document-icon { flex:0 0 42px; width:42px; height:42px; border-radius:8px; background:#e8f1ff; color:#165dff; font-size:22px; display:flex; align-items:center; justify-content:center; }
