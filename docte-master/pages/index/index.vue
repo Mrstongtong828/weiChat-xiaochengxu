@@ -131,6 +131,16 @@
 					<text>寄出信息</text>
 				</view>
 				<view class="blue-tip">请妥善包装好设备，顺丰取件请在快递员到达后提供运单号。</view>
+				<view class="invoice-type-row send-mode-row">
+					<view class="tap" :class="{ on: !trackingLater }" @click="trackingLater = false">
+						<text>已有运单号</text>
+						<text>现在填写快递单号</text>
+					</view>
+					<view class="tap" :class="{ on: trackingLater }" @click="trackingLater = true">
+						<text>稍后补单号</text>
+						<text>取件后在工单补填</text>
+					</view>
+				</view>
 				<view class="repair-form-card">
 					<view class="repair-field select-row tap" @click="showLogisticsPicker = true">
 						<text><text class="required-star">*</text>物流公司</text>
@@ -138,8 +148,8 @@
 						<view class="field-arrow"></view>
 					</view>
 					<view class="repair-field">
-						<text><text class="required-star">*</text>运单号</text>
-						<input v-model="repairForm.trackingNo" placeholder="请输入运单号" placeholder-class="input-placeholder" />
+						<text><text v-if="!trackingLater" class="required-star">*</text>运单号</text>
+						<input v-model="repairForm.trackingNo" :placeholder="trackingLater ? '可稍后在工单详情补填' : '请输入运单号'" placeholder-class="input-placeholder" />
 						<view class="scan-icon tap" @click="scanTrackingNo">
 							<view class="scan-corner"></view>
 							<view class="scan-corner"></view>
@@ -170,6 +180,11 @@
 						<text><text class="required-star">*</text>单位名称</text>
 						<input v-model="repairForm.receiverUnit" placeholder="请输入单位名称" placeholder-class="input-placeholder" />
 					</view>
+				</view>
+
+				<view class="repair-brand-watermark" aria-hidden="true">
+					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
+					<text>思科达售后维修中心</text>
 				</view>
 
 				<view class="repair-bottom-bar">
@@ -291,6 +306,13 @@
 							</view>
 							<text :class="['tag', 'tag-' + currentPackage.tone]">{{ currentPackage.status }}</text>
 						</view>
+						<view v-if="currentPackage.trackingNo" class="package-copy-row">
+							<text class="copy-link tap" @click="copyOne(currentPackage.trackingNo, 'pkgNo')">{{ copied === 'pkgNo' ? '已复制单号' : '复制单号' }}</text>
+						</view>
+						<view v-if="currentPackage.stagnant" class="package-stagnant-notice">
+							<text>⚠ 包裹超 72 小时无状态更新，可能存在停滞。如有疑问可联系客服核实。</text>
+							<text class="copy-link tap" @click="openCustomerService">联系客服</text>
+						</view>
 						<view class="package-result-grid">
 							<view><text>物流公司</text><text>{{ currentPackage.company || '待录入' }}</text></view>
 							<view class="package-linked-order tap" @click="openLinkedOrder(packageQueryResult.orderId)">
@@ -320,10 +342,20 @@
 								</view>
 							</view>
 						</view>
+						<view v-if="currentPackage.realtime === false" class="package-privacy-note package-estimate-note">
+							<text>说明</text>
+							<text>当前节点为工单状态估算，具体物流轨迹请以快递公司官方查询为准。</text>
+						</view>
 					</block>
 					<view v-else class="empty-hint compact package-empty">{{ activePackageTab === 'back' ? '设备尚未回寄，修好寄回后可在此查看回寄物流。' : '暂无寄出物流记录。' }}</view>
 				</view>
-				<view v-else-if="packageQuerySearched" class="empty-hint compact package-empty">暂未查到这票包裹。请确认快递单号是否正确，或等我们签收录入后再查询。</view>
+				<view v-else-if="packageQuerySearched" class="package-result-card package-notfound-card">
+					<view class="empty-hint compact package-empty">暂未查到这票包裹。请确认快递单号是否正确，或等我们签收录入后再查询。</view>
+					<view class="package-notfound-actions">
+						<view class="return-logistics-btn tap" @click="copyOne(packageQuery.trackingNo, 'failedPkgNo')">{{ copied === 'failedPkgNo' ? '已复制' : '复制输入的单号' }}</view>
+						<view class="return-logistics-btn primary tap" @click="openCustomerService">联系客服</view>
+					</view>
+				</view>
 			</view>
 
 			<view v-else-if="activeModule === 'invoices'" class="module-content invoice-module">
@@ -356,12 +388,14 @@
 						<text class="tap" @click="cancelInvoiceApply">更换工单</text>
 					</view>
 					<view class="repair-form-card invoice-form-card">
-						<view class="repair-field select-row">
-							<text>发票类型</text>
-							<text class="select-value">{{ invoiceForm.invoiceType }}</text>
+						<view class="invoice-type-row">
+							<view v-for="item in invoiceKindOptions" :key="item.value" class="tap" :class="{ on: invoiceForm.invoiceType === item.value }" @click="selectInvoiceKind(item.value)">
+								<text>{{ item.label }}</text>
+								<text>{{ item.desc }}</text>
+							</view>
 						</view>
 						<view class="invoice-type-row">
-							<view v-for="item in invoiceTitleTypes" :key="item.value" class="tap" :class="{ on: invoiceForm.titleType === item.value }" @click="invoiceForm.titleType = item.value">
+							<view v-for="item in invoiceTitleTypes" :key="item.value" class="tap" :class="{ on: invoiceForm.titleType === item.value, disabled: isPaperInvoice && item.value !== 'company' }" @click="selectInvoiceTitleType(item.value)">
 								<text>{{ item.label }}</text>
 								<text>{{ item.desc }}</text>
 							</view>
@@ -376,15 +410,46 @@
 						</view>
 						<view class="repair-field">
 							<text><text class="required-star">*</text>接收邮箱</text>
-							<input v-model="invoiceForm.email" placeholder="用于接收电子发票" placeholder-class="input-placeholder" />
+							<input v-model="invoiceForm.email" :placeholder="isPaperInvoice ? '用于接收开票进度通知' : '用于接收电子发票'" placeholder-class="input-placeholder" />
 						</view>
+						<template v-if="isPaperInvoice">
+							<view class="repair-field">
+								<text><text class="required-star">*</text>注册地址</text>
+								<input v-model="invoiceForm.registerAddress" placeholder="营业执照上的注册地址" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>注册电话</text>
+								<input v-model="invoiceForm.registerPhone" placeholder="注册登记的联系电话" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>开户银行</text>
+								<input v-model="invoiceForm.bankName" placeholder="基本户开户银行全称" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>银行账号</text>
+								<input v-model="invoiceForm.bankAccount" placeholder="对公银行账号" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>收票人</text>
+								<input v-model="invoiceForm.recipientName" placeholder="纸质发票收件人姓名" placeholder-class="input-placeholder" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>收票手机号</text>
+								<input v-model="invoiceForm.recipientPhone" placeholder="收件人手机号" placeholder-class="input-placeholder" type="number" maxlength="11" />
+							</view>
+							<view class="repair-field">
+								<text><text class="required-star">*</text>收票地址</text>
+								<input v-model="invoiceForm.recipientAddress" placeholder="纸质发票邮寄地址" placeholder-class="input-placeholder" />
+							</view>
+						</template>
 						<view class="repair-field last">
 							<text>备注</text>
 							<input v-model="invoiceForm.remark" placeholder="选填，如开票特殊说明" placeholder-class="input-placeholder" />
 						</view>
 					</view>
 					<view class="invoice-tip">
-						<text>当前版本支持电子普通发票。若需要专用发票或纸质票，请提交后联系客服协助处理。</text>
+						<text v-if="isPaperInvoice">纸质专用发票仅支持企业抬头，财务审核开具后邮寄到收票地址，请确保收票信息准确无误。</text>
+						<text v-else>电子普通发票开具后可复制链接查看，同时会发送到接收邮箱。若需纸质专用发票，请切换上方发票类型。</text>
 					</view>
 					<view class="primary-button tap save-button" :class="{ disabled: invoiceSubmitting }" @click="submitInvoiceApply">{{ invoiceSubmitting ? '提交中...' : '确认提交' }}</view>
 				</view>
@@ -422,7 +487,7 @@
 
 				<view v-else class="invoice-list">
 					<view v-for="order in invoiceIssuedOrders" :key="order.id" class="invoice-issued-card">
-						<view class="invoice-issued-ribbon">电子发票</view>
+						<view class="invoice-issued-ribbon">{{ order.invoiceType === '纸质专用发票' ? '纸质专票' : '电子发票' }}</view>
 						<view class="invoice-issued-head">
 							<view>
 								<text>{{ order.invoiceTitle || '发票抬头待同步' }}</text>
@@ -433,15 +498,20 @@
 						<view class="invoice-issued-info">
 							<view><text>发票号码</text><text>{{ order.invoiceNo || '待同步' }}</text></view>
 							<view><text>开票日期</text><text>{{ order.invoiceDate || '待同步' }}</text></view>
-							<view><text>开票状态</text><text>{{ getInvoiceMeta(order).stage }}</text></view>
-							<view><text>电子链接</text><text>{{ order.invoiceUrl ? '已生成' : '待同步' }}</text></view>
+							<view><text>开票状态</text><text>{{ order.invoiceType === '纸质专用发票' ? (order.invoiceStatus || getInvoiceMeta(order).stage) : getInvoiceMeta(order).stage }}</text></view>
+							<view v-if="order.invoiceType === '纸质专用发票'"><text>邮寄快递</text><text>{{ order.invoiceMailCompany || '待寄出' }}</text></view>
+							<view v-else><text>电子链接</text><text>{{ order.invoiceUrl ? '已生成' : '待同步' }}</text></view>
+							<view v-if="order.invoiceType === '纸质专用发票' && order.invoiceMailNo"><text>邮寄单号</text><text>{{ order.invoiceMailNo }}</text></view>
 						</view>
 						<view class="invoice-order-actions">
 							<view class="ghost-button tap" @click="openOrderDetail(order)">查看工单</view>
-							<view class="primary-button tap" @click="copyInvoiceLink(order)">复制发票链接</view>
+							<view v-if="order.invoiceType === '纸质专用发票'" class="primary-button tap" :class="{ disabled: !order.invoiceMailNo }" @click="copyInvoiceMailNo(order)">
+								{{ order.invoiceMailNo ? (copied === 'invMail-' + order.id ? '已复制邮寄单号' : '复制邮寄单号') : '待财务寄出' }}
+							</view>
+							<view v-else class="primary-button tap" @click="copyInvoiceLink(order)">复制发票链接</view>
 						</view>
 					</view>
-					<view v-if="!invoiceIssuedOrders.length" class="empty-hint compact">暂无已开具的电子发票。</view>
+					<view v-if="!invoiceIssuedOrders.length" class="empty-hint compact">暂无已开具的发票。</view>
 				</view>
 			</view>
 
@@ -555,6 +625,69 @@
 							<text>如对报价有疑问，可先联系客服沟通；若最终拒绝维修，设备将按原寄回地址退回（可能产生回寄运费）。</text>
 						</view>
 					</view>
+					<view v-if="detailOrder.paymentStatus === 'rejected'" class="payment-reject-notice">
+						<text class="payment-reject-title">转账凭证被驳回</text>
+						<text class="payment-reject-reason">{{ detailOrder.paymentRejectReason || '请核对付款信息后重新上传凭证。' }}</text>
+					</view>
+					<view v-if="showPaymentMethodSelector(detailOrder)" class="payment-method-card">
+						<view class="payment-method-head">
+							<text>选择付款方式</text>
+							<text>确认报价后继续</text>
+						</view>
+						<view class="payment-method-options">
+							<view class="payment-method-option tap" :class="{ active: selectedPaymentMethod === 'wechat' }" @click="selectPaymentMethod('wechat')">
+								<view class="payment-method-radio"></view>
+								<view>
+									<text>微信支付</text>
+									<text>立即拉起微信收银台，支付成功后自动确认到账</text>
+								</view>
+							</view>
+							<view class="payment-method-option tap" :class="{ active: selectedPaymentMethod === 'transfer' }" @click="selectPaymentMethod('transfer')">
+								<view class="payment-method-radio"></view>
+								<view>
+									<text>对公支付</text>
+									<text>转账到公司对公账户后，上传付款凭证等待财务核销</text>
+								</view>
+							</view>
+						</view>
+					</view>
+					<view v-if="showTransferPaymentPanel(detailOrder)" class="transfer-account-card">
+						<text class="transfer-account-title">企业对公转账</text>
+						<view class="transfer-account-row">
+							<text class="transfer-account-label">收款单位</text>
+							<text class="transfer-account-value">{{ contactInfo.bankCompanyName || contactInfo.companyName }}</text>
+						</view>
+						<view v-if="contactInfo.bankTaxNo" class="transfer-account-row">
+							<text class="transfer-account-label">税号</text>
+							<text class="transfer-account-value">{{ contactInfo.bankTaxNo }}</text>
+						</view>
+						<view v-if="contactInfo.bankAddressPhone" class="transfer-account-row">
+							<text class="transfer-account-label">地址电话</text>
+							<text class="transfer-account-value">{{ contactInfo.bankAddressPhone }}</text>
+						</view>
+						<view v-if="contactInfo.bankName" class="transfer-account-row">
+							<text class="transfer-account-label">开户行</text>
+							<text class="transfer-account-value">{{ contactInfo.bankName }}</text>
+						</view>
+						<view class="transfer-account-row">
+							<text class="transfer-account-label">账号</text>
+							<text v-if="contactInfo.bankAccount" class="transfer-account-value transfer-account-no">{{ contactInfo.bankAccount }}</text>
+							<text v-else class="transfer-account-value transfer-account-muted">请联系客服获取对公账户</text>
+							<text v-if="contactInfo.bankAccount" class="transfer-copy tap" @click="copyOne(contactInfo.bankAccount, 'bankAcct')">{{ copied === 'bankAcct' ? '已复制' : '复制' }}</text>
+						</view>
+						<view v-if="contactInfo.bankLineNo" class="transfer-account-row">
+							<text class="transfer-account-label">行号</text>
+							<text class="transfer-account-value transfer-account-no">{{ contactInfo.bankLineNo }}</text>
+							<text class="transfer-copy tap" @click="copyOne(contactInfo.bankLineNo, 'bankLineNo')">{{ copied === 'bankLineNo' ? '已复制' : '复制' }}</text>
+						</view>
+						<view class="transfer-account-remark">
+							<text class="transfer-remark-tip">⚠ 转账备注请填写工单号，方便财务核对到账</text>
+							<view class="transfer-remark-row">
+								<text class="transfer-remark-no">{{ detailOrder.id }}</text>
+								<text class="transfer-copy tap" @click="copyOne(detailOrder.id, 'orderNoRemark')">{{ copied === 'orderNoRemark' ? '已复制' : '复制工单号' }}</text>
+							</view>
+						</view>
+					</view>
 					<view v-if="detailPaymentProofs.length" class="payment-proof-grid billing-proof-grid">
 						<view v-for="(proof, index) in detailPaymentProofs" :key="proof.id || proof.url || index" class="payment-proof-thumb tap" @click="previewPaymentProof(index)">
 							<image class="payment-proof-image" :src="proof.url || proof.path" mode="aspectFill"></image>
@@ -562,10 +695,13 @@
 						</view>
 					</view>
 					<view class="quote-action-stack">
-						<view v-if="getBillingAction(detailOrder).visible" class="primary-button tap detail-action-button" :class="{ disabled: getBillingAction(detailOrder).disabled }" @click="handleBillingAction(detailOrder)">
+						<view v-if="showWechatPayAction(detailOrder)" class="primary-button tap detail-action-button" :class="{ disabled: getBillingAction(detailOrder).disabled }" @click="handleBillingAction(detailOrder)">
 							{{ getBillingAction(detailOrder).text }}
 						</view>
-						<view v-if="getPaymentProofAction(detailOrder).visible" class="quote-secondary-action tap" :class="{ disabled: getPaymentProofAction(detailOrder).disabled }" @click="handlePaymentProofAction(detailOrder)">
+						<view v-else-if="showNonPaymentBillingAction(detailOrder)" class="primary-button tap detail-action-button" :class="{ disabled: getBillingAction(detailOrder).disabled }" @click="handleBillingAction(detailOrder)">
+							{{ getBillingAction(detailOrder).text }}
+						</view>
+						<view v-if="showTransferProofAction(detailOrder)" class="primary-button tap detail-action-button transfer-proof-button" :class="{ disabled: getPaymentProofAction(detailOrder).disabled }" @click="handlePaymentProofAction(detailOrder)">
 							{{ getPaymentProofAction(detailOrder).text }}
 						</view>
 						<text v-else-if="getPaymentProofAction(detailOrder).hint" class="quote-secondary-hint">{{ getPaymentProofAction(detailOrder).hint }}</text>
@@ -579,7 +715,23 @@
 				</view>
 
 				<!-- 物流信息：客户寄出 + 厂家寄回，统一挂在工单下 -->
-				<view v-if="detailOrder.trackingNo || detailOrder.returnLogisticsNo || canConfirmReceipt(detailOrder)" class="module-section-head single"><text>物流信息</text></view>
+				<view v-if="detailOrder.trackingNo || detailOrder.returnLogisticsNo || canConfirmReceipt(detailOrder) || canFillOutboundTracking(detailOrder)" class="module-section-head single"><text>物流信息</text></view>
+				<!-- 稍后补单号：pending 且未填寄出单号时，提供补填入口 -->
+				<view v-if="canFillOutboundTracking(detailOrder)" class="repair-form-card outbound-fill-card">
+					<view class="blue-tip">快递员已取件？补填运单号后即可追踪包裹，工厂签收更快。</view>
+					<view class="repair-field select-row tap" @click="showOutboundSheet = true">
+						<text><text class="required-star">*</text>物流公司</text>
+						<text class="select-value">{{ outboundForm.company || '请选择物流公司' }}</text>
+						<view class="field-arrow"></view>
+					</view>
+					<view class="repair-field last">
+						<text><text class="required-star">*</text>运单号</text>
+						<input v-model="outboundForm.trackingNo" placeholder="请输入快递运单号" placeholder-class="input-placeholder" />
+					</view>
+					<view class="primary-button tap detail-action-button" :class="{ disabled: outboundSubmitting }" @click="submitOutboundTracking(detailOrder)">
+						{{ outboundSubmitting ? '提交中...' : '提交运单号' }}
+					</view>
+				</view>
 				<view v-if="detailOrder.trackingNo" class="return-logistics-card">
 					<view class="return-logistics-info">
 						<view><text>客户寄出</text><text>{{ detailOrder.logisticsCompany || '待录入' }}</text></view>
@@ -647,6 +799,21 @@
 							<text>再次报修</text>
 						</view>
 					</view>
+				</view>
+
+				<view v-if="showOutboundSheet" class="sheet-mask" @click="showOutboundSheet = false"></view>
+				<view v-if="showOutboundSheet" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="showOutboundSheet = false">取消</text>
+						<text>选择物流公司</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y>
+						<view v-for="item in logisticsList" :key="item.value" class="choice-row tap" @click="selectOutboundLogistics(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="outboundForm.company === item.value" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
 				</view>
 			</view>
 
@@ -734,7 +901,7 @@
 					<view class="diag-icon"><view class="glyph glyph-diag"><view class="glyph-extra"></view></view></view>
 					<view>
 						<text>2 步快速定位故障</text>
-						<text>选择产品类型与故障类型，即查看排查建议</text>
+						<text>选择产品类型与故障现象，即查看解决方法</text>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>请选择</text></view>
@@ -745,13 +912,13 @@
 						<view class="field-arrow"></view>
 					</view>
 					<view class="select-row tap" :class="{ disabled: !diagProduct }" @click="openFaultSheet">
-						<text><text class="required-star">*</text>故障类型</text>
+						<text><text class="required-star">*</text>故障现象</text>
 						<text :class="{ placeholder: !diagFault }">{{ diagFault || diagFaultPlaceholder }}</text>
 						<view class="field-arrow"></view>
 					</view>
 				</view>
 				<view v-if="diagConfirmVisible" class="diag-result">
-					<view class="module-section-head single"><text>排查确认信息</text></view>
+					<view class="module-section-head single"><text>解决方法</text></view>
 					<view v-for="section in diagConfirmSections" :key="section.title" class="diag-check-card">
 						<view class="diag-check-head"><view :style="{ backgroundColor: section.color }"></view><text>{{ section.title }}</text></view>
 						<view v-for="(item, index) in section.items" :key="item" class="diag-check-row">
@@ -769,7 +936,7 @@
 				<view v-if="diagOpen" class="choice-sheet">
 					<view class="choice-head">
 						<text class="tap" @click="diagOpen = ''">取消</text>
-						<text>{{ diagOpen === 'product' ? '选择产品类型' : '选择故障类型' }}</text>
+						<text>{{ diagOpen === 'product' ? '选择产品类型' : '选择故障现象' }}</text>
 						<text></text>
 					</view>
 					<scroll-view class="choice-scroll" scroll-y>
@@ -782,9 +949,22 @@
 			</view>
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
-				<view class="policy-rich-content">
+				<!-- 分块结构化：后台配置 warranty_policy_sections 时按块渲染，否则回退整段富文本 -->
+				<block v-if="warrantySections.length">
+					<view v-for="(section, index) in warrantySections" :key="section.title + index" class="warranty-section-card">
+						<view class="module-section-head single"><text>{{ section.title }}</text></view>
+						<view class="policy-rich-content warranty-section-content">
+							<rich-text :nodes="section.content"></rich-text>
+						</view>
+					</view>
+				</block>
+				<view v-else class="policy-rich-content">
 					<rich-text v-if="warrantyDoc.content" :nodes="warrantyDoc.content"></rich-text>
 					<text v-else class="policy-empty">暂无保修政策内容</text>
+				</view>
+				<view class="dual-actions">
+					<view class="ghost-button tap" @click="go('contact')">联系客服</view>
+					<view class="primary-button tap" @click="go('repair')">立即报修</view>
 				</view>
 			</view>
 
@@ -1047,7 +1227,16 @@
 				<view class="login-back-button tap" @click="returnFromModule">
 					<view></view>
 				</view>
-				<image class="login-auth-image" :src="cicadaAssets.loginAuthBg" mode="widthFix"></image>
+				<view class="login-device-ghost"></view>
+				<view class="login-brand-panel">
+					<image class="login-brand-logo" :src="cicadaAssets.wordmarkRegistered" mode="aspectFit"></image>
+					<text class="login-brand-title">思科达售后服务中心</text>
+					<view class="login-brand-slogan">
+						<view></view>
+						<text>追 求 极 致 稳 定 性</text>
+						<view></view>
+					</view>
+				</view>
 				<button
 					class="login-auth-button tap"
 					:class="{ loading: loginSubmitting, disabled: !loginAgreementChecked }"
@@ -1056,6 +1245,10 @@
 					@click="onLoginButtonTap"
 					@getphonenumber="onGetPhoneNumberLogin"
 				>
+					<view class="wechat-login-icon">
+						<view></view>
+						<view></view>
+					</view>
 					<text>{{ loginRetrying ? '正在重试...' : loginSubmitting ? '登录中...' : '微信一键登录' }}</text>
 				</button>
 				<view class="login-consent-panel">
@@ -1069,10 +1262,9 @@
 						<text>与</text>
 						<text class="login-policy-link" @click.stop="openLoginPolicy('privacy')">《隐私政策》</text>
 					</view>
+					<text class="login-save-tip">首次登录后将自动保存账号，下次可直接进入</text>
 				</view>
-				<!-- #ifdef H5 -->
 				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
-				<!-- #endif -->
 			</view>
 		</view>
 
@@ -1084,8 +1276,34 @@
 					</view>
 				</view>
 
-				<view class="new-brand-banner" style="margin: 12px; overflow: hidden; border-radius: 8px; position: relative; z-index: 10;"> 
-					<image src="/static/logo-banner.jpg" mode="widthFix" style="width: 100%; display: block;"></image> 
+				<view class="new-brand-banner" style="margin: 12px; overflow: hidden; border-radius: 8px; position: relative; z-index: 10;">
+					<image src="/static/logo-banner.jpg" mode="widthFix" style="width: 100%; display: block;"></image>
+				</view>
+
+				<!-- 最近未完成工单：登录后有单显示下一步动作，无单引导报修 -->
+				<view v-if="logged && latestUnfinishedOrder" class="section home-recent-section">
+					<view class="home-recent-card tap" @click="openOrderDetail(latestUnfinishedOrder)">
+						<view class="home-recent-top">
+							<view class="home-recent-copy">
+								<text class="home-recent-title">{{ latestUnfinishedOrder.cardTitle }}</text>
+								<text class="home-recent-no">{{ latestUnfinishedOrder.id }}</text>
+							</view>
+							<text :class="['tag', 'tag-' + getOrderStatusTone(latestUnfinishedOrder)]">{{ latestUnfinishedOrder.status }}</text>
+						</view>
+						<view class="home-recent-bottom">
+							<text class="home-recent-time">{{ latestUnfinishedOrder.time || latestUnfinishedOrder.date }}</text>
+							<view class="home-recent-action">
+								<text>{{ latestUnfinishedOrderAction }}</text>
+								<view class="chevron"></view>
+							</view>
+						</view>
+					</view>
+				</view>
+				<view v-else-if="logged && orderListLoaded" class="section home-recent-section">
+					<view class="home-recent-card home-recent-empty">
+						<text class="home-recent-empty-text">暂无进行中的维修工单，设备遇到问题可一键报修。</text>
+						<view class="home-recent-empty-btn tap" @click="go('repair')">立即报修</view>
+					</view>
 				</view>
 
 				<view class="section section-basic">
@@ -1127,11 +1345,11 @@
 				</view>
 
 				<view class="section section-guide">
-					<view class="section-line">
+					<view class="section-line tutorial-section-line">
 						<text class="section-title">操作教程</text>
-						<text class="section-meta">图文文档</text>
+						<text class="section-meta">维修与开票</text>
 					</view>
-					<view class="two-grid">
+					<view class="tutorial-guide-grid">
 						<view
 							v-for="item in guides"
 							:key="item.id"
@@ -1145,6 +1363,33 @@
 							</view>
 							<text class="guide-title">{{ item.title }}</text>
 							<view class="chevron"></view>
+						</view>
+					</view>
+
+					<view v-if="maintenanceVideos.length" class="maintenance-video-wrap">
+						<view class="maintenance-section-head">
+							<text>维修保养</text>
+							<text>视频指南</text>
+						</view>
+						<view class="maintenance-video-list">
+							<view
+								v-for="item in maintenanceVideos"
+								:key="item.id || item.videoUrl"
+								class="maintenance-video-card tap"
+								@click="openMaintenanceVideo(item)"
+							>
+								<view class="maintenance-video-copy">
+									<text class="maintenance-video-title">{{ item.title }}</text>
+									<text v-if="item.desc" class="maintenance-video-desc">{{ item.desc }}</text>
+								</view>
+								<view class="maintenance-video-cover">
+									<image v-if="item.coverUrl" class="maintenance-video-image" :src="item.coverUrl" mode="aspectFill"></image>
+									<view v-else class="maintenance-video-placeholder">
+										<view class="glyph glyph-repair"><view class="glyph-extra"></view></view>
+									</view>
+									<view class="maintenance-play-badge"><text>▶</text></view>
+								</view>
+							</view>
 						</view>
 					</view>
 				</view>
@@ -1350,6 +1595,15 @@
 							<text class="status-text">{{ item.title }}</text>
 						</view>
 					</view>
+					<view v-if="logged && mineTodoItems.length" class="mine-todo-list">
+						<view v-for="item in mineTodoItems" :key="item.label" class="mine-todo-row tap" @click="go('orders', item.tab)">
+							<text class="mine-todo-label">{{ item.label }}</text>
+							<view class="mine-todo-right">
+								<text class="mine-todo-count">{{ item.count }} 单</text>
+								<view class="chevron"></view>
+							</view>
+						</view>
+					</view>
 				</view>
 
 				<view class="settings-section">
@@ -1383,16 +1637,21 @@
 		</view>
 
 		<view v-else class="boot-screen">
-			<view class="boot-card">
-				<image class="boot-logo" :src="cicadaAssets.logoMark" mode="aspectFit"></image>
-				<text class="boot-title">CICADA 维修服务</text>
-				<text class="boot-desc">正在为您加载首页、报修与查询功能</text>
+			<view class="boot-content">
+				<image class="boot-logo" :src="cicadaAssets.bootLogo" mode="aspectFit"></image>
+				<text class="boot-title">思科达售后维修中心</text>
+				<view class="boot-dots" aria-hidden="true">
+					<view class="boot-dot"></view>
+					<view class="boot-dot"></view>
+					<view class="boot-dot"></view>
+				</view>
 			</view>
 		</view>
 
-		<view v-if="!activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="showOfficial = true">
+		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="showOfficial = true">
 			<view class="vi-side-wordmark">
-				<image class="vi-side-logo" :src="cicadaAssets.wordmarkWhite" mode="aspectFit"></image>
+				<text class="vi-side-logo-text">CICADA</text>
+				<text class="vi-side-logo-r">®</text>
 			</view>
 			<text class="side-text">思科达公众号</text>
 		</view>
@@ -1462,7 +1721,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onLoad, onShow, onPullDownRefresh, onBackPress } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
@@ -1476,6 +1735,7 @@ import {
 	getFaultTypes,
 	getFeePolicy,
 	getGuide,
+	getGuides,
 	getSurveyConfig,
 	getSubscriptionConfig,
 	applyInvoice,
@@ -1510,7 +1770,9 @@ import {
 	rejectRepairQuote,
 	confirmRepairReceipt,
 	submitRepairReview,
-	getMyDevices
+	getMyDevices,
+	getRepairStats,
+	updateRepairOutboundLogistics
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
@@ -1581,8 +1843,10 @@ const showQr = ref(false)
 const showOfficial = ref(false)
 const showRepairTools = ref(false)
 const surveyPosterUrl = cicadaAssets.surveyPoster
+const maintenanceVideos = ref([])
 const moduleHeadPaddingTop = ref(72)
 const pageBootReady = ref(false)
+const BOOT_WAIT_MS = 1450
 const activeTab = ref('home')
 const activeModule = ref('')
 const previousModule = ref('')
@@ -1607,6 +1871,10 @@ const orderMatchesTrackTab = (item = {}, tab = '全部') => {
 	return false
 }
 const activeOrdersTab = ref('全部')
+// 细分待办计数：来自后端 getOrderStats 的 DB 聚合（本地 orderList 只拉 30 条，口径互补）
+const statsTodo = ref({ unfinished: 0, payment: 0, receipt: 0, invoice: 0 })
+// 工单列表是否已加载过：首页空状态卡在列表未返回前不显示，避免误报"暂无工单"
+const orderListLoaded = ref(false)
 const trackSearchKeyword = ref('')
 const activeInvoiceTab = ref('待开票')
 const activeInvoiceOrderId = ref('')
@@ -1619,6 +1887,7 @@ const repairStep = ref(1)
 const invoiceSubmitting = ref(false)
 const paymentSubmitting = ref(false)
 const paymentProofUploading = ref(false)
+const selectedPaymentMethod = ref('wechat')
 const subscriptionTemplates = ref(null)
 const feedbackSubmitting = ref(false)
 const feedbackImageUploading = ref(false)
@@ -1661,6 +1930,8 @@ const subscriptionSceneMap = {
 	track_view: ['quote_issued', 'payment_confirmed', 'order_shipped'],
 	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed'],
 	wechat_pay: ['order_shipped', 'order_completed', 'review_invite'],
+	payment_proof: ['payment_confirmed', 'payment_rejected', 'order_shipped'],
+	invoice_apply: ['invoice_issued'],
 	review_invite: ['review_invite']
 }
 
@@ -1693,6 +1964,10 @@ const requestStatusSubscription = async (scene) => {
 	}
 }
 const showLogisticsPicker = ref(false)
+// 稍后补单号：详情页补填寄出运单号（独立状态，勿与报修表单的物流选择器混用）
+const showOutboundSheet = ref(false)
+const outboundSubmitting = ref(false)
+const outboundForm = ref({ company: '', trackingNo: '' })
 const feedbackContactValue = ref('')
 const feedbackOrderId = ref('')
 const feedbackRecords = ref([])
@@ -1721,6 +1996,13 @@ const invoiceForm = ref({
 	title: '',
 	taxNo: '',
 	email: '',
+	registerAddress: '',
+	registerPhone: '',
+	bankName: '',
+	bankAccount: '',
+	recipientName: '',
+	recipientPhone: '',
+	recipientAddress: '',
 	remark: ''
 })
 const addressForm = ref({
@@ -1736,6 +2018,7 @@ const repairDraftKey = 'repairDraft'
 const feedbackRecordKey = 'feedbackRecords'
 const surveyRecordKey = 'afterSalesSurveyRecords'
 const repairForm = ref(defaultRepairForm())
+const trackingLater = ref(false)
 const submittedOrderId = ref('')
 const repairProducts = ref([defaultRepairProduct()])
 
@@ -1773,22 +2056,10 @@ const diagResult = ref(null)
 
 const defaultDiagConfirmSections = [
 	{
-		title: '相关问题',
-		color: '#1E6FE0',
-		numbered: false,
-		items: ['后台暂未配置相关问题']
-	},
-	{
-		title: '确认方式',
-		color: '#0EA5E9',
-		numbered: true,
-		items: ['后台暂未配置确认方式']
-	},
-	{
-		title: '处理方式',
+		title: '解决方法',
 		color: '#10B981',
 		numbered: true,
-		items: ['后台暂未配置处理方式']
+		items: ['后台暂未配置解决方法']
 	}
 ]
 
@@ -1814,7 +2085,7 @@ const maybeShowHomeGuidePopup = async () => {
 	}
 }
 
-const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-query', 'guide-invoice']
+const docModuleIds = ['fees', 'guide-repair', 'guide-invoice']
 
 const docFallbacks = {
 	fees: {
@@ -1879,7 +2150,7 @@ const docFallbacks = {
 	}
 }
 
-;['guide-quick', 'guide-repair', 'guide-query', 'guide-invoice'].forEach((key) => {
+;['guide-repair', 'guide-invoice'].forEach((key) => {
 	if (docFallbacks[key]) {
 		docFallbacks[key].content = ''
 		docFallbacks[key].fileName = ''
@@ -1898,7 +2169,13 @@ const contactInfo = ref({
 	phone: '0757-85775667',
 	email: '',
 	address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
-	workTime: '周一至周五 08:00 - 21:00'
+	workTime: '周一至周五 08:00 - 21:00',
+	bankCompanyName: '佛山市登煌医疗器械有限公司',
+	bankTaxNo: '91440605688623440U',
+	bankAddressPhone: '佛山市南海区狮山镇罗村广东新光源产业基地核心区内B区5座二层  0757-85775667',
+	bankName: '中国农业银行佛山惠景支行',
+	bankAccount: '4442 3201 0400 04288',
+	bankLineNo: '103588042208'
 })
 
 const customerService = ref({
@@ -1968,7 +2245,13 @@ const normalizeContact = (data = {}) => ({
 	phone: data.phone || contactInfo.value.phone,
 	email: data.email || contactInfo.value.email,
 	address: data.address || contactInfo.value.address,
-	workTime: data.workTime || contactInfo.value.workTime
+	workTime: data.workTime || contactInfo.value.workTime,
+	bankCompanyName: data.bankCompanyName || data.bank_company_name || data.bankTransferCompanyName || contactInfo.value.bankCompanyName || data.companyName || contactInfo.value.companyName,
+	bankTaxNo: data.bankTaxNo || data.bank_tax_no || data.bankTransferTaxNo || contactInfo.value.bankTaxNo,
+	bankAddressPhone: data.bankAddressPhone || data.bank_address_phone || data.bankTransferAddressPhone || contactInfo.value.bankAddressPhone,
+	bankName: data.bankName || data.bank_name || data.bankTransferBankName || contactInfo.value.bankName,
+	bankAccount: data.bankAccount || data.bank_account || data.bankTransferAccountNo || contactInfo.value.bankAccount,
+	bankLineNo: data.bankLineNo || data.bank_line_no || data.bankTransferLineNo || contactInfo.value.bankLineNo
 })
 
 const splitWorkTimes = (workTime = '') => {
@@ -2106,6 +2389,9 @@ const normalizeOrder = (item = {}) => {
 		doneTime: merged.doneTime || merged.expectedDoneTime || '待后台同步',
 		invoiceStatus: merged.invoiceStatus || merged.invoice_status || invoiceInfo.status,
 		invoiced: merged.invoiced || invoiceInfo.status === '已开具',
+		invoiceType: merged.invoiceType || merged.invoice_type || invoiceInfo.invoice_type || '',
+		invoiceMailCompany: invoiceInfo.mail_company || invoiceInfo.mailCompany || '',
+		invoiceMailNo: invoiceInfo.mail_no || invoiceInfo.mailNo || '',
 		invoiceTitle: merged.invoiceTitle || merged.invoice_title || invoiceInfo.title,
 		taxNo: merged.taxNo || merged.tax_no || invoiceInfo.tax_no,
 		invoiceEmail: merged.invoiceEmail || merged.invoice_email || invoiceInfo.email,
@@ -2117,6 +2403,7 @@ const normalizeOrder = (item = {}) => {
 		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',
 		authorizationTime: merged.authorizationTime || merged.authorization_time || '',
 		paymentStatus,
+		paymentRejectReason: merged.paymentRejectReason || merged.payment_reject_reason || '',
 		quoteDetail,
 		quoteItems,
 		partsFee,
@@ -2190,6 +2477,8 @@ const normalizeSegment = (seg = {}) => ({
 	tone: seg.tone || 'muted',
 	reached: Math.max(0, Math.min(2, Number(seg.reached) || 0)),
 	available: Boolean(seg.available),
+	stagnant: Boolean(seg.stagnant),
+	realtime: seg.realtime !== undefined ? Boolean(seg.realtime) : undefined,
 	timeline: normalizePackageTimeline(seg.timeline || seg.logs || seg.records)
 })
 
@@ -2327,7 +2616,42 @@ const statusItems = computed(() => {
 	}))
 })
 
+// 首页最近未完成工单：非终态的最新一条（orderList 已按创建时间倒序）
+const latestUnfinishedOrder = computed(() => (
+	orderList.value.find((item) => !['completed', 'cancelled'].includes(item.statusKey)) || null
+))
+
+// 卡片"下一步动作"文案：由细分显示状态派生
+const nextActionByStatus = {
+	'已提交': '去补运单号',
+	'待确认报价': '去确认报价',
+	'待付款': '去付款',
+	'待核款': '查看核款进度',
+	'已回寄': '确认收货'
+}
+const latestUnfinishedOrderAction = computed(() => {
+	const order = latestUnfinishedOrder.value || {}
+	if (order.status === '已提交' && order.trackingNo) return '查看进度'
+	return nextActionByStatus[order.status] || '查看进度'
+})
+
+// 高频待办行（待付款/待确认收货/待开票）：计数来自后端 DB 聚合，仅展示 count>0 的项
+const mineTodoItems = computed(() => [
+	{ label: '待付款', count: Number(statsTodo.value.payment) || 0, tab: '待付款' },
+	{ label: '待确认收货', count: Number(statsTodo.value.receipt) || 0, tab: '已回寄' },
+	{ label: '待开票', count: Number(statsTodo.value.invoice) || 0, tab: '未开票' }
+].filter((item) => item.count > 0))
+
 const countOrdersByStatus = (status) => orderList.value.filter((item) => item.statusGroup === status).length
+
+// 待付款口径与后端 getOrderStats.todo.payment 对齐：有应付金额、付款未确认、未退款未取消
+const paymentConfirmedValues = ['paid', '已付款', '已支付', '已核款', '核款通过', '付款已确认']
+const isOrderAwaitingPayment = (item = {}) => {
+	if (!Number(item.totalFee || 0)) return false
+	if (item.statusKey === 'cancelled') return false
+	const payment = String(item.paymentStatus || '').trim()
+	return !paymentConfirmedValues.includes(payment) && !['refunded', 'cancelled'].includes(payment)
+}
 
 const orderTabs = computed(() => [
 	{ key: '全部', label: '全部', count: orderList.value.length },
@@ -2335,7 +2659,8 @@ const orderTabs = computed(() => [
 	{ key: '处理中', label: '处理中', count: countOrdersByStatus('处理中') },
 	{ key: '已回寄', label: '已回寄', count: countOrdersByStatus('已回寄') },
 	{ key: '未开票', label: '未开票', count: orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))).length },
-	{ key: '已开票', label: '已开票', count: orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued').length }
+	{ key: '已开票', label: '已开票', count: orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued').length },
+	{ key: '待付款', label: '待付款', count: orderList.value.filter(isOrderAwaitingPayment).length }
 ])
 
 const invoiceTodoOrders = computed(() => orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))))
@@ -2351,10 +2676,10 @@ const diagProductLabel = computed(() => {
 })
 const diagEmptyText = computed(() => (
 	diagProducts.value.length
-		? '选择产品类型与故障类型，系统将自动展示排查建议。'
+		? '选择产品类型与故障现象，系统将自动展示解决方法。'
 		: '暂无故障自查数据，请联系管理员在后台配置。'
 ))
-const diagFaultPlaceholder = computed(() => (diagProduct.value ? '请选择故障类型' : '请先选择产品类型'))
+const diagFaultPlaceholder = computed(() => (diagProduct.value ? '请选择故障现象' : '请先选择产品类型'))
 const diagFaultOptions = computed(() => {
 	if (diagProduct.value) return diagFaultMap.value[diagProduct.value] || []
 	return Array.from(new Set(Object.values(diagFaultMap.value).flat()))
@@ -2363,28 +2688,14 @@ const diagConfirmVisible = computed(() => Boolean(diagProduct.value && diagFault
 const diagConfirmSections = computed(() => {
 	if (!diagResult.value) return defaultDiagConfirmSections
 
-	const questionItems = toTextLines(diagResult.value.relatedQuestions || diagResult.value.confirmInfo)
-	const checkItems = toTextLines(diagResult.value.checkSteps || diagResult.value.confirmSteps)
 	const solutionItems = toTextLines(diagResult.value.solutions || diagResult.value.solution)
 
 	return [
 		{
-			title: '相关问题',
-			color: '#1E6FE0',
-			numbered: false,
-			items: questionItems.length ? questionItems : defaultDiagConfirmSections[0].items
-		},
-		{
-			title: '确认方式',
-			color: '#0EA5E9',
-			numbered: true,
-			items: checkItems.length ? checkItems : defaultDiagConfirmSections[1].items
-		},
-		{
-			title: '处理方式',
+			title: '解决方法',
 			color: '#10B981',
 			numbered: true,
-			items: solutionItems.length ? solutionItems : defaultDiagConfirmSections[2].items
+			items: solutionItems.length ? solutionItems : defaultDiagConfirmSections[0].items
 		}
 	]
 })
@@ -2395,7 +2706,9 @@ const diagSheetOptions = computed(() => {
 	return diagFaultOptions.value.map((title) => ({ id: title, title, active: title === diagFault.value }))
 })
 const warrantyDoc = computed(() => docMap.value.warranty || {})
-const activeDoc = computed(() => docMap.value[activeModule.value] || docFallbacks[activeModule.value] || docFallbacks['guide-quick'] || {})
+// 保修政策分块（后台可编辑）：无配置时模板回退整段富文本
+const warrantySections = computed(() => (Array.isArray(warrantyDoc.value.sections) ? warrantyDoc.value.sections : []))
+const activeDoc = computed(() => docMap.value[activeModule.value] || docFallbacks[activeModule.value] || docFallbacks['guide-repair'] || {})
 const isDocModule = computed(() => docModuleIds.includes(activeModule.value))
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
@@ -2430,6 +2743,7 @@ const filteredOrderList = computed(() => {
 	if (activeOrdersTab.value === '待处理') return orderList.value.filter((item) => pendingRepairStatuses.includes(item.statusGroup))
 	if (activeOrdersTab.value === '未开票') return orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item)))
 	if (activeOrdersTab.value === '已开票') return orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued')
+	if (activeOrdersTab.value === '待付款') return orderList.value.filter(isOrderAwaitingPayment)
 	const matchedStatus = repairStatusFlow.find((status) => activeOrdersTab.value === status)
 	if (matchedStatus) return orderList.value.filter((item) => item.statusGroup === matchedStatus)
 	return orderList.value
@@ -2499,9 +2813,7 @@ const openGuideFile = async (doc = {}) => {
 }
 
 const guideModuleTypeMap = {
-	'guide-quick': 'quick',
 	'guide-repair': 'repair',
-	'guide-query': 'query',
 	'guide-invoice': 'invoice'
 }
 
@@ -2546,6 +2858,69 @@ const openGuideFromHome = async (id) => {
 	uni.showToast({ title: '该教程还未上传文档', icon: 'none' })
 }
 
+const maintenanceVideoCategories = ['维修保养视频', '维护保养视频', '维修保养', '维护保养']
+
+const normalizeMaintenanceVideos = async (list = []) => {
+	const picked = (Array.isArray(list) ? list : []).filter((item = {}) => {
+		const category = String(item.category || item.title || '')
+		return maintenanceVideoCategories.some((name) => category.includes(name)) && (item.audience === 'client' || !item.audience)
+	})
+
+	const result = []
+	for (const guide of picked) {
+		const media = Array.isArray(guide.media) ? guide.media : []
+		const video = media.find((item) => item && item.type === 'video' && item.url)
+		if (!video) continue
+		const cover = media.find((item) => item && item.type === 'image' && item.url)
+		let coverUrl = ''
+		if (cover && cover.url) {
+			try {
+				coverUrl = await resolveGuideFileUrl(cover.url)
+			} catch (error) {
+				coverUrl = cover.url
+			}
+		}
+		result.push({
+			id: guide.id || guide._id || `${video.url}-${result.length}`,
+			title: guide.description || guide.summary || guide.desc || video.name || '维修保养视频',
+			desc: guide.content || '',
+			videoUrl: video.url,
+			videoName: video.name || '',
+			coverUrl
+		})
+	}
+	return result
+}
+
+const loadMaintenanceVideos = async () => {
+	try {
+		const list = await getGuides({ forceRefresh: true })
+		maintenanceVideos.value = await normalizeMaintenanceVideos(list)
+	} catch (error) {
+		console.warn('maintenance videos fallback:', error)
+	}
+}
+
+const openMaintenanceVideo = async (item = {}) => {
+	if (!item.videoUrl) {
+		uni.showToast({ title: '暂无视频', icon: 'none' })
+		return
+	}
+	try {
+		uni.showLoading({ title: '打开中' })
+		const url = await resolveGuideFileUrl(item.videoUrl)
+		uni.hideLoading()
+		if (uni.previewMedia) {
+			uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+			return
+		}
+		uni.navigateTo && uni.navigateTo({ url: `/pages/index/index?video=${encodeURIComponent(url)}`, fail: () => {} })
+	} catch (error) {
+		console.warn('open maintenance video failed:', error)
+		uni.hideLoading()
+		uni.showToast({ title: '视频打开失败，请稍后重试', icon: 'none' })
+	}
+}
 // 打开教程媒体：图片内联预览，视频用 previewMedia，文档走文件打开
 const openGuideMedia = async (item = {}) => {
 	if (!item || !item.url) return
@@ -2673,6 +3048,7 @@ const detailQuoteGroups = computed(() => {
 })
 const detailPaymentProofs = computed(() => Array.isArray(detailOrder.value.paymentProofs) ? detailOrder.value.paymentProofs : [])
 
+
 logBoot('computed state ready')
 
 let copyTimer = null
@@ -2748,6 +3124,56 @@ const getQuoteTotal = (order = {}) => Number(order.totalFee || order.quoteDetail
 const getQuoteItemTotal = (item = {}) => (Number(item.partsFee) || 0) + (Number(item.laborFee) || 0)
 
 const getQuoteDetailRowTotal = (item = {}) => Number(item.amount || 0) || (Number(item.unitPrice || 0) * Number(item.quantity || 0))
+const isPayableQuoteOrder = (order = {}) => Boolean(
+	order.id &&
+	getQuoteTotal(order) > 0 &&
+	order.quoteStatus !== 'rejected' &&
+	order.paymentStatus !== 'paid'
+)
+
+const selectPaymentMethod = (method = 'wechat') => {
+	selectedPaymentMethod.value = method === 'transfer' ? 'transfer' : 'wechat'
+}
+
+const showPaymentMethodSelector = (order = {}) => {
+	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
+	return isPayableQuoteOrder(order) && order.paymentStatus !== 'uploaded' && !proofs.length
+}
+
+const showTransferPaymentPanel = (order = {}) => {
+	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
+	return isPayableQuoteOrder(order) && (
+		selectedPaymentMethod.value === 'transfer' ||
+		order.paymentStatus === 'uploaded' ||
+		order.paymentStatus === 'rejected' ||
+		proofs.length > 0
+	)
+}
+
+const showWechatPayAction = (order = {}) => {
+	const action = getBillingAction(order)
+	return selectedPaymentMethod.value === 'wechat' && showPaymentMethodSelector(order) && action.visible && action.type === 'wechat-pay'
+}
+
+const showNonPaymentBillingAction = (order = {}) => {
+	const action = getBillingAction(order)
+	return action.visible && action.type !== 'wechat-pay'
+}
+
+const showTransferProofAction = (order = {}) => showTransferPaymentPanel(order) && getPaymentProofAction(order).visible
+
+watch(
+	() => [detailOrder.value.id, detailOrder.value.paymentStatus, detailPaymentProofs.value.length],
+	([id, paymentStatus, proofCount]) => {
+		if (!id) return
+		if (paymentStatus === 'uploaded' || paymentStatus === 'rejected' || proofCount > 0) {
+			selectedPaymentMethod.value = 'transfer'
+			return
+		}
+		selectedPaymentMethod.value = 'wechat'
+	},
+	{ immediate: true }
+)
 
 const getQuoteMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
@@ -2767,6 +3193,7 @@ const getPaymentMeta = (order = {}) => {
 	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
 	if (!getQuoteTotal(order)) return { label: '待报价', tone: 'muted', desc: '报价金额确认后，可微信支付；企业客户也可上传对公转账凭证。' }
 	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
+	if (order.paymentStatus === 'rejected') return { label: '已驳回', tone: 'warn', desc: order.paymentRejectReason ? `转账凭证被驳回：${order.paymentRejectReason}` : '转账凭证被驳回，请核对后重新上传。' }
 	if (proofs.length || order.paymentStatus === 'uploaded') return { label: '待核销', tone: 'warn', desc: '凭证已留痕，等待财务核对到账。' }
 	return { label: '待支付', tone: 'warn', desc: '可直接微信支付；企业客户可走对公转账并上传凭证。' }
 }
@@ -2782,6 +3209,7 @@ const getBillingMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
 	if (!quoteTotal) return { label: '待报价', tone: 'muted', desc: '工程师检测后会在这里给出正式报价。' }
 	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: invoiceMeta.desc || '微信支付已完成，订单已自动进入后续维修流程。' }
+	if (order.paymentStatus === 'rejected') return { label: '已驳回', tone: 'warn', desc: order.paymentRejectReason ? `转账凭证被驳回：${order.paymentRejectReason}` : '转账凭证被驳回，请核对后重新上传。' }
 	if (Array.isArray(order.paymentProofs) && order.paymentProofs.length) return { label: '待核销', tone: 'warn', desc: '付款凭证已上传，等待财务核对到账。' }
 	return { label: '待支付', tone: 'warn', desc: '请核对维修项目和金额，确认后可直接微信支付。' }
 }
@@ -2806,12 +3234,20 @@ const getPaymentProofAction = (order = {}) => {
 	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
 	if (!order.id || !getQuoteTotal(order)) return { visible: false, text: '', disabled: true, hint: '' }
 	if (order.paymentStatus === 'paid') return { visible: false, text: '', disabled: true, hint: '微信支付已完成，无需上传截图。' }
+	if (order.paymentStatus === 'rejected') {
+		return {
+			visible: true,
+			text: paymentProofUploading.value ? '上传中...' : '凭证被驳回，重新上传',
+			disabled: paymentProofUploading.value,
+			hint: ''
+		}
+	}
 	if (proofs.length || order.paymentStatus === 'uploaded') {
 		return { visible: false, text: '', disabled: true, hint: '付款凭证已上传，等待后台核销。' }
 	}
 	return {
 		visible: true,
-		text: paymentProofUploading.value ? '上传中...' : '企业对公转账 / 上传凭证',
+		text: paymentProofUploading.value ? '上传中...' : '我已转账，上传付款凭证',
 		disabled: paymentProofUploading.value,
 		hint: ''
 	}
@@ -2983,6 +3419,44 @@ const rejectRepairQuoteAction = (order = {}) => {
 // 确认收货：已回寄 → 已完成
 const canConfirmReceipt = (order = {}) => Boolean(order.id && (order.statusKey === 'shipped' || order.status === '已回寄'))
 
+// 稍后补单号：pending（已提交待寄出）且尚未填寄出单号时可补填
+const canFillOutboundTracking = (order = {}) => Boolean(order.id && order.statusKey === 'pending' && !order.trackingNo)
+
+const selectOutboundLogistics = (item = {}) => {
+	outboundForm.value.company = item.value || item.label || ''
+	showOutboundSheet.value = false
+}
+
+const submitOutboundTracking = async (order = {}) => {
+	if (outboundSubmitting.value || !canFillOutboundTracking(order)) return
+	const company = (outboundForm.value.company || '').trim()
+	const trackingNo = (outboundForm.value.trackingNo || '').trim()
+	if (!company) {
+		uni.showToast({ title: '请选择物流公司', icon: 'none' })
+		return
+	}
+	if (!/^[A-Za-z0-9-]{6,32}$/.test(trackingNo)) {
+		uni.showToast({ title: '运单号格式不正确（6-32位字母数字）', icon: 'none' })
+		return
+	}
+	outboundSubmitting.value = true
+	try {
+		// 补单号后进入运输链路，顺带申请物流节点订阅
+		await requestStatusSubscription('track_view')
+		uni.showLoading({ title: '提交中' })
+		await updateRepairOutboundLogistics(order.recordId || order.id, company, trackingNo)
+		await refreshOrderFromServer(order)
+		uni.hideLoading()
+		outboundForm.value = { company: '', trackingNo: '' }
+		uni.showToast({ title: '运单号已提交', icon: 'success' })
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: (error && error.message) || '提交失败，请稍后重试', icon: 'none' })
+	} finally {
+		outboundSubmitting.value = false
+	}
+}
+
 const confirmRepairReceiptAction = (order = {}) => {
 	if (!canConfirmReceipt(order)) return
 	uni.showModal({
@@ -3099,7 +3573,7 @@ const uploadPaymentProof = async (order = {}) => {
 	if (!canUploadPaymentProof(order) || paymentProofUploading.value) return
 	let loadingShown = false
 	try {
-		await requestStatusSubscription('quote_confirm')
+		await requestStatusSubscription('payment_proof')
 		const chooseRes = await uni.chooseImage({
 			count: 1,
 			sizeType: ['compressed'],
@@ -3157,8 +3631,42 @@ const resetInvoiceForm = (order = {}) => {
 		title: order.invoiceTitle || addressForm.value.unit || '',
 		taxNo: order.taxNo || '',
 		email: order.invoiceEmail || '',
+		registerAddress: '',
+		registerPhone: '',
+		bankName: '',
+		bankAccount: '',
+		// 收票人默认取回寄地址联系人，减少重复填写
+		recipientName: addressForm.value.name || '',
+		recipientPhone: addressForm.value.phone || '',
+		recipientAddress: [addressForm.value.region, addressForm.value.detail].filter(Boolean).join(' '),
 		remark: ''
 	}
+}
+
+// 发票种类双选：电子普票 / 纸质专票（专票强制企业抬头，后端同规则）
+const invoiceKindOptions = [
+	{ value: '电子普通发票', label: '电子普通发票', desc: '开具快，链接+邮箱接收' },
+	{ value: '纸质专用发票', label: '纸质专用发票', desc: '可抵扣，财务审核后邮寄' }
+]
+
+const isPaperInvoice = computed(() => invoiceForm.value.invoiceType === '纸质专用发票')
+
+const selectInvoiceKind = (value) => {
+	invoiceForm.value.invoiceType = value
+	if (value === '纸质专用发票') invoiceForm.value.titleType = 'company'
+}
+
+const selectInvoiceTitleType = (value) => {
+	if (isPaperInvoice.value && value !== 'company') {
+		uni.showToast({ title: '纸质专票仅支持企业抬头', icon: 'none' })
+		return
+	}
+	invoiceForm.value.titleType = value
+}
+
+const copyInvoiceMailNo = (order = {}) => {
+	if (!order.invoiceMailNo) return
+	copyOne(order.invoiceMailNo, 'invMail-' + order.id)
 }
 
 const startInvoiceApply = (order = {}) => {
@@ -3207,8 +3715,32 @@ const submitInvoiceApply = async () => {
 		return
 	}
 
+	// 纸质专票：7 个收票/注册字段前端预校验（口径与后端 applyInvoice 一致）
+	if (invoiceForm.value.invoiceType === '纸质专用发票') {
+		const paperRequired = [
+			['registerAddress', '请填写注册地址'],
+			['registerPhone', '请填写注册电话'],
+			['bankName', '请填写开户银行'],
+			['bankAccount', '请填写银行账号'],
+			['recipientName', '请填写收票人'],
+			['recipientAddress', '请填写收票地址']
+		]
+		for (const [field, msg] of paperRequired) {
+			if (!String(invoiceForm.value[field] || '').trim()) {
+				uni.showToast({ title: msg, icon: 'none' })
+				return
+			}
+		}
+		const recipientPhone = String(invoiceForm.value.recipientPhone || '').replace(/\D/g, '')
+		if (!/^1[3-9]\d{9}$/.test(recipientPhone)) {
+			uni.showToast({ title: '收票手机号格式不正确', icon: 'none' })
+			return
+		}
+	}
+
 	invoiceSubmitting.value = true
 	try {
+		await requestStatusSubscription('invoice_apply')
 		await applyInvoice({
 			orderId: order.recordId || order.id,
 			invoiceType: invoiceForm.value.invoiceType,
@@ -3216,6 +3748,13 @@ const submitInvoiceApply = async () => {
 			title: invoiceForm.value.title.trim(),
 			taxNo: invoiceForm.value.titleType === 'company' ? invoiceForm.value.taxNo.trim() : '',
 			email: invoiceForm.value.email.trim(),
+			registerAddress: String(invoiceForm.value.registerAddress || '').trim(),
+			registerPhone: String(invoiceForm.value.registerPhone || '').trim(),
+			bankName: String(invoiceForm.value.bankName || '').trim(),
+			bankAccount: String(invoiceForm.value.bankAccount || '').trim(),
+			recipientName: String(invoiceForm.value.recipientName || '').trim(),
+			recipientPhone: String(invoiceForm.value.recipientPhone || '').trim(),
+			recipientAddress: String(invoiceForm.value.recipientAddress || '').trim(),
 			remark: invoiceForm.value.remark.trim()
 		})
 
@@ -3225,7 +3764,9 @@ const submitInvoiceApply = async () => {
 		activeInvoiceTab.value = '待开票'
 		uni.showModal({
 			title: '提交成功',
-			content: '开票申请已提交，后续会在发票与开票中同步审核、开票和电子发票链接。',
+			content: invoiceForm.value.invoiceType === '纸质专用发票'
+				? '专票申请已提交，财务审核开具后将邮寄到收票地址，可在发票列表查看邮寄进度。'
+				: '开票申请已提交，后续会在发票与开票中同步审核、开票和电子发票链接。',
 			showCancel: false,
 			confirmText: '知道了'
 		})
@@ -3469,7 +4010,8 @@ const openModule = (id, type) => {
 	}
 
 	if (id === 'orders' && type !== undefined) {
-		const typeMap = ['全部', '待处理', '处理中', '已回寄', '未开票', '已开票']
+		// 数字索引协议（pages-sub/mine 跳转用），只能尾部追加不能插入
+		const typeMap = ['全部', '待处理', '处理中', '已回寄', '未开票', '已开票', '待付款']
 		if (typeof type === 'string') {
 			activeOrdersTab.value = normalizeStatusTab(type)
 		} else if (typeMap[type]) {
@@ -3579,29 +4121,40 @@ const restoreRepairDraft = () => {
 			...(draft.repairForm || {})
 		}
 		repairProducts.value = normalizeRepairProducts(draft.repairProducts)
+		trackingLater.value = Boolean(draft.trackingLater)
 		syncRepairSeeds()
 	} catch (error) {
 		console.warn('restore repair draft fallback:', error)
 	}
 }
 
-const saveRepairDraft = () => {
+const persistRepairDraft = () => {
 	try {
 		uni.setStorageSync(repairDraftKey, {
 			repairForm: repairForm.value,
 			repairProducts: repairProducts.value,
+			trackingLater: trackingLater.value,
 			updateTime: Date.now()
 		})
+		return true
+	} catch (error) {
+		console.warn('persist repair draft fallback:', error)
+		return false
+	}
+}
+
+const saveRepairDraft = () => {
+	if (persistRepairDraft()) {
 		showRepairTools.value = false
 		uni.showToast({ title: '草稿已保存', icon: 'success' })
-	} catch (error) {
-		console.warn('save repair draft fallback:', error)
+	} else {
 		uni.showToast({ title: '保存失败，请稍后重试', icon: 'none' })
 	}
 }
 
 const clearRepairForm = () => {
 	repairForm.value = defaultRepairForm()
+	trackingLater.value = false
 	repairProducts.value = [defaultRepairProduct()]
 	repairProductSeed = 1
 	repairMediaSeed = 1
@@ -3878,6 +4431,7 @@ const buildRepairPayload = () => {
 		videos: firstMedia.videos,
 		logisticsCompany: repairForm.value.logisticsCompany,
 		trackingNo,
+		trackingPending: Boolean(trackingLater.value && !trackingNo),
 		sendMethod: repairForm.value.sendMethod,
 		senderName: String(repairForm.value.receiverName || '').trim(),
 		senderPhone: receiverPhone,
@@ -4119,7 +4673,12 @@ const validateRepairForm = () => {
 		return false
 	}
 
-	if (!isValidTrackingNo(repairForm.value.trackingNo)) {
+	const trimmedTracking = String(repairForm.value.trackingNo || '').trim()
+	if (!trackingLater.value && !trimmedTracking) {
+		uni.showToast({ title: '请填写运单号，或选择「稍后补单号」', icon: 'none' })
+		return false
+	}
+	if (trimmedTracking && !isValidTrackingNo(trimmedTracking)) {
 		uni.showToast({ title: '请输入正确运单号', icon: 'none' })
 		return false
 	}
@@ -4175,7 +4734,8 @@ const submitRepair = async () => {
 			return
 		}
 		console.warn('submit repair failed:', error)
-		uni.showToast({ title: error.message || '提交失败，已保留草稿', icon: 'none' })
+		const draftSaved = persistRepairDraft()
+		uni.showToast({ title: error.message || (draftSaved ? '提交失败，已保留草稿' : '提交失败，请重试'), icon: 'none' })
 	} finally {
 		repairSubmitting.value = false
 	}
@@ -4188,7 +4748,7 @@ const openFaultSheet = () => {
 	}
 
 	if (!diagFaultOptions.value.length) {
-		uni.showToast({ title: '当前产品暂无故障类型，请联系管理员配置', icon: 'none' })
+		uni.showToast({ title: '当前产品暂无故障现象，请联系管理员配置', icon: 'none' })
 		return
 	}
 
@@ -4280,22 +4840,63 @@ const openVoucherPicker = (productIndex) => {
 		count: 3 - product.voucherList.length,
 		sourceType: ['album', 'camera'],
 		sizeType: ['compressed'],
-		success: (chooseRes) => {
+		success: async (chooseRes) => {
 			const tempFilePaths = chooseRes.tempFilePaths || []
+			if (!tempFilePaths.length) return
 			const oversized = (chooseRes.tempFiles || []).find((file) => isFileTooLarge(file, maxRepairImageSize))
 			if (oversized) {
 				uni.showToast({ title: `凭证图片不能超过${formatFileSize(maxRepairImageSize)}`, icon: 'none' })
 				return
 			}
-			tempFilePaths.forEach((path) => {
-				product.voucherList.push({
-					id: `voucher-${Date.now()}-${Math.random()}`,
-					path,
-					url: path
-				})
-			})
-			product.voucher = product.voucherList.map(v => v.path).join(',')
-			uni.showToast({ title: '上传成功', icon: 'success' })
+
+			let loadingShown = false
+			try {
+				uni.showLoading({ title: '上传中' })
+				loadingShown = true
+
+				const slots = Math.max(0, 3 - product.voucherList.length)
+				const targets = tempFilePaths.slice(0, slots)
+				const results = await Promise.all(targets.map(async (path) => {
+					try {
+						const compressed = await compressForUpload(path)
+						const uploadRes = await uploadImage(compressed)
+						return {
+							path,
+							fileID: normalizeUploadFileId(uploadRes),
+							url: normalizeUploadUrl(uploadRes, path)
+						}
+					} catch (error) {
+						console.warn('upload voucher image failed:', error)
+						return null
+					}
+				}))
+
+				let failedCount = 0
+				for (const item of results) {
+					if (product.voucherList.length >= 3) break
+					if (item) {
+						product.voucherList.push({ id: `voucher-${Date.now()}-${Math.random()}`, ...item })
+					} else {
+						failedCount += 1
+					}
+				}
+				product.voucher = product.voucherList.map((v) => getUploadedUrl(v)).filter(Boolean).join(',')
+
+				uni.hideLoading()
+				loadingShown = false
+				if (failedCount && failedCount === targets.length) {
+					uni.showToast({ title: '凭证上传失败', icon: 'none' })
+				} else if (failedCount) {
+					uni.showToast({ title: '部分凭证上传失败', icon: 'none' })
+				} else {
+					uni.showToast({ title: '上传成功', icon: 'success' })
+				}
+			} catch (error) {
+				console.warn('voucher upload fallback:', error)
+				uni.showToast({ title: '凭证上传失败', icon: 'none' })
+			} finally {
+				if (loadingShown) uni.hideLoading()
+			}
 		},
 		fail: (error) => {
 			console.warn('choose image cancelled:', error)
@@ -4691,18 +5292,13 @@ const loadRemoteContent = async () => {
 		getFeePolicy()
 			.then((doc) => updateDoc('fees', doc))
 			.catch((error) => console.warn('fee fallback:', error)),
-		getGuide('quick')
-			.then((doc) => updateDoc('guide-quick', doc))
-			.catch((error) => console.warn('quick guide fallback:', error)),
 		getGuide('repair')
 			.then((doc) => updateDoc('guide-repair', doc))
 			.catch((error) => console.warn('repair guide fallback:', error)),
-		getGuide('query')
-			.then((doc) => updateDoc('guide-query', doc))
-			.catch((error) => console.warn('query guide fallback:', error)),
 		getGuide('invoice')
 			.then((doc) => updateDoc('guide-invoice', doc))
 			.catch((error) => console.warn('invoice guide fallback:', error)),
+		loadMaintenanceVideos(),
 		getContact()
 			.then((data) => applyContact(data))
 			.catch((error) => console.warn('contact fallback:', error)),
@@ -4738,6 +5334,12 @@ const loadRemoteContent = async () => {
 				productList.value = Array.isArray(list) ? list.map(normalizeProduct).filter((item) => item.sn || item.title) : []
 			})
 			.catch((error) => console.warn('device list failed:', error)),
+			// 细分待办（待付款/待收货/待开票）：DB 聚合口径，与本地 orderList 分桶互补
+			getRepairStats()
+			.then((stats = {}) => {
+				if (stats && stats.todo) statsTodo.value = { ...statsTodo.value, ...stats.todo }
+			})
+			.catch((error) => console.warn('repair stats failed:', error)),
 			getRepairList({ page: 1, size: 30 })
 			.then((data = {}) => {
 				const list = Array.isArray(data) ? data : (data.list || data.data || [])
@@ -4745,6 +5347,7 @@ const loadRemoteContent = async () => {
 				const normalized = list.map(normalizeOrder).filter((item) => item.id)
 				orderList.value = normalized
 				trackOrders.value = normalized
+				orderListLoaded.value = true
 				hydrateOrderDetails(normalized).catch((error) => console.warn('repair detail hydrate failed:', error))
 			})
 			.catch((error) => console.warn('repair list failed:', error))
@@ -4765,7 +5368,7 @@ onMounted(() => {
 	setTimeout(() => {
 		pageBootReady.value = true
 		logBoot('full page enabled')
-	}, 80)
+	}, BOOT_WAIT_MS)
 	setTimeout(() => {
 		logBoot('deferred boot start')
 		restoreLocalBusinessState()
@@ -4796,52 +5399,127 @@ onUnmounted(() => {
 	padding-bottom: 180rpx;
 	background: #E8EEFA;
 	box-sizing: border-box;
+	animation: homeFadeIn 320ms ease-out both;
 }
 
 .boot-screen {
 	min-height: 100vh;
-	padding: 48rpx;
+	padding: 0 48rpx;
 	display: flex;
-	align-items: center;
 	justify-content: center;
-	background:
-		radial-gradient(circle at top, rgba(30, 111, 224, 0.14), transparent 42%),
-		linear-gradient(180deg, #EEF4FF 0%, #E8EEFA 100%);
+	align-items: flex-start;
+	background: #FFFFFF;
 	box-sizing: border-box;
+	overflow: hidden;
 }
 
-.boot-card {
+.boot-content {
 	width: 100%;
-	max-width: 560rpx;
-	padding: 56rpx 40rpx;
-	border-radius: 36rpx;
+	padding-top: 32vh;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	background: rgba(255, 255, 255, 0.92);
-	box-shadow: 0 20rpx 56rpx rgba(15, 31, 58, 0.08);
 	box-sizing: border-box;
 }
 
 .boot-logo {
-	width: 148rpx;
-	height: 148rpx;
+	width: 208rpx;
+	height: 208rpx;
+	animation: bootLogoBounce 760ms cubic-bezier(0.22, 1.18, 0.36, 1) both;
 }
 
 .boot-title {
 	margin-top: 24rpx;
-	font-size: 36rpx;
-	font-weight: 700;
-	line-height: 1.35;
-	color: #0F1F3A;
+	font-size: 32rpx;
+	font-weight: 600;
+	line-height: 1.4;
+	color: #000000;
+	animation: bootTitleFade 360ms ease-out 420ms both;
 }
 
-.boot-desc {
-	margin-top: 14rpx;
-	font-size: 26rpx;
-	line-height: 1.7;
-	text-align: center;
-	color: #5A6C8D;
+.boot-dots {
+	margin-top: 46rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 12rpx;
+}
+
+.boot-dot {
+	width: 8rpx;
+	height: 8rpx;
+	border-radius: 50%;
+	background: #A7A7A7;
+	animation: bootDotJump 900ms ease-in-out infinite;
+}
+
+.boot-dot:nth-child(2) {
+	animation-delay: 120ms;
+}
+
+.boot-dot:nth-child(3) {
+	animation-delay: 240ms;
+}
+
+@keyframes bootLogoBounce {
+	0% {
+		opacity: 0;
+		transform: translateY(-112rpx) scale(0.98);
+	}
+	56% {
+		opacity: 1;
+		transform: translateY(12rpx) scale(1);
+	}
+	72% {
+		transform: translateY(-18rpx) scale(1);
+	}
+	86% {
+		transform: translateY(6rpx) scale(1);
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes bootTitleFade {
+	0% {
+		opacity: 0;
+		transform: translateY(10rpx);
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes bootDotJump {
+	0%, 80%, 100% {
+		opacity: 0.5;
+		transform: translateY(0);
+	}
+	40% {
+		opacity: 1;
+		transform: translateY(-8rpx);
+	}
+}
+
+@keyframes homeFadeIn {
+	0% {
+		opacity: 0;
+	}
+	100% {
+		opacity: 1;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.page-scroll,
+	.boot-logo,
+	.boot-title,
+	.boot-dot {
+		animation: none;
+	}
 }
 
 .home-body {
@@ -5397,12 +6075,32 @@ onUnmounted(() => {
 
 .vi-side-tab {
 	padding: 24rpx 20rpx 24rpx 32rpx !important;
-	background: #1C2834 !important;
+	background: linear-gradient(135deg, #3A86FF 0%, #0A4FB8 100%) !important;
+	box-shadow: -8rpx 12rpx 32rpx -8rpx rgba(10, 79, 184, 0.4) !important;
 }
 
 .vi-side-logo {
 	width: 108rpx;
 	height: 26rpx;
+}
+
+.vi-side-logo-text {
+	font-family: Georgia, "Times New Roman", serif;
+	font-size: 27rpx;
+	font-weight: 800;
+	line-height: 1;
+	letter-spacing: 1.8rpx;
+	color: #FFFFFF;
+}
+
+.vi-side-logo-r {
+	position: relative;
+	top: -8rpx;
+	margin-left: 2rpx;
+	font-size: 12rpx;
+	font-weight: 800;
+	line-height: 1;
+	color: #FFFFFF;
 }
 
 .vi-side-wordmark {
@@ -5571,6 +6269,98 @@ onUnmounted(() => {
 	padding-top: 48rpx;
 }
 
+.home-recent-section {
+	padding-top: 20rpx;
+}
+
+.home-recent-card {
+	padding: 28rpx 30rpx;
+	border-radius: 28rpx;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
+}
+
+.home-recent-top {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.home-recent-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+}
+
+.home-recent-title {
+	font-size: 28rpx;
+	font-weight: 700;
+	line-height: 1.3;
+	color: #0F1F3A;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.home-recent-no {
+	font-size: 22rpx;
+	color: #94A3B8;
+	word-break: break-all;
+}
+
+.home-recent-bottom {
+	margin-top: 20rpx;
+	padding-top: 20rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	border-top: 2rpx solid #F1F5FB;
+}
+
+.home-recent-time {
+	font-size: 22rpx;
+	color: #94A3B8;
+}
+
+.home-recent-action {
+	display: flex;
+	align-items: center;
+	gap: 8rpx;
+	font-size: 25rpx;
+	font-weight: 700;
+	color: #1E6FE0;
+}
+
+.home-recent-empty {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.home-recent-empty-text {
+	min-width: 0;
+	flex: 1;
+	font-size: 24rpx;
+	line-height: 1.55;
+	color: #6B7C97;
+}
+
+.home-recent-empty-btn {
+	flex-shrink: 0;
+	padding: 14rpx 30rpx;
+	border-radius: 999rpx;
+	background: #1E6FE0;
+	color: #FFFFFF;
+	font-size: 24rpx;
+	font-weight: 600;
+	box-shadow: 0 6rpx 16rpx -6rpx rgba(30, 111, 224, 0.55);
+}
+
 .section-query,
 .section-guide,
 .section-contact {
@@ -5645,6 +6435,22 @@ onUnmounted(() => {
 	border-radius: 999rpx;
 }
 
+.section-basic .service-icon {
+	width: 112rpx;
+	height: 112rpx;
+}
+
+.section-basic .service-icon .glyph {
+	width: 48rpx;
+	height: 48rpx;
+	transform: scale(1.18);
+	transform-origin: center center;
+}
+
+.section-basic .service-icon .glyph-box {
+	transform: translateY(-1rpx) scale(1.18);
+}
+
 .service-title {
 	font-size: 26rpx;
 	font-weight: 500;
@@ -5694,6 +6500,119 @@ onUnmounted(() => {
 	color: #0F1F3A;
 }
 
+.tutorial-guide-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20rpx;
+}
+
+.tutorial-guide-grid .guide-card {
+	width: auto;
+	min-width: 0;
+	min-height: 112rpx;
+}
+
+.maintenance-video-wrap {
+	margin-top: 26rpx;
+}
+
+.maintenance-section-head {
+	padding: 0 4rpx 18rpx;
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+}
+
+.maintenance-section-head text:first-child {
+	font-size: 30rpx;
+	font-weight: 800;
+	line-height: 1.2;
+	color: #0F1F3A;
+}
+
+.maintenance-section-head text:last-child {
+	font-size: 23rpx;
+	line-height: 1.2;
+	color: #8A97AA;
+}
+
+.maintenance-video-list {
+	display: flex;
+	flex-direction: column;
+	gap: 22rpx;
+}
+
+.maintenance-video-card {
+	padding: 26rpx;
+	border-radius: 26rpx;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 24rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
+}
+
+.maintenance-video-copy {
+	padding: 0 4rpx 18rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.maintenance-video-title {
+	font-size: 29rpx;
+	font-weight: 700;
+	line-height: 1.35;
+	color: #0F1F3A;
+}
+
+.maintenance-video-desc {
+	font-size: 24rpx;
+	line-height: 1.45;
+	color: #6B7C97;
+}
+
+.maintenance-video-cover {
+	position: relative;
+	width: 100%;
+	height: 302rpx;
+	overflow: hidden;
+	border-radius: 20rpx;
+	background: linear-gradient(135deg, #EFF6FF 0%, #E8EEF9 100%);
+}
+
+.maintenance-video-image,
+.maintenance-video-placeholder {
+	width: 100%;
+	height: 100%;
+}
+
+.maintenance-video-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #1E6FE0;
+}
+
+.maintenance-play-badge {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 88rpx;
+	height: 88rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 999rpx;
+	background: rgba(15, 31, 58, 0.52);
+	box-shadow: 0 12rpx 28rpx rgba(15, 31, 58, 0.18);
+	transform: translate(-50%, -50%);
+}
+
+.maintenance-play-badge text {
+	margin-left: 6rpx;
+	font-size: 34rpx;
+	line-height: 1;
+	color: #FFFFFF;
+}
 .chevron {
 	position: relative;
 	width: 16rpx;
@@ -6607,6 +7526,41 @@ onUnmounted(() => {
 	color: #324563;
 }
 
+.mine-todo-list {
+	margin-top: 20rpx;
+	border-top: 2rpx solid #F1F5FB;
+}
+
+.mine-todo-row {
+	padding: 22rpx 8rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	border-bottom: 2rpx solid #F1F5FB;
+}
+
+.mine-todo-row:last-child {
+	border-bottom: none;
+}
+
+.mine-todo-label {
+	font-size: 26rpx;
+	font-weight: 600;
+	color: #0F1F3A;
+}
+
+.mine-todo-right {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+}
+
+.mine-todo-count {
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #E5484D;
+}
+
 .settings-section {
 	padding: 28rpx 28rpx 0;
 }
@@ -7369,7 +8323,49 @@ onUnmounted(() => {
 }
 
 .repair-module {
-	padding-bottom: 168rpx;
+	position: relative;
+	padding-bottom: 220rpx;
+	overflow: hidden;
+}
+
+.repair-brand-watermark {
+	position: relative;
+	z-index: 0;
+	min-height: 188rpx;
+	margin: 36rpx 8rpx 8rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 12rpx;
+	opacity: 0.18;
+	pointer-events: none;
+}
+
+.repair-brand-watermark::before {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 520rpx;
+	height: 180rpx;
+	border-radius: 50%;
+	background: radial-gradient(circle, rgba(30, 111, 224, 0.18) 0%, rgba(30, 111, 224, 0) 68%);
+	transform: translate(-50%, -50%);
+}
+
+.repair-brand-watermark image {
+	position: relative;
+	width: 280rpx;
+	height: 76rpx;
+}
+
+.repair-brand-watermark text {
+	position: relative;
+	font-size: 24rpx;
+	font-weight: 600;
+	letter-spacing: 2rpx;
+	color: #0A4FB8;
 }
 
 .repair-product {
@@ -9065,6 +10061,69 @@ onUnmounted(() => {
 	background: #FFFFFF;
 }
 
+.package-copy-row {
+	margin-top: 10rpx;
+	display: flex;
+	justify-content: flex-end;
+}
+
+.package-stagnant-notice {
+	margin-top: 20rpx;
+	padding: 18rpx 22rpx;
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	border-radius: 18rpx;
+	background: rgba(254, 242, 242, 0.9);
+	box-sizing: border-box;
+}
+
+.package-stagnant-notice text:first-child {
+	min-width: 0;
+	flex: 1;
+	font-size: 23rpx;
+	line-height: 1.55;
+	color: #B91C1C;
+}
+
+.package-stagnant-notice .copy-link {
+	flex-shrink: 0;
+}
+
+.package-estimate-note {
+	margin-top: 20rpx;
+	background: rgba(243, 244, 246, 0.8);
+	color: #6B7C97;
+}
+
+.package-estimate-note text:first-child {
+	background: rgba(107, 124, 151, 0.12);
+	color: #6B7C97;
+}
+
+.package-estimate-note text:last-child {
+	color: #6B7C97;
+}
+
+.package-notfound-card .package-empty {
+	margin-top: 0;
+}
+
+.package-notfound-actions {
+	margin-top: 22rpx;
+	display: flex;
+	gap: 18rpx;
+}
+
+.package-notfound-actions .return-logistics-btn {
+	flex: 1;
+	text-align: center;
+}
+
+.outbound-fill-card .detail-action-button {
+	margin-top: 24rpx;
+}
+
 .invoice-module {
 	padding-bottom: 80rpx;
 }
@@ -9353,6 +10412,10 @@ onUnmounted(() => {
 .invoice-type-row > view.on {
 	border-color: #1E6FE0;
 	background: #EEF6FF;
+}
+
+.invoice-type-row > view.disabled {
+	opacity: 0.45;
 }
 
 .invoice-type-row text:first-child {
@@ -9692,6 +10755,208 @@ onUnmounted(() => {
 	font-size: 23rpx;
 	line-height: 1.5;
 	color: #7C5A16;
+}
+
+.payment-reject-notice {
+	margin-top: 20rpx;
+	padding: 20rpx 24rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+	border-radius: 20rpx;
+	background: #FEF2F2;
+	border: 2rpx solid #FCA5A5;
+	box-sizing: border-box;
+}
+
+.payment-reject-title {
+	font-size: 26rpx;
+	font-weight: 700;
+	color: #DC2626;
+}
+
+.payment-method-card {
+	margin-top: 20rpx;
+	padding: 24rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 18rpx;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	border: 2rpx solid #E4ECF7;
+	box-sizing: border-box;
+}
+
+.payment-method-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.payment-method-head text:first-child {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.payment-method-head text:last-child {
+	font-size: 22rpx;
+	color: #8A97AA;
+}
+
+.payment-method-options {
+	display: flex;
+	flex-direction: column;
+	gap: 14rpx;
+}
+
+.payment-method-option {
+	padding: 22rpx;
+	display: flex;
+	align-items: flex-start;
+	gap: 16rpx;
+	border-radius: 18rpx;
+	border: 2rpx solid #E4ECF7;
+	background: #F8FBFF;
+	box-sizing: border-box;
+}
+
+.payment-method-option.active {
+	border-color: #1E6FE0;
+	background: #EDF5FF;
+}
+
+.payment-method-radio {
+	width: 30rpx;
+	height: 30rpx;
+	margin-top: 4rpx;
+	border-radius: 999rpx;
+	border: 3rpx solid #B8C7DA;
+	background: #FFFFFF;
+	box-sizing: border-box;
+}
+
+.payment-method-option.active .payment-method-radio {
+	border: 9rpx solid #1E6FE0;
+}
+
+.payment-method-option > view:last-child {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+}
+
+.payment-method-option > view:last-child text:first-child {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #10264A;
+}
+
+.payment-method-option > view:last-child text:last-child {
+	font-size: 23rpx;
+	line-height: 1.45;
+	color: #6B7C97;
+}
+
+.transfer-proof-button {
+	background: linear-gradient(180deg, #2F9E78 0%, #16865F 100%);
+	box-shadow: 0 18rpx 36rpx -18rpx rgba(22, 134, 95, 0.52);
+}
+.payment-reject-reason {
+	font-size: 24rpx;
+	line-height: 1.5;
+	color: #B91C1C;
+}
+
+.transfer-account-card {
+	margin-top: 20rpx;
+	padding: 24rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 14rpx;
+	border-radius: 22rpx;
+	background: #F5F9FF;
+	border: 2rpx solid #D3E2FA;
+	box-sizing: border-box;
+}
+
+.transfer-account-title {
+	font-size: 26rpx;
+	font-weight: 700;
+	color: #1E6FE0;
+}
+
+.transfer-account-row {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+}
+
+.transfer-account-label {
+	flex: 0 0 auto;
+	width: 120rpx;
+	font-size: 24rpx;
+	color: #8A97AA;
+}
+
+.transfer-account-value {
+	flex: 1;
+	font-size: 25rpx;
+	line-height: 1.5;
+	color: #10264A;
+	word-break: break-all;
+}
+
+.transfer-account-no {
+	font-weight: 700;
+	letter-spacing: 1rpx;
+}
+
+.transfer-account-muted {
+	color: #9AA9BF;
+}
+
+.transfer-copy {
+	flex: 0 0 auto;
+	padding: 6rpx 20rpx;
+	font-size: 22rpx;
+	color: #1E6FE0;
+	border: 2rpx solid #1E6FE0;
+	border-radius: 999rpx;
+	background: #FFFFFF;
+}
+
+.transfer-account-remark {
+	margin-top: 4rpx;
+	padding-top: 14rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 12rpx;
+	border-top: 2rpx dashed #D3E2FA;
+}
+
+.transfer-remark-tip {
+	font-size: 23rpx;
+	line-height: 1.5;
+	color: #D97706;
+}
+
+.transfer-remark-row {
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+}
+
+.transfer-remark-no {
+	flex: 1;
+	font-size: 28rpx;
+	font-weight: 800;
+	letter-spacing: 1rpx;
+	color: #10264A;
+	word-break: break-all;
 }
 
 .billing-empty {
@@ -10827,6 +12092,25 @@ onUnmounted(() => {
 	word-break: break-word;
 }
 
+.warranty-section-card {
+	margin-top: 20rpx;
+	padding: 8rpx 26rpx 26rpx;
+	border-radius: 24rpx;
+	background: #FFFFFF;
+	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-sizing: border-box;
+}
+
+.warranty-section-content {
+	padding: 8rpx 4rpx 8rpx;
+	font-size: 26rpx;
+}
+
+.warranty-module .dual-actions {
+	margin-top: 36rpx;
+	padding-bottom: 40rpx;
+}
+
 .policy-empty {
 	display: block;
 	padding: 96rpx 0;
@@ -11811,9 +13095,11 @@ onUnmounted(() => {
 	position: relative;
 	overflow: hidden;
 	margin: 0 -28rpx;
-	padding: 0;
-	min-height: 1334rpx;
-	background: #F4F9FF;
+	padding: 0 64rpx 80rpx;
+	min-height: 100vh;
+	background:
+		radial-gradient(circle at 8% 14%, rgba(167, 209, 255, 0.34) 0%, rgba(167, 209, 255, 0) 32%),
+		linear-gradient(180deg, #F5FAFF 0%, #FFFFFF 54%, #F6FAFF 100%);
 	box-sizing: border-box;
 }
 
@@ -11822,12 +13108,44 @@ onUnmounted(() => {
 }
 
 .login-auth-image {
+	display: none;
+}
+
+.login-device-ghost {
 	position: absolute;
-	left: 50%;
-	top: 52rpx;
-	width: 750rpx;
+	right: -110rpx;
+	top: 430rpx;
 	z-index: 1;
-	transform: translateX(-50%);
+	width: 260rpx;
+	height: 530rpx;
+	border: 8rpx solid rgba(62, 157, 235, 0.12);
+	border-radius: 80rpx;
+	transform: rotate(18deg);
+}
+
+.login-device-ghost::before,
+.login-device-ghost::after {
+	content: "";
+	position: absolute;
+	box-sizing: border-box;
+}
+
+.login-device-ghost::before {
+	left: 46rpx;
+	top: 72rpx;
+	width: 120rpx;
+	height: 300rpx;
+	border: 6rpx solid rgba(62, 157, 235, 0.1);
+	border-radius: 60rpx;
+}
+
+.login-device-ghost::after {
+	left: 86rpx;
+	bottom: 48rpx;
+	width: 86rpx;
+	height: 86rpx;
+	border: 6rpx solid rgba(62, 157, 235, 0.1);
+	border-radius: 50%;
 }
 
 .login-back-button {
@@ -11854,20 +13172,71 @@ onUnmounted(() => {
 	transform: rotate(45deg);
 }
 
+.login-brand-panel {
+	position: relative;
+	z-index: 2;
+	padding-top: 420rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+}
+
+.login-brand-logo {
+	width: 420rpx;
+	height: 98rpx;
+}
+
+.login-brand-title {
+	margin-top: 118rpx;
+	font-size: 54rpx;
+	font-weight: 800;
+	line-height: 1.2;
+	color: #10264A;
+	letter-spacing: 1rpx;
+}
+
+.login-brand-slogan {
+	margin-top: 36rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 24rpx;
+}
+
+.login-brand-slogan view {
+	width: 72rpx;
+	height: 2rpx;
+	background: #2B8BFF;
+}
+
+.login-brand-slogan text {
+	font-size: 29rpx;
+	font-weight: 700;
+	line-height: 1.2;
+	color: #1684F6;
+	letter-spacing: 6rpx;
+}
+
 .login-auth-button {
-	position: absolute;
-	left: 74rpx;
-	top: 1090rpx;
+	position: relative;
 	z-index: 3;
-	width: 602rpx;
-	height: 120rpx;
+	width: 100%;
+	height: 124rpx;
+	margin: 256rpx 0 0;
 	padding: 0;
 	border: none;
-	background: transparent;
-	color: transparent;
-	font-size: 1rpx;
-	line-height: 120rpx;
-	opacity: 0.01;
+	border-radius: 24rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 24rpx;
+	background: linear-gradient(135deg, #46A0FF 0%, #0075F6 100%);
+	box-shadow: 0 22rpx 44rpx rgba(0, 117, 246, 0.22);
+	color: #FFFFFF;
+	font-size: 34rpx;
+	font-weight: 800;
+	line-height: 124rpx;
 }
 
 .login-auth-button::after {
@@ -11875,17 +13244,76 @@ onUnmounted(() => {
 }
 
 .login-auth-button[disabled] {
-	opacity: 0.01;
+	opacity: 0.7;
+}
+
+.wechat-login-icon {
+	position: relative;
+	width: 64rpx;
+	height: 50rpx;
+	flex-shrink: 0;
+}
+
+.wechat-login-icon view {
+	position: absolute;
+	border-radius: 50%;
+	background: #FFFFFF;
+}
+
+.wechat-login-icon view:first-child {
+	left: 0;
+	top: 0;
+	width: 42rpx;
+	height: 36rpx;
+}
+
+.wechat-login-icon view:first-child::before,
+.wechat-login-icon view:first-child::after,
+.wechat-login-icon view:last-child::before,
+.wechat-login-icon view:last-child::after {
+	content: "";
+	position: absolute;
+	width: 5rpx;
+	height: 5rpx;
+	border-radius: 50%;
+	background: #1684F6;
+}
+
+.wechat-login-icon view:first-child::before {
+	left: 11rpx;
+	top: 13rpx;
+}
+
+.wechat-login-icon view:first-child::after {
+	left: 25rpx;
+	top: 13rpx;
+}
+
+.wechat-login-icon view:last-child {
+	right: 0;
+	bottom: 0;
+	width: 38rpx;
+	height: 32rpx;
+	box-shadow: 0 0 0 4rpx #1684F6;
+}
+
+.wechat-login-icon view:last-child::before {
+	left: 10rpx;
+	top: 11rpx;
+}
+
+.wechat-login-icon view:last-child::after {
+	left: 23rpx;
+	top: 11rpx;
 }
 
 .login-consent-panel {
-	position: absolute;
-	left: 75rpx;
-	top: 1238rpx;
+	position: relative;
 	z-index: 5;
-	width: 600rpx;
+	width: 100%;
 	min-height: 72rpx;
-	padding: 0;
+	margin-top: 80rpx;
+	padding: 0 12rpx;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -11904,7 +13332,7 @@ onUnmounted(() => {
 	gap: 7rpx;
 	font-size: 23rpx;
 	line-height: 1.4;
-	color: #5F6E86;
+	color: #8A97AA;
 	text-align: center;
 }
 
@@ -11938,21 +13366,28 @@ onUnmounted(() => {
 	text-decoration: underline;
 }
 
+.login-save-tip {
+	margin-top: 34rpx;
+	font-size: 24rpx;
+	line-height: 1.4;
+	color: #A2ACBA;
+	text-align: center;
+}
+
 .phone-login {
-	position: absolute;
-	left: 220rpx;
-	top: 1280rpx;
+	position: relative;
 	z-index: 4;
-	width: 310rpx;
-	height: 72rpx;
+	width: 280rpx;
+	height: 64rpx;
+	margin: 38rpx auto 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	border: 2rpx solid #E4ECF7;
+	border: 2rpx solid rgba(30, 111, 224, 0.18);
 	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.82);
-	color: #0F1F3A;
-	font-size: 26rpx;
+	background: rgba(255, 255, 255, 0.72);
+	color: #1E6FE0;
+	font-size: 24rpx;
 	font-weight: 700;
 }
 

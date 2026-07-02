@@ -11,11 +11,19 @@ function loadWorkflowModule() {
 }
 
 const CREATE_ORDER_LIMIT = { windowMs: 60 * 1000, max: 8 }
+const DUPLICATE_ORDER_WINDOW_MS = 10 * 60 * 1000
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 const SUBSCRIPTION_SCENE_LABELS = {
   repair_submitted: '报修已提交',
+  order_received: '设备已签收',
+  inspection_completed: '检测已完成',
+  quote_issued: '维修报价已发布',
   payment_confirmed: '付款已确认',
+  payment_rejected: '凭证已驳回',
+  repair_started: '开始维修',
+  order_shipped: '设备已回寄',
   order_completed: '工单已完成',
+  invoice_issued: '发票已开具',
   review_invite: '邀请服务评价'
 }
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
@@ -193,8 +201,17 @@ function getWechatPayConfig() {
   return config
 }
 
+// ⚠️ TEMP-DEV-LOGIN：固定测试 token，仅当云函数环境变量 DEV_LOGIN_ENABLED='true' 时才生效。
+// 生产环境务必不要设置该变量；不设置时此后门完全失效，外部即使拿到该 token 也无法登录。
+const DEV_FIXED_TOKEN = 'devtestfixedtoken00000000000000000000000000000000000000000000abcd'
+const DEV_TEST_UID = 'devtestuser0001'
+const DEV_LOGIN_ENABLED = process.env.DEV_LOGIN_ENABLED === 'true'
+
 async function verifyUserToken(token) {
   if (!token) throw new Error('鉴权失败')
+  if (DEV_LOGIN_ENABLED && token === DEV_FIXED_TOKEN) {
+    return { _id: DEV_TEST_UID, phone: '13800138000', role: 'user', nickname: '开发测试用户', disabled: false, token_expire: Date.now() + 365 * 24 * 3600 * 1000 }
+  }
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
   if (!user || user.disabled) throw new Error('鉴权失败')
@@ -223,6 +240,10 @@ function normalizePage(page, pageSize) {
 
 function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
+}
+
+function isPaymentConfirmedStatus(value = '') {
+  return ['paid', '已付款', '已支付', '已核款', '核款通过', '付款已确认'].includes(normalizeText(value))
 }
 
 function normalizePhoneLast4(value) {
@@ -298,6 +319,49 @@ function normalizeOrderTimeline(timeline = []) {
   }))
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// 物流轨迹：快递鸟适配层（先留接口）
+// provider=none 时返回 { configured:false }，上层回退到按工单状态合成的轨迹。
+// 接通真实 API 后只需把 EXPRESS_PROVIDER 改为 'kdniao' 并实现 fetchRealTrack，
+// 其余调用方（queryPackageStatus / 录入校验 / 轮询）无需改动。
+// ───────────────────────────────────────────────────────────────────────────
+const EXPRESS_PROVIDER = 'none' // 'none' | 'kdniao'
+const TRACK_CACHE_TTL = 30 * 60 * 1000 // 服务端缓存有效期：30 分钟
+const STAGNANT_MS = 72 * 60 * 60 * 1000 // 运输中超 72h 无更新视为停滞
+
+// 真实物流查询桩：未配置时统一返回 configured:false，调用方据此回退到合成轨迹。
+async function fetchRealTrack(company, trackingNo) {
+  if (EXPRESS_PROVIDER === 'none') return { configured: false, success: false, tracks: [] }
+  // TODO(kdniao): 在此调用快递鸟即时查询 API，解析 Success/Traces，返回标准化 tracks。
+  return { configured: false, success: false, tracks: [] }
+}
+
+// 读取工单上的物流轨迹缓存（按段+单号命中且未过期才有效）
+function readTrackCache(order = {}, type = 'out', trackingNo = '') {
+  const cache = (order.track_cache && order.track_cache[type]) || null
+  if (!cache || cache.trackingNo !== trackingNo) return null
+  if (!cache.fetchedAt || Date.now() - cache.fetchedAt > TRACK_CACHE_TTL) return null
+  return Array.isArray(cache.tracks) ? cache.tracks : null
+}
+
+// 合并相邻的同网点/同文案节点，避免大量重复刷屏（输入按时间正序）
+function mergeAdjacentTimeline(rows = []) {
+  const out = []
+  for (const row of rows) {
+    const prev = out[out.length - 1]
+    if (prev && prev.title === row.title && prev.desc === row.desc) continue
+    out.push(row)
+  }
+  return out
+}
+
+// 取最新一条有时间的节点时间戳（用于停滞判定）。轨迹时间为字符串时尽力解析。
+function latestTrackTs(order = {}, type = 'out') {
+  const info = getShipInfo(order, type)
+  const base = Number(order.update_time) || Number(info.shippedAt) || Number(order.create_time) || 0
+  return base
+}
+
 function normalizeQuoteItems(items = []) {
   if (!Array.isArray(items)) return []
   return items.map((item = {}) => ({
@@ -369,6 +433,8 @@ function exposeQuoteFields(order = {}) {
     totalPrice: totalFee,
     paymentStatus: order.payment_status || order.paymentStatus || 'pending',
     payment_status: order.payment_status || order.paymentStatus || 'pending',
+    paymentRejectReason: order.payment_reject_reason || order.paymentRejectReason || '',
+    payment_reject_reason: order.payment_reject_reason || order.paymentRejectReason || '',
     paymentDeadline: Number(order.payment_deadline ?? order.paymentDeadline ?? 0) || 0,
     payment_deadline: Number(order.payment_deadline ?? order.paymentDeadline ?? 0) || 0,
     quoteWarrantyMonths: Number(order.quote_warranty_months ?? order.quoteWarrantyMonths ?? 0) || 0,
@@ -416,6 +482,27 @@ function getShipInfo(order = {}, type = 'out') {
   }
 }
 
+function normalizeExpressCompany(value = '') {
+  const text = normalizeText(value).toUpperCase().replace(/\s/g, '')
+  if (!text) return ''
+  if (/顺丰|SF|S\.F/.test(text)) return '顺丰'
+  if (/德邦|DEPPON|DPK/.test(text)) return '德邦'
+  if (/韵达|YUNDA|YD/.test(text)) return '韵达'
+  if (/中通|ZTO/.test(text)) return '中通'
+  if (/圆通|YTO/.test(text)) return '圆通'
+  if (/申通|STO/.test(text)) return '申通'
+  if (/邮政|EMS/.test(text)) return '邮政'
+  if (/京东|JD/.test(text)) return '京东'
+  return text
+}
+
+function isCompanyMismatch(inputCompany = '', storedCompany = '') {
+  const input = normalizeExpressCompany(inputCompany)
+  const stored = normalizeExpressCompany(storedCompany)
+  if (!input || !stored) return false
+  return input !== stored
+}
+
 function getPackageStatus(order = {}) {
   const status = order.status || 'pending'
   if (status === 'completed') return { status: 5, statusText: '已完成', tone: 'ok', reached: 4 }
@@ -456,7 +543,8 @@ function buildPackageTimeline(order = {}, matchedType = 'out', fullAccess = fals
     })
   }
 
-  return rows
+  // 合并相邻同网点/同文案节点，避免重复刷屏（返回时间正序，前端负责最新置顶反序）
+  return mergeAdjacentTimeline(rows)
 }
 
 // 单段物流（寄出 out / 回寄 back）：公司+单号+进度(0揽收/1运输/2签收)+时间轴
@@ -477,6 +565,16 @@ function buildPackageSegment(order = {}, type = 'out', fullAccess = false) {
     else if (status === 'shipped') { reached = 1; statusText = '运输中'; tone = 'warn'; available = true }
     else { reached = 0; statusText = '待回寄'; tone = 'muted'; available = Boolean(info.trackingNo) }
   }
+  // 停滞判定：运输中（reached===1，未签收）且最新节点距今超 72h → 红色预警
+  let stagnant = false
+  if (available && reached === 1) {
+    const ts = latestTrackTs(order, type)
+    if (ts && Date.now() - ts > STAGNANT_MS) {
+      stagnant = true
+      tone = 'danger'
+      statusText = '物流停滞'
+    }
+  }
   return {
     type,
     company: info.company,
@@ -485,7 +583,59 @@ function buildPackageSegment(order = {}, type = 'out', fullAccess = false) {
     tone,
     reached,
     available,
+    stagnant,
+    // 未接入快递实时轨迹（EXPRESS_PROVIDER='none'）时节点为工单状态估算，前端据此展示"以快递官方为准"标注
+    realtime: EXPRESS_PROVIDER !== 'none',
     timeline: available ? buildPackageTimeline(order, type, fullAccess) : []
+  }
+}
+
+function buildInvoicePackageSegment(order = {}, fullAccess = false) {
+  const info = order.invoice_info || {}
+  const trackingNo = normalizeText(info.mail_no || info.mailNo)
+  const company = normalizeText(info.mail_company || info.mailCompany)
+  const status = normalizeText(info.status)
+  let reached = 1
+  let statusText = '发票已寄出'
+  let tone = 'warn'
+  if (status === '已签收') {
+    reached = 2
+    statusText = '发票已签收'
+    tone = 'ok'
+  }
+  const timeline = trackingNo
+    ? mergeAdjacentTimeline([
+      {
+        title: '纸质发票寄出',
+        desc: `${company || '物流'} ${trackingNo}`.trim(),
+        time: formatTimelineTime(info.mail_time || info.update_time || order.update_time),
+        pending: false
+      },
+      ...(status === '已签收' ? [{
+        title: '纸质发票已签收',
+        desc: '发票物流已签收，请交由财务归档。',
+        time: formatTimelineTime(info.received_time || info.update_time || order.update_time),
+        pending: false
+      }] : []),
+      ...(fullAccess ? normalizeOrderTimeline(order.timeline).filter(item => String(item.title || '').includes('发票')) : [{
+        title: '隐私保护',
+        desc: '填写收件人手机号后四位后，可查看完整处理记录。',
+        time: '',
+        pending: true
+      }])
+    ])
+    : []
+  return {
+    type: 'invoice',
+    company,
+    trackingNo,
+    status: statusText,
+    tone,
+    reached,
+    available: Boolean(trackingNo),
+    stagnant: false,
+    realtime: false,
+    timeline
   }
 }
 
@@ -496,7 +646,9 @@ async function findOrderByTrackingNo(trackingNo) {
     { field: 'ship_back_info.logistics_no', type: 'back' },
     { field: 'ship_back_info.logisticsNo', type: 'back' },
     { field: 'ship_back_info.return_no', type: 'back' },
-    { field: 'ship_back_info.returnNo', type: 'back' }
+    { field: 'ship_back_info.returnNo', type: 'back' },
+    { field: 'invoice_info.mail_no', type: 'invoice' },
+    { field: 'invoice_info.mailNo', type: 'invoice' }
   ]
 
   for (const item of checks) {
@@ -557,6 +709,42 @@ async function checkRateLimit(scope, identity, config) {
     count: db.command.inc(1),
     update_time: now
   })
+}
+
+async function findRecentDuplicateOrder(userId, items = [], now = Date.now()) {
+  const snKeys = Array.from(new Set((items || [])
+    .map(item => normalizeSn(item && item.sn))
+    .filter(Boolean)))
+  if (!userId || !snKeys.length) return null
+
+  const since = now - DUPLICATE_ORDER_WINDOW_MS
+  const orderRes = await db.collection('cicada_orders')
+    .where({
+      user_id: userId,
+      create_time: db.command.gte(since),
+      status: db.command.neq('cancelled')
+    })
+    .field({ order_no: true, create_time: true, status: true })
+    .orderBy('create_time', 'desc')
+    .limit(20)
+    .get()
+
+  const orders = orderRes.data || []
+  if (!orders.length) return null
+  const orderIds = orders.map(order => order._id).filter(Boolean)
+  if (!orderIds.length) return null
+
+  const itemRes = await db.collection('cicada_order_items')
+    .where({
+      order_id: db.command.in(orderIds),
+      sn_normalized: db.command.in(snKeys)
+    })
+    .field({ order_id: true, sn: true, sn_normalized: true })
+    .limit(20)
+    .get()
+  const matched = itemRes.data && itemRes.data[0]
+  if (!matched) return null
+  return orders.find(order => order._id === matched.order_id) || null
 }
 
 function randomNonce(size = 16) {
@@ -663,6 +851,70 @@ function parseHttpBody(ctx) {
   if (!httpInfo || !httpInfo.body) return null
   if (typeof httpInfo.body === 'object') return httpInfo.body
   return JSON.parse(httpInfo.body)
+}
+
+// 取请求头（uniCloud 会将头名小写化，这里做大小写无关匹配）
+function getHeaderValue(headers = {}, name = '') {
+  if (!headers) return ''
+  const lower = String(name).toLowerCase()
+  for (const key of Object.keys(headers)) {
+    if (String(key).toLowerCase() === lower) return headers[key]
+  }
+  return ''
+}
+
+// 取微信支付回调的“原始报文字符串”（验签必须用未经二次序列化的原文）
+function getRawHttpBody(httpInfo) {
+  if (!httpInfo || httpInfo.body === undefined || httpInfo.body === null) return ''
+  if (typeof httpInfo.body !== 'string') return JSON.stringify(httpInfo.body)
+  return httpInfo.isBase64Encoded ? Buffer.from(httpInfo.body, 'base64').toString('utf8') : httpInfo.body
+}
+
+// 微信支付平台公钥/平台证书（公钥模式优先）：从云函数环境变量读取
+function getWechatPayPlatformPublicKey() {
+  const base64 = getEnvValue('WX_PAY_PLATFORM_PUBLIC_KEY_BASE64', 'WXPAY_PLATFORM_PUBLIC_KEY_BASE64', 'WECHAT_PAY_PLATFORM_PUBLIC_KEY_BASE64')
+  if (base64) return Buffer.from(base64, 'base64').toString('utf8')
+  return getEnvValue('WX_PAY_PLATFORM_PUBLIC_KEY', 'WXPAY_PLATFORM_PUBLIC_KEY', 'WECHAT_PAY_PLATFORM_PUBLIC_KEY', 'WX_PAY_PLATFORM_CERT')
+}
+
+// 兼容“平台证书 PEM”与“平台公钥 PEM”两种配置形态
+function resolveWechatPayVerifyKey(pem) {
+  const text = String(pem || '').trim()
+  if (!text) return null
+  if (text.includes('BEGIN CERTIFICATE')) {
+    try {
+      return crypto.X509Certificate ? new crypto.X509Certificate(text).publicKey : text
+    } catch (e) {
+      return text
+    }
+  }
+  return text
+}
+
+// 校验微信支付 v3 异步通知签名 + 时间戳防重放。
+// 配置了平台公钥则强制验签（失败抛错，微信会重试）；未配置则告警并退化为“仅 APIv3 解密 + 服务端查单”兜底。
+function verifyWechatPayNotifySignature(httpInfo, rawBody) {
+  const publicKeyPem = getWechatPayPlatformPublicKey()
+  if (!publicKeyPem) {
+    console.warn('[wechatPayNotify] 未配置微信支付平台公钥(WX_PAY_PLATFORM_PUBLIC_KEY)，已跳过验签，仅依赖 APIv3 解密 + 服务端查单。请尽快在云函数环境变量中配置以启用验签与防重放。')
+    return { verified: false, skipped: true }
+  }
+  const headers = (httpInfo && httpInfo.headers) || {}
+  const timestamp = getHeaderValue(headers, 'Wechatpay-Timestamp')
+  const nonce = getHeaderValue(headers, 'Wechatpay-Nonce')
+  const signature = getHeaderValue(headers, 'Wechatpay-Signature')
+  if (!timestamp || !nonce || !signature) {
+    throw new Error('微信支付通知缺少验签请求头')
+  }
+  const ts = Number(timestamp) * 1000
+  if (!ts || Math.abs(Date.now() - ts) > 5 * 60 * 1000) {
+    throw new Error('微信支付通知时间戳超出有效期（防重放）')
+  }
+  const message = `${timestamp}\n${nonce}\n${rawBody}\n`
+  const verifyKey = resolveWechatPayVerifyKey(publicKeyPem)
+  const ok = crypto.createVerify('RSA-SHA256').update(message, 'utf8').verify(verifyKey, signature, 'base64')
+  if (!ok) throw new Error('微信支付通知验签失败')
+  return { verified: true }
 }
 
 async function confirmWechatPaySuccess(outTradeNo, order = null) {
@@ -926,9 +1178,10 @@ async function computeOrderWarranty(userId, items = []) {
 module.exports = {
   _before() {},
 
-  async queryPackageStatus({ token = '', trackingNo = '', phoneLast4 = '' }) {
+  async queryPackageStatus({ token = '', trackingNo = '', phoneLast4 = '', company = '', logisticsCompany = '' }) {
     try {
       const normalizedTrackingNo = normalizeText(trackingNo).replace(/\s/g, '')
+      const inputCompany = normalizeText(company || logisticsCompany)
       if (!normalizedTrackingNo) return { code: -1, msg: '请输入快递单号' }
       if (!/^[A-Za-z0-9-]{6,40}$/.test(normalizedTrackingNo)) {
         return { code: -1, msg: '快递单号格式不正确' }
@@ -938,9 +1191,18 @@ module.exports = {
       if (!found || !found.order) return { code: 0, data: null }
 
       const { order, matchedType } = found
-      const shipBackInfo = order.ship_back_info || {}
+      const matchedCompany = matchedType === 'invoice'
+        ? normalizeText((order.invoice_info || {}).mail_company || (order.invoice_info || {}).mailCompany)
+        : getShipInfo(order, matchedType).company
+      if (isCompanyMismatch(inputCompany, matchedCompany)) {
+        return {
+          code: -1,
+          msg: `该单号已关联${matchedCompany || '其他快递公司'}，与当前选择的${inputCompany}不一致，请切换快递公司后重试。`
+        }
+      }
+      const shipBackInfo = matchedType === 'invoice' ? (order.invoice_info || {}) : (order.ship_back_info || {})
       const storedLast4 = normalizePhoneLast4(
-        shipBackInfo.phone || shipBackInfo.mobile || shipBackInfo.receiverPhone || shipBackInfo.receiver_phone
+        shipBackInfo.phone || shipBackInfo.mobile || shipBackInfo.receiverPhone || shipBackInfo.receiver_phone || shipBackInfo.recipient_phone
       )
       const inputLast4 = normalizePhoneLast4(phoneLast4)
       let isOwner = false
@@ -954,16 +1216,33 @@ module.exports = {
         }
       }
 
-      const fullAccess = Boolean(isOwner || (storedLast4 && inputLast4 && storedLast4 === inputLast4))
+      const phoneLast4Matched = Boolean(storedLast4 && inputLast4 && storedLast4 === inputLast4)
+      const privacyLimited = Boolean(!isOwner && inputLast4 && !phoneLast4Matched)
+      const fullAccess = Boolean(isOwner || phoneLast4Matched)
+      // 设备型号：取工单首个维修产品名，供卡片底部「工单号+型号」防混淆展示
+      let model = ''
+      try {
+        const itemRes = await db.collection('cicada_order_items')
+          .where({ order_id: order._id })
+          .limit(1)
+          .get()
+        const firstItem = itemRes.data && itemRes.data[0]
+        if (firstItem) model = normalizeText(firstItem.product_model || firstItem.product_name || firstItem.model || firstItem.name)
+      } catch (e) {
+        model = ''
+      }
       // 返回寄出 + 回寄两段，供前端双 tab 展示（matchedType 用于默认选中输入单号匹配的那段）
       return {
         code: 0,
         data: {
           trackingNo: normalizedTrackingNo,
           orderId: fullAccess ? (order.order_no || order._id || '') : '',
+          model: fullAccess ? model : '',
           matchedType,
+          phoneLast4Matched,
+          privacyLimited,
           out: buildPackageSegment(order, 'out', fullAccess),
-          back: buildPackageSegment(order, 'back', fullAccess)
+          back: matchedType === 'invoice' ? buildInvoicePackageSegment(order, fullAccess) : buildPackageSegment(order, 'back', fullAccess)
         }
       }
     } catch (e) {
@@ -985,6 +1264,18 @@ module.exports = {
       }
 
       const now = Date.now()
+      const duplicateOrder = await findRecentDuplicateOrder(user._id, items, now)
+      if (duplicateOrder) {
+        return {
+          code: 0,
+          msg: '检测到该设备刚提交过报修，已为您返回最近工单',
+          data: {
+            order_id: duplicateOrder._id,
+            order_no: duplicateOrder.order_no || duplicateOrder._id,
+            duplicate: true
+          }
+        }
+      }
       const order_no = genOrderNo()
       // 身份桥：下单即匹配/建档 CRM 客户，并把 customer_id 落到工单上
       let customerId = ''
@@ -1113,7 +1404,7 @@ module.exports = {
       const user = await verifyUserToken(token)
       const res = await db.collection('cicada_orders')
         .where({ user_id: user._id })
-        .field({ status: true })
+        .field({ status: true, total_price: true, payment_status: true, invoice_info: true })
         .limit(1000)
         .get()
 
@@ -1121,9 +1412,21 @@ module.exports = {
         pending: 0, sent: 0, received: 0, inspecting: 0,
         fixing: 0, shipped: 0, completed: 0, cancelled: 0
       }
+      const todo = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
       ;(res.data || []).forEach(order => {
         const status = String(order.status || '').trim()
         if (Object.prototype.hasOwnProperty.call(byStatus, status)) byStatus[status] += 1
+        if (!['completed', 'cancelled'].includes(status)) todo.unfinished += 1
+        const paymentStatus = normalizeText(order.payment_status || 'pending')
+        const hasPayableAmount = Number(order.total_price || 0) > 0
+        if (hasPayableAmount && !isPaymentConfirmedStatus(paymentStatus) && !['refunded', 'cancelled'].includes(paymentStatus)) todo.payment += 1
+        if (status === 'shipped') todo.receipt += 1
+        const invoiceInfo = order.invoice_info || {}
+        const invoiceStatus = normalizeText(invoiceInfo.status)
+        const invoiceClosed = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收'].includes(invoiceStatus)
+        if (hasPayableAmount && isPaymentConfirmedStatus(paymentStatus) && !invoiceInfo.need_invoice && !invoiceClosed) {
+          todo.invoice += 1
+        }
       })
 
       const total = (res.data || []).length
@@ -1133,7 +1436,7 @@ module.exports = {
       const shipped = byStatus.shipped
       const completed = byStatus.completed
 
-      return { code: 0, data: { total, pending, fixing, shipped, completed, byStatus } }
+      return { code: 0, data: { total, pending, fixing, shipped, completed, byStatus, todo } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -1170,12 +1473,23 @@ module.exports = {
           title: info.title || '',
           taxNo: info.tax_no || '',
           email: info.email || '',
+          registerAddress: info.register_address || '',
+          registerPhone: info.register_phone || '',
+          bankName: info.bank_name || '',
+          bankAccount: info.bank_account || '',
+          recipientName: info.recipient_name || '',
+          recipientPhone: info.recipient_phone || '',
+          recipientAddress: info.recipient_address || '',
           remark: info.remark || '',
           status: info.status || '待开票',
           fileUrl: info.file_url || info.invoice_url || '',
           invoiceUrl: info.invoice_url || info.file_url || '',
+          invoicePdfUrl: info.pdf_url || info.invoice_url || info.file_url || '',
           invoiceNo: info.invoice_no || '',
           invoiceDate: info.invoice_date || '',
+          mailCompany: info.mail_company || '',
+          mailNo: info.mail_no || '',
+          mailTime: info.mail_time || '',
           applyTime: info.apply_time || order.create_time || 0,
           updateTime: info.update_time || order.update_time || 0
         }
@@ -1201,6 +1515,56 @@ module.exports = {
           .get()
         : { data: [] }
       return { code: 0, data: { ...order, ...exposeQuoteFields(order), items: itemsRes.data } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 客户补录寄出物流：适配“先提交报修，快递员取件后再补单号”的真实门店流程
+  async updateOutboundLogistics({ token, order_id, logisticsCompany = '', logistics_company = '', trackingNo = '', logisticsNo = '' }) {
+    try {
+      const user = await verifyUserToken(token)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      const order = await findOwnedOrder(user._id, order_id)
+      if (!order) return { code: -1, msg: '工单不存在或无权限' }
+
+      const company = normalizeText(logistics_company || logisticsCompany)
+      const no = normalizeText(trackingNo || logisticsNo).replace(/\s/g, '')
+      if (!company) return { code: -1, msg: '请选择物流公司' }
+      if (!/^[A-Za-z0-9-]{6,32}$/.test(no)) return { code: -1, msg: '请输入正确运单号' }
+
+      const now = Date.now()
+      const oldShipOut = order.ship_out_info || {}
+      const shipOutInfo = {
+        ...oldShipOut,
+        logistics_company: company,
+        logistics_no: no,
+        update_time: now
+      }
+      const updateData = {
+        ship_out_info: shipOutInfo,
+        update_time: now
+      }
+      if (order.status === 'pending') updateData.status = 'sent'
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const lastTimeline = timeline[timeline.length - 1] || {}
+      const nextDesc = `${company} ${no}`
+      if (normalizeText(lastTimeline.title) !== '已补充寄出物流' || normalizeText(lastTimeline.desc) !== nextDesc) {
+        updateData.timeline = [
+          ...timeline,
+          { title: '已补充寄出物流', desc: nextDesc, time: now, done: true }
+        ]
+      }
+
+      await db.collection('cicada_orders').doc(order._id).update(updateData)
+      await logOrderEvent({
+        order,
+        action: 'update_outbound_logistics',
+        actor: user,
+        before: { ship_out_info: oldShipOut, status: order.status },
+        after: { ship_out_info: shipOutInfo, status: updateData.status || order.status }
+      })
+      return { code: 0, msg: '寄出物流已补充', data: { logistics_company: company, logistics_no: no, status: updateData.status || order.status } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -1609,7 +1973,7 @@ module.exports = {
       if (order.payment_status === 'paid') {
         return { code: -1, msg: '该工单已支付，无需重复付款' }
       }
-      if (order.payment_status === 'uploaded' || (Array.isArray(order.payment_proofs) && order.payment_proofs.length)) {
+      if (order.payment_status === 'uploaded') {
         return { code: -1, msg: '该工单已上传对公转账凭证，请等待后台核销' }
       }
 
@@ -1721,10 +2085,20 @@ module.exports = {
     }
   },
 
-  // 微信支付异步通知兜底：解密通知后仍以服务端查单结果为准
+  // 微信支付异步通知：先验签（平台公钥 + 时间戳防重放），再 APIv3 解密，最后仍以服务端查单结果为准。
   async wechatPayNotify(params = {}) {
     try {
-      const body = params && params.resource ? params : (parseHttpBody(this) || {})
+      const httpInfo = this && this.getHttpInfo && this.getHttpInfo()
+      let body
+      if (httpInfo && httpInfo.body !== undefined && httpInfo.body !== null) {
+        // 真实 webhook 路径：用原始报文验签后再解析
+        const rawBody = getRawHttpBody(httpInfo)
+        verifyWechatPayNotifySignature(httpInfo, rawBody)
+        body = rawBody ? JSON.parse(rawBody) : {}
+      } else {
+        // 无 HTTP 上下文的直连兜底（仅内部联调），无法验签，依赖 APIv3 解密 + 服务端查单
+        body = params && params.resource ? params : {}
+      }
       const transaction = decryptWechatPayResource(body.resource || {})
       const outTradeNo = normalizeOutTradeNo(transaction.out_trade_no)
       if (!outTradeNo) throw new Error('微信支付通知缺少商户订单号')
@@ -1763,6 +2137,8 @@ module.exports = {
 
       const proofs = Array.isArray(order.payment_proofs) ? order.payment_proofs : []
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const lastTimeline = timeline[timeline.length - 1] || {}
+      const shouldAppendPaymentProofTimeline = normalizeText(lastTimeline.title) !== '客户已上传付款凭证'
       const confirmPatch = (order.quote_status !== 'confirmed' || order.authorization_status !== 'confirmed')
         ? {
             quote_status: 'confirmed',
@@ -1774,6 +2150,8 @@ module.exports = {
         ...confirmPatch,
         payment_status: 'uploaded',
         payment_method: 'offline_transfer',
+        payment_reject_reason: '',
+        payment_reject_time: 0,
         payment_proofs: [...proofs, nextProof],
         timeline: [
           ...timeline,
@@ -1783,12 +2161,12 @@ module.exports = {
             time: now,
             done: true
           }] : []),
-          {
+          ...(shouldAppendPaymentProofTimeline ? [{
             title: '客户已上传付款凭证',
             desc: '等待后台核对到账。',
             time: now,
             done: true
-          }
+          }] : [])
         ],
         update_time: now
       }
@@ -1827,6 +2205,20 @@ module.exports = {
     taxNo = '',
     tax_no = '',
     email = '',
+    registerAddress = '',
+    register_address = '',
+    registerPhone = '',
+    register_phone = '',
+    bankName = '',
+    bank_name = '',
+    bankAccount = '',
+    bank_account = '',
+    recipientName = '',
+    recipient_name = '',
+    recipientPhone = '',
+    recipient_phone = '',
+    recipientAddress = '',
+    recipient_address = '',
     remark = ''
   }) {
     try {
@@ -1835,11 +2227,13 @@ module.exports = {
       const order = await findOwnedOrder(user._id, targetOrderId)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (order.status === 'cancelled') return { code: -1, msg: '已取消工单不可申请开票' }
-      const billable = Number(order.total_price || 0) > 0 && order.payment_status === 'paid'
-      if (!['completed', 'shipped'].includes(order.status) && !billable) {
-        return { code: -1, msg: '维修完成或付款到账后才可申请开票' }
+      const billable = Number(order.total_price || 0) > 0 && isPaymentConfirmedStatus(order.payment_status)
+      if (!billable) {
+        return { code: -1, msg: '仅已付款或已核款工单可申请开票' }
       }
 
+      const invoiceKind = normalizeText(invoice_type || invoiceType || '电子普通发票') || '电子普通发票'
+      const isPaperSpecial = invoiceKind === '纸质专用发票'
       const invoiceTitle = normalizeText(title)
       const invoiceTitleType = normalizeText(title_type || titleType || 'company') || 'company'
       const invoiceTaxNo = normalizeText(tax_no || taxNo)
@@ -1848,6 +2242,17 @@ module.exports = {
       if (invoiceTitleType === 'company' && !invoiceTaxNo) return { code: -1, msg: '请填写税号' }
       if (!invoiceEmail) return { code: -1, msg: '请填写接收邮箱' }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invoiceEmail)) return { code: -1, msg: '接收邮箱格式不正确' }
+      if (isPaperSpecial) {
+        if (invoiceTitleType !== 'company') return { code: -1, msg: '纸质专票必须使用企业抬头' }
+        if (!normalizeText(register_address || registerAddress)) return { code: -1, msg: '请填写注册地址' }
+        if (!normalizeText(register_phone || registerPhone)) return { code: -1, msg: '请填写注册电话' }
+        if (!normalizeText(bank_name || bankName)) return { code: -1, msg: '请填写开户行' }
+        if (!normalizeText(bank_account || bankAccount)) return { code: -1, msg: '请填写银行账号' }
+        if (!normalizeText(recipient_name || recipientName)) return { code: -1, msg: '请填写收票人' }
+        const normalizedRecipientPhone = normalizeText(recipient_phone || recipientPhone).replace(/\D/g, '')
+        if (!/^1[3-9]\d{9}$/.test(normalizedRecipientPhone)) return { code: -1, msg: '收票手机号格式不正确' }
+        if (!normalizeText(recipient_address || recipientAddress)) return { code: -1, msg: '请填写收票地址' }
+      }
 
       const now = Date.now()
       const oldInvoice = order.invoice_info || {}
@@ -1855,11 +2260,18 @@ module.exports = {
         ...oldInvoice,
         need_invoice: true,
         status: '待开票',
-        invoice_type: normalizeText(invoice_type || invoiceType || '电子普通发票') || '电子普通发票',
+        invoice_type: invoiceKind,
         title_type: invoiceTitleType,
         title: invoiceTitle,
         tax_no: invoiceTaxNo,
         email: invoiceEmail,
+        register_address: normalizeText(register_address || registerAddress),
+        register_phone: normalizeText(register_phone || registerPhone),
+        bank_name: normalizeText(bank_name || bankName),
+        bank_account: normalizeText(bank_account || bankAccount),
+        recipient_name: normalizeText(recipient_name || recipientName),
+        recipient_phone: normalizeText(recipient_phone || recipientPhone).replace(/\D/g, ''),
+        recipient_address: normalizeText(recipient_address || recipientAddress),
         remark: normalizeText(remark),
         apply_time: oldInvoice.apply_time || now,
         update_time: now

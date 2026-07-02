@@ -11,6 +11,28 @@
       </div>
     </section>
 
+    <section v-if="showOverview" class="overview-section" v-loading="overviewLoading">
+      <div class="overview-header">
+        <div class="overview-title">
+          <ShadBadge variant="primary">本月经营概览</ShadBadge>
+          <span class="overview-hint">数据截至今日 · 点击数字可下钻</span>
+        </div>
+        <span class="overview-more" @click="navigateTo('summary', '')">查看完整运营统计 →</span>
+      </div>
+      <div class="overview-grid">
+        <ShadCard
+          v-for="card in overviewCards"
+          :key="card.key"
+          clickable
+          class="overview-card"
+          @click="goOverview(card)"
+        >
+          <div class="overview-label">{{ card.title }}</div>
+          <div class="overview-value" :class="card.accent">{{ card.value }}<small>{{ card.unit }}</small></div>
+        </ShadCard>
+      </div>
+    </section>
+
     <div class="stat-grid">
       <ShadCard
         v-for="item in statCards"
@@ -53,8 +75,9 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { getStatistics, getTodoSummary } from '../api/order.js'
+import { getStatistics, getTodoSummary, getDashboardSummary } from '../api/order.js'
 import { getFeedbackStats } from '../api/admin.js'
+import { canAccessMenu } from '../config/menuAccess.js'
 import ShadCard from '../components/ui/ShadCard.vue'
 import ShadBadge from '../components/ui/ShadBadge.vue'
 
@@ -63,6 +86,11 @@ const stats = ref({ pendingCount: 0, todayCount: 0, unreadCount: 0 })
 const todoGroups = ref([])
 const todoLoading = ref(false)
 const todoError = ref('')
+
+// 经营概览条：仅管理 / 财务可见（与「运营统计」同权限），工程师 / 客服不显示
+const showOverview = canAccessMenu('summary')
+const overview = ref({ newOrders: 0, completedOrders: 0, quotePendingOrders: 0, invoicePendingOrders: 0, avgHandleHours: 0, paidAmount: 0 })
+const overviewLoading = ref(false)
 
 const fallbackTodoGroups = [
   { key: 'inbound', title: '待签收', desc: '客户已提交或运输中的工单', count: 0 },
@@ -130,6 +158,56 @@ const statCards = computed(() => [
   }
 ])
 
+// 本月经营概览卡：只放数字 + 可点击下钻，趋势分析仍在「运营统计」页
+const fmtMoney = (n) => Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+const overviewCards = computed(() => [
+  { key: 'paidAmount', title: '本月已收', value: fmtMoney(overview.value.paidAmount), unit: '元', accent: 'is-success', route: 'settlement' },
+  { key: 'newOrders', title: '本月新增工单', value: overview.value.newOrders || 0, unit: '件', accent: 'is-primary', route: 'summary' },
+  { key: 'completedOrders', title: '本月完工', value: overview.value.completedOrders || 0, unit: '件', accent: 'is-dark', route: 'summary' },
+  { key: 'quotePendingOrders', title: '待报价', value: overview.value.quotePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'workorder', todo: 'quote' },
+  { key: 'invoicePendingOrders', title: '待开票', value: overview.value.invoicePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'invoices' },
+  { key: 'avgHandleHours', title: '平均处理时长', value: overview.value.avgHandleHours || 0, unit: '小时', accent: 'is-dark', route: 'summary' }
+])
+
+const monthRangeParams = () => {
+  const now = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  const startDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
+  const endDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  return { startDate, endDate, granularity: 'day' }
+}
+
+const loadOverview = async () => {
+  if (!showOverview) return
+  const token = localStorage.getItem('adminToken')
+  if (!token) return
+  overviewLoading.value = true
+  try {
+    const res = await getDashboardSummary(token, monthRangeParams())
+    const data = res?.data || res || {}
+    const metrics = data.metrics || data
+    overview.value = {
+      newOrders: Number(metrics.newOrders || 0),
+      completedOrders: Number(metrics.completedOrders || 0),
+      quotePendingOrders: Number(metrics.quotePendingOrders || 0),
+      invoicePendingOrders: Number(metrics.invoicePendingOrders || 0),
+      avgHandleHours: Number(metrics.avgHandleHours || 0),
+      paidAmount: Number(metrics.paidAmount || 0)
+    }
+  } catch (e) {
+    // 概览条为辅助信息，失败静默（不打断待办主流程）
+    console.warn('加载经营概览失败:', e)
+  } finally {
+    overviewLoading.value = false
+  }
+}
+
+const goOverview = (card) => {
+  if (!card || !card.route) return
+  router.push({ path: '/' + card.route, query: card.todo ? { todo: card.todo } : {} })
+}
+
 const loadStats = async () => {
   const token = localStorage.getItem('adminToken')
   if (!token) {
@@ -169,6 +247,7 @@ const navigateTodo = (todoType) => {
 
 onMounted(() => {
   loadStats()
+  loadOverview()
 })
 </script>
 
@@ -215,6 +294,23 @@ onMounted(() => {
   font-weight: 700;
   cursor: pointer;
 }
+/* 本月经营概览条：紧凑 KPI，区别于下方大号待办卡 */
+.overview-section { display: grid; gap: 14px; }
+.overview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.overview-title { display: flex; align-items: center; gap: 12px; }
+.overview-hint { font-size: 13px; color: #64748b; }
+.overview-more { font-size: 14px; font-weight: 700; color: #2563eb; cursor: pointer; white-space: nowrap; }
+.overview-more:hover { text-decoration: underline; }
+.overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.overview-card { padding: 18px 20px; min-height: 96px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+.overview-label { font-size: 14px; font-weight: 700; color: #536783; }
+.overview-value { font-size: 26px; font-weight: 900; line-height: 1.1; color: #0f172a; word-break: break-all; }
+.overview-value small { margin-left: 6px; font-size: 13px; font-weight: 500; color: #64748b; }
+.overview-value.is-primary { color: hsl(var(--primary)); }
+.overview-value.is-success { color: #16a34a; }
+.overview-value.is-warning { color: #f97316; }
+.overview-value.is-dark { color: hsl(var(--foreground)); }
+
 .stat-grid, .todo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
 .stat-card { padding: 26px 24px 22px; min-height: 184px; }
 .stat-head, .todo-title, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -246,5 +342,7 @@ onMounted(() => {
   .hero-copy h2 { font-size: 28px; }
   .hero-copy p { font-size: 18px; }
   .stat-grid, .todo-grid { grid-template-columns: 1fr; }
+  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-header { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
 </style>

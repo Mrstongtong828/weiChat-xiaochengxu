@@ -199,8 +199,20 @@ export const uploadVideo = (filePath) => uploadToCloud(filePath, 'repair/videos'
 export const uploadFeedbackImage = (filePath) => uploadToCloud(filePath, 'feedback/images', 'jpg')
 
 export const getWarrantyPolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy'] }).then(unwrapCloudResult)
-	return settingDoc('保修政策', settings.warranty_policy)
+	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy', 'warranty_policy_sections'] }).then(unwrapCloudResult)
+	// 分块结构化配置（后台可编辑的 JSON 数组 [{title, content}]）；无配置或解析失败时回退整段富文本
+	let sections = []
+	try {
+		const parsed = JSON.parse(settings.warranty_policy_sections || '[]')
+		if (Array.isArray(parsed)) {
+			sections = parsed
+				.filter((item) => item && (item.title || item.content))
+				.map((item) => ({ title: String(item.title || ''), content: String(item.content || '') }))
+		}
+	} catch (e) {
+		sections = []
+	}
+	return { ...settingDoc('保修政策', settings.warranty_policy), sections }
 }
 
 export const getFeePolicy = async () => {
@@ -210,8 +222,11 @@ export const getFeePolicy = async () => {
 
 export const getGuide = (type) => getPublicCloudObject().getGuide({ type }).then(unwrapCloudResult)
 
-// 全部教程/指南（含 category 分类与 media 视频，用于公司介绍「维护保养」等栏目）
-export const getGuides = () => getPublicCloudObject().getGuides({}).then(unwrapCloudResult)
+// 全部教程/指南（含 category 分类与 media 视频，用于公司介绍「产品视频」等栏目）
+// forceRefresh: true 时绕过云函数 5 分钟缓存，确保后台刚保存的内容立即可见
+export const getGuides = (opts = {}) => getPublicCloudObject()
+	.getGuides({ forceRefresh: opts.forceRefresh === true })
+	.then(unwrapCloudResult)
 
 // 首页教程弹窗配置
 export const getHomeGuidePopup = async () => {
@@ -226,14 +241,32 @@ export const getHomeGuidePopup = async () => {
 
 export const getContact = async () => {
 	const settings = await getPublicCloudObject().getSettings({
-		keys: ['contact_phone', 'contact_email', 'contact_address', 'work_time', 'company_name']
+		keys: [
+			'contact_phone',
+			'contact_email',
+			'contact_address',
+			'work_time',
+			'company_name',
+			'bank_transfer_company_name',
+			'bank_transfer_tax_no',
+			'bank_transfer_address_phone',
+			'bank_transfer_bank_name',
+			'bank_transfer_account_no',
+			'bank_transfer_line_no'
+		]
 	}).then(unwrapCloudResult)
 	return {
 		companyName: settings.company_name,
 		phone: settings.contact_phone,
 		email: settings.contact_email,
 		address: settings.contact_address,
-		workTime: settings.work_time
+		workTime: settings.work_time,
+		bankCompanyName: settings.bank_transfer_company_name || '佛山市登煌医疗器械有限公司',
+		bankTaxNo: settings.bank_transfer_tax_no || '91440605688623440U',
+		bankAddressPhone: settings.bank_transfer_address_phone || '佛山市南海区狮山镇罗村广东新光源产业基地核心区内B区5座二层  0757-85775667',
+		bankName: settings.bank_transfer_bank_name || '中国农业银行佛山惠景支行',
+		bankAccount: settings.bank_transfer_account_no || '4442 3201 0400 04288',
+		bankLineNo: settings.bank_transfer_line_no || '103588042208'
 	}
 }
 
@@ -290,10 +323,7 @@ export const getFaultTypes = async () => {
 			productTypeId: item.category_id,
 			productType: categoryName,
 			faultName: item.fault_name,
-			relatedQuestions: item.related_questions || [],
-			checkSteps: item.check_steps || [],
 			solutions: item.fix_solutions || [],
-			confirmInfo: item.related_questions || [],
 			solution: item.fix_solutions || [],
 			isRecommendRepair: item.is_recommend_repair
 		}

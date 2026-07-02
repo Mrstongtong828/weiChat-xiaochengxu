@@ -142,14 +142,6 @@
 				<view class="save-btn tap" @click="saveAddress">保存</view>
 			</view>
 		</view>
-
-		<view class="help-bubble tap" @click="callService">
-			<view class="smile-face">
-				<view class="eye one"></view>
-				<view class="eye two"></view>
-				<view class="mouth"></view>
-			</view>
-		</view>
 	</view>
 </template>
 
@@ -477,27 +469,21 @@ const goBack = () => {
 	uni.navigateBack({
 		delta: 1,
 		fail: () => {
-			uni.redirectTo({ url: '/pages/mine/index' })
+			uni.redirectTo({ url: '/pages-sub/mine/index' })
 		}
 	})
 }
 
-const callService = () => {
-	uni.makePhoneCall({
-		phoneNumber: '13929945417',
-		fail: () => uni.showToast({ title: '可联系售后：13929945417', icon: 'none' })
-	})
-}
 </script>
 
 <style scoped>
 .page-shell {
 	position: relative;
 	min-height: 100vh;
-	padding-bottom: 148rpx;
+	padding-bottom: 176rpx;
 	background:
-		radial-gradient(circle at 16% 18%, rgba(58, 134, 255, 0.18) 0, rgba(58, 134, 255, 0) 230rpx),
-		linear-gradient(180deg, #E8EEFA 0%, #F7FAFF 100%);
+		radial-gradient(circle at 12% 16%, rgba(58, 134, 255, 0.16) 0, rgba(58, 134, 255, 0) 240rpx),
+		linear-gradient(180deg, #EAF2FF 0%, #F7FAFF 58%, #FFFFFF 100%);
 	color: #0F1F3A;
 	font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
 	box-sizing: border-box;
@@ -567,20 +553,20 @@ const callService = () => {
 .address-page,
 .form-page {
 	padding: 28rpx 28rpx 0;
-	padding-top: 176rpx;
+	padding-top: 188rpx;
 	box-sizing: border-box;
 }
 
 .hero-card {
 	position: relative;
 	overflow: hidden;
-	min-height: 220rpx;
-	padding: 34rpx;
+	min-height: 204rpx;
+	padding: 30rpx 32rpx;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 	border-radius: 32rpx;
-	background: linear-gradient(135deg, #FFFFFF 0%, #F1F7FF 100%);
+	background: linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, #F2F8FF 100%);
 	box-shadow: 0 24rpx 60rpx rgba(36, 98, 173, 0.12);
 	box-sizing: border-box;
 }
@@ -615,7 +601,7 @@ const callService = () => {
 }
 
 .hero-title {
-	font-size: 42rpx;
+	font-size: 40rpx;
 	font-weight: 800;
 	color: #0F1F3A;
 }
@@ -630,8 +616,8 @@ const callService = () => {
 .hero-icon {
 	position: relative;
 	z-index: 2;
-	width: 120rpx;
-	height: 120rpx;
+	width: 112rpx;
+	height: 112rpx;
 	border-radius: 36rpx;
 	background: linear-gradient(180deg, #3A86FF 0%, #1E6FE0 100%);
 	box-shadow: 0 20rpx 38rpx rgba(30, 111, 224, 0.28);
@@ -664,12 +650,12 @@ const callService = () => {
 	display: grid;
 	grid-template-columns: repeat(2, 1fr);
 	gap: 18rpx;
-	margin-top: 22rpx;
+	margin-top: 20rpx;
 }
 
 .summary-card {
-	min-height: 132rpx;
-	padding: 24rpx;
+	min-height: 120rpx;
+	padding: 22rpx 24rpx;
 	border-radius: 26rpx;
 	background: rgba(255, 255, 255, 0.78);
 	box-shadow: 0 16rpx 38rpx rgba(60, 85, 130, 0.08);
@@ -806,10 +792,11 @@ const callService = () => {
 }
 
 .empty-card {
-	margin-top: 28rpx;
-	padding: 58rpx 42rpx;
+	margin-top: 24rpx;
+	min-height: 268rpx;
+	padding: 44rpx 42rpx;
 	border-radius: 32rpx;
-	background: rgba(255, 255, 255, 0.82);
+	background: rgba(255, 255, 255, 0.92);
 	box-shadow: 0 18rpx 52rpx rgba(55, 83, 126, 0.08);
 	display: flex;
 	flex-direction: column;
@@ -822,7 +809,7 @@ const callService = () => {
 	position: relative;
 	width: 132rpx;
 	height: 110rpx;
-	margin-bottom: 24rpx;
+	margin-bottom: 20rpx;
 }
 
 .empty-illustration view:first-child {
@@ -863,7 +850,7 @@ const callService = () => {
 	position: fixed;
 	left: 32rpx;
 	right: 32rpx;
-	bottom: calc(34rpx + env(safe-area-inset-bottom));
+	bottom: calc(28rpx + env(safe-area-inset-bottom));
 	z-index: 20;
 	height: 96rpx;
 	border-radius: 28rpx;
@@ -1120,54 +1107,4 @@ const callService = () => {
 	color: #E5484D;
 }
 
-.help-bubble {
-	position: fixed;
-	right: 34rpx;
-	bottom: calc(154rpx + env(safe-area-inset-bottom));
-	z-index: 18;
-	width: 82rpx;
-	height: 82rpx;
-	border-radius: 50%;
-	background: linear-gradient(180deg, #2A97F5 0%, #1E6FE0 100%);
-	box-shadow: 0 18rpx 34rpx rgba(30, 111, 224, 0.28);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-}
-
-.smile-face {
-	position: relative;
-	width: 52rpx;
-	height: 52rpx;
-	border: 4rpx solid #DDF0FF;
-	border-radius: 50%;
-	box-sizing: border-box;
-}
-
-.eye {
-	position: absolute;
-	top: 16rpx;
-	width: 7rpx;
-	height: 7rpx;
-	border-radius: 50%;
-	background: #FFFFFF;
-}
-
-.eye.one {
-	left: 12rpx;
-}
-
-.eye.two {
-	right: 12rpx;
-}
-
-.mouth {
-	position: absolute;
-	left: 14rpx;
-	bottom: 10rpx;
-	width: 18rpx;
-	height: 10rpx;
-	border-bottom: 4rpx solid #FFFFFF;
-	border-radius: 0 0 18rpx 18rpx;
-}
 </style>

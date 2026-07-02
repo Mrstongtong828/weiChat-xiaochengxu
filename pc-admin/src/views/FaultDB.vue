@@ -31,7 +31,7 @@
         <div class="section-title">
           <div>
             <span>「{{ currentCategory.name }}」故障库</span>
-            <p class="section-desc">沉淀常见故障现象、确认方式和处理方案，便于客服和工程师快速定位。</p>
+            <p class="section-desc">维护常见故障现象和对应解决方法，便于客户在小程序内自助查看。</p>
           </div>
           <div class="title-actions">
             <el-button type="primary" @click="openFaultDialog(null)" size="small"><el-icon><Plus /></el-icon> 录入</el-button>
@@ -42,15 +42,13 @@
             <template #empty>
               <div class="table-empty-guide">
                 <strong>暂无故障知识</strong>
-                <span>点击“录入”添加该分类的故障现象、排查步骤和处理方式。</span>
+                <span>点击“录入”添加该分类的故障现象和解决方法。</span>
               </div>
             </template>
-            <el-table-column prop="name" label="故障现象" width="150">
+            <el-table-column prop="name" label="故障现象" min-width="180">
               <template #default="{ row }"><span class="cell-primary">{{ row.name || '-' }}</span></template>
             </el-table-column>
-            <el-table-column prop="desc" label="相关问题" show-overflow-tooltip></el-table-column>
-            <el-table-column prop="checkSteps" label="确认方式" show-overflow-tooltip></el-table-column>
-            <el-table-column prop="solution" label="处理方式" show-overflow-tooltip></el-table-column>
+            <el-table-column prop="solution" label="解决方法" min-width="320" show-overflow-tooltip></el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="160"></el-table-column>
             <el-table-column label="操作" width="130" align="right" fixed="right">
               <template #default="{row}">
@@ -77,9 +75,7 @@
   <el-dialog v-model="faultDialogVisible" :title="isEdit ? '编辑故障' : '新增故障'" width="560px" align-center>
     <el-form :model="faultForm" label-width="90px">
       <el-form-item label="故障现象"><el-input v-model.trim="faultForm.name" placeholder="请输入故障现象"></el-input></el-form-item>
-      <el-form-item label="相关问题"><el-input v-model="faultForm.desc" type="textarea" :rows="3" placeholder="多个内容可用分号或换行分隔"></el-input></el-form-item>
-      <el-form-item label="确认方式"><el-input v-model="faultForm.checkSteps" type="textarea" :rows="3" placeholder="请输入排查或确认步骤"></el-input></el-form-item>
-      <el-form-item label="处理方式"><el-input v-model="faultForm.solution" type="textarea" :rows="4" placeholder="请输入处理方式"></el-input></el-form-item>
+      <el-form-item label="解决方法"><el-input v-model="faultForm.solution" type="textarea" :rows="6" placeholder="请输入解决方法，多个方法可用分号或换行分隔"></el-input></el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="faultDialogVisible = false">取消</el-button>
@@ -101,7 +97,7 @@ const isEdit = ref(false)
 const catDialogVisible = ref(false)
 const faultDialogVisible = ref(false)
 const catForm = reactive({ _id: null, name: '' })
-const faultForm = reactive({ _id: null, name: '', desc: '', checkSteps: '', solution: '' })
+const faultForm = reactive({ _id: null, name: '', solution: '' })
 
 const currentFaultItems = computed(() =>
   currentCategory.value ? allFaultItems.value.filter(f => f.catId === currentCategory.value._id) : []
@@ -132,8 +128,6 @@ const loadFaults = async () => {
       _id: f._id,
       catId: f.category_id,
       name: f.fault_name,
-      desc: f.related_questions?.join('；') || '',
-      checkSteps: f.check_steps?.join('；') || '',
       solution: f.fix_solutions?.join('；') || '',
       createdAt: f.create_time ? new Date(f.create_time).toLocaleString() : ''
     }))
@@ -199,8 +193,6 @@ const openFaultDialog = (fault) => {
   isEdit.value = Boolean(fault)
   faultForm._id = fault ? fault._id : null
   faultForm.name = fault ? fault.name : ''
-  faultForm.desc = fault ? fault.desc : ''
-  faultForm.checkSteps = fault ? fault.checkSteps : ''
   faultForm.solution = fault ? fault.solution : ''
   faultDialogVisible.value = true
 }
@@ -208,15 +200,17 @@ const openFaultDialog = (fault) => {
 const saveFault = async () => {
   if (!currentCategory.value) { ElMessage.warning('请先选择产品分类'); return }
   if (!faultForm.name) { ElMessage.warning('请输入故障现象'); return }
+  const solutionList = splitTextList(faultForm.solution)
+  if (!solutionList.length) { ElMessage.warning('请输入解决方法'); return }
   loading.value = true
   try {
     const token = localStorage.getItem('adminToken')
     const data = {
       category_id: currentCategory.value._id,
       fault_name: faultForm.name,
-      related_questions: splitTextList(faultForm.desc),
-      check_steps: splitTextList(faultForm.checkSteps),
-      fix_solutions: splitTextList(faultForm.solution),
+      related_questions: [],
+      check_steps: [],
+      fix_solutions: solutionList,
       is_recommend_repair: false
     }
     if (isEdit.value) {

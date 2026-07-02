@@ -43,7 +43,7 @@
 			<view v-if="maintenanceGuides.length" class="section">
 				<view class="section-head">
 					<view class="section-rule"></view>
-					<text>维护保养</text>
+					<text>产品视频</text>
 				</view>
 				<view class="maint-list">
 					<view v-for="item in maintenanceGuides" :key="item.id" class="maint-card tap" @click="playMaintenance(item)">
@@ -172,13 +172,13 @@ const resolveFileUrl = async (url = '') => {
 	}
 }
 
-// 加载「维护保养」分类、面向客户端、且含视频的指南
+// 加载「产品视频」分类、面向客户端、且含视频的指南
 const loadMaintenanceGuides = async () => {
 	try {
-		const list = await getGuides()
+		const list = await getGuides({ forceRefresh: true })
 		const arr = Array.isArray(list) ? list : []
 		const picked = arr.filter(g =>
-			String(g.category || '').includes('维护保养') &&
+			String(g.category || '').includes('产品视频') &&
 			(g.audience === 'client' || !g.audience)
 		)
 		const result = []
@@ -191,8 +191,9 @@ const loadMaintenanceGuides = async () => {
 			if (image) cover = await resolveFileUrl(image.url)
 			result.push({
 				id: g.id,
-				title: g.title || g.category || '维护保养',
-				desc: g.description || '',
+				// 后端字段：description=后台填的视频标题，content=简介（title 是分类名，不用）
+				title: g.description || g.summary || g.category || '产品视频',
+				desc: g.content || '',
 				videoUrl: video.url,
 				cover
 			})
@@ -286,8 +287,8 @@ const tabs = [
 
 const routes = {
 	home: '/pages/index/index',
-	company: '/pages/company/index',
-	mine: '/pages/mine/index'
+	company: '/pages-sub/company/index',
+	mine: '/pages-sub/mine/index'
 }
 
 const go = (id) => {

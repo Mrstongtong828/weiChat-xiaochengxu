@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  </g>
+  <g id="p11-header">
+    <rect x="72" y="56" width="6" height="34" fill="#1565C0"/>
+    <text x="92" y="84" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="30" font-weight="bold" fill="#1A2230">未来 7 天行动计划</text>
+    <text x="1208" y="82" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#93A0B0">06-22 → 06-30</text>
+    <line x1="72" y1="108" x2="1208" y2="108" stroke="#E5EAF0" stroke-width="1"/>
+  </g>
+  <g id="band-1">
+    <rect x="72" y="150" width="250" height="116" fill="#1565C0"/>
+    <text x="197" y="206" text-anchor="middle" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="26" font-weight="bold" fill="#FFFFFF">06-22 ~ 24</text>
+    <text x="197" y="238" text-anchor="middle" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#D6E4F5">资料锁定</text>
+    <!-- icon: tabler-outline/calendar -->
+  <g transform="translate(348, 160) scale(1.08333)" fill="none" stroke="#1565C0" stroke-width="2">
+    <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12" />
+    <path d="M16 3v4" />
+    <path d="M8 3v4" />
+    <path d="M4 11h16" />
+    <path d="M11 15h1" />
+    <path d="M12 15v3" />
+  </g>
+    <rect x="356" y="196" width="8" height="8" fill="#1565C0"/>
+    <text x="378" y="206" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="17" fill="#1A2230">收齐并锁定正式资料（吴彤彤）</text>
+    <rect x="356" y="238" width="8" height="8" fill="#1565C0"/>
+    <text x="378" y="248" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="17" fill="#1A2230">重部署 5 个整改云函数到正式（苏凤冰）</text>
+  </g>
+  <g id="band-2">
+    <rect x="72" y="280" width="250" height="116" fill="#1565C0"/>
+    <text x="197" y="336" text-anchor="middle" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="26" font-weight="bold" fill="#FFFFFF">06-25 ~ 27</text>
+    <text x="197" y="368" text-anchor="middle" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#D6E4F5">环境与配置</text>
+    <!-- icon: tabler-outline/calendar -->
+  <g transform="translate(348, 290) scale(1.08333)" fill="none" stroke="#1565C0" stroke-width="2">
+    <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12" />
+    <path d="M16 3v4" />
+    <path d="M8 3v4" />
+    <path d="M4 11h16" />
+    <path d="M11 15h1" />
+    <path d="M12 15v3" />
+  </g>
+    <rect x="356" y="326" width="8" height="8" fill="#1565C0"/>
+    <text x="378" y="336" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="17" fill="#1A2230">切正式云空间 + 支付 / 订阅 / 域名 / 索引配置（苏凤冰 · 陈莎）</text>
+    <rect x="356" y="368" width="8" height="8" fill="#1565C0"/>
+    <text x="378" y="378" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="17" fill="#1A2230">PC 后台正式域名 HTTPS 部署（蔡珠琪）</text>
+  </g>
+  <g id="band-3">
+    <rect x="72" y="410" width="250" height="116" fill="#1565C0"/>
+    <text x="197" y="466" text-anchor="middle" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="26" font-weight="bold" fill="#FFFFFF">06-28 ~ 30</text>
+    <text x="197" y="498" text-anchor="middle" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#D6E4F5">验收闭环</text>
+    <!-- icon: tabler-outline/calendar -->
+  <g transform="translate(348, 420) scale(1.08333)" fill="none" stroke="#1565C0" stroke-width="2">
+    <path d="M4 7a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2v-12" />
+    <path d="M16 3v4" />
+    <path d="M8 3v4" />
+    <path d="M4 11h16" />
+    <path d="M11 15h1" />
+    <path d="M12 15v3" />
+  </g>
+    <rect x="356" y="456" width="8" height="8" fill="#1565C0"/>
+    <text x="378" y="466" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="17" fill="#1A2230">第一轮真机 + 全流程业务闭环验收（郑佳华 · 钟浩霆）</text>
+    <rect x="356" y="498" width="8" height="8" fill="#1565C0"/>
+    <text x="378" y="508" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="17" fill="#1A2230">整理问题清单并复测，准备最终回归</text>
+  </g>
+  <g id="parallel-banner">
+    <rect x="72" y="560" width="1136" height="68" fill="#FBE9EA"/>
+    <rect x="72" y="560" width="6" height="68" fill="#D32F2F"/>
+    <!-- icon: tabler-outline/alert-triangle -->
+  <g transform="translate(104, 578) scale(1.33333)" fill="none" stroke="#D32F2F" stroke-width="2">
+    <path d="M12 9v4" />
+    <path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" />
+    <path d="M12 16h.01" />
+  </g>
+    <text x="156" y="592" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" font-weight="bold" fill="#D32F2F">并行推进（卡发布）</text>
+    <text x="156" y="616" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#1A2230">补齐《医疗器械生产许可证》《互联网信息服务备案凭证》并在「类目管理」重新提交审核 —— 吴彤彤</text>
+  </g>
+  <g id="p11-footer">
+    <text x="72" y="702" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">牙医仪器检修小程序 · 项目进度汇报</text>
+    <text x="1208" y="702" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">2026-06-22 · P11 / 12</text>
+  </g>
+</svg>

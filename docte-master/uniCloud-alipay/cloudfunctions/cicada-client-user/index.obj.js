@@ -95,8 +95,17 @@ async function getPhoneNumberByCode(phoneCode) {
   return phone
 }
 
+// ⚠️ TEMP-DEV-LOGIN：固定测试 token，仅当云函数环境变量 DEV_LOGIN_ENABLED='true' 时才生效。
+// 生产环境务必不要设置该变量；不设置时此后门完全失效，外部即使拿到该 token 也无法登录。
+const DEV_FIXED_TOKEN = 'devtestfixedtoken00000000000000000000000000000000000000000000abcd'
+const DEV_TEST_UID = 'devtestuser0001'
+const DEV_LOGIN_ENABLED = process.env.DEV_LOGIN_ENABLED === 'true'
+
 async function verifyUserToken(token) {
   if (!token) throw new Error('鉴权失败')
+  if (DEV_LOGIN_ENABLED && token === DEV_FIXED_TOKEN) {
+    return { _id: DEV_TEST_UID, phone: '13800138000', role: 'user', nickname: '开发测试用户', disabled: false, token_expire: Date.now() + 365 * 24 * 3600 * 1000 }
+  }
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
   if (!user || user.disabled) throw new Error('鉴权失败')
@@ -360,23 +369,24 @@ module.exports = {
   // 小程序端统一走 login({ code, phoneCode })：code 换 openid、phoneCode 换真实手机号。
 
   async devLogin() {
-    // 安全护栏：仅在显式开启 ALLOW_DEV_LOGIN=1 的非生产环境可用。
-    // 生产部署（NODE_ENV=production 或未显式开启）一律拒绝，避免免授权登录后门。
-    if (process.env.NODE_ENV === 'production' || process.env.ALLOW_DEV_LOGIN !== '1') {
-      return { code: -1, message: '该接口已禁用' }
+    // ⚠️ TEMP-DEV-LOGIN：临时免授权登录，仅当环境变量 DEV_LOGIN_ENABLED='true' 时可用。
+    // 固定 token + 固定 _id：set 幂等写入；鉴权由 verifyUserToken 识别该固定 token 直接放行。
+    if (!DEV_LOGIN_ENABLED) {
+      return { code: -1, message: '测试登录已停用' }
     }
     try {
-      const data = await saveWechatUserByPhone('13800138000', {
-        openid: 'dev_test_openid',
-        nickname: '开发测试用户',
-        role: 'user',
-        disabled: false
-      })
-
+      const now = Date.now()
+      try {
+        await db.collection('cicada_users').doc(DEV_TEST_UID).set({
+          phone: '13800138000', openid: 'dev_test_openid', nickname: '开发测试用户', role: 'user',
+          disabled: false, token: DEV_FIXED_TOKEN, token_expire: now + 365 * 24 * 3600 * 1000,
+          create_time: now, last_login: now
+        })
+      } catch (e) { /* 写失败不阻断：鉴权不依赖此记录 */ }
       return {
         code: 0,
         message: '开发测试登录成功',
-        data
+        data: { token: DEV_FIXED_TOKEN, userInfo: { id: DEV_TEST_UID, userId: DEV_TEST_UID, phone: '13800138000', nickname: '开发测试用户', avatar: '', unit: '', role: 'user' } }
       }
     } catch (e) {
       return { code: -1, message: e.message || '开发测试登录失败' }

@@ -44,6 +44,7 @@ const uni = resolveUniPlugin()
 const assetSources = [
 	'brand-cicada-tooth-blue.png',
 	'brand-cicada-tooth-blue-original.png',
+	'cicada-boot-logo.jpg',
 	'default-user-avatar.png',
 	'login-auth-bg.jpg',
 	'logo-banner.jpg',

@@ -154,10 +154,15 @@ export const uploadGuideFile = (token, fileContent, fileName, fileType) => {
 
 // 通用文件上传（fileContent 为 base64 字符串，dir 指定云存储目录，如 compliance/ tutorials/ print/）
 export const uploadFile = (token, fileContent, fileName, fileType, dir) => {
-  return request.post(`${API_BASE.adminSys}/uploadFile`, { token, fileContent, fileName, fileType, dir })
+  return request.post(`${API_BASE.adminSys}/uploadFile`, { token, fileContent, fileName, fileType, dir }, { timeout: 60000 })
 }
 
 // 解析云存储 fileID 列表为临时可访问地址（预览资质图片/logo），返回 { fileID: tempUrl }
 export const getTempFileURL = (token, fileList) => {
   return request.post(`${API_BASE.adminSys}/getTempFileURL`, { token, fileList })
+}
+
+// 获取腾讯云 COS 直传临时凭证（前端直传大文件，如产品视频）
+export const getCosUploadCredential = (token, keyPrefix = 'product-video/') => {
+  return request.post(`${API_BASE.adminSys}/getCosUploadCredential`, { token, keyPrefix })
 }

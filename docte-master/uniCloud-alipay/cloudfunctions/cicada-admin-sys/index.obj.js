@@ -109,6 +109,25 @@ async function writeFeedbackEvent(actor, feedback, action, before, after) {
   }
 }
 
+// 员工/设置等敏感操作审计（医疗器械合规备查），写 cicada_admin_logs。
+// detail 只记变更字段名/角色/键列表，绝不写密码等密钥明文。审计失败不阻断主流程。
+async function writeAdminLog(actor, action, target = {}, detail = {}) {
+  try {
+    await db.collection('cicada_admin_logs').add({
+      operator_id: (actor && actor._id) || '',
+      operator_name: (actor && (actor.name || actor.nickname || actor.username)) || '',
+      operator_role: (actor && actor.role) || '',
+      action,
+      target_id: (target && target.id) || '',
+      target_name: (target && target.name) || '',
+      detail: detail || {},
+      create_time: Date.now()
+    })
+  } catch (e) {
+    console.warn('writeAdminLog failed:', e.message)
+  }
+}
+
 async function loadFeedback(id) {
   const feedbackId = fbText(id, 60)
   if (!feedbackId) throw new Error('缺少反馈ID')
@@ -289,10 +308,70 @@ function getRequestData(ctx, params) {
   return {}
 }
 
-async function uploadAdminFile(ctx, params, defaultDir = 'guides/') {
+function getEnvValue(...names) {
+  for (const name of names) {
+    const value = process.env[name]
+    if (value) return String(value).trim()
+  }
+  return ''
+}
+
+// 腾讯云 COS 直传：发放 STS 临时凭证，供 pc-admin 前端直传大文件（如产品视频），
+// 绕过云函数请求体/超时限制。密钥只在云函数环境变量，前端仅拿到几分钟有效的临时凭证。
+async function issueCosUploadCredential(keyPrefix = 'product-video/') {
+  const secretId = getEnvValue('TENCENT_COS_SECRET_ID')
+  const secretKey = getEnvValue('TENCENT_COS_SECRET_KEY')
+  const bucket = getEnvValue('TENCENT_COS_BUCKET')       // 形如 xxx-1250000000
+  const region = getEnvValue('TENCENT_COS_REGION')       // 形如 ap-guangzhou
+  const cdnDomain = getEnvValue('TENCENT_COS_CDN_DOMAIN') // 选填，自定义/CDN 域名
+  if (!secretId || !secretKey || !bucket || !region) {
+    throw new Error('腾讯云 COS 未配置：请在云函数环境变量设置 TENCENT_COS_SECRET_ID / TENCENT_COS_SECRET_KEY / TENCENT_COS_BUCKET / TENCENT_COS_REGION')
+  }
+  const appId = bucket.split('-').pop()
+  const safePrefix = String(keyPrefix || 'product-video/')
+    .replace(/[^a-zA-Z0-9_\-/]/g, '')
+    .replace(/^\/+/, '')
+  const STS = require('qcloud-cos-sts')
+  const policy = {
+    version: '2.0',
+    statement: [{
+      action: [
+        'name/cos:PutObject',
+        'name/cos:PostObject',
+        'name/cos:InitiateMultipartUpload',
+        'name/cos:ListMultipartUploads',
+        'name/cos:ListParts',
+        'name/cos:UploadPart',
+        'name/cos:CompleteMultipartUpload'
+      ],
+      effect: 'allow',
+      resource: [`qcs::cos:${region}:uid/${appId}:${bucket}/${safePrefix}*`]
+    }]
+  }
+  const data = await new Promise((resolve, reject) => {
+    STS.getCredential(
+      { secretId, secretKey, region, durationSeconds: 1800, policy },
+      (err, res) => (err ? reject(err) : resolve(res))
+    )
+  })
+  const baseUrl = cdnDomain
+    ? `https://${cdnDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`
+    : `https://${bucket}.cos.${region}.myqcloud.com`
+  return {
+    credentials: data.credentials, // { tmpSecretId, tmpSecretKey, sessionToken }
+    startTime: data.startTime,
+    expiredTime: data.expiredTime,
+    bucket,
+    region,
+    keyPrefix: safePrefix,
+    baseUrl
+  }
+}
+
+async function uploadAdminFile(ctx, params, defaultDir = 'guides/', allowedRoles = ['admin']) {
   const data = getRequestData(ctx, params)
   const { token, fileContent, fileName, fileType, dir } = data
-  await verifyAdminToken(token, ['admin'])
+  await verifyAdminToken(token, allowedRoles)
 
   if (!fileContent || !fileName) return { code: -1, msg: '缺少文件内容或文件名' }
 
@@ -458,7 +537,7 @@ module.exports = {
       }
 
       if (!userId) return { code: -1, msg: '缺少用户ID' }
-      await verifyAdminToken(token, ['admin'])
+      const operator = await verifyAdminToken(token, ['admin'])
 
       const col = db.collection('cicada_users')
       const targetRes = await col.doc(userId).get()
@@ -473,6 +552,7 @@ module.exports = {
         update_time: Date.now()
       })
 
+      await writeAdminLog(operator, 'reset_password', { id: userId, name: target.username || target.name || '' }, { role: target.role })
       return { code: 0 }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -507,6 +587,7 @@ module.exports = {
           ...buildPasswordFields(staff.password),
           create_time: Date.now()
         })
+        await writeAdminLog(operator, 'staff_add', { id: res.id, name: staff.username }, { role: staff.role })
         return { code: 0, data: { id: res.id } }
       } else if (action === 'edit') {
         if (!staff || !staff._id) return { code: -1, msg: '缺少员工ID' }
@@ -517,12 +598,16 @@ module.exports = {
         if (!Object.keys(data).length) return { code: -1, msg: '没有可更新的员工字段' }
         const res = await col.where({ _id: staff._id, role: db.command.in(STAFF_ROLES) }).update(data)
         if (!res.updated) return { code: -1, msg: '员工不存在' }
+        // 只记变更字段名，绝不写密码明文/哈希
+        const changedFields = Object.keys(data).filter(k => !/^password/i.test(k))
+        await writeAdminLog(operator, 'staff_edit', { id: staff._id, name: data.username || staff.username || '' }, { fields: changedFields, passwordChanged: Boolean(staff.password), role: data.role || '' })
         return { code: 0 }
       } else if (action === 'disable') {
         if (!staff || !staff._id) return { code: -1, msg: '缺少员工ID' }
         const disabled = staff.disabled !== undefined ? staff.disabled : true
         const res = await col.where({ _id: staff._id, role: db.command.in(STAFF_ROLES) }).update({ disabled })
         if (!res.updated) return { code: -1, msg: '员工不存在' }
+        await writeAdminLog(operator, 'staff_disable', { id: staff._id, name: (staff && staff.username) || '' }, { disabled })
         return { code: 0 }
       } else {
         const list = await col.where({ role: db.command.in(STAFF_ROLES) }).get()
@@ -814,7 +899,7 @@ module.exports = {
       } else if (this.params) {
         ({ token, settings } = this.params)
       }
-      await verifyAdminToken(token, ['admin'])
+      const operator = await verifyAdminToken(token, ['admin'])
 
       if (!settings || typeof settings !== 'object') {
         return { code: -1, msg: '配置数据格式不正确' }
@@ -832,6 +917,7 @@ module.exports = {
         }
       }
 
+      await writeAdminLog(operator, 'save_settings', {}, { keys: Object.keys(settings) })
       return { code: 0 }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -1040,10 +1126,24 @@ module.exports = {
     }
   },
 
-  // 通用文件上传：dir 控制云存储目录（guides/ compliance/ tutorials/ print/）
+  // 通用文件上传：dir 控制云存储目录（guides/ compliance/ invoice/ print/）
+  // 全体员工可上传（如财务上传发票PDF）；敏感性由「引用该文件的方法」各自鉴权（如 update_invoice）
   async uploadFile(params) {
     try {
-      return await uploadAdminFile(this, params, 'guides/')
+      return await uploadAdminFile(this, params, 'guides/', ['admin', 'finance', 'engineer', 'support'])
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 发放腾讯云 COS 直传临时凭证：pc-admin 前端凭此直传大文件（产品视频），不经云函数体积限制
+  async getCosUploadCredential(params) {
+    try {
+      const data = getRequestData(this, params)
+      const { token, keyPrefix } = data
+      await verifyAdminToken(token, ['admin', 'finance', 'engineer', 'support'])
+      const cred = await issueCosUploadCredential(keyPrefix || 'product-video/')
+      return { code: 0, data: cred }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

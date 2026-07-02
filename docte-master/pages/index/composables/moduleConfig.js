@@ -27,9 +27,7 @@ export const queries = [
 ]
 
 export const guides = [
-	{ id: 'guide-quick', title: '快速指南', icon: 'book' },
 	{ id: 'guide-repair', title: '报修指南', icon: 'repair' },
-	{ id: 'guide-query', title: '查询指南', icon: 'search' },
 	{ id: 'guide-invoice', title: '开票指南', icon: 'invoice' }
 ]
 

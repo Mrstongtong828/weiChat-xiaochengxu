@@ -1,4 +1,5 @@
 const db = uniCloud.database()
+const dbCmd = db.command
 const crypto = require('crypto')
 
 function hashPassword(password, salt) {
@@ -146,7 +147,87 @@ async function backfillCollectionSn(collection, { dryRun }) {
   return { scanned, updated }
 }
 
+// 扫在途工单，判定 48h 未揽收 / 72h 停滞的物流异常。
+// dryRun:true 仅统计；正式执行写入 cicada_order_events(action:'logistics_exception')，
+// 并在工单上打 logistics_exception_at 时间戳去重（24h 内不重复写同段异常）。
+async function scanLogisticsExceptions({ dryRun }) {
+  const now = Date.now()
+  const H = 60 * 60 * 1000
+  const NO_PICKUP_MS = 48 * H
+  const STALLED_MS = 72 * H
+  const DEDUP_MS = 24 * H
+  const PAGE = 500
+  let skip = 0
+  let scanned = 0
+  const exceptions = []
+
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const res = await db.collection('cicada_orders')
+      .where({ status: dbCmd.in(['pending', 'sent', 'shipped']) })
+      .orderBy('_id', 'asc')
+      .skip(skip).limit(PAGE).get()
+    const rows = res.data || []
+    if (!rows.length) break
+    scanned += rows.length
+    for (const order of rows) {
+      const out = order.ship_out_info || {}
+      const back = order.ship_back_info || {}
+      const outNo = String(out.logistics_no || out.logisticsNo || '').trim()
+      const backNo = String(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo || '').trim()
+      const updatedAt = Number(order.update_time) || Number(order.create_time) || 0
+      let hit = null
+      if (outNo && order.status === 'pending') {
+        const since = now - (Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
+        if (since > NO_PICKUP_MS) hit = { segment: 'out', type: 'no_pickup', hours: Math.floor(since / H), trackingNo: outNo }
+      } else if (outNo && order.status === 'sent') {
+        const since = now - (Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
+        if (since > STALLED_MS) hit = { segment: 'out', type: 'stalled', hours: Math.floor(since / H), trackingNo: outNo }
+      } else if (backNo && order.status === 'shipped' && updatedAt && now - updatedAt > STALLED_MS) {
+        hit = { segment: 'back', type: 'stalled', hours: Math.floor((now - updatedAt) / H), trackingNo: backNo }
+      }
+      if (!hit) continue
+      exceptions.push({ orderNo: order.order_no || '', orderId: order._id, ...hit })
+      if (!dryRun) {
+        const lastAt = Number(order.logistics_exception_at) || 0
+        if (now - lastAt < DEDUP_MS) continue // 24h 内已记过，跳过避免重复刷
+        // cicada_order_events 为封闭 schema：source/actor_*/before/after 均必填
+        await db.collection('cicada_order_events').add({
+          order_id: order._id,
+          order_no: order.order_no || '',
+          source: 'system',
+          action: 'logistics_exception',
+          actor_id: 'system',
+          actor_role: 'system',
+          actor_name: '物流巡检',
+          before: {},
+          after: {
+            ...hit,
+            desc: `${hit.segment === 'back' ? '回寄' : '寄出'}物流${hit.type === 'no_pickup' ? '超 48h 未揽收' : '停滞超 72h'}（${hit.hours}h）`
+          },
+          create_time: now
+        }).catch(() => {})
+        await db.collection('cicada_orders').doc(order._id).update({ logistics_exception_at: now }).catch(() => {})
+      }
+    }
+    if (rows.length < PAGE) break
+    skip += PAGE
+  }
+  return { scanned, exceptionCount: exceptions.length, exceptions: exceptions.slice(0, 100) }
+}
+
 module.exports = {
+  // 物流异常巡检：先 dryRun:true 看清单条数，再正式执行写入异常事件。
+  async scanLogisticsExceptions({ token, dryRun = true } = {}) {
+    try {
+      await verifyAdminToken(token)
+      const result = await scanLogisticsExceptions({ dryRun })
+      return { code: 0, data: { dryRun, ...result } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 回填 sn_normalized（SN 容错检索字段）。先 dryRun:true 验证条数，再正式执行。
   async backfillSnNormalized({ token, dryRun = true } = {}) {
     try {

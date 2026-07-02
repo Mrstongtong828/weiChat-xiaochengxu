@@ -109,6 +109,15 @@ export const submitRepairReview = (id, review = {}) => {
   return getCloudObject().submitOrderReview(withToken({ ...normalizeOrderId(id), ...review })).then(unwrapCloudResult)
 }
 
+// 稍后补单号：客户寄出后回填快递公司+运单号（后端 pending→sent）
+export const updateRepairOutboundLogistics = (id, logisticsCompany, trackingNo) => {
+  return getCloudObject().updateOutboundLogistics(withToken({
+    ...normalizeOrderId(id),
+    logisticsCompany,
+    trackingNo
+  })).then(unwrapCloudResult)
+}
+
 export const getMyDevices = (params = {}) => {
   return getCloudObject().listMyDevices(withToken(normalizePageParams(params))).then(unwrapCloudResult)
 }

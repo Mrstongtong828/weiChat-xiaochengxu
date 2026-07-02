@@ -5,8 +5,9 @@ const dbCmd = db.command
 // 说明：这里是「客户CRM域」专属的权限点（view/create/edit/cancel/view_phone/device/export），
 // 与 cicada-order-workflow 的「工单域」权限点（view_order/issue_quote 等）是不同命名空间，并非重复。
 // 但角色清单需与共享模块的 ALL_ROLES 保持一致——新增/调整员工角色时两处都要更新。
-const STAFF_ROLES = ['admin', 'engineer', 'finance', 'support']
-const ROLE_LABELS = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
+// 含 superadmin：口径与 cicada-order-workflow 的 ALL_ROLES 一致，避免超管被客户模块拒之门外
+const STAFF_ROLES = ['superadmin', 'admin', 'engineer', 'finance', 'support']
+const ROLE_LABELS = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
 const PERMISSIONS = {
   view: STAFF_ROLES,                 // 查看客户列表/详情
   create: ['admin', 'support'],      // 新增客户
@@ -49,6 +50,8 @@ async function verifyAdminToken(token) {
 }
 
 function requirePermission(user, action) {
+  // superadmin 视同 admin 全权（与全局 hasRolePermission 口径一致）
+  if (user && user.role === 'superadmin') return true
   const allowed = PERMISSIONS[action] || []
   if (!allowed.includes(user.role)) throw new Error('无权限执行该操作')
   return true
@@ -58,7 +61,7 @@ function getPermissionConfigForRole(role) {
   return {
     role,
     permissions: Object.fromEntries(
-      Object.keys(PERMISSIONS).map(action => [action, (PERMISSIONS[action] || []).includes(role)])
+      Object.keys(PERMISSIONS).map(action => [action, role === 'superadmin' || (PERMISSIONS[action] || []).includes(role)])
     )
   }
 }

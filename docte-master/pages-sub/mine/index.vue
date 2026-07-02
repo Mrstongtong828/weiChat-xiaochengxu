@@ -43,6 +43,15 @@
 						<text class="status-text">{{ item.title }}</text>
 					</view>
 				</view>
+				<view v-if="logged && todoItems.length" class="mine-todo-list">
+					<view v-for="item in todoItems" :key="item.label" class="mine-todo-row tap" @click="goOrder(item.type)">
+						<text class="mine-todo-label">{{ item.label }}</text>
+						<view class="mine-todo-right">
+							<text class="mine-todo-count">{{ item.count }} 单</text>
+							<view class="chevron"></view>
+						</view>
+					</view>
+				</view>
 			</view>
 		</view>
 
@@ -84,6 +93,7 @@ import { countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
 const logged = ref(false)
 const currentUser = ref({})
 const repairCounts = ref({ all: 0, pending: 0, fixing: 0, shipped: 0 })
+const statsTodo = ref({ unfinished: 0, payment: 0, receipt: 0, invoice: 0 })
 const productCount = ref(0)
 
 onMounted(() => {
@@ -107,6 +117,13 @@ const statusItems = computed(() => [
 	{ id: 'shipped', title: '已发货', count: repairCounts.value.shipped, color: '#10B981', bg: 'rgba(16, 185, 129, 0.09)', icon: 'truck', type: 3 }
 ])
 
+// 高频待办行：type 为 index.vue openModule typeMap 的数字索引（4=未开票，6=待付款，3=已回寄）
+const todoItems = computed(() => [
+	{ label: '待付款', count: Number(statsTodo.value.payment) || 0, type: 6 },
+	{ label: '待确认收货', count: Number(statsTodo.value.receipt) || 0, type: 3 },
+	{ label: '待开票', count: Number(statsTodo.value.invoice) || 0, type: 4 }
+].filter((item) => item.count > 0))
+
 const loadRepairCounts = async () => {
 	// 优先用 DB 端聚合统计
 	try {
@@ -118,6 +135,7 @@ const loadRepairCounts = async () => {
 				fixing: Number(stats.fixing || 0),
 				shipped: Number(stats.shipped || 0)
 			}
+			if (stats.todo) statsTodo.value = { ...statsTodo.value, ...stats.todo }
 			return
 		}
 	} catch (error) {
@@ -162,10 +180,10 @@ const tabs = [
 
 const routes = {
 	home: '/pages/index/index',
-	company: '/pages/company/index',
-	mine: '/pages/mine/index',
+	company: '/pages-sub/company/index',
+	mine: '/pages-sub/mine/index',
 	orders: '/pages/index/index?module=orders',
-	address: '/pages/address/index',
+	address: '/pages-sub/address/index',
 	feedback: '/pages/index/index?module=feedback',
 	products: '/pages/index/index?module=products',
 	invoices: '/pages/index/index?module=invoices',
@@ -187,6 +205,7 @@ const toggleLogin = () => {
 					uni.removeStorageSync('userInfo')
 					currentUser.value = {}
 					repairCounts.value = { all: 0, pending: 0, fixing: 0, shipped: 0 }
+					statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
 					logged.value = false
 					uni.showToast({ title: '已退出登录', icon: 'success' })
 				}
@@ -460,6 +479,42 @@ const goOrder = (type) => {
 	font-weight: 500;
 	line-height: 1.2;
 	color: #324563;
+}
+
+.mine-todo-list {
+	margin: 0 32rpx;
+	padding-bottom: 12rpx;
+	border-top: 2rpx solid #F1F5FB;
+}
+
+.mine-todo-row {
+	padding: 22rpx 4rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	border-bottom: 2rpx solid #F1F5FB;
+}
+
+.mine-todo-row:last-child {
+	border-bottom: none;
+}
+
+.mine-todo-label {
+	font-size: 26rpx;
+	font-weight: 600;
+	color: #0F1F3A;
+}
+
+.mine-todo-right {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+}
+
+.mine-todo-count {
+	font-size: 24rpx;
+	font-weight: 700;
+	color: #E5484D;
 }
 
 .settings-section {

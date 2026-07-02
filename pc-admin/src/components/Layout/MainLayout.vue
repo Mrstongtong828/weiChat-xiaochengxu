@@ -12,13 +12,12 @@
       <el-menu :default-active="activeMenu" class="el-menu-vertical" @select="handleMenuSelect">
         <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><span>工作台首页</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><span>报修工单管理</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('settlement')" index="settlement"><el-icon><Money /></el-icon><span>结算管理</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('finance')" index="finance"><el-icon><Money /></el-icon><span>财务中心</span></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('logistics')" index="logistics"><el-icon><Van /></el-icon><span>物流管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><span>配件库存管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><span>客户管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><span>产品故障知识库</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><span>投诉与建议</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('audit')" index="audit"><el-icon><Tickets /></el-icon><span>操作审计日志</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('users')" index="users"><el-icon><User /></el-icon><span>用户管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('summary')" index="summary"><el-icon><DataAnalysis /></el-icon><span>运营统计</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><span>小程序配置</span></el-menu-item>
       </el-menu>
@@ -48,7 +47,9 @@
             <el-avatar :size="40" class="admin-avatar" src="https://dummyimage.com/80x80/e8f3ff/165DFF.png&text=Admin"></el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item @click="profileDrawerVisible = true"><el-icon><User /></el-icon>个人信息</el-dropdown-item>
+                <el-dropdown-item v-if="canAccessMenu('users')" @click="handleMenuSelect('users')"><el-icon><Setting /></el-icon>用户管理</el-dropdown-item>
+                <el-dropdown-item v-if="canAccessMenu('audit')" @click="handleMenuSelect('audit')"><el-icon><Files /></el-icon>操作审计日志</el-dropdown-item>
+                <el-dropdown-item :divided="canAccessMenu('users') || canAccessMenu('audit')" @click="profileDrawerVisible = true"><el-icon><User /></el-icon>个人信息</el-dropdown-item>
                 <el-dropdown-item @click="openPwdDialog"><el-icon><Lock /></el-icon>修改密码</el-dropdown-item>
                 <el-dropdown-item @click="handleLogout" style="color:#F56C6C;"><el-icon><SwitchButton /></el-icon>退出登录</el-dropdown-item>
               </el-dropdown-menu>
@@ -126,7 +127,10 @@ const menuTitles = {
   home: '工作台首页',
   workorder: '报修工单处理中心',
   inventory: '配件库存管理',
+  finance: '财务中心（对账流水 · 开票管理）',
   settlement: '结算管理',
+  logistics: '物流管理（批量导入 · 异常预警 · 台账）',
+  invoices: '开票管理（申请·开票·专票邮寄）',
   faultdb: '产品分类与故障预设',
   users: '用户管理',
   settings: '小程序图文及政策配置',

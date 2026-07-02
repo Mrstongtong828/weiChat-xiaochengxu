@@ -39,7 +39,7 @@ const PERMISSIONS = {
   get_workflow_config: ALL_ROLES,
   update_status: ['admin', 'engineer'],
   import_logistics: ['admin', 'engineer'],
-  issue_quote: ['admin', 'support'],
+  issue_quote: ['admin', 'engineer'],
   confirm_payment: ['admin', 'finance'],
   update_invoice: ['admin', 'finance'],
   view_payment_proof: ['admin', 'finance'],

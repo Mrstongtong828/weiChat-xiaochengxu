@@ -122,6 +122,15 @@ export const updatePaymentStatus = (token, orderId, status) => {
   })
 }
 
+export const rejectPaymentProof = (token, orderId, reason) => {
+  return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
+    token,
+    order_id: orderId,
+    status: 'rejected',
+    reason
+  })
+}
+
 // 微信支付退款（限 admin/finance）。amount 为退款金额(元)，留空则全额退款
 export const refundOrderPayment = (token, orderId, reason = '', amount) => {
   return request.post(`${API_BASE.adminOrder}/refundOrderPayment`, {
@@ -150,6 +159,50 @@ export const getStatistics = (token) => {
 // 获取后台待办中心统计
 export const getTodoSummary = (token) => {
   return request.post(`${API_BASE.adminOrder}/getTodoSummary`, { token })
+}
+
+// 物流异常预警列表（48h未揽收 / 72h停滞）
+export const getLogisticsExceptions = (token) => {
+  return request.post(`${API_BASE.adminOrder}/getLogisticsExceptions`, { token })
+}
+
+// 物流台账（两段物流汇总，分页拉全量用于导出）
+export const getLogisticsLedger = (token, filters = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getLogisticsLedger`, {
+    token,
+    status: filters.status || '',
+    keyword: filters.keyword || '',
+    page: filters.page || 1,
+    pageSize: filters.pageSize || 20
+  })
+}
+
+// 四流台账（订单+物流+支付+发票，分页拉全量统一导出）
+export const getFourFlowLedger = (token, filters = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getFourFlowLedger`, {
+    token,
+    status: filters.status || '',
+    keyword: filters.keyword || '',
+    billableOnly: filters.billableOnly || false,
+    page: filters.page || 1,
+    pageSize: filters.pageSize || 20
+  })
+}
+
+// 开票申请列表（分页，支持导出全量）
+export const getInvoiceApplications = (token, filters = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getInvoiceApplications`, {
+    token,
+    status: filters.status || '',
+    keyword: filters.keyword || '',
+    page: filters.page || 1,
+    pageSize: filters.pageSize || 20
+  })
+}
+
+// 批量导入开票结果（按工单号回填发票号/日期/链接/状态）
+export const batchImportInvoices = (token, rows) => {
+  return request.post(`${API_BASE.adminOrder}/batchImportInvoices`, { token, rows })
 }
 
 // 获取服务数据总结

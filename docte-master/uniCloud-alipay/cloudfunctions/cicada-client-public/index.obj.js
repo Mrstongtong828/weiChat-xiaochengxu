@@ -27,10 +27,14 @@ const GUIDE_CATEGORY_ALIASES = {
 const SUBSCRIPTION_SCENES = [
   { scene: 'repair_submitted', title: '报修提交提醒' },
   { scene: 'order_received', title: '设备签收提醒' },
+  { scene: 'inspection_completed', title: '检测完成提醒' },
   { scene: 'quote_issued', title: '维修报价提醒' },
   { scene: 'payment_confirmed', title: '付款到账提醒' },
+  { scene: 'payment_rejected', title: '凭证驳回提醒' },
+  { scene: 'repair_started', title: '开始维修提醒' },
   { scene: 'order_shipped', title: '回寄发货提醒' },
   { scene: 'order_completed', title: '工单完成提醒' },
+  { scene: 'invoice_issued', title: '发票开具提醒' },
   { scene: 'review_invite', title: '服务评价邀请' }
 ]
 

@@ -180,6 +180,16 @@ const feedbacks = [
 let settings = {
   warranty_policy: 'Local mock warranty policy.',
   fee_description: 'Local mock fee description.',
+  company_name: '佛山市思科达医疗器械有限公司',
+  contact_phone: '0757-85775667',
+  contact_address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
+  work_time: '周一至周五 08:00 - 21:00',
+  bank_transfer_company_name: '佛山市登煌医疗器械有限公司',
+  bank_transfer_tax_no: '91440605688623440U',
+  bank_transfer_address_phone: '佛山市南海区狮山镇罗村广东新光源产业基地核心区内B区5座二层  0757-85775667',
+  bank_transfer_bank_name: '中国农业银行佛山惠景支行',
+  bank_transfer_account_no: '4442 3201 0400 04288',
+  bank_transfer_line_no: '103588042208',
   print_config: JSON.stringify({
     title: 'Repair Return Sheet',
     paperSize: 'A4',

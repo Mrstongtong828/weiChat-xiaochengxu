@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  </g>
+  <g id="statement">
+    <text x="72" y="150" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="17" letter-spacing="3" fill="#1565C0">结论 · CONCLUSION</text>
+    <text x="70" y="244" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="44" font-weight="bold" fill="#1A2230">开发已基本完成，上线在配置和审核</text>
+    <rect x="72" y="276" width="160" height="5" fill="#0D3B66"/>
+    <text x="72" y="332" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" fill="#5A6675">代码侧无重大缺口；剩下的是「配置 + 审核 + 验收」三类工作，收口为三大卡点。</text>
+  </g>
+  <g id="blockers-axis">
+    <text x="72" y="392" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="22" font-weight="bold" fill="#1A2230">三大卡点</text>
+    <line x1="436" y1="416" x2="436" y2="650" stroke="#D7DEE7" stroke-width="1"/>
+    <line x1="824" y1="416" x2="824" y2="650" stroke="#D7DEE7" stroke-width="1"/>
+  </g>
+  <g id="blocker-1">
+    <use data-icon="tabler-outline/alert-triangle" x="72" y="426" width="36" height="36" fill="#D32F2F" stroke-width="2"/>
+    <text x="124" y="455" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#D32F2F">01</text>
+    <text x="72" y="510" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="22" font-weight="bold" fill="#1A2230">类目审核（阻断）</text>
+    <text x="72" y="548" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#5A6675">微信医疗器械类目审核未通过；<tspan x="72" dy="26">需补齐生产许可证、备案后</tspan><tspan x="72" dy="26">重新提交——卡住发布。</tspan></text>
+  </g>
+  <g id="blocker-2">
+    <use data-icon="tabler-outline/server" x="460" y="426" width="36" height="36" fill="#1565C0" stroke-width="2"/>
+    <text x="512" y="455" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#1565C0">02</text>
+    <text x="460" y="510" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="22" font-weight="bold" fill="#1A2230">部署与配置</text>
+    <text x="460" y="548" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#5A6675">切正式云空间、重部署 7 个云函数；<tspan x="460" dy="26">配支付 / 订阅 / 合法域名；</tspan><tspan x="460" dy="26">控制台创建数据库索引。</tspan></text>
+  </g>
+  <g id="blocker-3">
+    <use data-icon="tabler-outline/clipboard-check" x="848" y="426" width="36" height="36" fill="#B7791F" stroke-width="2"/>
+    <text x="900" y="455" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="32" font-weight="bold" fill="#B7791F">03</text>
+    <text x="848" y="510" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="22" font-weight="bold" fill="#1A2230">真机与验收</text>
+    <text x="848" y="548" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="16" fill="#5A6675">真机跑客户全流程、<tspan x="848" dy="26">PC 后台核心业务验收，</tspan><tspan x="848" dy="26">均尚未开始。</tspan></text>
+  </g>
+  <g id="p04-footer">
+    <text x="72" y="702" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">牙医仪器检修小程序 · 项目进度汇报</text>
+    <text x="1208" y="702" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">2026-06-22 · P04 / 12</text>
+  </g>
+</svg>

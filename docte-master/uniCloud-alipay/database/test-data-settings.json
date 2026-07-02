@@ -1,15 +1,45 @@
 {
-  "说明": "小程序基础配置初始数据",
-  "数据": [
-    {
-      "key": "warranty_policy",
-      "value": "1. 保修期内免费维修\n2. 保修期外收取材料费和人工费\n3. 人为损坏不在保修范围内",
-      "update_time": 1747656000000
-    },
-    {
-      "key": "fee_description",
-      "value": "1. 检测费：免费\n2. 维修费：根据故障情况收取\n3. 配件费：按实际更换配件收取\n4. 上门费：市区内免费，郊区收取50元",
-      "update_time": 1747656000000
-    }
-  ]
+    "说明":  "小程序基础配置初始数据",
+    "数据":  [
+               {
+                   "key":  "warranty_policy",
+                   "value":  "1. 保修期内免费维修\n2. 保修期外收取材料费和人工费\n3. 人为损坏不在保修范围内",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "fee_description",
+                   "value":  "1. 检测费：免费\n2. 维修费：根据故障情况收取\n3. 配件费：按实际更换配件收取\n4. 上门费：市区内免费，郊区收取50元",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "bank_transfer_company_name",
+                   "value":  "佛山市登煌医疗器械有限公司",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "bank_transfer_tax_no",
+                   "value":  "91440605688623440U",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "bank_transfer_address_phone",
+                   "value":  "佛山市南海区狮山镇罗村广东新光源产业基地核心区内B区5座二层  0757-85775667",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "bank_transfer_bank_name",
+                   "value":  "中国农业银行佛山惠景支行",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "bank_transfer_account_no",
+                   "value":  "4442 3201 0400 04288",
+                   "update_time":  1747656000000
+               },
+               {
+                   "key":  "bank_transfer_line_no",
+                   "value":  "103588042208",
+                   "update_time":  1747656000000
+               }
+           ]
 }

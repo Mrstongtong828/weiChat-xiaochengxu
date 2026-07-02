@@ -77,27 +77,8 @@
           <el-tag v-if="selectedOrders.length" type="primary" effect="plain">已选 {{ selectedOrders.length }} 单</el-tag>
         </div>
         <div class="toolbar-actions">
-          <el-date-picker
-            v-model="shipDate"
-            type="date"
-            value-format="YYYY-MM-DD"
-            placeholder="发货日期"
-          ></el-date-picker>
-          <el-tooltip content="下载客户寄入签收 Excel 模板" placement="top">
-            <el-button plain class="top-btn-text" @click="downloadImportTemplate('inbound')"><el-icon><Document /></el-icon> 签收模板</el-button>
-          </el-tooltip>
-          <el-tooltip content="下载后台回寄发货 Excel 模板" placement="top">
-            <el-button plain class="top-btn-text" @click="downloadImportTemplate('return')"><el-icon><Document /></el-icon> 回寄模板</el-button>
-          </el-tooltip>
-          <el-tooltip content="导入客户寄来的物流单，匹配后状态变为已签收" placement="top">
-            <el-button type="success" plain class="top-btn-text" :disabled="!canPerformOrderAction('import_logistics')" :loading="importing" @click="openImportDialog('inbound')">
-              <el-icon><Upload /></el-icon> 导入签收单
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="导入后台发货物流单，匹配后状态变为已回寄" placement="top">
-            <el-button type="primary" plain class="top-btn-text" :disabled="!canPerformOrderAction('import_logistics')" :loading="importing" @click="openImportDialog('return')">
-              <el-icon><Upload /></el-icon> 导入回寄单
-            </el-button>
+          <el-tooltip content="物流批量导入（签收单/回寄单）已统一到「物流管理」" placement="top">
+            <el-button type="primary" plain class="top-btn-text" @click="$router.push('/logistics?tab=import')"><el-icon><Van /></el-icon> 物流批量导入</el-button>
           </el-tooltip>
           <el-tooltip content="打印已勾选工单的维修/回寄单据" placement="top">
             <el-button plain class="top-btn-text" :disabled="!selectedOrders.length" @click="handleConfiguredBatchPrint"><el-icon><Printer /></el-icon> 批量打印</el-button>
@@ -155,8 +136,8 @@
         <el-icon :size="20"><InfoFilled /></el-icon>
       </div>
       <div class="banner-content">
-        <div class="banner-title">批量导入物流状态</div>
-        <div class="banner-desc">签收单用于客户寄入，导入后更新为已签收；回寄单用于后台发货，导入后更新为已回寄。</div>
+        <div class="banner-title">批量导入物流状态 → 已移至「物流管理」</div>
+        <div class="banner-desc">签收单（客户寄入→已签收）和回寄单（后台发货→已回寄）的批量导入，请到「物流管理 · 批量导入」操作。</div>
       </div>
       <div class="banner-badge"><el-tag type="info" effect="plain" round>按工单编号匹配</el-tag></div>
     </div>
@@ -166,7 +147,7 @@
         <template #empty>
           <div class="table-empty-guide">
             <strong>暂无匹配工单</strong>
-            <span>可以调整筛选条件，或让客户从小程序提交报修；物流批量单据可通过上方“导入签收单 / 导入回寄单”更新。</span>
+            <span>可以调整筛选条件，或让客户从小程序提交报修；物流批量单据请到「物流管理 · 批量导入」更新。</span>
           </div>
         </template>
         <el-table-column type="selection" width="42"></el-table-column>
@@ -356,6 +337,29 @@
               <p>提交时间：{{currentOrder.submitTime || '-'}}</p>
               <p>更新时间：{{currentOrder.updateTime || '-'}}</p>
               <p>当前状态：<el-tag :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light" size="small">{{currentOrder.status}}</el-tag> <span class="inline-muted">{{ getStatusDwell(currentOrder).text }}</span></p>
+              <div class="assign-engineer-row">
+                <span>负责工程师：</span>
+                <template v-if="canPerformOrderAction('manage_staff')">
+                  <el-select
+                    v-model="assignEngineerId"
+                    :placeholder="engineerOptions.length ? '选择工程师' : '暂无工程师账号'"
+                    :disabled="!engineerOptions.length"
+                    size="small"
+                    style="width: 180px;"
+                  >
+                    <el-option v-for="item in engineerOptions" :key="item._id" :label="item.name || item.username" :value="item._id" />
+                  </el-select>
+                  <el-button
+                    type="primary"
+                    size="small"
+                    :loading="assigningEngineer"
+                    :disabled="!assignEngineerId || assignEngineerId === currentOrder.engineerId"
+                    @click="submitAssignEngineer"
+                  >指派</el-button>
+                  <span v-if="!engineerOptions.length" class="inline-muted">请先在员工管理添加工程师角色账号</span>
+                </template>
+                <strong v-else>{{ engineerDisplayName(currentOrder.engineerId) }}</strong>
+              </div>
             </div>
             <div class="drawer-section">
               <p class="drawer-section-title">寄入物流</p>
@@ -600,7 +604,7 @@
               <div class="payment-actions">
                 <el-tooltip
                   v-if="resolvePaymentStatus(currentOrder) === 'uploaded' && canPerformOrderAction('confirm_payment')"
-                  content="确认后付款状态变为已到账，后台可继续维修、开票或回寄"
+                  content="必须同步核对银行对公流水，不能只看客户截图。通过后付款状态变为已到账"
                   placement="top"
                 >
                   <el-button
@@ -609,9 +613,20 @@
                     :loading="paymentSaving"
                     @click="markPaymentPaid"
                   >
-                    标记已到账
+                    审核通过
                   </el-button>
                 </el-tooltip>
+                <el-button
+                  v-if="resolvePaymentStatus(currentOrder) === 'uploaded' && canPerformOrderAction('confirm_payment')"
+                  type="danger"
+                  size="small"
+                  plain
+                  :loading="paymentSaving"
+                  @click="rejectCurrentPaymentProof"
+                >
+                  驳回凭证
+                </el-button>
+                <span v-if="resolvePaymentStatus(currentOrder) === 'rejected'" class="payment-rejected-tip">已驳回：{{ currentOrder.paymentRejectReason || '请客户重新上传凭证' }}</span>
                 <span v-if="resolvePaymentStatus(currentOrder) === 'paid'" class="payment-paid-tip">财务已确认到账，可继续处理发票。</span>
                 <el-tooltip
                   v-if="resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.paymentMethod === 'wechat_pay' && currentOrder.refundStatus !== 'refunded' && canPerformOrderAction('confirm_payment')"
@@ -637,8 +652,10 @@
               <p>是否需要开票：{{currentOrder.needInvoice ? '是' : '否'}}</p>
               <p>发票状态：<el-tag :type="getInvoiceType(normalizeInvoiceStatus(currentOrder))" size="small">{{ normalizeInvoiceStatus(currentOrder) }}</el-tag></p>
               <template v-if="currentOrder.needInvoice">
+                <p>发票类型：{{currentOrder.invoiceType || '电子普通发票'}}</p>
                 <p>发票抬头：{{currentOrder.invoiceTitle || '-'}}</p>
                 <p>税号：{{currentOrder.taxId || '-'}}</p>
+                <p v-if="currentOrder.invoiceType === '纸质专用发票'">收票信息：{{currentOrder.invoiceRecipientName || '-'}} / {{currentOrder.invoiceRecipientPhone || '-'}} / {{currentOrder.invoiceRecipientAddress || '-'}}</p>
               </template>
               <el-divider border-style="dashed"></el-divider>
               <p class="drawer-section-title">发票登记</p>
@@ -648,6 +665,14 @@
                     <el-option label="无需开票" value="无需开票"></el-option>
                     <el-option label="未发票" value="未发票"></el-option>
                     <el-option label="已发票" value="已发票"></el-option>
+                    <el-option label="已寄出" value="已寄出"></el-option>
+                    <el-option label="已签收" value="已签收"></el-option>
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="发票类型">
+                  <el-select v-model="invoiceForm.invoiceType" :disabled="!canPerformOrderAction('update_invoice')" style="width:100%;">
+                    <el-option label="电子普通发票" value="电子普通发票"></el-option>
+                    <el-option label="纸质专用发票" value="纸质专用发票"></el-option>
                   </el-select>
                 </el-form-item>
                 <el-form-item label="发票抬头">
@@ -656,8 +681,37 @@
                 <el-form-item label="企业税号">
                   <el-input v-model="invoiceForm.taxNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="请输入企业税号"></el-input>
                 </el-form-item>
+                <el-form-item label="接收邮箱">
+                  <el-input v-model="invoiceForm.email" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票接收邮箱"></el-input>
+                </el-form-item>
+                <template v-if="invoiceForm.invoiceType === '纸质专用发票'">
+                  <el-form-item label="注册地址">
+                    <el-input v-model="invoiceForm.registerAddress" :disabled="!canPerformOrderAction('update_invoice')" placeholder="营业执照注册地址"></el-input>
+                  </el-form-item>
+                  <el-form-item label="注册电话">
+                    <el-input v-model="invoiceForm.registerPhone" :disabled="!canPerformOrderAction('update_invoice')" placeholder="税务登记电话"></el-input>
+                  </el-form-item>
+                  <el-form-item label="开户行">
+                    <el-input v-model="invoiceForm.bankName" :disabled="!canPerformOrderAction('update_invoice')" placeholder="基本户开户行"></el-input>
+                  </el-form-item>
+                  <el-form-item label="银行账号">
+                    <el-input v-model="invoiceForm.bankAccount" :disabled="!canPerformOrderAction('update_invoice')" placeholder="对公银行账号"></el-input>
+                  </el-form-item>
+                  <el-form-item label="收票人">
+                    <el-input v-model="invoiceForm.recipientName" :disabled="!canPerformOrderAction('update_invoice')" placeholder="纸质发票收票人"></el-input>
+                  </el-form-item>
+                  <el-form-item label="收票电话">
+                    <el-input v-model="invoiceForm.recipientPhone" :disabled="!canPerformOrderAction('update_invoice')" placeholder="收票人手机号"></el-input>
+                  </el-form-item>
+                  <el-form-item label="收票地址">
+                    <el-input v-model="invoiceForm.recipientAddress" :disabled="!canPerformOrderAction('update_invoice')" placeholder="纸质发票邮寄地址"></el-input>
+                  </el-form-item>
+                </template>
                 <el-form-item label="发票链接">
                   <el-input v-model="invoiceForm.fileUrl" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票下载/查看链接，客户可复制"></el-input>
+                </el-form-item>
+                <el-form-item label="PDF链接">
+                  <el-input v-model="invoiceForm.pdfUrl" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票 PDF 链接，可与发票链接相同"></el-input>
                 </el-form-item>
                 <el-form-item label="发票号码">
                   <el-input v-model="invoiceForm.invoiceNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="开具后的电子发票号码"></el-input>
@@ -665,6 +719,17 @@
                 <el-form-item label="开票日期">
                   <el-input v-model="invoiceForm.invoiceDate" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 2026-06-28"></el-input>
                 </el-form-item>
+                <template v-if="invoiceForm.invoiceType === '纸质专用发票'">
+                  <el-form-item label="快递公司">
+                    <el-input v-model="invoiceForm.mailCompany" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 顺丰速运"></el-input>
+                  </el-form-item>
+                  <el-form-item label="快递单号">
+                    <el-input v-model="invoiceForm.mailNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="纸质发票寄送单号"></el-input>
+                  </el-form-item>
+                  <el-form-item label="寄出时间">
+                    <el-input v-model="invoiceForm.mailTime" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 2026-06-28 15:30"></el-input>
+                  </el-form-item>
+                </template>
                 <el-form-item label="备注">
                   <el-input v-model="invoiceForm.remark" :disabled="!canPerformOrderAction('update_invoice')" placeholder="财务备注/特殊说明"></el-input>
                 </el-form-item>
@@ -1034,10 +1099,10 @@
 import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
-import { getSettings, getTempFileURL } from '../api/admin.js'
+import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
@@ -1067,13 +1132,17 @@ const getInvoiceType = (status) => {
   const invoiceMap = {
     '无需开票': 'info',
     '未发票': 'warning',
-    '已发票': 'success'
+    '已发票': 'success',
+    '已寄出': 'primary',
+    '已签收': 'success'
   }
   return invoiceMap[status] || 'info'
 }
 
 const normalizeInvoiceStatus = (order = {}) => {
   if (order.invoiceStatus === '待开票' || order.invoiceStatus === '开具中') return '未发票'
+  if (order.invoiceStatus === '已寄出') return '已寄出'
+  if (order.invoiceStatus === '已签收') return '已签收'
   if (order.invoiceStatus === '已开具') return '已发票'
   if (order.invoiceStatus === '已发票') return '已发票'
   if (order.invoiceStatus === '未发票') return '未发票'
@@ -1178,7 +1247,8 @@ const resolvePaymentStatus = (order = {}) => {
 const getPaymentStatusText = (order = {}) => {
   const statusMap = {
     pending: '待付款',
-    uploaded: '待核销',
+    uploaded: '待财务审核',
+    rejected: '凭证已驳回',
     paid: '已到账'
   }
   if (!Number(order.totalPrice || 0)) return '待报价'
@@ -1190,6 +1260,7 @@ const getPaymentStatusType = (order = {}) => {
   if (!Number(order.totalPrice || 0)) return 'info'
   if (status === 'paid') return 'success'
   if (status === 'uploaded') return 'warning'
+  if (status === 'rejected') return 'danger'
   return 'info'
 }
 
@@ -1254,7 +1325,8 @@ const getNextAction = (order = {}) => {
   if (!Number(order.totalPrice || 0) || ['pending', 'draft', 'rejected'].includes(quoteStatus)) {
     return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
   }
-  if (paymentStatus === 'uploaded') return { label: '待核销', desc: '确认付款到账', type: 'warning' }
+  if (paymentStatus === 'uploaded') return { label: '待审核', desc: '核对对公流水', type: 'warning' }
+  if (paymentStatus === 'rejected') return { label: '已驳回', desc: '等待客户重传凭证', type: 'danger' }
   if (paymentStatus !== 'paid') return { label: '待付款', desc: '等待客户付款', type: 'info' }
   if (!order.returnNo) return { label: '待回寄', desc: '录入回寄物流', type: 'warning' }
   if (order.status === '已回寄') return { label: '待结案', desc: '确认完成归档', type: 'success' }
@@ -1299,7 +1371,7 @@ const batchCompleting = ref(false)
 const todoTypeMap = {
   inbound: '待签收',
   quote: '待报价',
-  payment: '待核销',
+  payment: '待审核转账凭证',
   invoice: '待开票',
   return: '待回寄',
   exception: '异常工单'
@@ -1339,6 +1411,7 @@ const exportableFields = [
   { label: '报价备注', key: 'quoteRemark', getter: order => getQuoteSummary(order).remark || '-' },
   { label: '报价明细', key: 'quoteDetail', getter: order => formatQuoteDetail(order) || '-' },
   { label: '付款状态', key: 'paymentStatus', getter: order => getPaymentStatusText(order) },
+  { label: '付款驳回原因', key: 'paymentRejectReason', getter: order => order.paymentRejectReason || '-' },
   { label: '库存出库', key: 'inventoryStatus', getter: order => order.inventoryDeducted || order.inventory_deducted ? '已出库' : '未出库' },
   { label: '总金额', key: 'totalPrice', getter: order => formatMoney(order.totalPrice) }
 ]
@@ -1395,6 +1468,44 @@ const applySlaFilter = (filter) => {
 
 const canPerformOrderAction = (action) => {
   return Boolean(workflowConfig.value && workflowConfig.value.permissions && workflowConfig.value.permissions[action])
+}
+
+// ============== 指派工程师（仅 manage_staff 权限，与后端 assignEngineer 同键） ==============
+const engineerOptions = ref([])
+const assignEngineerId = ref('')
+const assigningEngineer = ref(false)
+
+const loadEngineerOptions = async () => {
+  try {
+    const token = localStorage.getItem('adminToken')
+    const data = await getStaffList(token)
+    const list = Array.isArray(data) ? data : (data.list || [])
+    engineerOptions.value = list.filter(u => u.role === 'engineer' && !u.disabled)
+  } catch (error) {
+    engineerOptions.value = []
+  }
+}
+
+const engineerDisplayName = (engineerId) => {
+  if (!engineerId) return '未指派'
+  const found = engineerOptions.value.find(u => u._id === engineerId)
+  return found ? (found.name || found.username) : `工程师(${String(engineerId).slice(-4)})`
+}
+
+const submitAssignEngineer = async () => {
+  if (!assignEngineerId.value || assigningEngineer.value) return
+  assigningEngineer.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    await assignEngineer(token, currentOrder.value._id || currentOrder.value.id, assignEngineerId.value)
+    currentOrder.value.engineerId = assignEngineerId.value
+    ElMessage.success(`已指派给 ${engineerDisplayName(assignEngineerId.value)}`)
+    loadOrders()
+  } catch (error) {
+    ElMessage.error(error.message || '指派失败')
+  } finally {
+    assigningEngineer.value = false
+  }
 }
 
 const getOrderStatusValue = (order = {}) => {
@@ -1511,6 +1622,8 @@ onMounted(async () => {
   } catch (error) {
     ElMessage.error(error.message || '工单权限配置加载失败')
   }
+  // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
+  if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
   loadOrders()
 })
 
@@ -1553,7 +1666,27 @@ const quickShipDialogVisible = ref(false)
 const remarkDialogVisible = ref(false)
 const newStatus = ref('')
 const invoiceStatus = ref('无需开票')
-const invoiceForm = reactive({ title: '', taxNo: '', remark: '', fileUrl: '', invoiceNo: '', invoiceDate: '' })
+const invoiceForm = reactive({
+  invoiceType: '电子普通发票',
+  title: '',
+  taxNo: '',
+  email: '',
+  registerAddress: '',
+  registerPhone: '',
+  bankName: '',
+  bankAccount: '',
+  recipientName: '',
+  recipientPhone: '',
+  recipientAddress: '',
+  remark: '',
+  fileUrl: '',
+  pdfUrl: '',
+  invoiceNo: '',
+  invoiceDate: '',
+  mailCompany: '',
+  mailNo: '',
+  mailTime: ''
+})
 const invoiceIssuing = ref(false)
 // 一键开票（自动开票）开关：默认隐藏；对接好开票服务商后，在 pc-admin/.env.local 设
 // VITE_ENABLE_AUTO_INVOICE=1 并重新构建即可显示「一键开票」按钮。人工阶段保持隐藏。
@@ -1838,18 +1971,32 @@ const openExportDialog = () => {
 
 const openDrawer = (row) => {
   currentOrder.value = row
+  assignEngineerId.value = row.engineerId || ''
   // 重置 SN 回填态
   Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
   Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
   Object.keys(snLookupTimers).forEach((k) => { clearTimeout(snLookupTimers[k]); delete snLookupTimers[k] })
   newStatus.value = getAllowedStatusOptions(row)[0] || row.status
   invoiceStatus.value = normalizeInvoiceStatus(row)
+  invoiceForm.invoiceType = row.invoiceType || '电子普通发票'
   invoiceForm.title = row.invoiceTitle || ''
   invoiceForm.taxNo = row.taxId || ''
+  invoiceForm.email = row.invoiceEmail || ''
+  invoiceForm.registerAddress = row.invoiceRegisterAddress || ''
+  invoiceForm.registerPhone = row.invoiceRegisterPhone || ''
+  invoiceForm.bankName = row.invoiceBankName || ''
+  invoiceForm.bankAccount = row.invoiceBankAccount || ''
+  invoiceForm.recipientName = row.invoiceRecipientName || ''
+  invoiceForm.recipientPhone = row.invoiceRecipientPhone || ''
+  invoiceForm.recipientAddress = row.invoiceRecipientAddress || ''
   invoiceForm.remark = row.invoiceRemark || ''
   invoiceForm.fileUrl = row.invoiceUrl || ''
+  invoiceForm.pdfUrl = row.invoicePdfUrl || ''
   invoiceForm.invoiceNo = row.invoiceNo || ''
   invoiceForm.invoiceDate = row.invoiceDate || ''
+  invoiceForm.mailCompany = row.invoiceMailCompany || ''
+  invoiceForm.mailNo = row.invoiceMailNo || ''
+  invoiceForm.mailTime = row.invoiceMailTime || ''
   resetQuoteForm(row)
   drawerVisible.value = true
 }
@@ -2410,12 +2557,25 @@ const saveInvoiceStatus = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     await updateInvoiceStatus(token, currentOrder.value._id, invoiceStatus.value, {
+      invoice_type: invoiceForm.invoiceType,
       title: invoiceForm.title,
       taxNo: invoiceForm.taxNo,
+      email: invoiceForm.email,
+      register_address: invoiceForm.registerAddress,
+      register_phone: invoiceForm.registerPhone,
+      bank_name: invoiceForm.bankName,
+      bank_account: invoiceForm.bankAccount,
+      recipient_name: invoiceForm.recipientName,
+      recipient_phone: invoiceForm.recipientPhone,
+      recipient_address: invoiceForm.recipientAddress,
       remark: invoiceForm.remark,
       invoice_url: invoiceForm.fileUrl,
+      pdf_url: invoiceForm.pdfUrl,
       invoice_no: invoiceForm.invoiceNo,
-      invoice_date: invoiceForm.invoiceDate
+      invoice_date: invoiceForm.invoiceDate,
+      mail_company: invoiceForm.mailCompany,
+      mail_no: invoiceForm.mailNo,
+      mail_time: invoiceForm.mailTime
     })
     ElMessage.success('发票状态已登记')
     await loadOrders()
@@ -2504,10 +2664,10 @@ const markPaymentPaid = async () => {
 
   try {
     await ElMessageBox.confirm(
-      '确认客户付款已经到账，并将付款状态标记为“已到账”？',
-      '付款核销确认',
+      '请确认已同步核对银行对公流水，且金额、工单备注均匹配。通过后付款状态将标记为“已到账”。',
+      '转账凭证审核通过',
       {
-        confirmButtonText: '确认到账',
+        confirmButtonText: '确认已到账',
         cancelButtonText: '取消',
         type: 'warning'
       }
@@ -2537,6 +2697,60 @@ const markPaymentPaid = async () => {
     }
   } catch (error) {
     ElMessage.error(error.message || '付款核销失败')
+  } finally {
+    paymentSaving.value = false
+  }
+}
+
+const rejectCurrentPaymentProof = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('confirm_payment')) {
+    ElMessage.error('当前角色无权审核付款凭证')
+    return
+  }
+  if (resolvePaymentStatus(currentOrder.value) !== 'uploaded') {
+    ElMessage.info('当前没有待审核的转账凭证')
+    return
+  }
+
+  let reason = ''
+  try {
+    const res = await ElMessageBox.prompt(
+      '请填写驳回原因，原因会展示给客户并用于重新上传凭证。',
+      '驳回转账凭证',
+      {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputPlaceholder: '如：银行流水未匹配到该工单编号 / 金额不一致 / 回单不清晰',
+        inputValidator: (v) => (v && v.trim() ? true : '请填写驳回原因'),
+        type: 'warning'
+      }
+    )
+    reason = (res && res.value || '').trim()
+  } catch (error) {
+    if (!isUserCancel(error)) ElMessage.error(error.message || '已取消驳回')
+    return
+  }
+
+  paymentSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const orderId = currentOrder.value._id
+    const result = await rejectPaymentProof(token, orderId, reason)
+    ElMessage.success('已驳回转账凭证')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === orderId)
+    if (fresh) {
+      currentOrder.value = fresh
+    } else if (result) {
+      currentOrder.value = {
+        ...currentOrder.value,
+        paymentStatus: result.paymentStatus || result.payment_status || 'rejected',
+        paymentRejectReason: reason
+      }
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '驳回失败')
   } finally {
     paymentSaving.value = false
   }
@@ -2912,6 +3126,7 @@ const confirmExportExcel = async () => {
 .drawer-section p { margin: 0; }
 .drawer-section-title { font-weight: 600; color: #1d2129; margin: 0 0 8px !important; }
 .drawer-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .customer-section { background: #eef6ff; }
 .drawer-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; }
@@ -2955,6 +3170,7 @@ const confirmExportExcel = async () => {
 .part-picker-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .payment-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .payment-paid-tip { color: #52c41a; font-size: 13px; }
+.payment-rejected-tip { color: #f56c6c; font-size: 13px; }
 .drawer-section .el-textarea { margin-bottom: 10px; }
 .drawer-section .el-button { margin-top: 2px; }
 .drawer-footer { width: 100%; display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }

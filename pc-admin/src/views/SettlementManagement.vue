@@ -20,7 +20,9 @@
         <el-option label="已退款" value="refunded"></el-option>
       </el-select>
       <el-button type="primary" plain @click="loadSettlements">查询</el-button>
-      <el-button type="success" plain :loading="exporting" @click="exportReconcile">导出对账Excel</el-button>
+      <el-tooltip content="对账/开票数据已统一到「财务中心 · 四流台账导出」" placement="top">
+        <span class="settlement-export-hint">导出 → 四流台账</span>
+      </el-tooltip>
     </div>
 
     <div class="table-responsive">
@@ -70,12 +72,9 @@
       <el-table-column label="发票号码" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">{{ row.invoice_info?.invoice_no || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="160" align="right" fixed="right">
+      <el-table-column label="操作" width="150" align="right" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" link @click="goWorkOrder(row)">查看工单</el-button>
-          <span class="risk-actions">
-            <el-button type="success" link :disabled="row.payment_status === 'paid'" @click="confirmPaid(row)">核销</el-button>
-          </span>
+          <el-button type="primary" link @click="goWorkOrder(row)">去工单处理</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -95,9 +94,8 @@
 <script setup>
 import { reactive, ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { getSettlementList } from '../api/settlement.js'
-import { updatePaymentStatus } from '../api/order.js'
 
 const router = useRouter()
 const rows = ref([])
@@ -106,7 +104,6 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const filters = reactive({ keyword: '', paymentStatus: '' })
-const exporting = ref(false)
 const getToken = () => localStorage.getItem('adminToken')
 
 const paymentText = (status = 'pending') => ({ pending: '待付款', uploaded: '待核销', paid: '已付款', refunded: '已退款' }[status] || '待付款')
@@ -119,49 +116,7 @@ const formatTime = (ts) => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-// 导出对账 Excel（CSV，带 BOM 以便 Excel 正确显示中文）
-const exportReconcile = async () => {
-  exporting.value = true
-  try {
-    const data = await getSettlementList(getToken(), {
-      keyword: filters.keyword,
-      paymentStatus: filters.paymentStatus,
-      page: 1,
-      pageSize: 1000
-    })
-    const list = data.list || []
-    if (!list.length) { ElMessage.warning('当前条件下没有可导出的结算记录'); return }
-    const headers = ['工单号', '商户单号', '客户', '联系电话', '实付金额', '付款状态', '付款方式', '付款时间', '微信支付单号', '寄出运单号', '回寄运单号', '开票状态', '发票号码', '开票日期']
-    const esc = (v) => `"${String(v === null || v === undefined ? '' : v).replace(/"/g, '""')}"`
-    const lines = [headers.join(',')]
-    list.forEach(r => {
-      const inv = r.invoice_info || {}
-      lines.push([
-        r.order_no, r.out_trade_no, r.customer_name, r.contact_phone,
-        Number(r.total_price || 0).toFixed(2),
-        paymentText(r.payment_status),
-        (r.payment_proofs || []).length ? '对公凭证' : (r.payment_method === 'wechat_pay' ? '微信支付' : '待付款'),
-        r.payment_paid_time ? formatTime(r.payment_paid_time) : '',
-        r.wechat_transaction_id, r.logistics_no_out, r.logistics_no_back,
-        inv.status || (inv.need_invoice ? '待开票' : '无需开票'),
-        inv.invoice_no || '', inv.invoice_date || ''
-      ].map(esc).join(','))
-    })
-    const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    const d = new Date(); const p = (n) => String(n).padStart(2, '0')
-    a.href = url
-    a.download = `结算对账_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success(`已导出 ${list.length} 条对账记录`)
-  } catch (error) {
-    ElMessage.error(error.message || '导出失败')
-  } finally {
-    exporting.value = false
-  }
-}
+// 对账导出已统一到「财务中心 · 四流台账导出」（FinanceCenter.vue），此处不再单独导出
 
 const loadSettlements = async () => {
   loading.value = true
@@ -184,23 +139,7 @@ const loadSettlements = async () => {
 const goWorkOrder = (row) => {
   router.push({ path: '/workorder', query: { keyword: row.order_no } })
 }
-
-const confirmPaid = async (row) => {
-  try {
-    await ElMessageBox.confirm('核销后将标记为已付款；若报价配件已绑定库存，会同步生成出库流水。确定继续吗？', '付款核销确认', {
-      confirmButtonText: '确认核销',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    await updatePaymentStatus(getToken(), row._id, 'paid')
-    ElMessage.success('付款已核销')
-    await loadSettlements()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') {
-      ElMessage.error(error.message || '核销失败')
-    }
-  }
-}
+// 付款核销/确认已统一到工单详情（单一真相入口），此处仅展示与跳转
 
 watch([page, pageSize], loadSettlements)
 onMounted(loadSettlements)
@@ -209,5 +148,6 @@ onMounted(loadSettlements)
 <style scoped>
 .settlement-page { min-height: 520px; }
 .settlement-toolbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 18px; flex-wrap: wrap; }
+.settlement-export-hint { font-size: 12px; color: #909399; cursor: help; padding: 0 4px; }
 .pager { margin-top: 16px; justify-content: flex-end; }
 </style>

@@ -6,7 +6,7 @@
     "key": { "bsonType": "string" },
     "value": {
       "bsonType": "string",
-      "description": "配置值。保修政策、收费办法、隐私政策等富文本配置以 HTML 字符串存储。"
+      "description": "配置值。保修政策、收费办法、隐私政策等富文本配置以 HTML 字符串存储；warranty_policy_sections 为保修政策分块 JSON 数组字符串 [{title, content}]，小程序按块渲染，为空时回退 warranty_policy 整段富文本。"
     },
     "update_time": { "bsonType": "timestamp" }
   }

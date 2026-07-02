@@ -40,7 +40,7 @@ function createWorkflowFallback() {
     get_workflow_config: ALL_ROLES,
     update_status: ['admin', 'engineer'],
     import_logistics: ['admin', 'engineer'],
-    issue_quote: ['admin', 'support'],
+    issue_quote: ['admin', 'engineer'],
     confirm_payment: ['admin', 'finance'],
     update_invoice: ['admin', 'finance'],
     view_payment_proof: ['admin', 'finance'],
@@ -357,19 +357,27 @@ async function countOrdersByMatch(matchCond, todoType = '') {
 const SUBSCRIPTION_SCENE_LABELS = {
   repair_submitted: '报修已提交',
   order_received: '设备已签收',
+  inspection_completed: '检测已完成',
   quote_issued: '维修报价已发布',
   payment_confirmed: '付款已确认',
+  payment_rejected: '凭证已驳回',
+  repair_started: '开始维修',
   order_shipped: '设备已回寄',
   order_completed: '工单已完成',
+  invoice_issued: '发票已开具',
   review_invite: '邀请服务评价'
 }
 const SUBSCRIPTION_CONFIG_SCENES = [
   { scene: 'repair_submitted', title: '报修提交提醒' },
   { scene: 'order_received', title: '设备签收提醒' },
+  { scene: 'inspection_completed', title: '检测完成提醒' },
   { scene: 'quote_issued', title: '维修报价提醒' },
   { scene: 'payment_confirmed', title: '付款到账提醒' },
+  { scene: 'payment_rejected', title: '凭证驳回提醒' },
+  { scene: 'repair_started', title: '开始维修提醒' },
   { scene: 'order_shipped', title: '回寄发货提醒' },
   { scene: 'order_completed', title: '工单完成提醒' },
+  { scene: 'invoice_issued', title: '发票开具提醒' },
   { scene: 'review_invite', title: '服务评价邀请' }
 ]
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
@@ -619,6 +627,33 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+// 回寄单号录入源头防错：标准化 + 通用格式校验 + 按公司前缀提示。
+// 返回 { ok, value, reason }，reason 用于拦截时写入错误清单。
+function validateTrackingNo(rawNo, company = '') {
+  // 仅去空格、保留原大小写：客户端查询按精确匹配且不改大小写，强制大写会查不到
+  const value = normalizeText(rawNo).replace(/\s/g, '')
+  if (!value) return { ok: false, value, reason: '缺少回寄运单号' }
+  if (!/^[A-Za-z0-9-]{6,40}$/.test(value)) {
+    return { ok: false, value, reason: '运单号格式不正确（仅允许字母、数字、横杠，6-40 位）' }
+  }
+  // 顺丰单号通常为 SF 开头 + 12-15 位数字，做轻量一致性提示（不强制拦截其它格式）
+  const c = normalizeText(company)
+  if (/顺丰|SF/i.test(c) && !/^SF/i.test(value)) {
+    return { ok: false, value, reason: '顺丰运单号应以 SF 开头，请核对单号与快递公司是否匹配' }
+  }
+  return { ok: true, value, reason: '' }
+}
+
+// 回寄发货前置校验：需付费工单（有金额且非免费/在保）必须已确认到账才能录入发货。
+// 免费/在保（total_price=0 或 charge_type='free'）无需付款，放行。返回拦截原因或 ''。
+function blockShipUnpaidReason(order = {}) {
+  const totalPrice = Number(order.total_price || 0)
+  const isFree = order.charge_type === 'free' || totalPrice <= 0
+  if (isFree) return ''
+  if (order.payment_status !== 'paid') return '该工单尚未确认到账（payment_status≠paid），未支付不可录入发货物流'
+  return ''
+}
+
 // ============ 一键开票适配层（对接微信电子发票 / 开票服务商）============
 // 拿到服务商 API 凭证后，只需在 callInvoiceProvider 内实现"开票+查结果"，其余闭环已就绪。
 // 未配置时抛出明确错误：「一键开票」按钮会提示"开票服务商未配置"，绝不会误判为成功。
@@ -717,7 +752,9 @@ function normalizeInvoiceStatusFilter(value = '') {
   if (!text) return ''
   const map = {
     未发票: '待开票',
-    已发票: '已开具'
+    已发票: '已开具',
+    已寄出: '已寄出',
+    已签收: '已签收'
   }
   return map[text] || text
 }
@@ -895,9 +932,9 @@ async function findOrderByNo(orderNo) {
   }
 }
 
-const INVOICE_STATUS = ['无需开票', '待开票', '开具中', '已开具']
+const INVOICE_STATUS = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收']
 const QUOTE_STATUS = ['pending', 'draft', 'issued', 'confirmed', 'rejected']
-const PAYMENT_STATUS = ['pending', 'uploaded', 'paid']
+const PAYMENT_STATUS = ['pending', 'uploaded', 'paid', 'rejected']
 const DEFAULT_PAYMENT_DEADLINE_DAYS = 7
 
 function normalizeInvoiceStatusValue(status = '') {
@@ -1510,6 +1547,7 @@ function getDashboardMetrics(orders = [], feedbacks = [], startTime, endTime, gr
     avgHandleHours: 0,
     quotePendingOrders: 0,
     invoicePendingOrders: 0,
+    paidAmount: 0,
     totalOrders: 0,
     totalFeedbacks: 0,
     pendingFeedbacks: 0
@@ -1545,6 +1583,11 @@ function getDashboardMetrics(orders = [], feedbacks = [], startTime, endTime, gr
         completedDurations.push((completedTime - createTime) / 3600000)
       }
     }
+
+    // 本期已收金额：付款已确认(paid)且到账时间落在区间内的工单金额求和
+    if (order.payment_status === 'paid' && isInRange(Number(order.payment_paid_time || 0), startTime, endTime)) {
+      metrics.paidAmount += Number(order.total_price || 0) || 0
+    }
   })
 
   feedbacks.forEach(item => {
@@ -1558,6 +1601,7 @@ function getDashboardMetrics(orders = [], feedbacks = [], startTime, endTime, gr
   if (completedDurations.length) {
     metrics.avgHandleHours = Number((completedDurations.reduce((sum, value) => sum + value, 0) / completedDurations.length).toFixed(1))
   }
+  metrics.paidAmount = Number(metrics.paidAmount.toFixed(2))
 
   return { metrics, trend }
 }
@@ -1976,6 +2020,8 @@ module.exports = {
       })
       const sceneMap = {
         received: 'order_received',
+        inspecting: 'inspection_completed',
+        fixing: 'repair_started',
         shipped: 'order_shipped',
         completed: 'order_completed'
       }
@@ -2145,6 +2191,25 @@ module.exports = {
           results.push({ ...item, success: false, reason: '已取消工单不能导入修改' })
           continue
         }
+        // 已完成工单锁定：禁止改回寄单号，防篡改历史物流记录
+        if (order.status === 'completed') {
+          results.push({ ...item, success: false, reason: '已完成工单的回寄单号已锁定，不可修改' })
+          continue
+        }
+        // 未支付拦截：需付费工单必须先确认到账才能录入发货物流
+        const unpaidReason = blockShipUnpaidReason(order)
+        if (unpaidReason) {
+          results.push({ ...item, success: false, reason: unpaidReason })
+          continue
+        }
+        // 录入源头防错：单号格式 + 快递公司一致性校验，不符直接拦截该行
+        const trackCheck = validateTrackingNo(item.logistics_no, item.logistics_company)
+        if (!trackCheck.ok) {
+          results.push({ ...item, success: false, reason: trackCheck.reason })
+          continue
+        }
+        item.logistics_no = trackCheck.value
+        // TODO(express): provider 接通后在此调用真实查询，若返回「无此运单」则拦截保存
 
         const shipBackInfo = buildShipBackInfo(order, item, now)
         const timeline = Array.isArray(order.timeline) ? order.timeline : []
@@ -2267,6 +2332,28 @@ module.exports = {
           summary.errors.push({ orderNo: item.orderNo, reason: '已取消工单不能导入修改' })
           continue
         }
+        // 已完成工单锁定：禁止改回寄单号，防篡改历史物流记录
+        if (order.status === 'completed') {
+          summary.fail += 1
+          summary.errors.push({ orderNo: item.orderNo, reason: '已完成工单的回寄单号已锁定，不可修改' })
+          continue
+        }
+        // 未支付拦截：需付费工单必须先确认到账才能录入发货物流
+        const unpaidReason = blockShipUnpaidReason(order)
+        if (unpaidReason) {
+          summary.fail += 1
+          summary.errors.push({ orderNo: item.orderNo, reason: unpaidReason })
+          continue
+        }
+        // 录入源头防错：单号格式 + 快递公司一致性校验
+        const trackCheck = validateTrackingNo(item.returnNo, item.returnCompany)
+        if (!trackCheck.ok) {
+          summary.fail += 1
+          summary.errors.push({ orderNo: item.orderNo, reason: trackCheck.reason })
+          continue
+        }
+        item.returnNo = trackCheck.value
+        // TODO(express): provider 接通后在此调用真实查询，若返回「无此运单」则拦截保存
 
         const timeline = Array.isArray(order.timeline) ? order.timeline : []
         const updateData = {
@@ -2438,35 +2525,80 @@ module.exports = {
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
       const oldInvoice = order.invoice_info || {}
+      const nextInvoiceType = normalizeText(invoice.invoice_type || invoice.invoiceType) || oldInvoice.invoice_type || '电子普通发票'
+      const nextMailCompany = normalizeText(invoice.mail_company || invoice.mailCompany)
+      const nextMailNo = normalizeText(invoice.mail_no || invoice.mailNo)
+      const nextMailTime = normalizeText(invoice.mail_time || invoice.mailTime)
+      const nextReceivedTime = normalizeText(invoice.received_time || invoice.receivedTime)
+      if (nextInvoiceType !== '纸质专用发票' && (nextMailCompany || nextMailNo || nextMailTime || nextReceivedTime)) {
+        return { code: -1, msg: '电子普通发票无需登记邮寄物流' }
+      }
       // 电子发票链接/号码/日期：财务开具后回填，客户端「已开票」据此复制下载（兼容 file_url 旧字段）
       const nextInvoiceUrl = normalizeText(invoice.invoice_url || invoice.file_url || invoice.fileUrl || invoice.url) || oldInvoice.invoice_url || oldInvoice.file_url || ''
       const invoiceInfo = {
         ...oldInvoice,
         need_invoice: nextStatus !== '无需开票',
         status: nextStatus,
+        invoice_type: nextInvoiceType,
+        title_type: normalizeText(invoice.title_type || invoice.titleType) || oldInvoice.title_type || 'company',
         title: normalizeText(invoice.title) || oldInvoice.title || '',
         tax_no: normalizeText(invoice.tax_no || invoice.taxNo) || oldInvoice.tax_no || '',
+        email: normalizeText(invoice.email || invoice.invoiceEmail) || oldInvoice.email || '',
+        register_address: normalizeText(invoice.register_address || invoice.registerAddress) || oldInvoice.register_address || '',
+        register_phone: normalizeText(invoice.register_phone || invoice.registerPhone) || oldInvoice.register_phone || '',
+        bank_name: normalizeText(invoice.bank_name || invoice.bankName) || oldInvoice.bank_name || '',
+        bank_account: normalizeText(invoice.bank_account || invoice.bankAccount) || oldInvoice.bank_account || '',
+        recipient_name: normalizeText(invoice.recipient_name || invoice.recipientName) || oldInvoice.recipient_name || '',
+        recipient_phone: normalizeText(invoice.recipient_phone || invoice.recipientPhone) || oldInvoice.recipient_phone || '',
+        recipient_address: normalizeText(invoice.recipient_address || invoice.recipientAddress) || oldInvoice.recipient_address || '',
         remark: normalizeText(invoice.remark) || oldInvoice.remark || '',
         invoice_url: nextInvoiceUrl,
+        pdf_url: normalizeText(invoice.pdf_url || invoice.pdfUrl) || oldInvoice.pdf_url || nextInvoiceUrl,
         invoice_no: normalizeText(invoice.invoice_no || invoice.invoiceNo) || oldInvoice.invoice_no || '',
         invoice_date: normalizeText(invoice.invoice_date || invoice.invoiceDate) || oldInvoice.invoice_date || '',
+        // 专票（纸质）邮寄信息：增值税专用发票需邮寄纸质件，登记物流便于客户跟踪与对账
+        mail_company: nextMailCompany || oldInvoice.mail_company || '',
+        mail_no: nextMailNo || oldInvoice.mail_no || '',
+        mail_time: nextMailTime || oldInvoice.mail_time || '',
+        received_time: nextStatus === '已签收' ? (nextReceivedTime || oldInvoice.received_time || now) : (nextReceivedTime || oldInvoice.received_time || ''),
         update_time: now
       }
       if (nextStatus === '已开具') invoiceInfo.issued_time = oldInvoice.issued_time || now
 
       const updateData = { invoice_info: invoiceInfo, update_time: now }
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const nextTimeline = [...timeline]
       // 首次置为「已开具」时补一条时间线，客户端进度可见
       if (nextStatus === '已开具' && oldInvoice.status !== '已开具') {
-        const timeline = Array.isArray(order.timeline) ? order.timeline : []
-        updateData.timeline = [
-          ...timeline,
-          {
-            title: '电子发票已开具',
-            desc: nextInvoiceUrl ? '可在「发票与开票」复制链接查看并下载' : `发票抬头：${invoiceInfo.title || '-'}`,
-            time: now,
-            done: true
-          }
-        ]
+        const title = nextInvoiceType === '纸质专用发票' ? '纸质发票已开具' : '电子发票已开具'
+        const desc = nextInvoiceType === '纸质专用发票'
+          ? '纸质专票已开具，待财务登记寄送物流。'
+          : (nextInvoiceUrl ? '可在「发票与开票」复制链接查看并下载' : `发票抬头：${invoiceInfo.title || '-'}`)
+        nextTimeline.push({
+          title,
+          desc,
+          time: now,
+          done: true
+        })
+      }
+      if (nextInvoiceType === '纸质专用发票' && nextStatus === '已寄出' && oldInvoice.status !== '已寄出') {
+        nextTimeline.push({
+          title: '纸质发票寄出',
+          desc: `${invoiceInfo.mail_company || '物流'} ${invoiceInfo.mail_no || '单号待录入'}`.trim(),
+          time: invoiceInfo.mail_time || now,
+          done: true
+        })
+      }
+      if (nextInvoiceType === '纸质专用发票' && nextStatus === '已签收' && oldInvoice.status !== '已签收') {
+        nextTimeline.push({
+          title: '纸质发票已签收',
+          desc: '发票物流已签收，请交由财务归档。',
+          time: invoiceInfo.received_time || now,
+          done: true
+        })
+      }
+      if (nextTimeline.length !== timeline.length) {
+        updateData.timeline = nextTimeline
       }
 
       const res = await db.collection('cicada_orders').doc(order_id).update(updateData)
@@ -2478,6 +2610,12 @@ module.exports = {
         before: { invoice_info: oldInvoice },
         after: { invoice_info: invoiceInfo }
       })
+      if (['已开具', '已寄出', '已签收'].includes(nextStatus) && oldInvoice.status !== nextStatus) {
+        const remark = nextStatus === '已寄出'
+          ? '纸质发票已寄出'
+          : (nextStatus === '已签收' ? '纸质发票已签收' : '发票已开具')
+        await sendOrderSubscription({ ...order, ...updateData }, 'invoice_issued', remark)
+      }
 
       return { code: 0, data: invoiceInfo }
     } catch (e) {
@@ -2542,7 +2680,7 @@ module.exports = {
         before: { invoice_info: oldInvoice },
         after: { invoice_info: invoiceInfo }
       })
-      // TODO[通知]：开票成功后发订阅消息 + 邮件到 oldInvoice.email
+      await sendOrderSubscription({ ...order, invoice_info: invoiceInfo, update_time: now }, 'invoice_issued', '发票已开具')
       return { code: 0, data: invoiceInfo }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -2620,7 +2758,7 @@ module.exports = {
   async updatePaymentStatus(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'confirm_payment')
-      const { order_id, status } = pickParam(this, params)
+      const { order_id, status, reason = '' } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const paymentStatus = normalizeText(status || 'paid')
       if (!PAYMENT_STATUS.includes(paymentStatus)) return { code: -1, msg: '付款状态不正确' }
@@ -2629,6 +2767,11 @@ module.exports = {
       const found = await db.collection('cicada_orders').doc(order_id).get()
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
+
+      const rejectReason = normalizeText(reason).slice(0, 200)
+      if (paymentStatus === 'rejected' && !rejectReason) {
+        return { code: -1, msg: '驳回转账凭证时必须填写原因' }
+      }
 
       let inventoryResult = null
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
@@ -2643,18 +2786,32 @@ module.exports = {
 
       if (paymentStatus === 'paid') {
         updateData.payment_paid_time = now
+        updateData.payment_reject_reason = ''
+        updateData.payment_reject_time = 0
       }
 
-      if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
+      if (paymentStatus === 'rejected') {
+        updateData.payment_reject_reason = rejectReason
+        updateData.payment_reject_time = now
+      }
+
+      if ((paymentStatus === 'paid' && order.payment_status !== 'paid') || paymentStatus === 'rejected') {
         const timeline = Array.isArray(order.timeline) ? order.timeline : []
         updateData.timeline = [
           ...timeline,
-          {
-            title: '付款已核销',
-            desc: '后台已确认客户付款到账。',
-            time: now,
-            done: true
-          }
+          paymentStatus === 'paid'
+            ? {
+                title: '付款已核销',
+                desc: '后台已确认客户付款到账。',
+                time: now,
+                done: true
+              }
+            : {
+                title: '转账凭证已驳回',
+                desc: rejectReason,
+                time: now,
+                done: true
+              }
         ]
       }
 
@@ -2662,14 +2819,17 @@ module.exports = {
       if (!res.updated) return { code: -1, msg: '工单不存在' }
       await logOrderEvent({
         order,
-        action: 'confirm_payment',
+        action: paymentStatus === 'rejected' ? 'reject_payment_proof' : 'confirm_payment',
         actor: currentAdmin,
         before: { payment_status: order.payment_status || 'pending' },
-        after: { payment_status: paymentStatus }
+        after: { payment_status: paymentStatus, reason: rejectReason }
       })
 
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
         await sendOrderSubscription({ ...order, ...updateData }, 'payment_confirmed', '付款已确认')
+      }
+      if (paymentStatus === 'rejected') {
+        await sendOrderSubscription({ ...order, ...updateData }, 'payment_rejected', rejectReason || '转账凭证未通过审核')
       }
       // 库存未自动扣减的告警（报价含配件但未绑定库存）随响应返回，供前端提示运营核对
       const msg = inventoryResult && inventoryResult.warning ? inventoryResult.reason : ''
@@ -3031,6 +3191,239 @@ module.exports = {
     }
   },
 
+  // 物流异常列表：扫在途工单，按时间信号判定 48h 未揽收 / 72h 停滞，供后台主动联系客户
+  // 注：当前轨迹按工单状态合成，判定基于工单时间戳；接通真实物流轨迹后判定会更精准。
+  async getLogisticsExceptions(params) {
+    try {
+      requireAdminPermission(this, 'view_order')
+      const now = Date.now()
+      const H = 60 * 60 * 1000
+      const NO_PICKUP_MS = 48 * H // 48h 未揽收
+      const STALLED_MS = 72 * H   // 72h 停滞
+      // 仅扫在途：客户寄出（pending/sent）与回寄发货（shipped）
+      const orders = await fetchOrderBatches({ status: dbCmd.in(['pending', 'sent', 'shipped']) })
+      const exceptions = []
+      for (const order of orders) {
+        const out = order.ship_out_info || {}
+        const back = order.ship_back_info || {}
+        const outNo = normalizeText(out.logistics_no || out.logisticsNo)
+        const backNo = normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo)
+        const updatedAt = Number(order.update_time) || Number(order.create_time) || 0
+        const base = { orderNo: order.order_no || '', orderId: order._id }
+        // 寄出段：有单号但长时间未推进
+        if (outNo && ['pending', 'sent'].includes(order.status)) {
+          const since = now - (Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
+          if (order.status === 'pending' && since > NO_PICKUP_MS) {
+            exceptions.push({ ...base, segment: 'out', type: 'no_pickup', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出超 48h 未签收，建议催寄/核实' })
+          } else if (order.status === 'sent' && since > STALLED_MS) {
+            exceptions.push({ ...base, segment: 'out', type: 'stalled', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出运输停滞超 72h，建议联系快递核实' })
+          }
+        }
+        // 回寄段：已发货长时间未完成
+        if (backNo && order.status === 'shipped' && updatedAt && now - updatedAt > STALLED_MS) {
+          exceptions.push({ ...base, segment: 'back', type: 'stalled', hours: Math.floor((now - updatedAt) / H), company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo, reason: '回寄运输停滞超 72h，建议联系快递核实' })
+        }
+      }
+      exceptions.sort((a, b) => b.hours - a.hours)
+      return { code: 0, data: { total: exceptions.length, exceptions } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 物流台账：两段物流（寄出/回寄）汇总，支持分页拉全量导出；超扫描上限返回 truncated
+  async getLogisticsLedger(params) {
+    try {
+      requireAdminPermission(this, 'export_order')
+      const { status = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
+      const pagination = normalizePage(page, pageSize)
+      const kw = normalizeText(keyword).toLowerCase()
+      const matchCond = { status: dbCmd.neq('cancelled') }
+      if (status && ORDER_STATUS.includes(status)) matchCond.status = status
+      const fetched = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
+      const rows = (fetched.orders || []).map(o => {
+        const out = o.ship_out_info || {}
+        const back = o.ship_back_info || {}
+        return {
+          order_no: o.order_no || '',
+          status: o.status || '',
+          customer: normalizeText(back.unit || back.name || ''),
+          out_company: normalizeText(out.logistics_company || out.logisticsCompany || ''),
+          out_no: normalizeText(out.logistics_no || out.logisticsNo || ''),
+          back_company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany || ''),
+          back_no: normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo || ''),
+          create_time: o.create_time || 0,
+          update_time: o.update_time || 0
+        }
+      })
+      const filtered = kw
+        ? rows.filter(r => [r.order_no, r.customer, r.out_no, r.back_no].filter(Boolean).join(' ').toLowerCase().includes(kw))
+        : rows
+      const start = (pagination.page - 1) * pagination.pageSize
+      const list = filtered.slice(start, start + pagination.pageSize)
+      return { code: 0, data: { list, total: filtered.length, page: pagination.page, pageSize: pagination.pageSize, truncated: fetched.truncated } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 四流台账：订单+物流+支付+发票合一，分页拉全量统一导出（取代对账/发票各自导出）
+  async getFourFlowLedger(params) {
+    try {
+      requireAdminPermission(this, 'view_settlement')
+      const { status = '', keyword = '', billableOnly = false, page = 1, pageSize = 20 } = pickParam(this, params)
+      const pagination = normalizePage(page, pageSize)
+      const kw = normalizeText(keyword).toLowerCase()
+      const matchCond = { status: dbCmd.neq('cancelled') }
+      if (status && ORDER_STATUS.includes(status)) matchCond.status = status
+      const fetched = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
+      let rows = (fetched.orders || []).map(o => {
+        const out = o.ship_out_info || {}
+        const back = o.ship_back_info || {}
+        const inv = o.invoice_info || {}
+        return {
+          order_no: o.order_no || '',
+          status: o.status || '',
+          customer: normalizeText(back.unit || back.name || ''),
+          phone: normalizeText(back.phone || ''),
+          total_price: Number(o.total_price || 0),
+          parts_fee: Number(o.parts_fee || 0),
+          labor_fee: Number(o.labor_fee || 0),
+          payment_status: o.payment_status || 'pending',
+          payment_method: o.payment_method || '',
+          payment_paid_time: o.payment_paid_time || 0,
+          wechat_transaction_id: o.wechat_pay_transaction_id || '',
+          out_company: normalizeText(out.logistics_company || out.logisticsCompany || ''),
+          out_no: normalizeText(out.logistics_no || out.logisticsNo || ''),
+          back_company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany || ''),
+          back_no: normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo || ''),
+          invoice_status: inv.status || (inv.need_invoice ? '待开票' : '无需开票'),
+          invoice_title: normalizeText(inv.title || ''),
+          tax_no: normalizeText(inv.tax_no || ''),
+          invoice_no: normalizeText(inv.invoice_no || ''),
+          invoice_date: normalizeText(inv.invoice_date || ''),
+          mail_company: normalizeText(inv.mail_company || ''),
+          mail_no: normalizeText(inv.mail_no || ''),
+          received_time: normalizeText(inv.received_time || ''),
+          create_time: o.create_time || 0,
+          update_time: o.update_time || 0
+        }
+      })
+      if (billableOnly) rows = rows.filter(r => r.total_price > 0)
+      const filtered = rows.filter(r => !kw || [r.order_no, r.customer, r.phone, r.out_no, r.back_no, r.invoice_no].filter(Boolean).join(' ').toLowerCase().includes(kw))
+      const start = (pagination.page - 1) * pagination.pageSize
+      const list = filtered.slice(start, start + pagination.pageSize)
+      return { code: 0, data: { list, total: filtered.length, page: pagination.page, pageSize: pagination.pageSize, truncated: fetched.truncated } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 开票申请列表：客户已申请开票（need_invoice）的工单，支持分页拉全量导出 + truncated
+  async getInvoiceApplications(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_invoice')
+      const { status = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
+      const pagination = normalizePage(page, pageSize)
+      const kw = normalizeText(keyword).toLowerCase()
+      const wantStatus = normalizeInvoiceStatusFilter(status)
+      const fetched = await fetchOrderBatches({ status: dbCmd.neq('cancelled') }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
+      const rows = (fetched.orders || [])
+        .filter(o => {
+          const inv = o.invoice_info || {}
+          return inv.need_invoice || inv.status || inv.invoice_no // 客户申请过 / 有开票活动
+        })
+        .map(o => {
+          const inv = o.invoice_info || {}
+          const back = o.ship_back_info || {}
+          return {
+            _id: o._id,
+            order_no: o.order_no || '',
+            customer: normalizeText(back.unit || back.name || ''),
+            total_price: Number(o.total_price || 0),
+            status: inv.status || (inv.need_invoice ? '待开票' : '无需开票'),
+            invoice_type: normalizeText(inv.invoice_type || ''),
+            title: normalizeText(inv.title || ''),
+            tax_no: normalizeText(inv.tax_no || ''),
+            email: normalizeText(inv.email || ''),
+            register_address: normalizeText(inv.register_address || ''),
+            register_phone: normalizeText(inv.register_phone || ''),
+            bank_name: normalizeText(inv.bank_name || ''),
+            bank_account: normalizeText(inv.bank_account || ''),
+            recipient_name: normalizeText(inv.recipient_name || ''),
+            recipient_phone: normalizeText(inv.recipient_phone || ''),
+            recipient_address: normalizeText(inv.recipient_address || ''),
+            invoice_no: normalizeText(inv.invoice_no || ''),
+            invoice_date: normalizeText(inv.invoice_date || ''),
+            invoice_url: normalizeText(inv.invoice_url || inv.file_url || ''),
+            pdf_url: normalizeText(inv.pdf_url || ''),
+            mail_company: normalizeText(inv.mail_company || ''),
+            mail_no: normalizeText(inv.mail_no || ''),
+            mail_time: normalizeText(inv.mail_time || ''),
+            received_time: normalizeText(inv.received_time || ''),
+            update_time: o.update_time || 0
+          }
+        })
+      const filtered = rows.filter(r => {
+        if (wantStatus && normalizeInvoiceStatusFilter(r.status) !== wantStatus) return false
+        if (kw && ![r.order_no, r.customer, r.title, r.invoice_no].filter(Boolean).join(' ').toLowerCase().includes(kw)) return false
+        return true
+      })
+      const start = (pagination.page - 1) * pagination.pageSize
+      const list = filtered.slice(start, start + pagination.pageSize)
+      return { code: 0, data: { list, total: filtered.length, page: pagination.page, pageSize: pagination.pageSize, truncated: fetched.truncated } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 批量导入开票结果：按工单号回填发票号/日期/链接/状态，写审计
+  async batchImportInvoices(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_invoice')
+      const { rows } = pickParam(this, params)
+      if (!Array.isArray(rows) || !rows.length) return { code: -1, msg: '导入数据不能为空' }
+      const summary = { total: rows.length, success: 0, fail: 0, errors: [] }
+      const seen = new Set()
+      const now = Date.now()
+      for (const raw of rows) {
+        const orderNo = normalizeText(raw.order_no || raw.orderNo || raw['工单编号'] || raw['工单号'])
+        if (!orderNo) { summary.fail += 1; summary.errors.push({ orderNo: '-', reason: '缺少工单编号' }); continue }
+        if (seen.has(orderNo)) { summary.fail += 1; summary.errors.push({ orderNo, reason: 'Excel中工单编号重复' }); continue }
+        seen.add(orderNo)
+        const invoiceNo = normalizeText(raw.invoice_no || raw.invoiceNo || raw['发票号码'])
+        const invoiceDate = normalizeText(raw.invoice_date || raw.invoiceDate || raw['开票日期'])
+        const invoiceUrl = normalizeText(raw.invoice_url || raw.invoiceUrl || raw['发票链接'])
+        const statusIn = normalizeInvoiceStatusValue(normalizeText(raw.status || raw['开票状态']) || (invoiceNo ? '已开具' : '开具中'))
+        if (!invoiceNo && !invoiceUrl) { summary.fail += 1; summary.errors.push({ orderNo, reason: '缺少发票号码或发票链接' }); continue }
+        const order = await findOrderByNo(orderNo)
+        if (!order) { summary.fail += 1; summary.errors.push({ orderNo, reason: '工单不存在' }); continue }
+        if (order.status === 'cancelled') { summary.fail += 1; summary.errors.push({ orderNo, reason: '已取消工单不可开票' }); continue }
+        const oldInvoice = order.invoice_info || {}
+        const invoiceInfo = {
+          ...oldInvoice,
+          need_invoice: true,
+          status: statusIn,
+          invoice_no: invoiceNo || oldInvoice.invoice_no || '',
+          invoice_date: invoiceDate || oldInvoice.invoice_date || '',
+          invoice_url: invoiceUrl || oldInvoice.invoice_url || '',
+          update_time: now
+        }
+        if (statusIn === '已开具') invoiceInfo.issued_time = oldInvoice.issued_time || now
+        const res = await db.collection('cicada_orders').doc(order._id).update({ invoice_info: invoiceInfo, update_time: now })
+        if (!res.updated) { summary.fail += 1; summary.errors.push({ orderNo, reason: '更新失败' }); continue }
+        await logOrderEvent({ order, action: 'update_invoice', actor: currentAdmin, before: { invoice_info: oldInvoice }, after: { invoice_info: invoiceInfo } })
+        if (statusIn === '已开具' && oldInvoice.status !== '已开具') {
+          await sendOrderSubscription({ ...order, invoice_info: invoiceInfo, update_time: now }, 'invoice_issued', '发票已开具')
+        }
+        summary.success += 1
+      }
+      return { code: 0, data: summary }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 供 URL 健康检查确认订阅模板配置通道可达，不暴露模板 ID 明文
   async getSubscriptionConfig(params) {
     try {
@@ -3069,6 +3462,7 @@ module.exports = {
           completedOrders: metrics.completedOrders,
           pendingOrders: metrics.pendingOrders,
           monthOrders: metrics.newOrders,
+          paidAmount: metrics.paidAmount,
           totalFeedbacks: metrics.totalFeedbacks,
           pendingFeedbacks: metrics.pendingFeedbacks
         }
