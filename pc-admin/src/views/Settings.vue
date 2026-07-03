@@ -68,7 +68,7 @@
 
       <el-tab-pane label="操作教程" name="guides">
         <el-alert
-          title="这里维护小程序首页两个操作教程按钮，并管理首页「维修保养」视频。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
+          title="这里维护小程序首页两个操作教程按钮，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
           type="info"
           show-icon
           :closable="false"
@@ -106,38 +106,38 @@
           </div>
         </div>
         <div class="qual-head maintenance-video-head">
-          <span>维修保养视频</span>
-          <el-button type="primary" link @click="addMaintenanceVideo">+ 新增视频</el-button>
+          <span>首页介绍视频</span>
+          <el-button type="primary" link :disabled="maintenanceVideos.length >= 1" @click="addMaintenanceVideo">+ 添加视频</el-button>
         </div>
-        <div class="sub-label">保存后展示在小程序首页「操作教程」下方的「维修保养」视频区。适合上传手机维护保养、注油、清洁消毒等教学视频。</div>
+        <div class="sub-label">保存后展示在小程序首页「操作教程」下方，只保留 1 个视频。适合上传售后流程、报修寄修、服务介绍等客户引导视频。</div>
         <div class="product-video-list maintenance-video-list-admin">
           <div v-for="(video, index) in maintenanceVideos" :key="video._key" class="policy-document-card product-video-card">
             <div class="product-video-cover">
               <img v-if="video.coverPreview" :src="video.coverPreview" class="product-video-cover-img" />
               <div v-else class="product-video-cover-empty">无封面</div>
-              <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(file) => handleVideoCoverUpload(file, video, 'maintenance-video/')">
+              <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(file) => handleVideoCoverUpload(file, video, 'home-intro-video/')">
                 <el-button size="small" plain><el-icon><Upload /></el-icon>{{ video.cover_url ? '换封面' : '封面' }}</el-button>
               </el-upload>
             </div>
             <div class="product-video-fields">
-              <el-input v-model="video.title" placeholder="视频标题，如：NSK牙科手机维护保养指南——手动注油" maxlength="50" show-word-limit />
+              <el-input v-model="video.title" placeholder="视频标题，如：售后服务流程介绍" maxlength="50" show-word-limit />
               <el-input v-model="video.intro" type="textarea" :rows="2" placeholder="一句话简介（可选）" maxlength="120" show-word-limit style="margin-top:8px;" />
               <div class="product-video-fileline">
                 <el-tag v-if="video.video_name" type="success" effect="plain"><el-icon><VideoPlay /></el-icon> {{ video.video_name }}</el-tag>
                 <span v-else class="policy-document-empty">暂未上传视频</span>
-                <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="video/*,.mp4,.mov,.m4v,.webm" :on-change="(file) => handleVideoUpload(file, video, 'maintenance-video/')">
+                <el-upload action="#" :auto-upload="false" :show-file-list="false" accept="video/*,.mp4,.mov,.m4v,.webm" :on-change="(file) => handleVideoUpload(file, video, 'home-intro-video/')">
                   <el-button type="primary" size="small" :loading="uploadingVideoKey === video._key"><el-icon><Upload /></el-icon>{{ uploadingVideoKey === video._key ? `上传中 ${video._progress || 0}%` : (video.video_url ? '替换视频' : '上传视频') }}</el-button>
                 </el-upload>
-                <el-button v-if="video.video_url" plain size="small" @click="previewVideo(video, '维修保养')"><el-icon><View /></el-icon>预览</el-button>
+                <el-button v-if="video.video_url" plain size="small" @click="previewVideo(video, '首页介绍')"><el-icon><View /></el-icon>预览</el-button>
               </div>
             </div>
             <el-button class="product-video-del" type="danger" link @click="removeMaintenanceVideo(index)">删除</el-button>
           </div>
-          <div v-if="!maintenanceVideos.length" class="empty-tip">还没有维修保养视频，点击上方「新增视频」添加。</div>
+          <div v-if="!maintenanceVideos.length" class="empty-tip">还没有首页介绍视频，点击上方「添加视频」添加。</div>
         </div>
         <div class="save-row guide-save-row">
           <el-button type="primary" :loading="savingGuides" @click="saveGuideDocuments">保存操作教程配置</el-button>
-          <el-button type="primary" :loading="savingMaintenanceVideos" @click="saveMaintenanceVideos">保存维修保养视频</el-button>
+          <el-button type="primary" :loading="savingMaintenanceVideos" @click="saveMaintenanceVideos">保存首页介绍视频</el-button>
         </div>
       </el-tab-pane>
 
@@ -412,6 +412,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
 import RichEditor from '../components/RichEditor.vue'
+import { normalizePolicyHtml } from '../utils/policyHtml.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { uploadToCos } from '../utils/cosUpload.js'
 
@@ -596,8 +597,9 @@ const saveGuideDocuments = async () => {
   }
 }
 
-// ===== 维修保养视频（cicada_guides，category=维修保养视频；desc=标题，content=简介，media=[视频,封面]）=====
-const MAINTENANCE_VIDEO_CATEGORY = '维修保养视频'
+// ===== 首页介绍视频（cicada_guides，category=首页介绍视频；desc=标题，content=简介，media=[视频,封面]）=====
+const MAINTENANCE_VIDEO_CATEGORY = '首页介绍视频'
+const MAINTENANCE_VIDEO_LEGACY_CATEGORIES = ['维修保养视频', '维护保养视频', '维修保养', '维护保养']
 const maintenanceVideos = ref([])
 const savingMaintenanceVideos = ref(false)
 const uploadingVideoKey = ref('')
@@ -606,7 +608,7 @@ let videoKeySeq = 0
 // 视频「小程序效果预览」弹窗
 const videoPreviewVisible = ref(false)
 const videoPreviewItem = ref(null)
-const videoPreviewContext = ref('维修保养')
+const videoPreviewContext = ref('首页介绍')
 const videoPlayUrl = ref('')
 const videoPlayLoading = ref(false)
 
@@ -616,10 +618,16 @@ const loadMaintenanceVideos = async () => {
     const list = await getGuides(token)
     const arr = (Array.isArray(list) ? list : []).filter(g => {
       const category = String(g.category || '')
-      return (category.includes(MAINTENANCE_VIDEO_CATEGORY) || category.includes('维护保养视频'))
+      return category.includes(MAINTENANCE_VIDEO_CATEGORY) || MAINTENANCE_VIDEO_LEGACY_CATEGORIES.some(name => category.includes(name))
     })
-    arr.sort((a, b) => (Number(a.sort) || 0) - (Number(b.sort) || 0))
-    maintenanceVideos.value = arr.map(g => {
+    arr.sort((a, b) => {
+      const aCategory = String(a.category || '')
+      const bCategory = String(b.category || '')
+      const aIntro = aCategory.includes(MAINTENANCE_VIDEO_CATEGORY) ? 0 : 1
+      const bIntro = bCategory.includes(MAINTENANCE_VIDEO_CATEGORY) ? 0 : 1
+      return aIntro - bIntro || (Number(a.sort) || 99) - (Number(b.sort) || 99)
+    })
+    maintenanceVideos.value = arr.slice(0, 1).map(g => {
       const media = Array.isArray(g.media) ? g.media : []
       const video = media.find(m => m && m.type === 'video') || {}
       const cover = media.find(m => m && m.type === 'image') || {}
@@ -638,7 +646,7 @@ const loadMaintenanceVideos = async () => {
     })
     resolveMaintenanceVideoCoverPreviews()
   } catch (error) {
-    console.error('加载维修保养视频失败:', error)
+    console.error('加载首页介绍视频失败:', error)
   }
 }
 const resolveMaintenanceVideoCoverPreviews = async () => {
@@ -656,7 +664,7 @@ const resolveMaintenanceVideoCoverPreviews = async () => {
       if (v.cover_url && map && map[v.cover_url]) v.coverPreview = map[v.cover_url]
     })
   } catch (error) {
-    console.error('解析维修保养视频封面地址失败:', error)
+    console.error('解析首页介绍视频封面地址失败:', error)
   }
 }
 const handleVideoUpload = async (uploadFile, video, keyPrefix = 'product-video/') => {
@@ -703,7 +711,7 @@ const handleVideoCoverUpload = async (uploadFile, video, dir = 'product-video/')
 }
 
 // 点「预览」→ 弹出手机样式弹窗，按小程序视频区样式直接播放
-const previewVideo = async (video, context = '维修保养') => {
+const previewVideo = async (video, context = '首页介绍') => {
   if (!video.video_url) {
     ElMessage.warning('请先上传视频')
     return
@@ -730,11 +738,15 @@ const previewVideo = async (video, context = '维修保养') => {
 }
 
 const addMaintenanceVideo = () => {
+  if (maintenanceVideos.value.length >= 1) {
+    ElMessage.warning('首页介绍视频只需要保留 1 个')
+    return
+  }
   maintenanceVideos.value.push({
     _id: '',
     _key: `new-maint-${++videoKeySeq}`,
-    title: '',
-    intro: '',
+    title: '首页介绍视频',
+    intro: '了解报修、寄修、进度查询与开票流程',
     video_url: '',
     video_name: '',
     cover_url: '',
@@ -751,7 +763,7 @@ const removeMaintenanceVideo = async (index) => {
     return
   }
   try {
-    await ElMessageBox.confirm('确定删除该维修保养视频？删除后小程序首页将不再展示。', '提示', { type: 'warning' })
+    await ElMessageBox.confirm('确定删除该首页介绍视频？删除后小程序首页将不再展示。', '提示', { type: 'warning' })
   } catch (e) {
     return
   }
@@ -765,9 +777,13 @@ const removeMaintenanceVideo = async (index) => {
   }
 }
 const saveMaintenanceVideos = async () => {
+  if (maintenanceVideos.value.length > 1) {
+    ElMessage.warning('首页介绍视频只支持 1 个，请删除多余视频')
+    return
+  }
   for (const v of maintenanceVideos.value) {
     if (!String(v.title || '').trim()) {
-      ElMessage.warning('请为每个维修保养视频填写标题')
+      ElMessage.warning('请填写首页介绍视频标题')
       return
     }
     if (!v.video_url) {
@@ -799,7 +815,7 @@ const saveMaintenanceVideos = async () => {
       }
       v.sort = i + 1
     }
-    ElMessage.success('维修保养视频已保存')
+    ElMessage.success('首页介绍视频已保存')
     await loadMaintenanceVideos()
   } catch (error) {
     ElMessage.error(error.message || '保存失败')
@@ -811,11 +827,11 @@ const loadSettings = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
-    config.warranty = data.warranty_policy || ''
-    config.feePolicy = data.fee_description || ''
+    config.warranty = normalizePolicyHtml(data.warranty_policy || '')
+    config.feePolicy = normalizePolicyHtml(data.fee_description || '')
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
     warrantySections.value = parseJsonArray(data.warranty_policy_sections)
-      .map(item => ({ title: String(item.title || ''), content: String(item.content || '') }))
+      .map(item => ({ title: String(item.title || ''), content: normalizePolicyHtml(item.content || '') }))
     applyCompliance(data)
     applyContactInfo(data)
     applySurveyConfig(data.survey_config)
@@ -829,16 +845,26 @@ const saveConfig = async () => {
     savingPolicy.value = true
     const token = localStorage.getItem('adminToken')
     const cleanFeeTiers = feeTiers.value.filter(t => t.name || t.price)
-    const cleanWarrantySections = warrantySections.value.filter(s => (s.title || '').trim() || (s.content || '').trim())
+    const warrantyPolicy = normalizePolicyHtml(config.warranty)
+    const feePolicy = normalizePolicyHtml(config.feePolicy)
+    const cleanWarrantySections = warrantySections.value
+      .filter(s => (s.title || '').trim() || (s.content || '').trim())
+      .map(s => ({
+        title: String(s.title || '').trim(),
+        content: normalizePolicyHtml(s.content || '')
+      }))
     await saveSettings(token, {
-      warranty_policy: config.warranty,
-      fee_description: config.feePolicy,
+      warranty_policy: warrantyPolicy,
+      fee_description: feePolicy,
       // 已下线「文档上传」入口：清空旧文档字段，避免小程序端读到过期文档
       warranty_policy_file: '',
       fee_policy_file: '',
       fee_tier_templates: JSON.stringify(cleanFeeTiers),
       warranty_policy_sections: JSON.stringify(cleanWarrantySections)
     })
+    config.warranty = warrantyPolicy
+    config.feePolicy = feePolicy
+    warrantySections.value = cleanWarrantySections
     ElMessage.success('配置保存成功')
   } catch (error) {
     ElMessage.error(error.message || '保存失败')

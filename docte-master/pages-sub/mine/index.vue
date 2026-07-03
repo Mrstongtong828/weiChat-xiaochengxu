@@ -188,8 +188,7 @@ const routes = {
 	products: '/pages/index/index?module=products',
 	invoices: '/pages/index/index?module=invoices',
 	'guide-invoice': '/pages/index/index?module=guide-invoice',
-	warranty: '/pages/index/index?module=warranty',
-	contact: '/pages/index/index?module=contact'
+	warranty: '/pages/index/index?module=warranty'
 }
 
 const toggleLogin = () => {

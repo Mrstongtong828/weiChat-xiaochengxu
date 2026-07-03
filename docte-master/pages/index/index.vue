@@ -963,7 +963,6 @@
 					<text v-else class="policy-empty">暂无保修政策内容</text>
 				</view>
 				<view class="dual-actions">
-					<view class="ghost-button tap" @click="go('contact')">联系客服</view>
 					<view class="primary-button tap" @click="go('repair')">立即报修</view>
 				</view>
 			</view>
@@ -1008,49 +1007,6 @@
 					<view v-for="(step, index) in activeDoc.steps" :key="step.title" class="guide-step-row">
 						<text>{{ index + 1 }}</text>
 						<view><text>{{ step.title }}</text><text>{{ step.desc }}</text></view>
-					</view>
-				</view>
-				<!-- 精简底部按钮：已移除「联系客服」和「立即报修」 -->
-				<!-- <view v-if="activeModule !== 'fees'" class="dual-actions doc-actions">
-					<view class="ghost-button tap" @click="go('contact')">联系客服</view>
-					<view class="primary-button tap" @click="go('repair')">立即报修</view>
-				</view> -->
-			</view>
-
-			<view v-else-if="activeModule === 'contact'" class="module-content contact-module">
-				<view class="online-card">
-					<view class="online-icon"><view class="glyph glyph-chat"><view class="glyph-extra"></view></view></view>
-					<view class="online-copy">
-						<text>{{ customerService.title || '在线客服' }}</text>
-						<text>{{ customerService.description || '7×24 小时 · 即时响应' }}</text>
-					</view>
-					<view class="soft-button tap" @click="openCustomerService">立即咨询</view>
-				</view>
-				<view class="module-section-head single"><text>服务热线</text></view>
-				<view class="hotline-grid">
-					<view v-for="item in contactHotlines" :key="item.title" class="hotline-card">
-						<view><view class="glyph glyph-phone"><view class="glyph-extra"></view></view><text>{{ item.title }}</text></view>
-						<text>{{ item.number }}</text>
-						<text>{{ item.time }}</text>
-						<view class="small-primary tap" @click="callPhone(item.number)">一键拨号</view>
-					</view>
-				</view>
-				<view class="module-section-head single"><text>收件地址</text></view>
-				<view class="address-card">
-					<view class="glyph glyph-pin"><view class="glyph-extra"></view></view>
-					<view class="address-copy">
-						<text>{{ contactInfo.companyName }}</text>
-						<text v-for="item in receiver" :key="item.label">{{ item.label }} · {{ item.value }}</text>
-					</view>
-				</view>
-				<view class="address-actions">
-					<view class="ghost-button tap" @click="copyAll">复制地址</view>
-											</view>
-				<view class="module-section-head single"><text>工作时间</text></view>
-				<view class="white-list-card">
-					<view v-for="item in workTimes" :key="item.day" class="list-row">
-						<text>{{ item.day }}</text>
-						<text>{{ item.time }}</text>
 					</view>
 				</view>
 			</view>
@@ -1366,27 +1322,17 @@
 						</view>
 					</view>
 
-					<view v-if="maintenanceVideos.length" class="maintenance-video-wrap">
-						<view class="maintenance-section-head">
-							<text>维修保养</text>
-							<text>视频指南</text>
-						</view>
+					<view v-if="homeIntroVideo" class="maintenance-video-wrap">
 						<view class="maintenance-video-list">
-							<view
-								v-for="item in maintenanceVideos"
-								:key="item.id || item.videoUrl"
-								class="maintenance-video-card tap"
-								@click="openMaintenanceVideo(item)"
-							>
-								<view class="maintenance-video-copy">
-									<text class="maintenance-video-title">{{ item.title }}</text>
-									<text v-if="item.desc" class="maintenance-video-desc">{{ item.desc }}</text>
-								</view>
+							<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
+								<text class="maintenance-video-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
 								<view class="maintenance-video-cover">
-									<image v-if="item.coverUrl" class="maintenance-video-image" :src="item.coverUrl" mode="aspectFill"></image>
+									<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
 									<view v-else class="maintenance-video-placeholder">
-										<view class="glyph glyph-repair"><view class="glyph-extra"></view></view>
+										<text class="maintenance-video-brand">CICADA Dental</text>
+										<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
 									</view>
+									<view class="maintenance-video-shade"></view>
 									<view class="maintenance-play-badge"><text>▶</text></view>
 								</view>
 							</view>
@@ -1776,6 +1722,7 @@ import {
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
+import { normalizePolicyHtml } from '@/utils/policyHtml.js'
 import {
 	basics,
 	companyAdvantages,
@@ -1844,6 +1791,7 @@ const showOfficial = ref(false)
 const showRepairTools = ref(false)
 const surveyPosterUrl = cicadaAssets.surveyPoster
 const maintenanceVideos = ref([])
+const homeIntroVideo = computed(() => maintenanceVideos.value[0] || null)
 const moduleHeadPaddingTop = ref(72)
 const pageBootReady = ref(false)
 const BOOT_WAIT_MS = 1450
@@ -2214,6 +2162,7 @@ const maxFeedbackImages = 3
 const maxRepairVideoSize = 50 * 1024 * 1024
 const phoneRegex = /^1[3-9]\d{9}$/
 const trackingNoRegex = /^[A-Za-z0-9-]{6,32}$/
+const policyDocKeys = new Set(['warranty', 'fees'])
 
 const normalizePhone = (value = '') => String(value || '').replace(/\D/g, '')
 const normalizeTrackingNo = (value = '') => String(value || '').replace(/\s/g, '').trim()
@@ -2592,9 +2541,13 @@ const applyFaultTypes = (list = []) => {
 }
 
 const updateDoc = (key, doc) => {
+	const normalized = normalizeDoc(doc, docFallbacks[key] || docMap.value[key] || {})
+	if (policyDocKeys.has(key)) {
+		normalized.content = normalizePolicyHtml(normalized.content)
+	}
 	docMap.value = {
 		...docMap.value,
-		[key]: normalizeDoc(doc, docFallbacks[key] || docMap.value[key] || {})
+		[key]: normalized
 	}
 }
 
@@ -2858,12 +2811,18 @@ const openGuideFromHome = async (id) => {
 	uni.showToast({ title: '该教程还未上传文档', icon: 'none' })
 }
 
-const maintenanceVideoCategories = ['维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
 
 const normalizeMaintenanceVideos = async (list = []) => {
 	const picked = (Array.isArray(list) ? list : []).filter((item = {}) => {
 		const category = String(item.category || item.title || '')
 		return maintenanceVideoCategories.some((name) => category.includes(name)) && (item.audience === 'client' || !item.audience)
+	}).sort((a = {}, b = {}) => {
+		const aCategory = String(a.category || a.title || '')
+		const bCategory = String(b.category || b.title || '')
+		const aIntro = aCategory.includes('首页介绍') || aCategory.includes('小程序介绍') || aCategory.includes('售后介绍') ? 0 : 1
+		const bIntro = bCategory.includes('首页介绍') || bCategory.includes('小程序介绍') || bCategory.includes('售后介绍') ? 0 : 1
+		return aIntro - bIntro || (Number(a.sort) || 99) - (Number(b.sort) || 99)
 	})
 
 	const result = []
@@ -2882,14 +2841,14 @@ const normalizeMaintenanceVideos = async (list = []) => {
 		}
 		result.push({
 			id: guide.id || guide._id || `${video.url}-${result.length}`,
-			title: guide.description || guide.summary || guide.desc || video.name || '维修保养视频',
+			title: guide.description || guide.summary || guide.desc || video.name || '首页介绍视频',
 			desc: guide.content || '',
 			videoUrl: video.url,
 			videoName: video.name || '',
 			coverUrl
 		})
 	}
-	return result
+	return result.slice(0, 1)
 }
 
 const loadMaintenanceVideos = async () => {
@@ -6517,7 +6476,7 @@ onUnmounted(() => {
 }
 
 .maintenance-section-head {
-	padding: 0 4rpx 18rpx;
+	padding: 0 2rpx 16rpx;
 	display: flex;
 	align-items: flex-end;
 	justify-content: space-between;
@@ -6539,44 +6498,34 @@ onUnmounted(() => {
 .maintenance-video-list {
 	display: flex;
 	flex-direction: column;
-	gap: 22rpx;
+	gap: 20rpx;
 }
 
 .maintenance-video-card {
-	padding: 26rpx;
-	border-radius: 26rpx;
+	padding: 24rpx;
+	border-radius: 16rpx;
 	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 24rpx rgba(30, 111, 224, 0.05);
+	border: 1rpx solid #EEF2F7;
+	box-shadow: 0 8rpx 24rpx rgba(15, 31, 58, 0.06);
 	box-sizing: border-box;
 }
 
-.maintenance-video-copy {
-	padding: 0 4rpx 18rpx;
-	display: flex;
-	flex-direction: column;
-	gap: 8rpx;
-}
-
 .maintenance-video-title {
-	font-size: 29rpx;
+	display: block;
+	margin-bottom: 18rpx;
+	font-size: 31rpx;
 	font-weight: 700;
 	line-height: 1.35;
 	color: #0F1F3A;
 }
 
-.maintenance-video-desc {
-	font-size: 24rpx;
-	line-height: 1.45;
-	color: #6B7C97;
-}
-
 .maintenance-video-cover {
 	position: relative;
 	width: 100%;
-	height: 302rpx;
+	height: 336rpx;
 	overflow: hidden;
-	border-radius: 20rpx;
-	background: linear-gradient(135deg, #EFF6FF 0%, #E8EEF9 100%);
+	border-radius: 16rpx;
+	background: #F3F7FC;
 }
 
 .maintenance-video-image,
@@ -6589,27 +6538,53 @@ onUnmounted(() => {
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	flex-direction: column;
+	gap: 16rpx;
+	background: linear-gradient(135deg, #F6FAFF 0%, #EAF1FA 100%);
 	color: #1E6FE0;
+}
+
+.maintenance-video-brand {
+	font-size: 24rpx;
+	font-weight: 800;
+	line-height: 1.2;
+	color: #1E6FE0;
+}
+
+.maintenance-video-placeholder-title {
+	max-width: 520rpx;
+	padding: 0 32rpx;
+	font-size: 34rpx;
+	font-weight: 700;
+	line-height: 1.35;
+	text-align: center;
+	color: #132746;
+}
+
+.maintenance-video-shade {
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(180deg, rgba(15, 31, 58, 0) 0%, rgba(15, 31, 58, 0.12) 100%);
 }
 
 .maintenance-play-badge {
 	position: absolute;
 	left: 50%;
 	top: 50%;
-	width: 88rpx;
-	height: 88rpx;
+	width: 82rpx;
+	height: 82rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	border-radius: 999rpx;
-	background: rgba(15, 31, 58, 0.52);
-	box-shadow: 0 12rpx 28rpx rgba(15, 31, 58, 0.18);
+	background: rgba(15, 31, 58, 0.54);
+	box-shadow: 0 10rpx 24rpx rgba(15, 31, 58, 0.16);
 	transform: translate(-50%, -50%);
 }
 
 .maintenance-play-badge text {
 	margin-left: 6rpx;
-	font-size: 34rpx;
+	font-size: 32rpx;
 	line-height: 1;
 	color: #FFFFFF;
 }

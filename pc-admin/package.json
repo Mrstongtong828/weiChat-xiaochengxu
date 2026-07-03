@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "check:urls": "node scripts/check-admin-urls.mjs",
+    "check:staff": "node scripts/check-admin-staff.mjs",
     "check:subscription": "node scripts/check-subscription-config.mjs",
     "check:errors": "node scripts/check-request-error-parser.mjs",
     "check:security": "node scripts/check-admin-security.mjs"
