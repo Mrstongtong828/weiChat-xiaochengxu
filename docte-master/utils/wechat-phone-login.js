@@ -21,12 +21,15 @@ export const normalizePhoneAuthDetail = (detail = {}) => {
 	if (!/^getPhoneNumber:ok\b/i.test(errMsg)) {
 		const detailText = stringifyDetail(detail)
 		const canceled = /cancel|deny|refuse|disagree|用户拒绝|取消/i.test(errMsg) || errNo === 104
-		const privacyBlocked = /privacy|agreePrivacyAuthorization|隐私/i.test(errMsg)
+		const privacyScopeUndeclared = errNo === 112 || /api scope is not declared|privacy agreement/i.test(errMsg)
+		const privacyBlocked = privacyScopeUndeclared || /privacy|agreePrivacyAuthorization|隐私/i.test(errMsg)
 		const noPermission = /permission|no auth|not authorized|scope|没有权限|未开通|not support/i.test(errMsg)
 		const unavailable = /unavailable|unsupported|not support|版本过低/i.test(errMsg)
 		let message = '微信手机号授权未完成，请重试'
 
-		if (privacyBlocked) {
+		if (privacyScopeUndeclared) {
+			message = '小程序隐私保护指引未声明手机号授权，请在微信公众平台补充后再登录'
+		} else if (privacyBlocked) {
 			message = '请先完成微信隐私授权'
 		} else if (noPermission) {
 			message = '小程序未开通手机号授权能力，请在微信公众平台检查「获取手机号」权限和隐私协议配置'

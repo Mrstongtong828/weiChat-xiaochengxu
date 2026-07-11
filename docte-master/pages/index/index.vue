@@ -98,7 +98,7 @@
 							</view>
 							<view class="media-area">
 								<view class="media-title">
-									<text><text class="required-star">*</text>产品清单 / 故障图片或视频</text>
+									<text>产品清单 / 故障图片或视频 <text class="field-optional">选填</text></text>
 									<text>{{ product.media.length }}/3</text>
 								</view>
 								<view class="media-grid">
@@ -1661,6 +1661,24 @@
 			</view>
 			<view class="repair-tool-cancel tap" @click="showRepairTools = false">取消</view>
 		</view>
+		<view v-if="uploadPrivacyVisible" class="upload-privacy-mask">
+			<view class="upload-privacy-card">
+				<text class="upload-privacy-title">隐私政策与信息授权</text>
+				<scroll-view scroll-y class="upload-privacy-body">
+					<rich-text v-if="uploadPrivacyHtml" :nodes="uploadPrivacyHtml"></rich-text>
+					<view v-else class="upload-privacy-text">上传图片或视频前，需要您同意隐私授权。我们会依法使用您选择的图片、视频和报修信息，仅用于售后报修、维修沟通和服务记录。</view>
+				</scroll-view>
+				<view class="upload-privacy-actions">
+					<view class="upload-privacy-btn ghost tap" @click="rejectUploadPrivacy">不同意</view>
+					<!-- #ifdef MP-WEIXIN -->
+					<button class="upload-privacy-btn primary tap" open-type="agreePrivacyAuthorization" @agreeprivacyauthorization="confirmUploadPrivacy">同意并继续</button>
+					<!-- #endif -->
+					<!-- #ifndef MP-WEIXIN -->
+					<view class="upload-privacy-btn primary tap" @click="confirmUploadPrivacy">同意并继续</view>
+					<!-- #endif -->
+				</view>
+			</view>
+		</view>
 		<PrivacyConsent />
 		<PolicyDialog v-model:visible="homeGuideVisible" title="操作指引" :content="homeGuideContent" />
 	</view>
@@ -1674,7 +1692,7 @@ import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
-import { getWechatPrivacyReady, requestWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
+import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import {
 	getContact,
 	getCustomerService,
@@ -1688,6 +1706,7 @@ import {
 	getWechat,
 	getWarrantyPolicy,
 	getHomeGuidePopup,
+	getCompliance,
 	queryPackageStatus,
 	searchFault,
 	getAddressList,
@@ -1789,6 +1808,8 @@ const copied = ref('')
 const showQr = ref(false)
 const showOfficial = ref(false)
 const showRepairTools = ref(false)
+const uploadPrivacyVisible = ref(false)
+const uploadPrivacyHtml = ref('')
 const surveyPosterUrl = cicadaAssets.surveyPoster
 const maintenanceVideos = ref([])
 const homeIntroVideo = computed(() => maintenanceVideos.value[0] || null)
@@ -2309,7 +2330,10 @@ const normalizeOrder = (item = {}) => {
 	const statusKey = resolveStatusKey(merged)
 	const quoteStatus = merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending')
 	const paymentStatus = merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending')
-	const displayStatus = deriveDisplayStatus({ statusKey, quoteStatus, paymentStatus, review: merged.review })
+	const arrivalConfirmStatus = merged.arrivalConfirmStatus || merged.arrival_confirm_status || ''
+	const displayStatus = deriveDisplayStatus({ statusKey, quoteStatus, paymentStatus, review: merged.review, arrivalConfirmStatus })
+	const displayTone = arrivalConfirmStatus === 'pending' ? 'warn' : meta.tone
+	const displayReached = arrivalConfirmStatus === 'pending' ? Math.max(1, meta.reached) : meta.reached
 
 	return {
 		id: orderId,
@@ -2330,8 +2354,8 @@ const normalizeOrder = (item = {}) => {
 		model: cardTitle,
 		status: displayStatus,
 		statusGroup: meta.statusGroup,
-		tone: meta.tone,
-		reached: meta.reached,
+		tone: displayTone,
+		reached: displayReached,
 		time: formatDateTime(updateTime, 5, 16) || merged.time || '',
 		price: merged.price || merged.amount || merged.totalFee || merged.total_fee || merged.total_price || (totalFee ? formatMoney(totalFee) : ''),
 		date: formatDateTime(createTime, 0, 10),
@@ -2360,6 +2384,7 @@ const normalizeOrder = (item = {}) => {
 		totalFee,
 		paymentProofs,
 		statusKey,
+		arrivalConfirmStatus,
 		quoteWarrantyMonths: Number(merged.quoteWarrantyMonths ?? merged.quote_warranty_months ?? 0) || 0,
 		warrantyStatus: merged.warrantyStatus || merged.warranty_status || '',
 		inWarranty: Boolean(merged.inWarranty ?? merged.in_warranty),
@@ -2841,7 +2866,7 @@ const normalizeMaintenanceVideos = async (list = []) => {
 		}
 		result.push({
 			id: guide.id || guide._id || `${video.url}-${result.length}`,
-			title: guide.description || guide.summary || guide.desc || video.name || '首页介绍视频',
+			title: guide.title || guide.description || guide.summary || guide.desc || video.name || '首页介绍视频',
 			desc: guide.content || '',
 			videoUrl: video.url,
 			videoName: video.name || '',
@@ -3533,7 +3558,7 @@ const uploadPaymentProof = async (order = {}) => {
 	let loadingShown = false
 	try {
 		await requestStatusSubscription('payment_proof')
-		const chooseRes = await uni.chooseImage({
+		const chooseRes = await chooseImageWithPrivacy({
 			count: 1,
 			sizeType: ['compressed'],
 			sourceType: ['album', 'camera']
@@ -4153,7 +4178,7 @@ const chooseFeedbackImages = async () => {
 	let loadingShown = false
 	feedbackImageUploading.value = true
 	try {
-		const chooseRes = await uni.chooseImage({
+		const chooseRes = await chooseImageWithPrivacy({
 			count: remaining,
 			sizeType: ['compressed'],
 			sourceType: ['album', 'camera']
@@ -4214,7 +4239,7 @@ const chooseFeedbackImages = async () => {
 	} catch (error) {
 		if (!isPickerCancel(error)) {
 			console.warn('choose feedback image failed:', error)
-			uni.showToast({ title: '图片选择失败', icon: 'none' })
+			uni.showToast({ title: isWechatPrivacyError(error) ? getWechatPrivacyPickerMessage(error) : '图片选择失败', icon: 'none' })
 		}
 	} finally {
 		feedbackImageUploading.value = false
@@ -4242,7 +4267,7 @@ const uploadRepairImage = async (index) => {
 
 	let loadingShown = false
 	try {
-		const chooseRes = await uni.chooseImage({
+		const chooseRes = await chooseImageWithPrivacy({
 			count: 3 - product.media.length,
 			sizeType: ['compressed'],
 			sourceType: ['album', 'camera']
@@ -4299,8 +4324,7 @@ const uploadRepairImage = async (index) => {
 	} catch (error) {
 		if (isPickerCancel(error)) return
 		console.warn('upload image fallback:', error)
-		const msg = String(error && (error.errMsg || error.message) || '')
-		uni.showToast({ title: msg.includes('privacy') ? '请先同意隐私授权后再上传' : '图片选择失败', icon: 'none' })
+		uni.showToast({ title: isWechatPrivacyError(error) ? getWechatPrivacyPickerMessage(error) : '图片选择失败', icon: 'none' })
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
@@ -4312,7 +4336,7 @@ const uploadRepairVideo = async (index) => {
 
 	let loadingShown = false
 	try {
-		const chooseRes = await uni.chooseVideo({
+		const chooseRes = await chooseVideoWithPrivacy({
 			sourceType: ['album', 'camera'],
 			compressed: true,
 			maxDuration: 60
@@ -4342,8 +4366,7 @@ const uploadRepairVideo = async (index) => {
 	} catch (error) {
 		if (isPickerCancel(error)) return
 		console.warn('upload video fallback:', error)
-		const msg = String(error && (error.errMsg || error.message) || '')
-		uni.showToast({ title: msg.includes('privacy') ? '请先同意隐私授权后再上传' : '视频上传失败', icon: 'none' })
+		uni.showToast({ title: isWechatPrivacyError(error) ? getWechatPrivacyPickerMessage(error) : '视频上传失败', icon: 'none' })
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
@@ -4441,12 +4464,6 @@ const validateRepairStep = (step) => {
 		return true
 	}
 	if (step === 3) {
-		for (let i = 0; i < products.length; i += 1) {
-			if (!Array.isArray(products[i].media) || !products[i].media.length) {
-				uni.showToast({ title: `第 ${i + 1} 个产品请上传故障附件`, icon: 'none' })
-				return false
-			}
-		}
 		return true
 	}
 	return true
@@ -4621,10 +4638,6 @@ const validateRepairForm = () => {
 			uni.showToast({ title: `${label}请填写故障描述`, icon: 'none' })
 			return false
 		}
-		if (!Array.isArray(product.media) || !product.media.length) {
-			uni.showToast({ title: `${label}请上传故障附件`, icon: 'none' })
-			return false
-		}
 	}
 
 	if (!repairForm.value.logisticsCompany) {
@@ -4782,7 +4795,7 @@ const previewVoucher = (productIndex, voucherIndex) => {
 	})
 }
 
-const openVoucherPicker = (productIndex) => {
+const openVoucherPicker = async (productIndex) => {
 	const product = repairProducts.value[productIndex]
 	if (!product) return
 	
@@ -4795,72 +4808,74 @@ const openVoucherPicker = (productIndex) => {
 		return
 	}
 	
-	uni.chooseImage({
-		count: 3 - product.voucherList.length,
-		sourceType: ['album', 'camera'],
-		sizeType: ['compressed'],
-		success: async (chooseRes) => {
-			const tempFilePaths = chooseRes.tempFilePaths || []
-			if (!tempFilePaths.length) return
-			const oversized = (chooseRes.tempFiles || []).find((file) => isFileTooLarge(file, maxRepairImageSize))
-			if (oversized) {
-				uni.showToast({ title: `凭证图片不能超过${formatFileSize(maxRepairImageSize)}`, icon: 'none' })
-				return
-			}
-
-			let loadingShown = false
-			try {
-				uni.showLoading({ title: '上传中' })
-				loadingShown = true
-
-				const slots = Math.max(0, 3 - product.voucherList.length)
-				const targets = tempFilePaths.slice(0, slots)
-				const results = await Promise.all(targets.map(async (path) => {
-					try {
-						const compressed = await compressForUpload(path)
-						const uploadRes = await uploadImage(compressed)
-						return {
-							path,
-							fileID: normalizeUploadFileId(uploadRes),
-							url: normalizeUploadUrl(uploadRes, path)
-						}
-					} catch (error) {
-						console.warn('upload voucher image failed:', error)
-						return null
-					}
-				}))
-
-				let failedCount = 0
-				for (const item of results) {
-					if (product.voucherList.length >= 3) break
-					if (item) {
-						product.voucherList.push({ id: `voucher-${Date.now()}-${Math.random()}`, ...item })
-					} else {
-						failedCount += 1
-					}
-				}
-				product.voucher = product.voucherList.map((v) => getUploadedUrl(v)).filter(Boolean).join(',')
-
-				uni.hideLoading()
-				loadingShown = false
-				if (failedCount && failedCount === targets.length) {
-					uni.showToast({ title: '凭证上传失败', icon: 'none' })
-				} else if (failedCount) {
-					uni.showToast({ title: '部分凭证上传失败', icon: 'none' })
-				} else {
-					uni.showToast({ title: '上传成功', icon: 'success' })
-				}
-			} catch (error) {
-				console.warn('voucher upload fallback:', error)
-				uni.showToast({ title: '凭证上传失败', icon: 'none' })
-			} finally {
-				if (loadingShown) uni.hideLoading()
-			}
-		},
-		fail: (error) => {
-			console.warn('choose image cancelled:', error)
+	try {
+		const chooseRes = await chooseImageWithPrivacy({
+			count: 3 - product.voucherList.length,
+			sourceType: ['album', 'camera'],
+			sizeType: ['compressed']
+		})
+		const tempFilePaths = chooseRes.tempFilePaths || []
+		if (!tempFilePaths.length) return
+		const oversized = (chooseRes.tempFiles || []).find((file) => isFileTooLarge(file, maxRepairImageSize))
+		if (oversized) {
+			uni.showToast({ title: `凭证图片不能超过${formatFileSize(maxRepairImageSize)}`, icon: 'none' })
+			return
 		}
-	})
+
+		let loadingShown = false
+		try {
+			uni.showLoading({ title: '上传中' })
+			loadingShown = true
+
+			const slots = Math.max(0, 3 - product.voucherList.length)
+			const targets = tempFilePaths.slice(0, slots)
+			const results = await Promise.all(targets.map(async (path) => {
+				try {
+					const compressed = await compressForUpload(path)
+					const uploadRes = await uploadImage(compressed)
+					return {
+						path,
+						fileID: normalizeUploadFileId(uploadRes),
+						url: normalizeUploadUrl(uploadRes, path)
+					}
+				} catch (error) {
+					console.warn('upload voucher image failed:', error)
+					return null
+				}
+			}))
+
+			let failedCount = 0
+			for (const item of results) {
+				if (product.voucherList.length >= 3) break
+				if (item) {
+					product.voucherList.push({ id: `voucher-${Date.now()}-${Math.random()}`, ...item })
+				} else {
+					failedCount += 1
+				}
+			}
+			product.voucher = product.voucherList.map((v) => getUploadedUrl(v)).filter(Boolean).join(',')
+
+			uni.hideLoading()
+			loadingShown = false
+			if (failedCount && failedCount === targets.length) {
+				uni.showToast({ title: '凭证上传失败', icon: 'none' })
+			} else if (failedCount) {
+				uni.showToast({ title: '部分凭证上传失败', icon: 'none' })
+			} else {
+				uni.showToast({ title: '上传成功', icon: 'success' })
+			}
+		} catch (error) {
+			console.warn('voucher upload fallback:', error)
+			uni.showToast({ title: '凭证上传失败', icon: 'none' })
+		} finally {
+			if (loadingShown) uni.hideLoading()
+		}
+	} catch (error) {
+		if (!isPickerCancel(error)) {
+			console.warn('choose voucher image failed:', error)
+			uni.showToast({ title: isWechatPrivacyError(error) ? getWechatPrivacyPickerMessage(error) : '图片选择失败', icon: 'none' })
+		}
+	}
 }
 
 const parseRegion = (region = '') => {
@@ -5025,10 +5040,9 @@ const onGetPhoneNumberLogin = async (event = {}) => {
 	if (!authDetail.ok) {
 		console.warn('wechat getPhoneNumber failed:', authDetail.raw || event.detail || {})
 		if (authDetail.privacyBlocked) {
-			loginAgreementChecked.value = false
 			loginError.value = ''
 			loginPrivacyReady.value = false
-			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
+			uni.showToast({ title: authDetail.message || '请完成微信隐私授权后再登录', icon: 'none' })
 		} else if (authDetail.canceled) {
 			loginError.value = ''
 		} else {
@@ -5088,6 +5102,102 @@ const openLoginPolicy = (type) => {
 const showLoginError = (message) => {
 	loginError.value = message
 	uni.showToast({ title: message, icon: 'none' })
+}
+
+const ensureWechatPrivacyForUpload = async () => {
+	try {
+		if (await getWechatPrivacyReady()) return true
+		try {
+			await requestWechatPrivacyAuthorization()
+			return true
+		} catch (error) {
+			console.warn('wechat privacy authorization before upload failed:', error)
+			return await requestManualPrivacyConsent()
+		}
+	} catch (error) {
+		console.warn('manual privacy authorization before upload failed:', error)
+		uni.showToast({ title: '请先同意隐私授权后再上传', icon: 'none' })
+		return false
+	}
+}
+
+let uploadPrivacyResolve = null
+
+const requestManualPrivacyConsent = async () => {
+	if (!uploadPrivacyHtml.value) {
+		getCompliance()
+			.then((data = {}) => {
+				uploadPrivacyHtml.value = data.privacyPolicy || ''
+			})
+			.catch((error) => console.warn('load privacy policy before upload failed:', error))
+	}
+	uploadPrivacyVisible.value = true
+	return new Promise((resolve) => {
+		uploadPrivacyResolve = resolve
+	})
+}
+
+const confirmUploadPrivacy = () => {
+	if (!uploadPrivacyVisible.value) return
+	markWechatPrivacyReady()
+	uploadPrivacyVisible.value = false
+	if (typeof uploadPrivacyResolve === 'function') {
+		uploadPrivacyResolve(true)
+		uploadPrivacyResolve = null
+	}
+}
+
+const rejectUploadPrivacy = () => {
+	uploadPrivacyVisible.value = false
+	if (typeof uploadPrivacyResolve === 'function') {
+		uploadPrivacyResolve(false)
+		uploadPrivacyResolve = null
+	}
+	uni.showToast({ title: '请先同意隐私授权后再上传', icon: 'none' })
+}
+
+const isWechatPrivacyScopeUndeclared = (error = {}) => {
+	const message = String(error && (error.errMsg || error.message) || error || '')
+	return error.errno === 112 || error.errCode === 112 || /api scope is not declared|privacy agreement/i.test(message)
+}
+
+const getWechatPrivacyPickerMessage = (error = {}) => {
+	if (isWechatPrivacyScopeUndeclared(error)) {
+		return '小程序隐私保护指引未声明图片/视频上传能力，请在微信公众平台补充后重试'
+	}
+	return '请先同意隐私授权后再上传'
+}
+
+const isWechatPrivacyError = (error) => isWechatPrivacyScopeUndeclared(error) || /privacy|agreePrivacyAuthorization|隐私/i.test(String(error && (error.errMsg || error.message) || error || ''))
+
+const chooseImageWithPrivacy = async (options = {}) => {
+	if (!(await ensureWechatPrivacyForUpload())) {
+		throw new Error('privacy authorization required')
+	}
+	try {
+		return await uni.chooseImage(options)
+	} catch (error) {
+		if (!isWechatPrivacyError(error)) throw error
+		if (isWechatPrivacyScopeUndeclared(error)) throw error
+		resetWechatPrivacyReady()
+		if (!(await ensureWechatPrivacyForUpload())) throw error
+		return await uni.chooseImage(options)
+	}
+}
+
+const chooseVideoWithPrivacy = async (options = {}) => {
+	if (!(await ensureWechatPrivacyForUpload())) {
+		throw new Error('privacy authorization required')
+	}
+	try {
+		return await uni.chooseVideo(options)
+	} catch (error) {
+		if (!isWechatPrivacyError(error)) throw error
+		if (isWechatPrivacyScopeUndeclared(error)) throw error
+		resetWechatPrivacyReady()
+		if (!(await ensureWechatPrivacyForUpload())) throw error
+		return await uni.chooseVideo(options)
+	}
 }
 
 const applyLoginSession = (res = {}) => {
@@ -5359,6 +5469,87 @@ onUnmounted(() => {
 	background: #E8EEFA;
 	box-sizing: border-box;
 	animation: homeFadeIn 320ms ease-out both;
+}
+
+.upload-privacy-mask {
+	position: fixed;
+	inset: 0;
+	z-index: 99999;
+	padding: 48rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(15, 31, 58, 0.48);
+	box-sizing: border-box;
+}
+
+.upload-privacy-card {
+	width: 100%;
+	max-width: 640rpx;
+	max-height: 78vh;
+	padding: 36rpx 32rpx 28rpx;
+	display: flex;
+	flex-direction: column;
+	border-radius: 24rpx;
+	background: #FFFFFF;
+	box-shadow: 0 24rpx 60rpx rgba(15, 31, 58, 0.22);
+	box-sizing: border-box;
+}
+
+.upload-privacy-title {
+	text-align: center;
+	font-size: 34rpx;
+	font-weight: 800;
+	line-height: 1.3;
+	color: #0F1F3A;
+}
+
+.upload-privacy-body {
+	margin: 24rpx 0;
+	max-height: 52vh;
+	font-size: 27rpx;
+	line-height: 1.8;
+	color: #4E5969;
+}
+
+.upload-privacy-text {
+	font-size: 27rpx;
+	line-height: 1.8;
+	color: #4E5969;
+}
+
+.upload-privacy-actions {
+	display: flex;
+	gap: 20rpx;
+}
+
+.upload-privacy-btn {
+	flex: 1;
+	height: 88rpx;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	border-radius: 999rpx;
+	font-size: 29rpx;
+	font-weight: 700;
+	line-height: 88rpx;
+	box-sizing: border-box;
+}
+
+.upload-privacy-btn::after {
+	border: 0;
+}
+
+.upload-privacy-btn.primary {
+	background: #1E6FE0;
+	color: #FFFFFF;
+}
+
+.upload-privacy-btn.ghost {
+	background: #F2F4F7;
+	color: #4E5969;
 }
 
 .boot-screen {

@@ -1,7 +1,7 @@
 <template>
 	<view class="bottom-tabbar">
 		<view v-for="item in tabs" :key="item.id" class="tab-item tap" :class="{ active: item.id === activeId }" @click="$emit('select', item.id)">
-			<view :class="['tab-icon', 'tab-' + item.icon]"><view></view></view>
+			<view :class="['tab-icon', 'tab-' + item.icon]"><view class="tab-icon-inner"></view></view>
 			<text>{{ item.label }}</text>
 		</view>
 	</view>
@@ -71,7 +71,7 @@ defineEmits(['select'])
 
 .tab-icon::before,
 .tab-icon::after,
-.tab-icon view {
+.tab-icon-inner {
 	content: "";
 	position: absolute;
 	box-sizing: border-box;
@@ -97,7 +97,7 @@ defineEmits(['select'])
 	transform: rotate(45deg);
 }
 
-.tab-home view {
+.tab-home .tab-icon-inner {
 	left: 19rpx;
 	top: 30rpx;
 	width: 10rpx;

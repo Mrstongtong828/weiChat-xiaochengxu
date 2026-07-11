@@ -124,9 +124,8 @@ const onGetPhoneNumber = async (e) => {
 	if (!authDetail.ok) {
 		console.warn('wechat getPhoneNumber failed:', authDetail.raw || e.detail || {})
 		if (authDetail.privacyBlocked) {
-			agreed.value = false
 			loginError.value = ''
-			uni.showToast({ title: '请重新勾选并完成隐私授权', icon: 'none' })
+			uni.showToast({ title: authDetail.message || '请完成微信隐私授权后再登录', icon: 'none' })
 		} else if (!authDetail.canceled) {
 			showLoginError(authDetail.message)
 		} else {

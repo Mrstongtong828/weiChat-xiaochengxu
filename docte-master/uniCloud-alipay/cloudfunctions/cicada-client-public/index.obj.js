@@ -24,6 +24,8 @@ const GUIDE_CATEGORY_ALIASES = {
   fault: ['自查指南', '故障自查']
 }
 
+const HOME_INTRO_VIDEO_CATEGORIES = ['首页介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
+
 const SUBSCRIPTION_SCENES = [
   { scene: 'repair_submitted', title: '报修提交提醒' },
   { scene: 'order_received', title: '设备签收提醒' },
@@ -96,19 +98,26 @@ function getSubscriptionTemplateId(scene = '') {
 }
 
 function normalizeGuide(item = {}, type = '') {
+  const category = item.category || '操作指南'
+  const isHomeIntroVideo = HOME_INTRO_VIDEO_CATEGORIES.some(name => category.includes(name))
+  const title = isHomeIntroVideo
+    ? (item.desc || item.title || item.description || category)
+    : (item.title || category)
+
   return {
     id: item._id,
     type: item.type || type,
-    category: item.category || '操作指南',
+    category,
     audience: item.audience || 'client',
-    title: item.category || '操作指南',
-    description: item.desc || '',
-    summary: item.desc || '',
+    title,
+    description: item.description || item.desc || '',
+    summary: item.summary || item.description || item.desc || '',
+    desc: item.desc || '',
     content: item.content || '',
     media: Array.isArray(item.media) ? item.media : [],
-    paperTitle: item.category || '操作指南',
+    paperTitle: category,
     sections: [{
-      title: item.category || '操作指南',
+      title: category,
       lines: [item.desc, item.file_name ? `当前文档：${item.file_name}` : ''].filter(Boolean)
     }],
     fileName: item.file_name || '',

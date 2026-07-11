@@ -28,8 +28,8 @@ export const isWechatPrivacyReady = () => {
 export const getWechatPrivacyReady = () => new Promise((resolve) => {
 	// #ifdef MP-WEIXIN
 	if (!isWechatMiniProgram() || typeof wx.getPrivacySetting !== 'function') {
-		resetWechatPrivacyReady()
-		resolve(false)
+		markWechatPrivacyReady()
+		resolve(true)
 		return
 	}
 

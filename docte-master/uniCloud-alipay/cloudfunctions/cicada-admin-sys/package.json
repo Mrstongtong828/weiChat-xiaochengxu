@@ -2,8 +2,7 @@
   "name": "cicada-admin-sys",
   "version": "1.0.0",
   "dependencies": {
-    "cicada-order-workflow": "file:../common/cicada-order-workflow",
-    "qcloud-cos-sts": "^3.1.3"
+    "cicada-order-workflow": "file:../common/cicada-order-workflow"
   },
   "cloudfunction-config": {
     "path": "/cicada-admin-sys"

@@ -100,6 +100,35 @@
     "ship_back_info": {
       "bsonType": "object"
     },
+    "track_cache": {
+      "bsonType": "object",
+      "description": "快递100寄出/回寄物流轨迹缓存与订阅状态"
+    },
+    "logistics_track_update_time": {
+      "bsonType": "timestamp",
+      "description": "最近一次物流推送落库时间"
+    },
+    "arrival_confirm_status": {
+      "bsonType": "string",
+      "enum": ["pending", "confirmed"],
+      "description": "寄入物流签收后的人工入库确认状态"
+    },
+    "arrival_detected_at": {
+      "bsonType": "timestamp",
+      "description": "快递100首次识别寄入包裹已签收的时间"
+    },
+    "arrival_confirmed_at": {
+      "bsonType": "timestamp",
+      "description": "后台人工确认设备入库的时间"
+    },
+    "arrival_confirmed_by": {
+      "bsonType": "string",
+      "description": "确认入库的后台人员ID"
+    },
+    "arrival_confirmed_name": {
+      "bsonType": "string",
+      "description": "确认入库的后台人员名称"
+    },
     "invoice_info": {
       "bsonType": "object"
     },

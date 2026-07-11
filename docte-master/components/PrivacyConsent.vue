@@ -67,6 +67,7 @@ onUnmounted(() => {
 
 // 微信官方同意回调：放行被拦截的隐私接口
 const onAgreePrivacy = () => {
+	if (!show.value) return
 	markWechatPrivacyReady()
 	show.value = false
 	if (typeof privacyResolve === 'function') {

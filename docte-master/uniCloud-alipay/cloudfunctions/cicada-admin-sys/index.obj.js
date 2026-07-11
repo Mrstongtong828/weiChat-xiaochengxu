@@ -316,55 +316,65 @@ function getEnvValue(...names) {
   return ''
 }
 
-// 腾讯云 COS 直传：发放 STS 临时凭证，供 pc-admin 前端直传大文件（如产品视频），
-// 绕过云函数请求体/超时限制。密钥只在云函数环境变量，前端仅拿到几分钟有效的临时凭证。
-async function issueCosUploadCredential(keyPrefix = 'product-video/') {
-  const secretId = getEnvValue('TENCENT_COS_SECRET_ID')
-  const secretKey = getEnvValue('TENCENT_COS_SECRET_KEY')
-  const bucket = getEnvValue('TENCENT_COS_BUCKET')       // 形如 xxx-1250000000
-  const region = getEnvValue('TENCENT_COS_REGION')       // 形如 ap-guangzhou
-  const cdnDomain = getEnvValue('TENCENT_COS_CDN_DOMAIN') // 选填，自定义/CDN 域名
-  if (!secretId || !secretKey || !bucket || !region) {
-    throw new Error('腾讯云 COS 未配置：请在云函数环境变量设置 TENCENT_COS_SECRET_ID / TENCENT_COS_SECRET_KEY / TENCENT_COS_BUCKET / TENCENT_COS_REGION')
-  }
-  const appId = bucket.split('-').pop()
-  const safePrefix = String(keyPrefix || 'product-video/')
+function normalizeOssHost(value = '') {
+  return String(value || '').trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+}
+
+function normalizeOssEndpoint(value = '') {
+  const endpoint = normalizeOssHost(value)
+  if (!endpoint) return ''
+  if (endpoint.indexOf('.') === -1 && endpoint.indexOf('oss-') === 0) return `${endpoint}.aliyuncs.com`
+  return endpoint
+}
+
+function normalizeOssPrefix(value = 'product-video/') {
+  const prefix = String(value || 'product-video/')
     .replace(/[^a-zA-Z0-9_\-/]/g, '')
     .replace(/^\/+/, '')
-  const STS = require('qcloud-cos-sts')
-  const policy = {
-    version: '2.0',
-    statement: [{
-      action: [
-        'name/cos:PutObject',
-        'name/cos:PostObject',
-        'name/cos:InitiateMultipartUpload',
-        'name/cos:ListMultipartUploads',
-        'name/cos:ListParts',
-        'name/cos:UploadPart',
-        'name/cos:CompleteMultipartUpload'
-      ],
-      effect: 'allow',
-      resource: [`qcs::cos:${region}:uid/${appId}:${bucket}/${safePrefix}*`]
-    }]
+  return prefix.endsWith('/') ? prefix : `${prefix}/`
+}
+
+async function issueOssUploadPolicy(keyPrefix = 'product-video/') {
+  const accessKeyId = getEnvValue('ALIYUN_OSS_ACCESS_KEY_ID', 'OSS_ACCESS_KEY_ID')
+  const accessKeySecret = getEnvValue('ALIYUN_OSS_ACCESS_KEY_SECRET', 'OSS_ACCESS_KEY_SECRET')
+  const bucket = getEnvValue('ALIYUN_OSS_BUCKET', 'OSS_BUCKET')
+  const endpoint = normalizeOssEndpoint(getEnvValue('ALIYUN_OSS_ENDPOINT', 'OSS_ENDPOINT'))
+  const cdnDomain = normalizeOssHost(getEnvValue('ALIYUN_OSS_CDN_DOMAIN', 'OSS_CDN_DOMAIN'))
+
+  if (!accessKeyId || !accessKeySecret || !bucket || !endpoint) {
+    throw new Error('Aliyun OSS is not configured. Set ALIYUN_OSS_ACCESS_KEY_ID / ALIYUN_OSS_ACCESS_KEY_SECRET / ALIYUN_OSS_BUCKET / ALIYUN_OSS_ENDPOINT in cloud function environment variables.')
   }
-  const data = await new Promise((resolve, reject) => {
-    STS.getCredential(
-      { secretId, secretKey, region, durationSeconds: 1800, policy },
-      (err, res) => (err ? reject(err) : resolve(res))
-    )
+
+  const safePrefix = normalizeOssPrefix(keyPrefix)
+  const maxSize = Number(getEnvValue('ALIYUN_OSS_MAX_SIZE', 'OSS_MAX_SIZE')) || 1024 * 1024 * 1024
+  const expireSeconds = Math.min(3600, Math.max(60, Number(getEnvValue('ALIYUN_OSS_EXPIRE_SECONDS', 'OSS_EXPIRE_SECONDS')) || 1800))
+  const expiration = new Date(Date.now() + expireSeconds * 1000).toISOString()
+  const policyText = JSON.stringify({
+    expiration,
+    conditions: [
+      ['starts-with', '$key', safePrefix],
+      ['starts-with', '$Content-Type', ''],
+      ['eq', '$success_action_status', '200'],
+      ['content-length-range', 0, maxSize]
+    ]
   })
-  const baseUrl = cdnDomain
-    ? `https://${cdnDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`
-    : `https://${bucket}.cos.${region}.myqcloud.com`
+  const policy = Buffer.from(policyText).toString('base64')
+  const signature = crypto.createHmac('sha1', accessKeySecret).update(policy).digest('base64')
+  const uploadUrl = `https://${bucket}.${endpoint}`
+  const baseUrl = cdnDomain ? `https://${cdnDomain}` : uploadUrl
+
   return {
-    credentials: data.credentials, // { tmpSecretId, tmpSecretKey, sessionToken }
-    startTime: data.startTime,
-    expiredTime: data.expiredTime,
+    accessKeyId,
     bucket,
-    region,
+    endpoint,
     keyPrefix: safePrefix,
-    baseUrl
+    uploadUrl,
+    baseUrl,
+    policy,
+    signature,
+    maxSize,
+    expireTime: Date.now() + expireSeconds * 1000,
+    successStatus: '200'
   }
 }
 
@@ -1047,7 +1057,7 @@ module.exports = {
       const now = Date.now()
       const updateData = { update_time: now }
       // 仅写入传入的字段，支持图文/媒体/分类/受众等扩展
-      const assignable = ['file_name', 'file_url', 'file_type', 'desc', 'content', 'category', 'audience']
+      const assignable = ['file_name', 'file_url', 'file_type', 'title', 'description', 'summary', 'desc', 'content', 'category', 'audience']
       assignable.forEach(field => {
         if (data[field] !== undefined) updateData[field] = data[field]
       })
@@ -1081,6 +1091,8 @@ module.exports = {
         type: '',
         category,
         audience: data.audience === 'engineer' ? 'engineer' : 'client',
+        title: data.title || data.description || data.desc || '',
+        description: data.description || data.title || data.desc || '',
         desc: data.desc || '',
         content: data.content || '',
         media: Array.isArray(data.media) ? data.media : [],
@@ -1136,14 +1148,14 @@ module.exports = {
     }
   },
 
-  // 发放腾讯云 COS 直传临时凭证：pc-admin 前端凭此直传大文件（产品视频），不经云函数体积限制
-  async getCosUploadCredential(params) {
+  // Issue Aliyun OSS browser upload policy for large admin files.
+  async getOssUploadPolicy(params) {
     try {
       const data = getRequestData(this, params)
       const { token, keyPrefix } = data
       await verifyAdminToken(token, ['admin', 'finance', 'engineer', 'support'])
-      const cred = await issueCosUploadCredential(keyPrefix || 'product-video/')
-      return { code: 0, data: cred }
+      const policy = await issueOssUploadPolicy(keyPrefix || 'product-video/')
+      return { code: 0, data: policy }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

@@ -1,0 +1,10 @@
+{
+  "name": "cicada-express-callback",
+  "version": "1.0.0",
+  "dependencies": {
+    "cicada-express-provider": "file:../common/cicada-express-provider"
+  },
+  "cloudfunction-config": {
+    "path": "/cicada-express-callback"
+  }
+}

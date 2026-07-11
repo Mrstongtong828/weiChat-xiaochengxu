@@ -50,6 +50,14 @@ export const updateOrderStatus = (token, orderId, status) => {
   })
 }
 
+// 快递签收后，由工作人员核对包裹与设备并确认正式入库
+export const confirmInboundArrival = (token, orderId) => {
+  return request.post(`${API_BASE.adminOrder}/confirmInboundArrival`, {
+    token,
+    order_id: orderId
+  })
+}
+
 // 批量导入回寄运单号
 export const batchImportReturnLogistics = (token, rows) => {
   return request.post(`${API_BASE.adminOrder}/batchImportReturnLogistics`, {

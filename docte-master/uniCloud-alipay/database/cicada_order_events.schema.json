@@ -37,6 +37,7 @@
         "add_timeline",
         "assign_engineer",
         "logistics_exception",
+        "confirm_inbound_arrival",
         "wechat_pay_confirmed",
         "feedback_assign",
         "feedback_reply",

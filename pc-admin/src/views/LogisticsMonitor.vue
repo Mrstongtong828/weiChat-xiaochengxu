@@ -15,7 +15,7 @@
         </div>
         <el-button :loading="loadingExceptions" size="small" @click="loadExceptions"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
-      <p class="lm-sub">48 小时未揽收 / 72 小时停滞的在途工单，主动联系客户核实。判定基于工单时间戳，接通真实物流轨迹后更精准。</p>
+      <p class="lm-sub">优先依据快递100真实轨迹识别疑难、退签、拒签、48 小时未揽收和 72 小时停滞；未取得轨迹时自动按工单时间降级判断。</p>
       <el-table :data="exceptions" v-loading="loadingExceptions" size="small" empty-text="暂无物流异常，一切正常" stripe>
         <el-table-column prop="orderNo" label="工单号" min-width="150" />
         <el-table-column label="物流段" width="90">
@@ -25,7 +25,7 @@
         </el-table-column>
         <el-table-column label="异常类型" width="110">
           <template #default="{ row }">
-            <el-tag size="small" :type="row.type === 'no_pickup' ? 'warning' : 'danger'">{{ row.type === 'no_pickup' ? '未揽收' : '停滞' }}</el-tag>
+            <el-tag size="small" :type="row.type === 'no_pickup' ? 'warning' : 'danger'">{{ exceptionLabel(row.type) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="hours" label="已超(小时)" width="100" />
@@ -52,23 +52,48 @@
       <el-table :data="ledger" v-loading="loadingLedger" size="small" empty-text="暂无物流记录" stripe>
         <el-table-column prop="order_no" label="工单号" min-width="150" />
         <el-table-column label="状态" width="90">
-          <template #default="{ row }"><el-tag size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag></template>
+          <template #default="{ row }">
+            <el-tag v-if="row.arrival_confirm_status === 'pending'" size="small" type="warning">待入库</el-tag>
+            <el-tag v-else size="small" effect="plain">{{ statusLabel(row.status) }}</el-tag>
+          </template>
         </el-table-column>
         <el-table-column prop="customer" label="客户" min-width="120" show-overflow-tooltip />
         <el-table-column label="寄出物流" min-width="180">
           <template #default="{ row }">
-            <span v-if="row.out_no">{{ row.out_company || '物流' }} · {{ row.out_no }}</span>
+            <div v-if="row.out_no" class="lm-track-cell">
+              <span>{{ row.out_company || '物流' }} · {{ row.out_no }}</span>
+              <small v-if="row.out_track_status">{{ row.out_track_status }}<template v-if="row.out_last_track_at"> · {{ row.out_last_track_at }}</template></small>
+              <small v-else-if="row.out_subscription_status === 'failed'" class="lm-danger">订阅失败</small>
+            </div>
             <span v-else class="lm-muted">—</span>
           </template>
         </el-table-column>
         <el-table-column label="回寄物流" min-width="180">
           <template #default="{ row }">
-            <span v-if="row.back_no">{{ row.back_company || '物流' }} · {{ row.back_no }}</span>
+            <div v-if="row.back_no" class="lm-track-cell">
+              <span>{{ row.back_company || '物流' }} · {{ row.back_no }}</span>
+              <small v-if="row.back_track_status">{{ row.back_track_status }}<template v-if="row.back_last_track_at"> · {{ row.back_last_track_at }}</template></small>
+              <small v-else-if="row.back_subscription_status === 'failed'" class="lm-danger">订阅失败</small>
+            </div>
             <span v-else class="lm-muted">—</span>
           </template>
         </el-table-column>
         <el-table-column label="更新时间" width="160">
           <template #default="{ row }">{{ formatTime(row.update_time) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" fixed="right">
+          <template #default="{ row }">
+            <el-button
+              v-if="row.arrival_confirm_status === 'pending' && row.can_confirm_arrival"
+              type="primary"
+              size="small"
+              :loading="confirmingOrderId === row.order_id"
+              @click="confirmArrival(row)"
+            >确认入库</el-button>
+            <span v-else-if="row.arrival_confirm_status === 'confirmed'" class="lm-confirmed">已入库</span>
+            <span v-else-if="row.arrival_confirm_status === 'pending'" class="lm-muted">待管理员确认</span>
+            <span v-else class="lm-muted">—</span>
+          </template>
         </el-table-column>
       </el-table>
       <div class="lm-pager">
@@ -89,8 +114,8 @@
 
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { getLogisticsExceptions, getLogisticsLedger } from '../api/order.js'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { confirmInboundArrival, getLogisticsExceptions, getLogisticsLedger } from '../api/order.js'
 import LogisticsImport from './LogisticsImport.vue'
 import { useRoute } from 'vue-router'
 
@@ -104,6 +129,7 @@ const STATUS_LABELS = {
 }
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
 const statusLabel = (s) => STATUS_LABELS[s] || s || '-'
+const exceptionLabel = (type) => ({ no_pickup: '未揽收', stalled: '停滞', provider_exception: '物流异常' }[type] || '异常')
 
 const formatTime = (ts) => {
   if (!ts) return ''
@@ -135,6 +161,25 @@ const page = ref(1)
 const pageSize = ref(20)
 const filters = reactive({ keyword: '', status: '' })
 const exporting = ref(false)
+const confirmingOrderId = ref('')
+
+const confirmArrival = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确认工单 ${row.order_no} 的包裹和设备已经核对无误并正式入库？`,
+      '确认设备入库',
+      { confirmButtonText: '确认入库', cancelButtonText: '取消', type: 'warning' }
+    )
+    confirmingOrderId.value = row.order_id
+    await confirmInboundArrival(getToken(), row.order_id)
+    ElMessage.success('设备已确认入库')
+    await Promise.all([loadLedger(), loadExceptions()])
+  } catch (e) {
+    if (e !== 'cancel' && e !== 'close') ElMessage.error(e.message || '确认入库失败')
+  } finally {
+    confirmingOrderId.value = ''
+  }
+}
 
 const loadLedger = async () => {
   loadingLedger.value = true
@@ -217,4 +262,8 @@ onMounted(() => { loadExceptions(); loadLedger() })
 .lm-sub { margin: 8px 0 14px; font-size: 12px; color: #909399; }
 .lm-pager { margin-top: 14px; display: flex; justify-content: flex-end; }
 .lm-muted { color: #c0c4cc; }
+.lm-track-cell { display: flex; flex-direction: column; gap: 3px; }
+.lm-track-cell small { color: #909399; }
+.lm-track-cell .lm-danger { color: #f56c6c; }
+.lm-confirmed { color: #67c23a; font-size: 12px; }
 </style>

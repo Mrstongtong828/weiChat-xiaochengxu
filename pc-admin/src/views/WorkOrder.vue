@@ -456,6 +456,13 @@
                 show-icon
                 class="quote-warranty-alert"
               ></el-alert>
+              <div class="quote-quick-panel">
+                <div>
+                  <strong>快速报价</strong>
+                  <span>只填最终金额即可发布；下方明细用于需要拆分配件、服务或打印清单时补充。</span>
+                </div>
+                <el-input-number v-model="quoteForm.finalPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="客户最终应付金额"></el-input-number>
+              </div>
               <div class="quote-summary-bar">
                 <div><span>配件费</span><strong>{{ formatMoney(quotePartsFee) }}</strong></div>
                 <div><span>服务费</span><strong>{{ formatMoney(quoteServicesFee) }}</strong></div>
@@ -471,61 +478,63 @@
                 :closable="false"
                 :title="quoteInventoryWarnings.join('；')"
               ></el-alert>
-              <div class="quote-section">
-                <div class="quote-section-head">
-                  <span>配件费用</span>
-                  <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="openPartPicker">添加配件</el-button>
+              <details class="quote-detail-disclosure" :open="quoteAutoTotal > 0">
+                <summary>
+                  <span>明细报价（选填）</span>
+                  <small>需要拆分配件、服务或其他费用时展开</small>
+                </summary>
+                <div class="quote-section">
+                  <div class="quote-section-head">
+                    <span>配件费用 <em>选填</em></span>
+                    <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="openPartPicker">添加配件</el-button>
+                  </div>
+                  <div v-for="(item, index) in quoteForm.parts" :key="item.localId" class="quote-row-grid quote-row-grid--parts">
+                    <el-input v-model="item.partCode" :disabled="!canPerformOrderAction('issue_quote')" placeholder="配件编号"></el-input>
+                    <el-input v-model="item.name" :disabled="!canPerformOrderAction('issue_quote')" placeholder="配件名称"></el-input>
+                    <el-input v-model="item.model" :disabled="!canPerformOrderAction('issue_quote')" placeholder="型号"></el-input>
+                    <el-tag effect="plain" :type="getQuotePartStockType(item)">库存 {{ item.stock ?? '-' }}</el-tag>
+                    <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
+                    <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
+                    <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
+                    <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote') || quoteForm.parts.length <= 1" @click="removeQuoteRow('parts', index)">删除</el-button>
+                  </div>
                 </div>
-                <div v-for="(item, index) in quoteForm.parts" :key="item.localId" class="quote-row-grid quote-row-grid--parts">
-                  <el-input v-model="item.partCode" :disabled="!canPerformOrderAction('issue_quote')" placeholder="配件编号"></el-input>
-                  <el-input v-model="item.name" :disabled="!canPerformOrderAction('issue_quote')" placeholder="配件名称"></el-input>
-                  <el-input v-model="item.model" :disabled="!canPerformOrderAction('issue_quote')" placeholder="型号"></el-input>
-                  <el-tag effect="plain" :type="getQuotePartStockType(item)">库存 {{ item.stock ?? '-' }}</el-tag>
-                  <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
-                  <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
-                  <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
-                  <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote') || quoteForm.parts.length <= 1" @click="removeQuoteRow('parts', index)">删除</el-button>
+                <div class="quote-section">
+                  <div class="quote-section-head">
+                    <span>服务费用 <em>选填</em></span>
+                    <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="addQuoteRow('services')">添加服务</el-button>
+                  </div>
+                  <div v-for="(item, index) in quoteForm.services" :key="item.localId" class="quote-row-grid quote-row-grid--services">
+                    <el-select
+                      v-if="canPerformOrderAction('issue_quote') && feeTiers.length"
+                      :model-value="''"
+                      placeholder="预设服务项目"
+                      @change="(v) => applyFeeTier(item, v)"
+                    >
+                      <el-option v-for="(t, i) in feeTiers" :key="i" :label="`${t.name}　¥${t.price}${t.unit ? '/' + t.unit : ''}`" :value="i" />
+                    </el-select>
+                    <el-input v-else v-model="item.name" :disabled="!canPerformOrderAction('issue_quote')" placeholder="服务项目"></el-input>
+                    <el-input v-model="item.productCategory" :disabled="!canPerformOrderAction('issue_quote')" placeholder="产品分类"></el-input>
+                    <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
+                    <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
+                    <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
+                    <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote') || quoteForm.services.length <= 1" @click="removeQuoteRow('services', index)">删除</el-button>
+                  </div>
                 </div>
-              </div>
-              <div class="quote-section">
-                <div class="quote-section-head">
-                  <span>服务费用</span>
-                  <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="addQuoteRow('services')">添加服务</el-button>
+                <div class="quote-section">
+                  <div class="quote-section-head">
+                    <span>其他费用 <em>选填</em></span>
+                    <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="addQuoteRow('others')">添加其他费用</el-button>
+                  </div>
+                  <div v-for="(item, index) in quoteForm.others" :key="item.localId" class="quote-row-grid quote-row-grid--others">
+                    <el-input v-model="item.name" :disabled="!canPerformOrderAction('issue_quote')" placeholder="费用名称"></el-input>
+                    <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
+                    <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
+                    <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
+                    <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote')" @click="removeQuoteRow('others', index)">删除</el-button>
+                  </div>
                 </div>
-                <div v-for="(item, index) in quoteForm.services" :key="item.localId" class="quote-row-grid quote-row-grid--services">
-                  <el-select
-                    v-if="canPerformOrderAction('issue_quote') && feeTiers.length"
-                    :model-value="''"
-                    placeholder="预设服务项目"
-                    @change="(v) => applyFeeTier(item, v)"
-                  >
-                    <el-option v-for="(t, i) in feeTiers" :key="i" :label="`${t.name}　¥${t.price}${t.unit ? '/' + t.unit : ''}`" :value="i" />
-                  </el-select>
-                  <el-input v-else v-model="item.name" :disabled="!canPerformOrderAction('issue_quote')" placeholder="服务项目"></el-input>
-                  <el-input v-model="item.productCategory" :disabled="!canPerformOrderAction('issue_quote')" placeholder="产品分类"></el-input>
-                  <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
-                  <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
-                  <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
-                  <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote') || quoteForm.services.length <= 1" @click="removeQuoteRow('services', index)">删除</el-button>
-                </div>
-              </div>
-              <div class="quote-section">
-                <div class="quote-section-head">
-                  <span>其他费用</span>
-                  <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="addQuoteRow('others')">添加其他费用</el-button>
-                </div>
-                <div v-for="(item, index) in quoteForm.others" :key="item.localId" class="quote-row-grid quote-row-grid--others">
-                  <el-input v-model="item.name" :disabled="!canPerformOrderAction('issue_quote')" placeholder="费用名称"></el-input>
-                  <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
-                  <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
-                  <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
-                  <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote')" @click="removeQuoteRow('others', index)">删除</el-button>
-                </div>
-              </div>
-              <div class="quote-final-row">
-                <span>最终报价</span>
-                <el-input-number v-model="quoteForm.finalPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="默认等于自动合计"></el-input-number>
-              </div>
+              </details>
               <div class="quote-final-row">
                 <span>维修质保(月)</span>
                 <el-input-number v-model="quoteForm.warrantyMonths" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :max="60" :step="1" controls-position="right" placeholder="0=沿用全局质保政策"></el-input-number>
@@ -1903,6 +1912,17 @@ const buildQuotePayload = (status) => {
   const autoTotal = [...parts, ...services, ...others].reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
   const finalPrice = Number(quoteForm.finalPrice) || autoTotal
   const remark = (quoteForm.remark || '').trim()
+  const simpleServices = (!parts.length && !services.length && !others.length && finalPrice > 0)
+    ? [{
+      name: '维修费用',
+      unit_price: finalPrice,
+      quantity: 1,
+      amount: finalPrice,
+      remark: remark || '简易报价',
+      service_id: '',
+      product_category: ''
+    }]
+    : services
   const items = [
     ...parts.map(item => ({
       name: item.name,
@@ -1910,7 +1930,7 @@ const buildQuotePayload = (status) => {
       partsFee: item.amount,
       laborFee: 0
     })),
-    ...services.map(item => ({
+    ...simpleServices.map(item => ({
       name: item.name,
       desc: item.remark || item.product_category || '',
       partsFee: 0,
@@ -1933,13 +1953,17 @@ const buildQuotePayload = (status) => {
     payment_deadline_days: Math.max(1, Number(quoteForm.paymentDeadlineDays) || 7),
     quote_detail: {
       parts,
-      services,
+      services: simpleServices,
       others,
+      parts_total: parts.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      services_total: simpleServices.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      others_total: others.reduce((sum, item) => sum + (Number(item.amount) || 0), 0),
+      auto_total: autoTotal || finalPrice,
       final_price: finalPrice,
       remark
     },
     parts,
-    services,
+    services: simpleServices,
     others,
     items
   }
@@ -2599,8 +2623,8 @@ const saveOrderQuote = async (status = 'draft') => {
   const payload = buildQuotePayload(status)
   const total = Number(payload.finalPrice) || quoteAutoTotal.value
 
-  if (!payload.items.length || total <= 0) {
-    ElMessage.warning('请至少填写一个有效报价项目和金额')
+  if (total <= 0) {
+    ElMessage.warning('请填写最终报价金额')
     return
   }
 
@@ -3136,11 +3160,22 @@ const confirmExportExcel = async () => {
 .drawer-info-item strong { display: block; color: #1d2129; font-size: 14px; font-weight: 600; line-height: 1.5; word-break: break-all; }
 .mono-text { font-family: 'Consolas', 'Menlo', monospace; }
 .quote-editor-section, .payment-section { background: #fff; border: 1px solid #e5eefb; box-shadow: 0 8px 24px rgba(24, 144, 255, 0.06); }
+.quote-quick-panel { display: grid; grid-template-columns: minmax(0, 1fr) 220px; align-items: center; gap: 14px; padding: 14px 16px; margin-bottom: 12px; border-radius: 8px; background: #f4f8ff; border: 1px solid #d9e9ff; }
+.quote-quick-panel strong { display: block; margin-bottom: 4px; color: #10264a; font-size: 15px; line-height: 1.4; }
+.quote-quick-panel span { display: block; color: #6b778c; font-size: 12px; line-height: 1.5; }
+.quote-quick-panel :deep(.el-input-number) { width: 100%; }
 .quote-summary-bar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
 .quote-summary-bar div, .payment-status-grid div { padding: 10px 12px; border-radius: 8px; background: #f7fbff; border: 1px solid #e6f4ff; }
 .quote-summary-bar span, .payment-status-grid span { display: block; color: #86909c; font-size: 12px; line-height: 1.3; margin-bottom: 4px; }
 .quote-summary-bar strong, .payment-status-grid strong { display: block; color: #1d2129; font-size: 15px; line-height: 1.4; }
 .quote-summary-bar .quote-total { color: #1890ff; font-size: 18px; }
+.quote-detail-disclosure { margin-bottom: 12px; border-radius: 8px; border: 1px solid #eef0f3; background: #fbfcfe; }
+.quote-detail-disclosure > summary { min-height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: #1d2129; font-size: 14px; font-weight: 600; list-style: none; }
+.quote-detail-disclosure > summary::-webkit-details-marker { display: none; }
+.quote-detail-disclosure > summary::before { content: ''; width: 8px; height: 8px; border-right: 2px solid #8a97aa; border-bottom: 2px solid #8a97aa; transform: rotate(-45deg); transition: transform 160ms ease; }
+.quote-detail-disclosure[open] > summary::before { transform: rotate(45deg); }
+.quote-detail-disclosure > summary small { color: #8a97aa; font-size: 12px; font-weight: 400; }
+.quote-detail-disclosure[open] { padding-bottom: 10px; }
 .quote-template-row { display: grid; grid-template-columns: minmax(180px, 280px) 1fr; gap: 10px; align-items: center; margin-bottom: 12px; color: #86909c; font-size: 12px; }
 .quote-item-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .quote-item-editor { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 10px; background: #f7f8fa; border: 1px solid #eef0f3; }
@@ -3148,6 +3183,7 @@ const confirmExportExcel = async () => {
 .quote-fee-row :deep(.el-input-number) { width: 100%; }
 .quote-section { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 12px; border-radius: 8px; background: #f7f8fa; border: 1px solid #eef0f3; }
 .quote-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #1d2129; font-size: 14px; font-weight: 600; }
+.quote-section-head em { margin-left: 4px; color: #8a97aa; font-size: 12px; font-style: normal; font-weight: 400; }
 .quote-row-grid { display: grid; align-items: center; gap: 8px; }
 .quote-row-grid--parts { grid-template-columns: 120px minmax(120px, 1fr) 120px 130px 110px 96px auto; }
 .quote-row-grid--services { grid-template-columns: minmax(140px, 1.2fr) 120px 130px 110px 96px auto; }

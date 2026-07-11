@@ -1,7 +1,16 @@
 const db = uniCloud.database()
 const dbCmd = db.command
 const crypto = require('crypto')
+const expressProvider = loadExpressProvider()
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
+
+function loadExpressProvider() {
+  try {
+    return require('cicada-express-provider')
+  } catch (packageError) {
+    return require('../common/cicada-express-provider')
+  }
+}
 
 function createWorkflowFallback() {
   const ORDER_STATUS = ['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled']
@@ -625,6 +634,40 @@ function pickParam(ctx, params) {
 
 function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
+}
+
+function getOrderShipInfo(order = {}, segment = 'out') {
+  const info = segment === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
+  return {
+    company: normalizeText(info.logistics_company || info.logisticsCompany || info.return_company || info.returnCompany),
+    trackingNo: normalizeText(info.logistics_no || info.logisticsNo || info.return_no || info.returnNo),
+    phone: normalizeText(info.phone || info.mobile || info.receiver_phone || info.receiverPhone || info.recipient_phone)
+  }
+}
+
+async function subscribeOrderLogistics(order = {}, segment = 'back') {
+  const info = getOrderShipInfo(order, segment)
+  if (!info.company || !info.trackingNo) return
+  try {
+    const result = await expressProvider.subscribe(info)
+    if (!result.configured) return
+    const existing = (order.track_cache && order.track_cache[segment]) || {}
+    const trackCache = {
+      ...(order.track_cache || {}),
+      [segment]: {
+        ...existing,
+        provider: 'kuaidi100',
+        trackingNo: info.trackingNo,
+        companyCode: result.company && result.company.code,
+        subscriptionStatus: result.success ? 'subscribed' : 'failed',
+        subscriptionMessage: result.message || '',
+        subscribedAt: Date.now()
+      }
+    }
+    await db.collection('cicada_orders').doc(order._id).update({ track_cache: trackCache })
+  } catch (error) {
+    console.warn('kuaidi100 subscribe failed:', error)
+  }
 }
 
 // 回寄单号录入源头防错：标准化 + 通用格式校验 + 按公司前缀提示。
@@ -1325,13 +1368,39 @@ function buildQuoteData(quote = {}, now) {
   }
 
   const legacyItems = normalizeQuoteItems(quote.items || quote.quote_items || quote.quoteItems)
-  const quoteDetail = normalizeQuoteDetail(quote, legacyItems)
-  const quoteItems = buildLegacyQuoteItemsFromDetail(quoteDetail, legacyItems)
-  const partsFee = normalizeQuoteAmount(quoteDetail.parts_total)
-  const laborFee = normalizeQuoteAmount(quoteDetail.services_total) + normalizeQuoteAmount(quoteDetail.others_total)
+  let quoteDetail = normalizeQuoteDetail(quote, legacyItems)
+  let quoteItems = buildLegacyQuoteItemsFromDetail(quoteDetail, legacyItems)
+  let partsFee = normalizeQuoteAmount(quoteDetail.parts_total)
+  let laborFee = normalizeQuoteAmount(quoteDetail.services_total) + normalizeQuoteAmount(quoteDetail.others_total)
   const totalPrice = normalizeQuoteAmount(quoteDetail.final_price)
-  const autoTotal = normalizeQuoteAmount(quoteDetail.auto_total)
+  let autoTotal = normalizeQuoteAmount(quoteDetail.auto_total)
   const quoteRemark = normalizeText(quoteDetail.remark || quote.remark || quote.quote_remark || quote.quoteRemark)
+
+  if (!quoteItems.length && totalPrice > 0) {
+    const simpleService = {
+      name: '维修费用',
+      product_category: '',
+      unit_price: totalPrice,
+      quantity: 1,
+      amount: totalPrice,
+      remark: quoteRemark || '简易报价'
+    }
+    quoteDetail = {
+      ...quoteDetail,
+      parts: [],
+      services: [simpleService],
+      others: [],
+      parts_total: 0,
+      services_total: totalPrice,
+      others_total: 0,
+      auto_total: totalPrice,
+      final_price: totalPrice
+    }
+    quoteItems = buildLegacyQuoteItemsFromDetail(quoteDetail, legacyItems)
+    partsFee = 0
+    laborFee = totalPrice
+    autoTotal = totalPrice
+  }
 
   if (quoteRemark.length > 200) {
     throw new Error('报价备注不能超过200字')
@@ -2038,6 +2107,55 @@ module.exports = {
     }
   },
 
+  // 快递签收只代表包裹到达；工作人员核对设备后在此确认正式入库。
+  async confirmInboundArrival(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const { order_id } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      const found = await db.collection('cicada_orders').doc(order_id).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      if (order.arrival_confirm_status === 'confirmed' || order.status === 'received') {
+        return { code: 0, msg: '该工单已确认入库' }
+      }
+      if (!['pending', 'sent'].includes(order.status)) return { code: -1, msg: '当前工单状态不能确认入库' }
+      const outTrack = (order.track_cache && order.track_cache.out) || {}
+      if (order.arrival_confirm_status !== 'pending' && normalizeText(outTrack.state) !== '3') {
+        return { code: -1, msg: '快递尚未显示签收，不能确认入库' }
+      }
+      assertOrderStatusTransition(order.status, 'received')
+      const now = Date.now()
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const updateData = {
+        status: 'received',
+        arrival_confirm_status: 'confirmed',
+        arrival_confirmed_at: now,
+        arrival_confirmed_by: normalizeText(currentAdmin._id || currentAdmin.id),
+        arrival_confirmed_name: normalizeText(currentAdmin.name || currentAdmin.username || currentAdmin.nickname) || '后台人员',
+        ship_out_info: { ...(order.ship_out_info || {}), received_at: now },
+        timeline: [
+          ...timeline,
+          { title: '设备已确认入库', desc: '维修中心已完成包裹与设备核对，等待检测', time: now, done: true }
+        ],
+        update_time: now
+      }
+      const result = await db.collection('cicada_orders').doc(order_id).update(updateData)
+      if (!result.updated) return { code: -1, msg: '确认入库失败' }
+      await logOrderEvent({
+        order,
+        action: 'confirm_inbound_arrival',
+        actor: currentAdmin,
+        before: { status: order.status || '', arrival_confirm_status: order.arrival_confirm_status || '' },
+        after: { status: 'received', arrival_confirm_status: 'confirmed', arrival_confirmed_at: now }
+      })
+      await sendOrderSubscription({ ...order, ...updateData }, 'order_received', '设备已确认入库')
+      return { code: 0, msg: '已确认入库', data: { status: 'received', arrival_confirm_status: 'confirmed' } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 批量导入物流单：inbound=客户寄入签收，return=后台回寄发货
   async batchImportLogistics(params) {
     try {
@@ -2135,6 +2253,7 @@ module.exports = {
         })
         const notifyScene = importType === 'inbound' ? 'order_received' : 'order_shipped'
         await sendOrderSubscription({ ...order, ...updateData }, notifyScene, updateData.status === 'received' ? '设备已签收' : '设备已回寄')
+        await subscribeOrderLogistics({ ...order, ...updateData }, importType === 'inbound' ? 'out' : 'back')
         summary.success += 1
       }
 
@@ -2255,6 +2374,7 @@ module.exports = {
           }
         })
         await sendOrderSubscription({ ...order, ...updateData }, 'order_shipped', '设备已回寄')
+        await subscribeOrderLogistics({ ...order, ...updateData }, 'back')
         results.push({
           ...item,
           order_id: order._id,
@@ -2399,6 +2519,7 @@ module.exports = {
           }
         })
         await sendOrderSubscription({ ...order, ...updateData }, 'order_shipped', '设备已回寄')
+        await subscribeOrderLogistics({ ...order, ...updateData }, 'back')
         summary.success += 1
       }
 
@@ -3206,22 +3327,42 @@ module.exports = {
       for (const order of orders) {
         const out = order.ship_out_info || {}
         const back = order.ship_back_info || {}
+        const outTrack = (order.track_cache && order.track_cache.out) || {}
+        const backTrack = (order.track_cache && order.track_cache.back) || {}
         const outNo = normalizeText(out.logistics_no || out.logisticsNo)
         const backNo = normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo)
         const updatedAt = Number(order.update_time) || Number(order.create_time) || 0
         const base = { orderNo: order.order_no || '', orderId: order._id }
+        const pushException = (segment, track, fallback) => {
+          const state = normalizeText(track.state)
+          if (!['2', '4', '6', '14'].includes(state)) return false
+          exceptions.push({
+            ...base,
+            segment,
+            type: 'provider_exception',
+            hours: 0,
+            company: fallback.company,
+            trackingNo: fallback.trackingNo,
+            reason: track.status || track.message || '快递100返回物流异常，请及时核实'
+          })
+          return true
+        }
         // 寄出段：有单号但长时间未推进
-        if (outNo && ['pending', 'sent'].includes(order.status)) {
-          const since = now - (Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
+        if (outNo && ['pending', 'sent'].includes(order.status) && !pushException('out', outTrack, { company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo })) {
+          const lastTrackAt = Date.parse(outTrack.lastTrackAt || '') || 0
+          const since = now - (lastTrackAt || Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
           if (order.status === 'pending' && since > NO_PICKUP_MS) {
             exceptions.push({ ...base, segment: 'out', type: 'no_pickup', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出超 48h 未签收，建议催寄/核实' })
-          } else if (order.status === 'sent' && since > STALLED_MS) {
+          } else if (normalizeText(outTrack.state) !== '3' && order.status === 'sent' && since > STALLED_MS) {
             exceptions.push({ ...base, segment: 'out', type: 'stalled', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出运输停滞超 72h，建议联系快递核实' })
           }
         }
         // 回寄段：已发货长时间未完成
-        if (backNo && order.status === 'shipped' && updatedAt && now - updatedAt > STALLED_MS) {
-          exceptions.push({ ...base, segment: 'back', type: 'stalled', hours: Math.floor((now - updatedAt) / H), company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo, reason: '回寄运输停滞超 72h，建议联系快递核实' })
+        if (backNo && order.status === 'shipped' && !pushException('back', backTrack, { company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo })) {
+          const lastTrackAt = Date.parse(backTrack.lastTrackAt || '') || updatedAt
+          if (normalizeText(backTrack.state) !== '3' && lastTrackAt && now - lastTrackAt > STALLED_MS) {
+            exceptions.push({ ...base, segment: 'back', type: 'stalled', hours: Math.floor((now - lastTrackAt) / H), company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo, reason: '回寄运输停滞超 72h，建议联系快递核实' })
+          }
         }
       }
       exceptions.sort((a, b) => b.hours - a.hours)
@@ -3234,7 +3375,8 @@ module.exports = {
   // 物流台账：两段物流（寄出/回寄）汇总，支持分页拉全量导出；超扫描上限返回 truncated
   async getLogisticsLedger(params) {
     try {
-      requireAdminPermission(this, 'export_order')
+      const currentAdmin = requireAdminPermission(this, 'export_order')
+      const canConfirmArrival = hasRolePermission(currentAdmin.role, 'update_status')
       const { status = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const kw = normalizeText(keyword).toLowerCase()
@@ -3244,7 +3386,10 @@ module.exports = {
       const rows = (fetched.orders || []).map(o => {
         const out = o.ship_out_info || {}
         const back = o.ship_back_info || {}
+        const outTrack = (o.track_cache && o.track_cache.out) || {}
+        const backTrack = (o.track_cache && o.track_cache.back) || {}
         return {
+          order_id: o._id,
           order_no: o.order_no || '',
           status: o.status || '',
           customer: normalizeText(back.unit || back.name || ''),
@@ -3252,6 +3397,16 @@ module.exports = {
           out_no: normalizeText(out.logistics_no || out.logisticsNo || ''),
           back_company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany || ''),
           back_no: normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo || ''),
+          out_track_status: normalizeText(outTrack.status || ''),
+          out_last_track_at: normalizeText(outTrack.lastTrackAt || ''),
+          out_subscription_status: normalizeText(outTrack.subscriptionStatus || ''),
+          arrival_confirm_status: normalizeText(o.arrival_confirm_status || ''),
+          arrival_detected_at: o.arrival_detected_at || 0,
+          arrival_confirmed_at: o.arrival_confirmed_at || 0,
+          can_confirm_arrival: canConfirmArrival,
+          back_track_status: normalizeText(backTrack.status || ''),
+          back_last_track_at: normalizeText(backTrack.lastTrackAt || ''),
+          back_subscription_status: normalizeText(backTrack.subscriptionStatus || ''),
           create_time: o.create_time || 0,
           update_time: o.update_time || 0
         }

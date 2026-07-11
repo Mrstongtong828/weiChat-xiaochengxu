@@ -414,7 +414,7 @@ import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyS
 import RichEditor from '../components/RichEditor.vue'
 import { normalizePolicyHtml } from '../utils/policyHtml.js'
 import { uploadFileToCloud } from '../utils/upload.js'
-import { uploadToCos } from '../utils/cosUpload.js'
+import { uploadToOss } from '../utils/ossUpload.js'
 
 const activeContentTab = ref('policy')
 const config = reactive({ warranty: '', feePolicy: '' })
@@ -634,7 +634,7 @@ const loadMaintenanceVideos = async () => {
       return {
         _id: g._id || g.id || '',
         _key: g._id || g.id || `new-maint-${++videoKeySeq}`,
-        title: g.desc || '',
+        title: g.title || g.description || g.desc || '',
         intro: g.content || '',
         video_url: video.url || '',
         video_name: video.name || '',
@@ -667,6 +667,96 @@ const resolveMaintenanceVideoCoverPreviews = async () => {
     console.error('解析首页介绍视频封面地址失败:', error)
   }
 }
+
+const isCanvasMostlyDark = (canvas) => {
+  const ctx = canvas.getContext('2d')
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  let darkPixels = 0
+  const total = data.length / 4
+  for (let i = 0; i < data.length; i += 4) {
+    const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3
+    if (brightness < 18) darkPixels += 1
+  }
+  return darkPixels / total > 0.88
+}
+
+const captureVideoFirstFrame = (file) => new Promise((resolve, reject) => {
+  const videoEl = document.createElement('video')
+  const objectUrl = URL.createObjectURL(file)
+  let settled = false
+  let candidates = []
+  let candidateIndex = 0
+  videoEl.preload = 'metadata'
+  videoEl.muted = true
+  videoEl.playsInline = true
+
+  const cleanup = () => {
+    URL.revokeObjectURL(objectUrl)
+    videoEl.removeAttribute('src')
+    videoEl.load()
+  }
+  const fail = (error) => {
+    if (settled) return
+    settled = true
+    cleanup()
+    reject(error instanceof Error ? error : new Error('自动截取视频封面失败'))
+  }
+
+  videoEl.onerror = () => fail(new Error('无法读取视频画面，请手动上传封面'))
+  videoEl.onloadedmetadata = () => {
+    const duration = Number.isFinite(videoEl.duration) ? videoEl.duration : 0
+    const maxTime = Math.max(0, duration - 0.1)
+    candidates = [1, 2, 3, duration * 0.1, duration * 0.25, 0.2]
+      .filter(time => time >= 0 && (!duration || time <= maxTime))
+      .map(time => Math.min(time, maxTime))
+      .filter((time, index, list) => list.findIndex(item => Math.abs(item - time) < 0.05) === index)
+    if (!candidates.length) candidates = [0]
+    videoEl.currentTime = candidates[candidateIndex]
+  }
+  videoEl.onseeked = () => {
+    if (settled) return
+    try {
+      const width = videoEl.videoWidth || 1280
+      const height = videoEl.videoHeight || 720
+      const maxWidth = 1280
+      const scale = Math.min(1, maxWidth / width)
+      const canvas = document.createElement('canvas')
+      canvas.width = Math.max(1, Math.round(width * scale))
+      canvas.height = Math.max(1, Math.round(height * scale))
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height)
+      if (isCanvasMostlyDark(canvas) && candidateIndex < candidates.length - 1) {
+        candidateIndex += 1
+        videoEl.currentTime = candidates[candidateIndex]
+        return
+      }
+      settled = true
+      canvas.toBlob((blob) => {
+        cleanup()
+        if (!blob) {
+          reject(new Error('自动截取视频封面失败'))
+          return
+        }
+        const baseName = String(file.name || 'video').replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|\s]+/g, '_') || 'video'
+        resolve(new File([blob], `${baseName}_cover.jpg`, { type: 'image/jpeg' }))
+      }, 'image/jpeg', 0.82)
+    } catch (error) {
+      fail(error)
+    }
+  }
+  videoEl.src = objectUrl
+})
+
+const autoCreateVideoCover = async (raw, video, dir = 'home-intro-video/') => {
+  if (video.cover_url) return false
+  const coverFile = await captureVideoFirstFrame(raw)
+  const { fileUrl, tempUrl } = await uploadFileToCloud(coverFile, dir, 5 * 1024 * 1024)
+  video.cover_url = fileUrl
+  video.cover_name = coverFile.name
+  video.coverPreview = tempUrl || URL.createObjectURL(coverFile)
+  return true
+}
+
 const handleVideoUpload = async (uploadFile, video, keyPrefix = 'product-video/') => {
   const raw = uploadFile && uploadFile.raw
   if (!raw) return
@@ -681,14 +771,20 @@ const handleVideoUpload = async (uploadFile, video, keyPrefix = 'product-video/'
   try {
     uploadingVideoKey.value = video._key
     video._progress = 0
-    // 前端直传腾讯云 COS，支持几分钟的大视频（不经云函数体积限制）
-    const { fileUrl } = await uploadToCos(raw, {
+    // 前端直传阿里云 OSS，支持几分钟的大视频（不经云函数体积限制）
+    const { fileUrl } = await uploadToOss(raw, {
       keyPrefix,
       onProgress: (p) => { video._progress = p }
     })
     video.video_url = fileUrl
     video.video_name = raw.name
-    ElMessage.success('视频上传成功')
+    try {
+      const createdCover = await autoCreateVideoCover(raw, video, keyPrefix)
+      ElMessage.success(createdCover ? '视频上传成功，已自动生成封面' : '视频上传成功')
+    } catch (coverError) {
+      console.warn('auto create video cover failed:', coverError)
+      ElMessage.warning('视频已上传，自动封面生成失败，可手动上传封面')
+    }
   } catch (error) {
     ElMessage.error(error.message || '上传失败，请重试')
   } finally {
@@ -801,6 +897,8 @@ const saveMaintenanceVideos = async () => {
       const payload = {
         category: MAINTENANCE_VIDEO_CATEGORY,
         audience: 'client',
+        title: String(v.title).trim(),
+        description: String(v.title).trim(),
         desc: String(v.title).trim(),
         content: v.intro || '',
         media,

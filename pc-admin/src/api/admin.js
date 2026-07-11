@@ -162,7 +162,6 @@ export const getTempFileURL = (token, fileList) => {
   return request.post(`${API_BASE.adminSys}/getTempFileURL`, { token, fileList })
 }
 
-// 获取腾讯云 COS 直传临时凭证（前端直传大文件，如产品视频）
-export const getCosUploadCredential = (token, keyPrefix = 'product-video/') => {
-  return request.post(`${API_BASE.adminSys}/getCosUploadCredential`, { token, keyPrefix })
+export const getOssUploadPolicy = (token, keyPrefix = 'product-video/') => {
+  return request.post(`${API_BASE.adminSys}/getOssUploadPolicy`, { token, keyPrefix })
 }

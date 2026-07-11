@@ -1,12 +1,21 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
 const { assertOrderStatusTransition } = loadWorkflowModule()
+const expressProvider = loadExpressProvider()
 
 function loadWorkflowModule() {
   try {
     return require('cicada-order-workflow')
   } catch (packageError) {
     return require('../common/cicada-order-workflow')
+  }
+}
+
+function loadExpressProvider() {
+  try {
+    return require('cicada-express-provider')
+  } catch (packageError) {
+    return require('../common/cicada-express-provider')
   }
 }
 
@@ -320,28 +329,20 @@ function normalizeOrderTimeline(timeline = []) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
-// 物流轨迹：快递鸟适配层（先留接口）
-// provider=none 时返回 { configured:false }，上层回退到按工单状态合成的轨迹。
-// 接通真实 API 后只需把 EXPRESS_PROVIDER 改为 'kdniao' 并实现 fetchRealTrack，
-// 其余调用方（queryPackageStatus / 录入校验 / 轮询）无需改动。
+// 物流轨迹：快递100即时查询 + 订阅推送；未配置环境变量时回退到工单状态估算。
 // ───────────────────────────────────────────────────────────────────────────
-const EXPRESS_PROVIDER = 'none' // 'none' | 'kdniao'
-const TRACK_CACHE_TTL = 30 * 60 * 1000 // 服务端缓存有效期：30 分钟
 const STAGNANT_MS = 72 * 60 * 60 * 1000 // 运输中超 72h 无更新视为停滞
 
 // 真实物流查询桩：未配置时统一返回 configured:false，调用方据此回退到合成轨迹。
-async function fetchRealTrack(company, trackingNo) {
-  if (EXPRESS_PROVIDER === 'none') return { configured: false, success: false, tracks: [] }
-  // TODO(kdniao): 在此调用快递鸟即时查询 API，解析 Success/Traces，返回标准化 tracks。
-  return { configured: false, success: false, tracks: [] }
+async function fetchRealTrack(company, trackingNo, phone = '') {
+  return expressProvider.query({ company, trackingNo, phone })
 }
 
 // 读取工单上的物流轨迹缓存（按段+单号命中且未过期才有效）
 function readTrackCache(order = {}, type = 'out', trackingNo = '') {
   const cache = (order.track_cache && order.track_cache[type]) || null
   if (!cache || cache.trackingNo !== trackingNo) return null
-  if (!cache.fetchedAt || Date.now() - cache.fetchedAt > TRACK_CACHE_TTL) return null
-  return Array.isArray(cache.tracks) ? cache.tracks : null
+  return Array.isArray(cache.tracks) ? cache : null
 }
 
 // 合并相邻的同网点/同文案节点，避免大量重复刷屏（输入按时间正序）
@@ -512,7 +513,15 @@ function getPackageStatus(order = {}) {
   return { status: 1, statusText: '已提交待签收', tone: 'warn', reached: 1 }
 }
 
-function buildPackageTimeline(order = {}, matchedType = 'out', fullAccess = false) {
+function buildPackageTimeline(order = {}, matchedType = 'out', fullAccess = false, cache = null) {
+  if (cache && Array.isArray(cache.tracks) && cache.tracks.length) {
+    return cache.tracks.map(item => ({
+      title: item.title || cache.status || '物流更新',
+      desc: item.desc || '',
+      time: formatTimelineTime(item.time),
+      pending: false
+    }))
+  }
   const shipInfo = getShipInfo(order, matchedType)
   const rows = [
     {
@@ -550,6 +559,7 @@ function buildPackageTimeline(order = {}, matchedType = 'out', fullAccess = fals
 // 单段物流（寄出 out / 回寄 back）：公司+单号+进度(0揽收/1运输/2签收)+时间轴
 function buildPackageSegment(order = {}, type = 'out', fullAccess = false) {
   const info = getShipInfo(order, type)
+  const cache = readTrackCache(order, type, info.trackingNo)
   const status = order.status || 'pending'
   let reached = 0
   let statusText = ''
@@ -564,6 +574,12 @@ function buildPackageSegment(order = {}, type = 'out', fullAccess = false) {
     if (status === 'completed') { reached = 2; statusText = '客户已签收'; tone = 'ok'; available = true }
     else if (status === 'shipped') { reached = 1; statusText = '运输中'; tone = 'warn'; available = true }
     else { reached = 0; statusText = '待回寄'; tone = 'muted'; available = Boolean(info.trackingNo) }
+  }
+  if (cache) {
+    const state = normalizeText(cache.state)
+    statusText = cache.status || expressProvider.stateLabel(state)
+    tone = cache.tone || expressProvider.stateTone(state)
+    reached = state === '3' ? 2 : 1
   }
   // 停滞判定：运输中（reached===1，未签收）且最新节点距今超 72h → 红色预警
   let stagnant = false
@@ -584,9 +600,113 @@ function buildPackageSegment(order = {}, type = 'out', fullAccess = false) {
     reached,
     available,
     stagnant,
-    // 未接入快递实时轨迹（EXPRESS_PROVIDER='none'）时节点为工单状态估算，前端据此展示"以快递官方为准"标注
-    realtime: EXPRESS_PROVIDER !== 'none',
-    timeline: available ? buildPackageTimeline(order, type, fullAccess) : []
+    // 没有快递100轨迹缓存时，前端按 realtime=false 展示工单状态估算提示。
+    realtime: Boolean(cache),
+    provider: cache ? cache.provider : '',
+    lastTrackAt: cache ? cache.lastTrackAt : '',
+    timeline: available ? buildPackageTimeline(order, type, fullAccess, cache) : []
+  }
+}
+
+function getExpressPhone(order = {}, type = 'out') {
+  const info = type === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
+  return normalizeText(info.phone || info.mobile || info.receiver_phone || info.receiverPhone || info.recipient_phone)
+}
+
+async function refreshOrderTrack(order, type, force = false) {
+  const info = getShipInfo(order, type)
+  if (!info.trackingNo || !info.company) return order
+  const existing = (order.track_cache && order.track_cache[type]) || null
+  if (!force && expressProvider.isFresh(existing, info.trackingNo)) {
+    if (type !== 'out') return order
+    const state = normalizeText(existing.state)
+    const now = Date.now()
+    const updateData = {}
+    const timeline = Array.isArray(order.timeline) ? order.timeline : []
+    if (order.status === 'pending' && ['0', '1', '3', '5', '7'].includes(state)) updateData.status = 'sent'
+    if (state === '3' && order.arrival_confirm_status !== 'confirmed') {
+      updateData.ship_out_info = { ...(order.ship_out_info || {}), delivered_at: existing.lastTrackAt || now }
+      updateData.arrival_confirm_status = 'pending'
+      updateData.arrival_detected_at = order.arrival_detected_at || now
+      if (!timeline.some(item => item && item.title === '物流已签收，待确认入库')) {
+        updateData.timeline = [...timeline, {
+          title: '物流已签收，待确认入库',
+          desc: '包裹已到达维修中心，工作人员正在核对设备',
+          time: existing.lastTrackAt || now,
+          done: true
+        }]
+      }
+    }
+    if (!Object.keys(updateData).length) return order
+    updateData.update_time = now
+    await db.collection('cicada_orders').doc(order._id).update(updateData)
+    return { ...order, ...updateData }
+  }
+  try {
+    const result = await fetchRealTrack(info.company, info.trackingNo, getExpressPhone(order, type))
+    if (!result.configured || !result.success || !result.cache) return order
+    const trackCache = { ...(order.track_cache || {}), [type]: result.cache }
+    const now = Date.now()
+    const updateData = { track_cache: trackCache }
+    if (type === 'out') {
+      const state = normalizeText(result.cache.state)
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      if (order.status === 'pending' && ['0', '1', '3', '5', '7'].includes(state)) {
+        updateData.status = 'sent'
+        if (!timeline.some(item => item && item.title === '快递已揽收')) {
+          updateData.timeline = [...timeline, { title: '快递已揽收', desc: '设备正在寄往维修中心', time: now, done: true }]
+        }
+      }
+      if (state === '3') {
+        const currentTimeline = updateData.timeline || timeline
+        updateData.ship_out_info = { ...(order.ship_out_info || {}), delivered_at: result.cache.lastTrackAt || now }
+        updateData.arrival_confirm_status = order.arrival_confirm_status === 'confirmed' ? 'confirmed' : 'pending'
+        updateData.arrival_detected_at = order.arrival_detected_at || now
+        if (!currentTimeline.some(item => item && item.title === '物流已签收，待确认入库')) {
+          updateData.timeline = [...currentTimeline, {
+            title: '物流已签收，待确认入库',
+            desc: '包裹已到达维修中心，工作人员正在核对设备',
+            time: result.cache.lastTrackAt || now,
+            done: true
+          }]
+        }
+      }
+      if (Object.keys(updateData).length > 1) updateData.update_time = now
+    }
+    await db.collection('cicada_orders').doc(order._id).update(updateData)
+    return { ...order, ...updateData, track_cache: trackCache }
+  } catch (error) {
+    console.warn('kuaidi100 query failed:', error)
+    return order
+  }
+}
+
+async function subscribeOrderTrack(order, type) {
+  const info = getShipInfo(order, type)
+  if (!info.trackingNo || !info.company) return
+  try {
+    const result = await expressProvider.subscribe({
+      company: info.company,
+      trackingNo: info.trackingNo,
+      phone: getExpressPhone(order, type)
+    })
+    if (!result.configured) return
+    const cache = (order.track_cache && order.track_cache[type]) || {}
+    const trackCache = {
+      ...(order.track_cache || {}),
+      [type]: {
+        ...cache,
+        provider: 'kuaidi100',
+        trackingNo: info.trackingNo,
+        companyCode: result.company && result.company.code,
+        subscriptionStatus: result.success ? 'subscribed' : 'failed',
+        subscriptionMessage: result.message || '',
+        subscribedAt: Date.now()
+      }
+    }
+    await db.collection('cicada_orders').doc(order._id).update({ track_cache: trackCache })
+  } catch (error) {
+    console.warn('kuaidi100 subscribe failed:', error)
   }
 }
 
@@ -1190,7 +1310,7 @@ module.exports = {
       const found = await findOrderByTrackingNo(normalizedTrackingNo)
       if (!found || !found.order) return { code: 0, data: null }
 
-      const { order, matchedType } = found
+      let { order, matchedType } = found
       const matchedCompany = matchedType === 'invoice'
         ? normalizeText((order.invoice_info || {}).mail_company || (order.invoice_info || {}).mailCompany)
         : getShipInfo(order, matchedType).company
@@ -1219,6 +1339,7 @@ module.exports = {
       const phoneLast4Matched = Boolean(storedLast4 && inputLast4 && storedLast4 === inputLast4)
       const privacyLimited = Boolean(!isOwner && inputLast4 && !phoneLast4Matched)
       const fullAccess = Boolean(isOwner || phoneLast4Matched)
+      if (matchedType !== 'invoice') order = await refreshOrderTrack(order, matchedType)
       // 设备型号：取工单首个维修产品名，供卡片底部「工单号+型号」防混淆展示
       let model = ''
       try {
@@ -1305,6 +1426,7 @@ module.exports = {
       const orderRes = await db.collection('cicada_orders').add(newOrder)
 
       orderId = orderRes.id
+      const persistedOrder = { ...newOrder, _id: orderId }
 
       await Promise.all(items.map(item => {
         const data = pickFields(item, [
@@ -1343,6 +1465,7 @@ module.exports = {
       // 报修提交即沉淀设备档案（按 SN），并带上 customer_id 与 CRM 设备台账合流
       await upsertUserDevicesFromItems(user, items, { order_no, order_id: orderId, status: 'pending', countRepair: true, customer_id: customerId })
       await sendOrderSubscription({ ...newOrder, _id: orderId }, 'repair_submitted', '报修申请已提交')
+      await subscribeOrderTrack(persistedOrder, 'out')
       return { code: 0, msg: '提交成功', data: { order_id: orderId, order_no } }
     } catch (e) {
       if (orderId) {
@@ -1564,6 +1687,7 @@ module.exports = {
         before: { ship_out_info: oldShipOut, status: order.status },
         after: { ship_out_info: shipOutInfo, status: updateData.status || order.status }
       })
+      await subscribeOrderTrack({ ...order, ...updateData }, 'out')
       return { code: 0, msg: '寄出物流已补充', data: { logistics_company: company, logistics_no: no, status: updateData.status || order.status } }
     } catch (e) {
       return { code: -1, msg: e.message }
