@@ -1,0 +1,103 @@
+[
+  {
+    "_id": "fault001",
+    "category_id": "cat001",
+    "fault_name": "屏幕碎裂",
+    "related_questions": [
+      "屏幕摔碎了",
+      "显示屏裂了",
+      "玻璃面板破损"
+    ],
+    "check_steps": [
+      "检查屏幕裂纹程度",
+      "测试触摸功能",
+      "检查显示是否正常"
+    ],
+    "fix_solutions": [
+      "更换外屏",
+      "更换总成"
+    ],
+    "is_recommend_repair": true
+  },
+  {
+    "_id": "fault002",
+    "category_id": "cat001",
+    "fault_name": "无法开机",
+    "related_questions": [
+      "开不了机",
+      "黑屏",
+      "按电源键没反应"
+    ],
+    "check_steps": [
+      "检查电池电量",
+      "尝试强制重启",
+      "检查充电接口"
+    ],
+    "fix_solutions": [
+      "更换电池",
+      "主板维修",
+      "更换电源键"
+    ],
+    "is_recommend_repair": true
+  },
+  {
+    "_id": "fault003",
+    "category_id": "cat001",
+    "fault_name": "电池续航差",
+    "related_questions": [
+      "耗电快",
+      "充不进电",
+      "电池不耐用"
+    ],
+    "check_steps": [
+      "查看电池健康度",
+      "检查后台应用",
+      "测试充电速度"
+    ],
+    "fix_solutions": [
+      "更换电池",
+      "系统优化"
+    ],
+    "is_recommend_repair": true
+  },
+  {
+    "_id": "fault004",
+    "category_id": "cat002",
+    "fault_name": "触摸失灵",
+    "related_questions": [
+      "触屏不灵敏",
+      "点击没反应",
+      "触控异常"
+    ],
+    "check_steps": [
+      "清洁屏幕",
+      "检查屏幕保护膜",
+      "测试触摸区域"
+    ],
+    "fix_solutions": [
+      "更换触摸屏",
+      "主板维修"
+    ],
+    "is_recommend_repair": true
+  },
+  {
+    "_id": "fault005",
+    "category_id": "cat003",
+    "fault_name": "键盘失灵",
+    "related_questions": [
+      "键盘按键不灵",
+      "部分按键无效",
+      "键盘进水"
+    ],
+    "check_steps": [
+      "清洁键盘",
+      "检查连接线",
+      "测试按键"
+    ],
+    "fix_solutions": [
+      "更换键盘",
+      "清洁维修"
+    ],
+    "is_recommend_repair": true
+  }
+]

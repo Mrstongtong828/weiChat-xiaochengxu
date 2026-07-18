@@ -1,0 +1,27 @@
+{
+  "bsonType": "object",
+  "required": ["order_id", "product_name"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "order_id": { "bsonType": "string" },
+    "product_name": { "bsonType": "string" },
+    "product_model": { "bsonType": "string" },
+    "sn": { "bsonType": "string" },
+    "buy_date": { "bsonType": "string" },
+    "fault_desc": { "bsonType": "string" },
+    "media_urls": { "bsonType": "array" },
+    "voucher_urls": {
+      "bsonType": "array",
+      "description": "购买凭证图片列表"
+    },
+    "image_urls": {
+      "bsonType": "array",
+      "description": "故障图片列表"
+    },
+    "video_urls": {
+      "bsonType": "array",
+      "description": "故障视频列表"
+    },
+    "fix_solution": { "bsonType": "string" }
+  }
+}

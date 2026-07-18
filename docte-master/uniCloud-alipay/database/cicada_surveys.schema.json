@@ -1,0 +1,18 @@
+{
+  "bsonType": "object",
+  "required": ["contact", "comment", "create_time"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "user_id": { "bsonType": "string", "description": "提交用户ID，未登录时为空" },
+    "order_no": { "bsonType": "string", "description": "工单号或设备SN" },
+    "satisfaction": { "bsonType": "string", "description": "整体满意度" },
+    "rating": { "bsonType": "int", "description": "服务评分" },
+    "resolved": { "bsonType": "string", "description": "问题是否解决" },
+    "comment": { "bsonType": "string", "description": "调研反馈内容" },
+    "contact": { "bsonType": "string", "description": "联系方式" },
+    "source": { "bsonType": "string", "description": "提交来源" },
+    "status": { "bsonType": "string", "description": "处理状态" },
+    "create_time": { "bsonType": "timestamp" },
+    "update_time": { "bsonType": "timestamp" }
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "description": "牙医仪器检修用户端微信小程序配置",
+  "packOptions": {
+    "ignore": [
+      {
+        "type": "folder",
+        "value": "node_modules"
+      },
+      {
+        "type": "folder",
+        "value": ".npm-cache"
+      },
+      {
+        "type": "folder",
+        "value": "cdn-assets"
+      },
+      {
+        "type": "file",
+        "value": "package-lock.json"
+      },
+      {
+        "type": "file",
+        "value": "package.json"
+      },
+      {
+        "type": "file",
+        "value": "README.md"
+      },
+      {
+        "type": "file",
+        "value": "CLAUDE.md"
+      },
+      {
+        "type": "file",
+        "value": "INDEX_TASK.md"
+      },
+      {
+        "type": "file",
+        "value": "logo-替换说明.md"
+      },
+      {
+        "type": "file",
+        "value": "上线配置清单.md"
+      },
+      {
+        "type": "file",
+        "value": "原型说明.md"
+      },
+      {
+        "type": "file",
+        "value": "后端对接任务清单.md"
+      }
+    ],
+    "include": []
+  },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "postcss": false,
+    "minified": true,
+    "minifyWXML": true,
+    "newFeature": true,
+    "bigPackageSizeSupport": true,
+    "ignoreUploadSizeCheck": true,
+    "packWithCompile": true,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": false,
+    "enhance": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "lazyCodeLoading": "requiredComponents",
+    "swc": false,
+    "disableSWC": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "compileType": "miniprogram",
+  "miniprogramRoot": "unpackage/dist/build/mp-weixin/",
+  "libVersion": "3.15.2",
+  "appid": "wx25289fbe4a3bf011",
+  "projectname": "牙医仪器检修-用户端",
+  "condition": {
+    "search": {
+      "current": -1,
+      "list": []
+    },
+    "conversation": {
+      "current": -1,
+      "list": []
+    },
+    "game": {
+      "current": -1,
+      "list": []
+    },
+    "miniprogram": {
+      "current": -1,
+      "list": []
+    }
+  },
+  "simulatorPluginLibVersion": {},
+  "editorSetting": {}
+}

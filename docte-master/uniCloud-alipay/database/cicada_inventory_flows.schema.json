@@ -1,0 +1,20 @@
+{
+  "bsonType": "object",
+  "required": ["part_id", "flow_type", "quantity", "before_stock", "after_stock", "create_time"],
+  "properties": {
+    "_id": { "description": "ID" },
+    "part_id": { "bsonType": "string", "description": "配件ID" },
+    "part_code": { "bsonType": "string", "description": "配件编码" },
+    "part_name": { "bsonType": "string", "description": "配件名称" },
+    "order_id": { "bsonType": "string", "description": "关联工单ID" },
+    "order_no": { "bsonType": "string", "description": "关联工单编号" },
+    "flow_type": { "bsonType": "string", "enum": ["inbound", "outbound", "adjust"], "description": "流水类型" },
+    "quantity": { "bsonType": "double", "description": "变动数量，出库为正数" },
+    "before_stock": { "bsonType": "double", "description": "变动前库存" },
+    "after_stock": { "bsonType": "double", "description": "变动后库存" },
+    "operator_id": { "bsonType": "string", "description": "操作人ID" },
+    "operator_name": { "bsonType": "string", "description": "操作人名称" },
+    "remark": { "bsonType": "string", "description": "备注" },
+    "create_time": { "bsonType": "timestamp" }
+  }
+}

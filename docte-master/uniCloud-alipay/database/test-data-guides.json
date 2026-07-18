@@ -1,0 +1,45 @@
+{
+  "说明": "操作教程初始数据",
+  "数据": [
+    {
+      "type": "quick",
+      "category": "快速指南",
+      "desc": "跳转到图文并茂的快速入门文档，帮助用户快速了解小程序售后流程。",
+      "file_name": "",
+      "file_url": "",
+      "file_type": "",
+      "sort": 1,
+      "update_time": 1779173903540
+    },
+    {
+      "type": "repair",
+      "category": "报修指南",
+      "desc": "跳转到图文并茂的报修文档，说明报修流程、寄出注意事项和进度查询方式。",
+      "file_name": "",
+      "file_url": "",
+      "file_type": "",
+      "sort": 2,
+      "update_time": 1779173903540
+    },
+    {
+      "type": "query",
+      "category": "查询指南",
+      "desc": "跳转到图文并茂的查询文档，说明工单、物流和维修进度查询方式。",
+      "file_name": "",
+      "file_url": "",
+      "file_type": "",
+      "sort": 3,
+      "update_time": 1779173903540
+    },
+    {
+      "type": "invoice",
+      "category": "开票指南",
+      "desc": "跳转到图文并茂的开票文档，说明发票申请、资料填写和开票进度查看方式。",
+      "file_name": "",
+      "file_url": "",
+      "file_type": "",
+      "sort": 4,
+      "update_time": 1779173903540
+    }
+  ]
+}

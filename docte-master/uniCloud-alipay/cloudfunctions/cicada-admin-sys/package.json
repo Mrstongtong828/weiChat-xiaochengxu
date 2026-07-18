@@ -1,0 +1,10 @@
+{
+  "name": "cicada-admin-sys",
+  "version": "1.0.0",
+  "dependencies": {
+    "cicada-order-workflow": "file:../common/cicada-order-workflow"
+  },
+  "cloudfunction-config": {
+    "path": "/cicada-admin-sys"
+  }
+}

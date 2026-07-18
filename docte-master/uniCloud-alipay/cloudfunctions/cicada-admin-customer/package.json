@@ -1,0 +1,7 @@
+{
+  "name": "cicada-admin-customer",
+  "version": "1.0.0",
+  "cloudfunction-config": {
+    "path": "/cicada-admin-customer"
+  }
+}
