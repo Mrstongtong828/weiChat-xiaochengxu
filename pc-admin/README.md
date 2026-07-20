@@ -75,7 +75,7 @@ VITE_CLIENT_PUBLIC_URL=https://your-env-id.example.com/cicada-client-public
 npm run check:urls
 ```
 
-该脚本会读取 `.env.local` 或默认云空间 URL，并用无效 token 请求 `getAdminOrderList`、`getTodoSummary`，同时检查 `getSubscriptionConfig` 是否可达。期望结果是后台两个接口都返回包含“鉴权失败”的错误响应，订阅配置接口返回 `code=0` 和 `templates` 数组；如果出现 404、500 空响应或方法不存在，说明 URL 化配置或云函数部署仍需处理。
+该脚本按 `.env`、`.env.local`、`.env.production`、`.env.production.local` 的顺序加载配置，并允许进程环境变量最终覆盖；因此仓库默认检查 `.env.production` 指向的正式空间。它会用无效 token 请求 `getAdminOrderList`、`getTodoSummary`，同时检查 `getSubscriptionConfig` 是否可达。期望结果是后台两个接口返回 `code=401` 且包含“鉴权失败”的响应，订阅配置接口返回 `code=0` 和 `templates` 数组；如果出现非 401 业务码、404、500 空响应或方法不存在，说明错误契约、URL 化配置或云函数部署仍需处理。
 
 ## Goal 验收重点
 
