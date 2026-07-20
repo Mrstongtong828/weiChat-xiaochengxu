@@ -1,7 +1,7 @@
 const db = uniCloud.database()
 const dbCmd = db.command
 const crypto = require('crypto')
-const { createAdminAuthError, toAdminErrorResponse } = loadAdminAuthModule()
+const { createAdminAuthError, toAdminErrorResponse, isAdminTokenExpired } = loadAdminAuthModule()
 const expressProvider = loadExpressProvider()
 const {
   SUBSCRIPTION_CONFIG_SCENES,
@@ -163,7 +163,7 @@ async function verifyAdminToken(token) {
   if (!user || user.disabled || !isKnownRole(user.role)) {
     throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
   }
-  if (Date.now() > user.token_expire) throw createAdminAuthError('鉴权失败：Token已过期')
+  if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
   return user
 }
 

@@ -26,10 +26,16 @@ function normalizeAdminAuthResult(result) {
   return { ...result, code: ADMIN_AUTH_ERROR_CODE }
 }
 
+function isAdminTokenExpired(tokenExpire, now = Date.now()) {
+  const expireAt = Number(tokenExpire)
+  return !Number.isFinite(expireAt) || expireAt <= 0 || now >= expireAt
+}
+
 module.exports = {
   ADMIN_AUTH_ERROR_CODE,
   createAdminAuthError,
   isAdminAuthFailure,
   toAdminErrorResponse,
-  normalizeAdminAuthResult
+  normalizeAdminAuthResult,
+  isAdminTokenExpired
 }

@@ -4,7 +4,8 @@ const assert = require('node:assert/strict')
 const {
   createAdminAuthError,
   toAdminErrorResponse,
-  normalizeAdminAuthResult
+  normalizeAdminAuthResult,
+  isAdminTokenExpired
 } = require('./index')
 
 test('maps explicit and legacy authentication failures to 401', () => {
@@ -16,6 +17,16 @@ test('maps explicit and legacy authentication failures to 401', () => {
     normalizeAdminAuthResult({ code: -1, msg: 'Token已过期' }),
     { code: 401, msg: 'Token已过期' }
   )
+})
+
+test('treats missing, invalid, and elapsed token expiry as expired', () => {
+  assert.equal(isAdminTokenExpired(undefined, 1000), true)
+  assert.equal(isAdminTokenExpired('invalid', 1000), true)
+  assert.equal(isAdminTokenExpired(0, 1000), true)
+  assert.equal(isAdminTokenExpired(-1, 1000), true)
+  assert.equal(isAdminTokenExpired(999, 1000), true)
+  assert.equal(isAdminTokenExpired(1000, 1000), true)
+  assert.equal(isAdminTokenExpired(1001, 1000), false)
 })
 
 test('keeps ordinary business and permission errors unchanged', () => {

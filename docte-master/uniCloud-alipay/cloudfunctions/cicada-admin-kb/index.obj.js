@@ -1,5 +1,5 @@
 const db = uniCloud.database()
-const { createAdminAuthError, toAdminErrorResponse } = loadAdminAuthModule()
+const { createAdminAuthError, toAdminErrorResponse, isAdminTokenExpired } = loadAdminAuthModule()
 
 function loadAdminAuthModule() {
   try {
@@ -14,8 +14,8 @@ async function verifyAdminToken(token, allowedRoles = ['admin']) {
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
   if (!user || user.disabled) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
+  if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
   if (!allowedRoles.includes(user.role)) throw new Error('无权限执行该操作')
-  if (Date.now() > user.token_expire) throw createAdminAuthError('鉴权失败：Token已过期')
   return user
 }
 
