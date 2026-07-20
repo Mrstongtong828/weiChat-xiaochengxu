@@ -1506,15 +1506,27 @@ module.exports = {
         .limit(pagination.pageSize)
         .get()
 
-      const orders = await Promise.all(res.data.map(async order => {
-        const itemKeys = [order._id, order.order_no].filter(Boolean)
-        const itemRes = itemKeys.length
-          ? await db.collection('cicada_order_items')
-            .where({ order_id: db.command.in(itemKeys) })
-            .limit(20)
-            .get()
-          : { data: [] }
-        const items = itemRes.data || []
+      // 批量拉取本页所有订单的 items（一次 in 查询），再在内存按 order_id 分组，
+      // 避免每条订单单独查一次（原 N+1：一页 pageSize 条 = N+1 次读）。
+      const allKeys = []
+      res.data.forEach(order => {
+        if (order._id) allKeys.push(order._id)
+        if (order.order_no) allKeys.push(order.order_no)
+      })
+      const itemsByKey = {}
+      if (allKeys.length) {
+        const itemRes = await db.collection('cicada_order_items')
+          .where({ order_id: db.command.in(allKeys) })
+          .get()
+        ;(itemRes.data || []).forEach(item => {
+          const key = item.order_id
+          if (!itemsByKey[key]) itemsByKey[key] = []
+          itemsByKey[key].push(item)
+        })
+      }
+
+      const orders = res.data.map(order => {
+        const items = (itemsByKey[order._id] || []).concat(itemsByKey[order.order_no] || [])
         const firstItem = items[0] || {}
         const shipOutInfo = order.ship_out_info || {}
         return {
@@ -1529,7 +1541,7 @@ module.exports = {
           logistics_company: shipOutInfo.logistics_company || '',
           logistics_no: shipOutInfo.logistics_no || ''
         }
-      }))
+      })
 
       return { code: 0, data: orders }
     } catch (e) {

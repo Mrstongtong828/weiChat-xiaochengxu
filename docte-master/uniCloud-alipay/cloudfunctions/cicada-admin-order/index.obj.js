@@ -303,9 +303,13 @@ async function fetchAdminOrderPage(matchCond, pagination) {
   return { total: countRes.total || 0, rawOrders: pageRes.data || [] }
 }
 
-async function enrichAdminOrderForList(order = {}, currentAdmin = {}) {
+// sharedUrlMap 传入时用共享映射（列表场景，整页一次换链接，避免 N+1）；
+// 不传时退回单订单自取（详情等单条场景）。
+async function enrichAdminOrderForList(order = {}, currentAdmin = {}, sharedUrlMap = null) {
   const itemDetail = (order.itemsList && order.itemsList.length > 0) ? order.itemsList[0] : {}
-  const orderWithProofs = await enrichPaymentProofs(order)
+  const orderWithProofs = sharedUrlMap
+    ? { ...order, payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], sharedUrlMap) }
+    : await enrichPaymentProofs(order)
 
   return stripPaymentProofsIfForbidden({
     ...orderWithProofs,
@@ -370,7 +374,16 @@ async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
 }
 
 async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
-  const enriched = await Promise.all(rawOrders.map(order => enrichAdminOrderForList(order, currentAdmin)))
+  // 一次性收集本页所有订单凭证的 fileID，合并成一次 getTempFileURL 调用，
+  // 再把结果映射分发给每条订单，替代原来每单一次的 N+1 临时链接换取。
+  const allProofFileIds = []
+  rawOrders.forEach(order => {
+    collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || [])
+      .forEach(id => allProofFileIds.push(id))
+  })
+  const sharedUrlMap = await fetchTempUrlMap(allProofFileIds)
+
+  const enriched = await Promise.all(rawOrders.map(order => enrichAdminOrderForList(order, currentAdmin, sharedUrlMap)))
   await attachCustomerSummaries(enriched, currentAdmin)
   return enriched
 }
@@ -1444,35 +1457,56 @@ function isCloudFileId(value = '') {
   return String(value || '').startsWith('cloud://')
 }
 
-async function normalizePaymentProofs(proofs = []) {
-  if (!Array.isArray(proofs) || !proofs.length) return []
-  const cloudFileIds = [...new Set(proofs
+// 从若干凭证里收集 cloud:// fileID（去重）
+function collectProofCloudFileIds(proofs = []) {
+  if (!Array.isArray(proofs)) return []
+  return proofs
     .map((proof = {}) => proof.fileID || proof.fileId || proof.url)
-    .filter(isCloudFileId))]
+    .filter(isCloudFileId)
+}
 
-  if (!cloudFileIds.length) return proofs
-
+// 批量把一组 fileID 换成临时地址映射；空列表直接返回空 map，异常吞掉返回空 map。
+async function fetchTempUrlMap(fileIds = []) {
+  const unique = [...new Set((fileIds || []).filter(isCloudFileId))]
+  if (!unique.length) return {}
   try {
-    const tempRes = await uniCloud.getTempFileURL({ fileList: cloudFileIds })
-    const urlMap = (tempRes.fileList || []).reduce((map, item = {}) => {
+    const tempRes = await uniCloud.getTempFileURL({ fileList: unique })
+    return (tempRes.fileList || []).reduce((map, item = {}) => {
       if (item.fileID && item.tempFileURL) map[item.fileID] = item.tempFileURL
       return map
     }, {})
+  } catch (e) {
+    return {}
+  }
+}
 
-    return proofs.map((proof = {}) => {
-      const cloudFileID = proof.fileID || proof.fileId || (isCloudFileId(proof.url) ? proof.url : '')
-      const tempUrl = urlMap[cloudFileID]
-      return tempUrl
-        ? {
-            ...proof,
-            cloudFileID,
-            fileID: cloudFileID,
-            url: tempUrl,
-            fileUrl: tempUrl,
-            previewUrl: tempUrl
-          }
-        : proof
-    })
+// 用已经算好的 urlMap 给凭证套上临时地址（纯函数，无网络调用）
+function applyProofUrlMap(proofs = [], urlMap = {}) {
+  if (!Array.isArray(proofs) || !proofs.length) return proofs
+  return proofs.map((proof = {}) => {
+    const cloudFileID = proof.fileID || proof.fileId || (isCloudFileId(proof.url) ? proof.url : '')
+    const tempUrl = urlMap[cloudFileID]
+    return tempUrl
+      ? {
+          ...proof,
+          cloudFileID,
+          fileID: cloudFileID,
+          url: tempUrl,
+          fileUrl: tempUrl,
+          previewUrl: tempUrl
+        }
+      : proof
+  })
+}
+
+async function normalizePaymentProofs(proofs = []) {
+  if (!Array.isArray(proofs) || !proofs.length) return []
+  const cloudFileIds = collectProofCloudFileIds(proofs)
+  if (!cloudFileIds.length) return proofs
+
+  try {
+    const urlMap = await fetchTempUrlMap(cloudFileIds)
+    return applyProofUrlMap(proofs, urlMap)
   } catch (e) {
     return proofs
   }
@@ -1758,6 +1792,21 @@ module.exports = {
       } else {
         const fallbackMatchCond = {}
         if (status) fallbackMatchCond.status = status
+
+        // 在不改变最终结果的前提下，把「可索引且与 JS 谓词完全等价」的等值条件下推到 DB，
+        // 缩小扫描集（原来只下推 status，其余全靠 2000 行内存扫描）。
+        // 安全前提：下方 JS 过滤会重新校验全部条件，因此只能下推「JS 会接受的行必然满足」的条件，
+        //           绝不能下推可能误删有效行的条件（keyword/设备型号/SLA/发票状态默认值等仍留在 JS）。
+        // 1) 在保状态：独立等值字段，系统写入值规范，直接下推
+        if (normalizedWarrantyStatus) fallbackMatchCond.warranty_status = normalizedWarrantyStatus
+        // 2) 直接型待办(inbound/payment/return)的 DB 条件与 matchesTodoType 完全等价；
+        //    仅在未显式指定 status 时下推，避免与 status 参数的交集语义冲突（该冲突场景交给 JS 兜底）
+        if (!status) {
+          const directTodoCond = getDirectTodoMatchCond(todoType)
+          if (directTodoCond && Object.keys(directTodoCond).length) {
+            Object.assign(fallbackMatchCond, directTodoCond)
+          }
+        }
 
         const fallback = await fetchOrderBatches(fallbackMatchCond, {
           withItems: true,
@@ -3078,7 +3127,17 @@ module.exports = {
       }
       if (paymentStatus) matchCond.payment_status = paymentStatus
       const fallback = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
-      const enriched = await Promise.all((fallback.orders || []).map(async order => stripPaymentProofsIfForbidden(await enrichPaymentProofs(order), currentAdmin)))
+      // 整批一次换取凭证临时链接，避免每单一次 getTempFileURL 的 N+1
+      const settlementProofIds = []
+      ;(fallback.orders || []).forEach(order => {
+        collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || [])
+          .forEach(id => settlementProofIds.push(id))
+      })
+      const settlementUrlMap = await fetchTempUrlMap(settlementProofIds)
+      const enriched = (fallback.orders || []).map(order => stripPaymentProofsIfForbidden(
+        { ...order, payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], settlementUrlMap) },
+        currentAdmin
+      ))
       const filtered = enriched.filter(order => {
         const shipBack = order.ship_back_info || {}
         const searchable = [
