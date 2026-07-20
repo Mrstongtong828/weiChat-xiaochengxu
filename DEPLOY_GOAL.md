@@ -2,6 +2,23 @@
 
 This checklist is for deploying and verifying the work described in `goal.md`.
 
+## Current Status (2026-07-20)
+
+- Production space: `env-00jy6g4qwi94` / `cicada-aftersales`.
+- PC Admin is deployed at `https://admin.cicadadental.cn`.
+- `docte-master` mini-program build passes.
+- PC Admin build, subscription, URL, security, and error checks pass.
+- Database index definitions are committed under
+  `docte-master/uniCloud-alipay/database/*.index.json`.
+- `cicada_orders.order_no` is protected by the console-created unique index
+  `uniq_order_no`.
+- Non-`varchar` indexes must be created and verified in the Alipay Cloud web
+  console. The current HBuilderX CLI can silently render `long/int/bool/double`
+  and `array` fields as `varchar`.
+- Remaining release gates: real-account role checks, mini-program/PC smoke tests
+  for login, order, quote/payment, logistics, inventory, feedback, CRM, and
+  invoice flows, plus mini-program upload, review, and release.
+
 ## 1. Local Preflight
 
 Run from repository root:
@@ -49,7 +66,9 @@ Deploy with HBuilderX:
 3. Right-click each function folder.
 4. Choose upload/deploy.
 
-If a valid uniCloud CLI is available in the deployment environment, deploy the same functions with that CLI. This workstation currently does not have a working `unicloud-cli`.
+HBuilderX CLI is available on this workstation and can deploy cloud functions.
+For database indexes, use it only for all-`varchar` indexes; use the web console
+for typed Alipay indexes and verify the rendered type after creation.
 
 ## 3. Database Schema And Indexes
 
@@ -79,6 +98,11 @@ New subscription log indexes:
 - `cicada_subscription_logs: user_id, create_time desc`
 - `cicada_subscription_logs: scene, create_time desc`
 - `cicada_subscription_logs: status, create_time desc`
+
+For Alipay Cloud, verify these types in the console: timestamps are `long`,
+integers are `int`, booleans are `bool`, numeric stock fields are `double`, and
+array fields are `array`. Do not consider an index complete merely because the
+CLI reported `初始化云数据库完成`.
 
 ## 4. Environment Variables
 
