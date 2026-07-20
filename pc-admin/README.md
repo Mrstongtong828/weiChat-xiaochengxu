@@ -45,6 +45,7 @@ npm run build
 - `cicada-admin-sys`
 - `cicada-admin-kb`
 - `cicada-admin-order`
+- `cicada-admin-customer`
 
 推荐优先配置统一云空间基地址：
 
@@ -58,10 +59,13 @@ VITE_UNICLOUD_BASE_URL=https://your-env-id.example.com
 VITE_ADMIN_SYS_URL=https://your-env-id.example.com/cicada-admin-sys
 VITE_ADMIN_KB_URL=https://your-env-id.example.com/cicada-admin-kb
 VITE_ADMIN_ORDER_URL=https://your-env-id.example.com/cicada-admin-order
+VITE_ADMIN_CUSTOMER_URL=https://your-env-id.example.com/cicada-admin-customer
 VITE_CLIENT_PUBLIC_URL=https://your-env-id.example.com/cicada-client-public
 ```
 
 `VITE_CLIENT_PUBLIC_URL` 是可选项。未配置时，健康检查会使用已 URL 化的 `cicada-admin-order/getSubscriptionConfig` 只读端点确认订阅模板配置通道可达；如果你已经为 `cicada-client-public` 开启 URL 化，可以显式配置它。
+
+正式环境已在 `.env.production` 中固定为服务空间 `env-00jy6g4qwi94`，后台域名为 `https://admin.cicadadental.cn`。执行 `npm run build` 时 Vite 会读取该生产配置；`.env.production.local` 或构建环境中预先注入的同名变量可以覆盖它，上线构建前应确认最终值指向同一服务空间。
 
 如果切换云空间、测试环境或生产环境，需要同步更新 `.env.local` 并重新构建，否则后台页面可能仍访问旧环境数据。验收前建议先用无效 token 请求 `getAdminOrderList` 和 `getTodoSummary`，确认返回的是当前部署代码的鉴权错误结构，而不是旧环境的 404/500 空响应。
 

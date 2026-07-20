@@ -62,12 +62,13 @@ async function postJson(url, body) {
 function isExpectedAuthFailure(result) {
   const message = result.json && (result.json.msg || result.json.message)
   const rawText = result.text || ''
-  return result.status >= 400 &&
-    result.status < 600 &&
-    (
-      (typeof message === 'string' && message.includes('鉴权失败')) ||
-      rawText.includes('鉴权失败')
-    )
+  const hasAuthFailure =
+    (typeof message === 'string' && message.includes('鉴权失败')) ||
+    rawText.includes('鉴权失败')
+  const businessCode = result.json && Number(result.json.code)
+
+  // uniCloud cloud objects may serialize handled auth errors as HTTP 200.
+  return result.status >= 200 && result.status < 600 && hasAuthFailure && businessCode !== 0
 }
 
 function getResultMessage(result) {
