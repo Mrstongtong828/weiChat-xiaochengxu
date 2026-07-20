@@ -1,6 +1,40 @@
 # Database Index Checklist
 
-Create these indexes in the uniCloud database console before production traffic.
+Create these indexes before production traffic. HBuilderX CLI can initialize
+`.index.json` files with `cloud functions --initdatabase true`, but Alipay Cloud
+returns only a generic `BIZ_EXCEPTION` when an index conflicts with existing
+data or an existing definition. Submit indexes one at a time when diagnosing a
+failure.
+
+## Production deployment status (2026-07-20)
+
+Cloud space: `env-00jy6g4qwi94` (`cicada-aftersales`).
+
+- 58 of the 70 checklist indexes were created or confirmed through HBuilderX CLI.
+- The following 12 indexes were rejected and must be inspected in the web console
+  and/or have their existing data cleaned before retrying:
+  - `cicada_users.idx_username`
+  - `cicada_orders.idx_order_no`
+  - `cicada_orders.idx_payment_create`
+  - `cicada_orders.idx_inventory_status_create`
+  - `cicada_orders.idx_invoice_status_create`
+  - `cicada_orders.idx_ship_out_logistics_no`
+  - `cicada_orders.idx_ship_back_logistics_no`
+  - `cicada_user_devices.idx_sn`
+  - `cicada_customers.idx_phone`
+  - `cicada_customer_tags.idx_name`
+  - `cicada_rate_limits.idx_key`
+  - `cicada_parts.idx_part_code`
+- Do not weaken unique indexes to make deployment pass. Export and inspect the
+  affected collection first. For optional unique fields, use a sparse unique
+  index in the web console when supported.
+
+The CLI invocation used for an isolated project bound to this cloud space was:
+
+```powershell
+& "E:\HBuilderX.5.07.2026041006\HBuilderX\cli.exe" cloud functions `
+  --initdatabase true --prj docte-index-deploy --provider alipay
+```
 
 ## cicada_users
 

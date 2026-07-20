@@ -1,0 +1,129 @@
+[
+  {
+    "IndexName": "idx_order_no",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "order_no", "Direction": "1", "Type": "varchar" }
+      ],
+      "MgoIsUnique": true
+    }
+  },
+  {
+    "IndexName": "idx_create_time",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_user_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "user_id", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_customer_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "customer_id", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_status_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "status", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_engineer_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "engineer_id", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_payment_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "payment_status", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_quote_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "quote_status", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_refund_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "refund_status", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_inventory_status_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "inventory_status", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_invoice_status_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "invoice_info.need_invoice", "Direction": "1", "Type": "bool" },
+        { "Name": "invoice_info.status", "Direction": "1", "Type": "varchar" },
+        { "Name": "create_time", "Direction": "-1", "Type": "long" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_ship_out_logistics_no",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "ship_out_info.logistics_no", "Direction": "1", "Type": "varchar" }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_ship_back_logistics_no",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        { "Name": "ship_back_info.logistics_no", "Direction": "1", "Type": "varchar" }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

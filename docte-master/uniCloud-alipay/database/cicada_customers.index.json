@@ -1,0 +1,103 @@
+[
+  {
+    "IndexName": "idx_status_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "status",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_customer_type_status",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "customer_type",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "status",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_phone",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "phone",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_user_id",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "user_id",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_openid",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "openid",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_dealer_id",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "dealer_id",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_tags",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "tags",
+          "Direction": "1",
+          "Type": "array"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

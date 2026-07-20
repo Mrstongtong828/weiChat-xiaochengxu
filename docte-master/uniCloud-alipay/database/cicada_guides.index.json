@@ -1,0 +1,28 @@
+[
+  {
+    "IndexName": "idx_type",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "type",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_sort",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "sort",
+          "Direction": "1",
+          "Type": "int"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

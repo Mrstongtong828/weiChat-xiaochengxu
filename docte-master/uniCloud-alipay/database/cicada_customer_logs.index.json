@@ -1,0 +1,33 @@
+[
+  {
+    "IndexName": "idx_target_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "target_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_create_time",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

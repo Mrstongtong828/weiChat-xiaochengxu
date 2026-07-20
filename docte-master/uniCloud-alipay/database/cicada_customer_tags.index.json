@@ -1,0 +1,33 @@
+[
+  {
+    "IndexName": "idx_name",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "name",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": true
+    }
+  },
+  {
+    "IndexName": "idx_sort_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "sort",
+          "Direction": "1",
+          "Type": "int"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]
