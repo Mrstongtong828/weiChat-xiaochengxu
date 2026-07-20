@@ -17,6 +17,8 @@ const order = {
   create_time: Date.UTC(2026, 6, 20, 2, 30, 0),
   quote_update_time: Date.UTC(2026, 6, 20, 3, 30, 0),
   payment_update_time: Date.UTC(2026, 6, 20, 4, 30, 0),
+  fix_solution: '更换主板后测试正常',
+  invoice_info: { need_invoice: true, status: '已开具' },
   warehouse_address: '广东省佛山市南海区维修中心',
   ship_out_info: { logistics_no: 'SF1234567890' },
   ship_back_info: {
@@ -48,6 +50,7 @@ test('builds repair submission fields for the real template keywords', () => {
   assert.equal(data.thing1.value, 'DC-8800')
   assert.equal(data.character_string2.value, order.order_no)
   assert.equal(data.phrase3.value, '已受理')
+  assert.equal(data.thing4.value, '报修已受理，请留意后续进度')
 })
 
 test('builds inbound and return shipment fields for the shared pickup template', () => {
@@ -81,11 +84,23 @@ test('builds process and completion fields with valid lengths', () => {
 
   assert.deepEqual(Object.keys(process), ['character_string1', 'character_string2', 'thing3'])
   assert.deepEqual(Object.keys(completed), ['character_string1', 'thing3', 'thing4'])
+  assert.match(completed.thing4.value, /^更换主板/)
   assert.match(completed.thing4.value, /发票已开具/)
 
   for (const field of Object.values({ ...process, ...completed })) {
     assert.ok(field.value.length <= 32)
   }
   assert.ok(completed.thing3.value.length <= 20)
+  assert.ok(completed.thing4.value.length <= 20)
+})
+
+test('does not claim an invoice is issued before the invoice status confirms it', () => {
+  const completed = buildSubscriptionData({
+    ...order,
+    invoice_info: { need_invoice: true, status: '待开票' }
+  }, 'order_completed', '维修已完成')
+
+  assert.doesNotMatch(completed.thing4.value, /已开具/)
+  assert.match(completed.thing4.value, /开具后/)
   assert.ok(completed.thing4.value.length <= 20)
 })

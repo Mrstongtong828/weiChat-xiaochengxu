@@ -94,12 +94,20 @@ function getPaymentTip(scene = '') {
   return '维修报价已出具，请核对费用后付款'
 }
 
+function getInvoiceHint(order = {}) {
+  const invoiceInfo = order.invoice_info || order.invoiceInfo || {}
+  const status = normalizeText(invoiceInfo.status)
+  if (['已开具', '已寄出', '已签收'].includes(status)) return '发票已开具，请到工单下载'
+  if (invoiceInfo.need_invoice || status === '待开票' || status === '开具中') return '发票开具后，请到工单下载'
+  return '如需发票，请到工单申请'
+}
+
 function getRepairResult(order = {}, remark = '') {
   const item = firstOrderItem(order)
   const result = normalizeText(
-    remark || order.repair_result || order.repairResult || order.fix_solution || item.fix_solution
+    order.repair_result || order.repairResult || order.fix_solution || item.fix_solution || remark
   ) || '维修完成'
-  const invoiceHint = '发票已开具，请到工单下载'
+  const invoiceHint = getInvoiceHint(order)
   const resultLimit = 20 - invoiceHint.length - 1
   return `${result.slice(0, resultLimit)}，${invoiceHint}`
 }
@@ -113,14 +121,14 @@ function buildSubscriptionData(order = {}, scene = '', remark = '') {
       thing1: { value: truncate(deviceName, 20) },
       character_string2: { value: orderNo },
       phrase3: { value: '已受理' },
-      thing4: { value: truncate(remark || '报修已受理，请留意后续进度', 20) }
+      thing4: { value: '报修已受理，请留意后续进度' }
     }
   }
 
   if (scene === 'order_received' || scene === 'order_shipped') {
     const isReturn = scene === 'order_shipped'
     const shipInfo = isReturn ? (order.ship_back_info || {}) : (order.ship_out_info || {})
-    const warehouseAddress = normalizeText(order.warehouse_address || order.repair_warehouse_address) || '广东佛山维修中心'
+    const warehouseAddress = normalizeText(order.warehouse_address || order.repair_warehouse_address) || '佛山市南海区罗村新光源基地B5座五楼'
     const location = isReturn ? (getAddress(shipInfo) || '诊所收件地址') : warehouseAddress
     return {
       character_string1: { value: orderNo },
