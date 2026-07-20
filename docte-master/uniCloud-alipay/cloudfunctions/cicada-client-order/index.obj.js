@@ -22,15 +22,23 @@ function loadExpressProvider() {
 const CREATE_ORDER_LIMIT = { windowMs: 60 * 1000, max: 8 }
 const DUPLICATE_ORDER_WINDOW_MS = 10 * 60 * 1000
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
+const SUBSCRIPTION_TEMPLATE_KEYS = {
+  repair_submitted: 'REPAIR_SUBMIT',
+  order_received: 'DEVICE_RECEIVE_SHIP',
+  order_shipped: 'DEVICE_RECEIVE_SHIP',
+  quote_issued: 'PAYMENT_QUOTE',
+  payment_confirmed: 'PAYMENT_QUOTE',
+  payment_rejected: 'PAYMENT_QUOTE',
+  order_completed: 'ORDER_FINISH_INVOICE'
+}
 const SUBSCRIPTION_SCENE_LABELS = {
-  repair_submitted: '报修已提交',
-  order_received: '设备已签收',
-  quote_issued: '维修报价已发布',
-  payment_confirmed: '付款已确认',
-  payment_rejected: '凭证已驳回',
-  order_shipped: '设备已回寄',
-  order_completed: '工单已完成',
-  invoice_issued: '发票已开具'
+  repair_submitted: '报修受理通知',
+  order_received: '设备取货通知',
+  quote_issued: '待支付提醒',
+  payment_confirmed: '待支付提醒',
+  payment_rejected: '待支付提醒',
+  order_shipped: '设备取货通知',
+  order_completed: '设备维修完成通知'
 }
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
 
@@ -43,9 +51,7 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  // 到账与驳回共用一个“付款结果”模板，驳回仍保留独立场景用于消息内容和日志。
-  const templateScene = scene === 'payment_rejected' ? 'payment_confirmed' : scene
-  const key = String(templateScene || '').trim().toUpperCase()
+  const key = SUBSCRIPTION_TEMPLATE_KEYS[scene] || String(scene || '').trim().toUpperCase()
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 
@@ -95,12 +101,34 @@ async function sendWechatSubscribeMessage(payload = {}) {
 
 function buildSubscriptionData(order = {}, scene = '', remark = '') {
   const sceneLabel = SUBSCRIPTION_SCENE_LABELS[scene] || '工单状态更新'
+  const deviceName = normalizeText(order.product_model || order.device_model || order.product_name || order.device_name) || '维修设备'
+  const shipInfo = scene === 'order_shipped' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
+  const trackingNo = normalizeText(shipInfo.logistics_no || shipInfo.logisticsNo || shipInfo.return_no || shipInfo.returnNo)
+  const location = normalizeText(shipInfo.address || shipInfo.detail || shipInfo.recipient_address || shipInfo.recipientAddress)
+  const quoteTime = order.quote_update_time || order.quoteUpdateTime || order.update_time || order.create_time
+  const invoiceStatus = String((order.invoice_info || {}).status || '')
+  const invoiceHint = ['已开具', '已寄出', '已签收'].includes(invoiceStatus)
+    ? '电子发票已开具，可在工单详情下载'
+    : '电子发票开具后可在工单详情下载'
+  const finalRemark = scene === 'repair_submitted'
+    ? `报修设备：${deviceName}`
+    : (scene === 'order_received'
+        ? `维修仓库${normalizeText(order.warehouse_address || order.repair_warehouse_address) ? `：${normalizeText(order.warehouse_address || order.repair_warehouse_address)}` : ''}`
+        : (scene === 'order_shipped'
+            ? `${location || '诊所收件地址'}${trackingNo ? `，快递单号：${trackingNo}` : ''}`
+            : (scene === 'quote_issued'
+                ? `维修报价已出具，请核对费用后完成付款；${deviceName}`
+                : (scene === 'payment_confirmed'
+                    ? '款项已核验到账，将启动维修'
+                    : (scene === 'payment_rejected'
+                        ? '付款审核未通过，请重新核对支付'
+                        : (scene === 'order_completed' ? `${remark || '维修已完成'}，${invoiceHint}` : (remark || sceneLabel)))))))
   return {
-    thing1: { value: sceneLabel.slice(0, 20) },
+    thing1: { value: deviceName.slice(0, 20) },
     character_string2: { value: String(order.order_no || order._id || '').slice(0, 32) },
     phrase3: { value: sceneLabel.slice(0, 10) },
-    time4: { value: formatTimelineTime(Date.now()) },
-    thing5: { value: String(remark || sceneLabel).slice(0, 20) }
+    time4: { value: formatTimelineTime(scene === 'quote_issued' ? quoteTime : (order.create_time || Date.now())) },
+    thing5: { value: String(finalRemark).slice(0, 20) }
   }
 }
 

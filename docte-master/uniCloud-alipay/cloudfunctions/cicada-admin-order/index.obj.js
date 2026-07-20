@@ -363,24 +363,30 @@ async function countOrdersByMatch(matchCond, todoType = '') {
   }
 }
 
+const SUBSCRIPTION_TEMPLATE_KEYS = {
+  repair_submitted: 'REPAIR_SUBMIT',
+  order_received: 'DEVICE_RECEIVE_SHIP',
+  order_shipped: 'DEVICE_RECEIVE_SHIP',
+  quote_issued: 'PAYMENT_QUOTE',
+  payment_confirmed: 'PAYMENT_QUOTE',
+  payment_rejected: 'PAYMENT_QUOTE',
+  order_completed: 'ORDER_FINISH_INVOICE'
+}
 const SUBSCRIPTION_SCENE_LABELS = {
-  repair_submitted: '报修已提交',
-  order_received: '设备已签收',
-  quote_issued: '维修报价已发布',
-  payment_confirmed: '付款已确认',
-  payment_rejected: '凭证已驳回',
-  order_shipped: '设备已回寄',
-  order_completed: '工单已完成',
-  invoice_issued: '发票已开具'
+  repair_submitted: '报修受理通知',
+  order_received: '设备取货通知',
+  quote_issued: '待支付提醒',
+  payment_confirmed: '待支付提醒',
+  payment_rejected: '待支付提醒',
+  order_shipped: '设备取货通知',
+  order_completed: '设备维修完成通知'
 }
 const SUBSCRIPTION_CONFIG_SCENES = [
-  { scene: 'repair_submitted', title: '报修提交提醒' },
-  { scene: 'order_received', title: '设备签收提醒' },
-  { scene: 'quote_issued', title: '维修报价提醒' },
-  { scene: 'payment_confirmed', title: '付款结果提醒' },
-  { scene: 'order_shipped', title: '回寄发货提醒' },
-  { scene: 'order_completed', title: '工单完成提醒' },
-  { scene: 'invoice_issued', title: '发票开具提醒' }
+  { scene: 'repair_submit', title: '报修受理通知', envKey: 'REPAIR_SUBMIT' },
+  { scene: 'device_receive_ship', title: '设备取货通知', envKey: 'DEVICE_RECEIVE_SHIP' },
+  { scene: 'payment_quote', title: '待支付提醒', envKey: 'PAYMENT_QUOTE' },
+  { scene: 'process_tip', title: '报修进度提醒', envKey: 'PROCESS_TIP' },
+  { scene: 'order_finish_invoice', title: '设备维修完成通知', envKey: 'ORDER_FINISH_INVOICE' }
 ]
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
 
@@ -393,9 +399,7 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  // 到账与驳回共用一个“付款结果”模板，驳回仍保留独立场景用于消息内容和日志。
-  const templateScene = scene === 'payment_rejected' ? 'payment_confirmed' : scene
-  const key = String(templateScene || '').trim().toUpperCase()
+  const key = SUBSCRIPTION_TEMPLATE_KEYS[scene] || SUBSCRIPTION_CONFIG_SCENES.find(item => item.scene === scene)?.envKey || String(scene || '').trim().toUpperCase()
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 
@@ -523,12 +527,34 @@ function formatNotifyTime(value = Date.now()) {
 
 function buildSubscriptionData(order = {}, scene = '', remark = '') {
   const sceneLabel = SUBSCRIPTION_SCENE_LABELS[scene] || '工单状态更新'
+  const deviceName = normalizeText(order.product_model || order.device_model || order.product_name || order.device_name) || '维修设备'
+  const shipInfo = scene === 'order_shipped' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
+  const trackingNo = normalizeText(shipInfo.logistics_no || shipInfo.logisticsNo || shipInfo.return_no || shipInfo.returnNo)
+  const location = normalizeText(shipInfo.address || shipInfo.detail || shipInfo.recipient_address || shipInfo.recipientAddress)
+  const quoteTime = order.quote_update_time || order.quoteUpdateTime || order.update_time || order.create_time
+  const invoiceStatus = String((order.invoice_info || {}).status || '')
+  const invoiceHint = ['已开具', '已寄出', '已签收'].includes(invoiceStatus)
+    ? '电子发票已开具，可在工单详情下载'
+    : '电子发票开具后可在工单详情下载'
+  const finalRemark = scene === 'repair_submitted'
+    ? `报修设备：${deviceName}`
+    : (scene === 'order_received'
+        ? `维修仓库${normalizeText(order.warehouse_address || order.repair_warehouse_address) ? `：${normalizeText(order.warehouse_address || order.repair_warehouse_address)}` : ''}`
+        : (scene === 'order_shipped'
+            ? `${location || '诊所收件地址'}${trackingNo ? `，快递单号：${trackingNo}` : ''}`
+            : (scene === 'quote_issued'
+                ? `维修报价已出具，请核对费用后完成付款；${deviceName}`
+                : (scene === 'payment_confirmed'
+                    ? '款项已核验到账，将启动维修'
+                    : (scene === 'payment_rejected'
+                        ? '付款审核未通过，请重新核对支付'
+                        : (scene === 'order_completed' ? `${remark || '维修已完成'}，${invoiceHint}` : (remark || sceneLabel)))))))
   return {
-    thing1: { value: sceneLabel.slice(0, 20) },
+    thing1: { value: deviceName.slice(0, 20) },
     character_string2: { value: String(order.order_no || order._id || '').slice(0, 32) },
     phrase3: { value: sceneLabel.slice(0, 10) },
-    time4: { value: formatNotifyTime() },
-    thing5: { value: String(remark || sceneLabel).slice(0, 20) }
+    time4: { value: formatNotifyTime(scene === 'quote_issued' ? quoteTime : (order.create_time || Date.now())) },
+    thing5: { value: String(finalRemark).slice(0, 20) }
   }
 }
 
@@ -2720,13 +2746,6 @@ module.exports = {
         before: { invoice_info: oldInvoice },
         after: { invoice_info: invoiceInfo }
       })
-      if (['已开具', '已寄出', '已签收'].includes(nextStatus) && oldInvoice.status !== nextStatus) {
-        const remark = nextStatus === '已寄出'
-          ? '纸质发票已寄出'
-          : (nextStatus === '已签收' ? '纸质发票已签收' : '发票已开具')
-        await sendOrderSubscription({ ...order, ...updateData }, 'invoice_issued', remark)
-      }
-
       return { code: 0, data: invoiceInfo }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -2790,7 +2809,6 @@ module.exports = {
         before: { invoice_info: oldInvoice },
         after: { invoice_info: invoiceInfo }
       })
-      await sendOrderSubscription({ ...order, invoice_info: invoiceInfo, update_time: now }, 'invoice_issued', '发票已开具')
       return { code: 0, data: invoiceInfo }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -3557,9 +3575,6 @@ module.exports = {
         const res = await db.collection('cicada_orders').doc(order._id).update({ invoice_info: invoiceInfo, update_time: now })
         if (!res.updated) { summary.fail += 1; summary.errors.push({ orderNo, reason: '更新失败' }); continue }
         await logOrderEvent({ order, action: 'update_invoice', actor: currentAdmin, before: { invoice_info: oldInvoice }, after: { invoice_info: invoiceInfo } })
-        if (statusIn === '已开具' && oldInvoice.status !== '已开具') {
-          await sendOrderSubscription({ ...order, invoice_info: invoiceInfo, update_time: now }, 'invoice_issued', '发票已开具')
-        }
         summary.success += 1
       }
       return { code: 0, data: summary }

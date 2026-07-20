@@ -27,13 +27,11 @@ const GUIDE_CATEGORY_ALIASES = {
 const HOME_INTRO_VIDEO_CATEGORIES = ['首页介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
 
 const SUBSCRIPTION_SCENES = [
-  { scene: 'repair_submitted', title: '报修提交提醒' },
-  { scene: 'order_received', title: '设备签收提醒' },
-  { scene: 'quote_issued', title: '维修报价提醒' },
-  { scene: 'payment_confirmed', title: '付款结果提醒' },
-  { scene: 'order_shipped', title: '回寄发货提醒' },
-  { scene: 'order_completed', title: '工单完成提醒' },
-  { scene: 'invoice_issued', title: '发票开具提醒' }
+  { scene: 'repair_submit', title: '报修受理通知', envKey: 'REPAIR_SUBMIT' },
+  { scene: 'device_receive_ship', title: '设备取货通知', envKey: 'DEVICE_RECEIVE_SHIP' },
+  { scene: 'payment_quote', title: '待支付提醒', envKey: 'PAYMENT_QUOTE' },
+  { scene: 'process_tip', title: '报修进度提醒', envKey: 'PROCESS_TIP' },
+  { scene: 'order_finish_invoice', title: '设备维修完成通知', envKey: 'ORDER_FINISH_INVOICE' }
 ]
 
 const DEFAULT_SURVEY_CONFIG = {
@@ -89,7 +87,8 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  const key = String(scene || '').trim().toUpperCase()
+  const item = SUBSCRIPTION_SCENES.find(entry => entry.scene === scene)
+  const key = item ? item.envKey : String(scene || '').trim().toUpperCase()
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 

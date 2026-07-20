@@ -1894,14 +1894,8 @@ const surveyForm = ref({
 })
 const surveyRecords = ref([])
 
-const subscriptionSceneMap = {
-	repair_submit: ['repair_submitted', 'order_received', 'quote_issued'],
-	track_view: ['quote_issued', 'payment_confirmed', 'order_shipped'],
-	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed'],
-	wechat_pay: ['order_shipped', 'order_completed'],
-	payment_proof: ['payment_confirmed', 'order_shipped', 'order_completed'],
-	invoice_apply: ['invoice_issued']
-}
+let subscriptionRequested = false
+let subscriptionRequestPromise = null
 
 const loadSubscriptionTemplates = async () => {
 	if (Array.isArray(subscriptionTemplates.value)) return subscriptionTemplates.value
@@ -1917,20 +1911,19 @@ const loadSubscriptionTemplates = async () => {
 
 const requestStatusSubscription = async (scene) => {
 	if (!uni.requestSubscribeMessage) return null
-	const sceneKeys = subscriptionSceneMap[scene] || []
+	if (subscriptionRequested) return null
+	subscriptionRequested = true
+	if (subscriptionRequestPromise) return subscriptionRequestPromise
 	const templates = await loadSubscriptionTemplates()
-	const tmplIds = templates
-		.filter(item => sceneKeys.includes(item.scene) && item.templateId)
-		.map(item => item.templateId)
-		.filter((templateId, index, list) => list.indexOf(templateId) === index)
-		.slice(0, 3)
+	const tmplIds = [...new Set(templates
+		.filter(item => item.templateId)
+		.map(item => item.templateId))].slice(0, 5)
 	if (!tmplIds.length) return null
-	try {
-		return await uni.requestSubscribeMessage({ tmplIds })
-	} catch (error) {
+	subscriptionRequestPromise = uni.requestSubscribeMessage({ tmplIds }).catch(error => {
 		console.warn('request subscribe message failed:', error)
 		return null
-	}
+	})
+	return subscriptionRequestPromise
 }
 const showLogisticsPicker = ref(false)
 // 稍后补单号：详情页补填寄出运单号（独立状态，勿与报修表单的物流选择器混用）
