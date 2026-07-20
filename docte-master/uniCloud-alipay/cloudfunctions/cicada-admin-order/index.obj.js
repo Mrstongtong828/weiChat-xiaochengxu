@@ -532,10 +532,7 @@ function buildSubscriptionData(order = {}, scene = '', remark = '') {
   const trackingNo = normalizeText(shipInfo.logistics_no || shipInfo.logisticsNo || shipInfo.return_no || shipInfo.returnNo)
   const location = normalizeText(shipInfo.address || shipInfo.detail || shipInfo.recipient_address || shipInfo.recipientAddress)
   const quoteTime = order.quote_update_time || order.quoteUpdateTime || order.update_time || order.create_time
-  const invoiceStatus = String((order.invoice_info || {}).status || '')
-  const invoiceHint = ['已开具', '已寄出', '已签收'].includes(invoiceStatus)
-    ? '电子发票已开具，可在工单详情下载'
-    : '电子发票开具后可在工单详情下载'
+  const invoiceHint = '电子发票已开具，可在工单详情下载'
   const finalRemark = scene === 'repair_submitted'
     ? `报修设备：${deviceName}`
     : (scene === 'order_received'
@@ -567,6 +564,9 @@ async function logSubscriptionMessage(payload = {}) {
 
 async function sendOrderSubscription(order = {}, scene = '', remark = '') {
   const templateId = getSubscriptionTemplateId(scene)
+  if (scene === 'payment_rejected') {
+    console.log('付款驳回，复用待支付提醒模板', order.order_no || order._id || '')
+  }
   const logBase = {
     order_id: order._id || '',
     order_no: order.order_no || '',

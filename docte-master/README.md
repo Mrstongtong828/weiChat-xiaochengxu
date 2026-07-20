@@ -177,7 +177,7 @@ unpackage/              编译输出
 - `WX_SUBSCRIBE_TEMPLATE_PROCESS_TIP`
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_FINISH_INVOICE`
 
-也支持使用 `WECHAT_SUBSCRIBE_TEMPLATE_*` 作为模板 ID 变量前缀。模板字段当前按通用状态通知结构发送：`thing1`、`character_string2`、`phrase3`、`time4`、`thing5`。如果微信公众平台模板字段不同，需要同步调整 `cicada-admin-order` 和 `cicada-client-order` 云函数里的 `buildSubscriptionData`。
+也支持使用 `WECHAT_SUBSCRIBE_TEMPLATE_*` 作为模板 ID 变量前缀。微信公众平台中每套模板实际选中的关键词标识必须分别与 `cicada-admin-order`、`cicada-client-order` 云函数里的 `buildSubscriptionData` 对齐；不同模板不能假定共用 `thing1`、`character_string2`、`phrase3`、`time4`、`thing5`。完整模板 ID 与关键词标识未核对前，不应部署订阅推送云函数。
 
 手动验收流程：
 
