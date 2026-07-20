@@ -29,6 +29,29 @@ Cloud space: `env-00jy6g4qwi94` (`cicada-aftersales`).
   affected collection first. For optional unique fields, use a sparse unique
   index in the web console when supported.
 
+### Read-only diagnostic findings
+
+On 2026-07-20, a local-only cloud-object probe connected to this space without
+uploading a diagnostic function. It scanned the current collections and found:
+
+- `cicada_orders.order_no`: 3 records, all non-empty strings, no duplicates.
+- `cicada_user_devices.sn`: 3 records, all non-empty strings, no duplicates.
+- `cicada_rate_limits.key`: 49 records, all non-empty strings, no duplicates.
+- `cicada_users.username`: 5 of 10 records omit `username`; use sparse unique if
+  username uniqueness is required.
+- `cicada_customers.phone`: 3 empty strings and one duplicated test number; this
+  is not a unique-index candidate.
+- Missing order fields (`inventory_status`, some invoice/logistics fields) are
+  optional legacy fields, not type conflicts.
+
+Retrying the rejected ordinary indexes and unique indexes with fresh names also
+returned `BIZ_EXCEPTION`. This indicates an equivalent field-pattern index may
+already exist under another name, or the Alipay index API rejects duplicate
+patterns; HBuilderX CLI provides no index-list command. Before any cleanup,
+open each affected collection's **索引管理** tab and record the actual index
+name, fields, direction, and Unique/Sparse flags. The critical acceptance check
+is that `cicada_orders.order_no` is genuinely Unique.
+
 The CLI invocation used for an isolated project bound to this cloud space was:
 
 ```powershell
