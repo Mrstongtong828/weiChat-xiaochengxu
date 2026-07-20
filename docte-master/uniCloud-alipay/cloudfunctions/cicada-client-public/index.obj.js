@@ -1,4 +1,13 @@
 const db = uniCloud.database()
+const { SUBSCRIPTION_CONFIG_SCENES, getSubscriptionTemplateKey } = loadSubscriptionMessageModule()
+
+function loadSubscriptionMessageModule() {
+  try {
+    return require('cicada-subscription-message')
+  } catch (packageError) {
+    return require('../common/cicada-subscription-message')
+  }
+}
 
 const CACHE_TTL = 5 * 60 * 1000
 const cacheStore = Object.create(null)
@@ -25,14 +34,6 @@ const GUIDE_CATEGORY_ALIASES = {
 }
 
 const HOME_INTRO_VIDEO_CATEGORIES = ['首页介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
-
-const SUBSCRIPTION_SCENES = [
-  { scene: 'repair_submit', title: '报修受理通知', envKey: 'REPAIR_SUBMIT' },
-  { scene: 'device_receive_ship', title: '设备取货通知', envKey: 'DEVICE_RECEIVE_SHIP' },
-  { scene: 'payment_quote', title: '待支付提醒', envKey: 'PAYMENT_QUOTE' },
-  { scene: 'process_tip', title: '报修进度提醒', envKey: 'PROCESS_TIP' },
-  { scene: 'order_finish_invoice', title: '设备维修完成通知', envKey: 'ORDER_FINISH_INVOICE' }
-]
 
 const DEFAULT_SURVEY_CONFIG = {
   enabled: true,
@@ -87,8 +88,7 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  const item = SUBSCRIPTION_SCENES.find(entry => entry.scene === scene)
-  const key = item ? item.envKey : String(scene || '').trim().toUpperCase()
+  const key = getSubscriptionTemplateKey(scene)
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 
@@ -125,7 +125,7 @@ function normalizeGuide(item = {}, type = '') {
 module.exports = {
   async getSubscriptionConfig() {
     try {
-      const templates = SUBSCRIPTION_SCENES
+      const templates = SUBSCRIPTION_CONFIG_SCENES
         .map(item => ({ ...item, templateId: getSubscriptionTemplateId(item.scene) }))
         .filter(item => item.templateId)
       return { code: 0, data: { templates } }

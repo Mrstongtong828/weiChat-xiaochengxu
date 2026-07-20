@@ -177,7 +177,17 @@ unpackage/              编译输出
 - `WX_SUBSCRIBE_TEMPLATE_PROCESS_TIP`
 - `WX_SUBSCRIBE_TEMPLATE_ORDER_FINISH_INVOICE`
 
-也支持使用 `WECHAT_SUBSCRIBE_TEMPLATE_*` 作为模板 ID 变量前缀。微信公众平台中每套模板实际选中的关键词标识必须分别与 `cicada-admin-order`、`cicada-client-order` 云函数里的 `buildSubscriptionData` 对齐；不同模板不能假定共用 `thing1`、`character_string2`、`phrase3`、`time4`、`thing5`。完整模板 ID 与关键词标识未核对前，不应部署订阅推送云函数。
+也支持使用 `WECHAT_SUBSCRIBE_TEMPLATE_*` 作为模板 ID 变量前缀。5 套模板的关键词已通过微信官方接口核对，统一由 `cicada-subscription-message` 公共模块构造；完整映射和各场景标准文案见 [`订阅消息填参规范.md`](订阅消息填参规范.md)。
+
+当前这 5 套模板 ID 如下：
+
+| 模板用途 | 环境变量 | 模板 ID |
+| --- | --- | --- |
+| 报修受理通知 | `WX_SUBSCRIBE_TEMPLATE_REPAIR_SUBMIT` | `16rLpYERsxE1vW8lG9EH2SKAntV2RQQyCuAgOVhuZTk` |
+| 设备取货通知 / 回寄发货 | `WX_SUBSCRIBE_TEMPLATE_DEVICE_RECEIVE_SHIP` | `584ePu61H_23o-61K8C_-_rCHnXhlPijAr28zR0_kmk` |
+| 待支付提醒 / 维修报价 / 付款成功 / 付款驳回 | `WX_SUBSCRIBE_TEMPLATE_PAYMENT_QUOTE` | `MZ4vej3PNhckxP5JnmjfigQgX14sjuMyN6wk_6Pppsc` |
+| 报修进度提醒 | `WX_SUBSCRIBE_TEMPLATE_PROCESS_TIP` | `YbAYEPlqOlYlELUPUEpUHC8PmQ008RiTBK7DUAStQ4` |
+| 工单完成通知 / 发票开具 | `WX_SUBSCRIBE_TEMPLATE_ORDER_FINISH_INVOICE` | `TIqcHTeH2T900ANDd5r8L_M6kYMYCtfl9DjkmuXLAFE` |
 
 手动验收流程：
 

@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "dependencies": {
     "cicada-express-provider": "file:../common/cicada-express-provider",
-    "cicada-order-workflow": "file:../common/cicada-order-workflow"
+    "cicada-order-workflow": "file:../common/cicada-order-workflow",
+    "cicada-subscription-message": "file:../common/cicada-subscription-message"
   },
   "cloudfunction-config": {
     "path": "/cicada-client-order"

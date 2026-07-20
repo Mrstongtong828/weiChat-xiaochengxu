@@ -2,6 +2,11 @@ const db = uniCloud.database()
 const dbCmd = db.command
 const crypto = require('crypto')
 const expressProvider = loadExpressProvider()
+const {
+  SUBSCRIPTION_CONFIG_SCENES,
+  getSubscriptionTemplateKey,
+  buildSubscriptionData
+} = loadSubscriptionMessageModule()
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 
 function loadExpressProvider() {
@@ -9,6 +14,14 @@ function loadExpressProvider() {
     return require('cicada-express-provider')
   } catch (packageError) {
     return require('../common/cicada-express-provider')
+  }
+}
+
+function loadSubscriptionMessageModule() {
+  try {
+    return require('cicada-subscription-message')
+  } catch (packageError) {
+    return require('../common/cicada-subscription-message')
   }
 }
 
@@ -363,31 +376,6 @@ async function countOrdersByMatch(matchCond, todoType = '') {
   }
 }
 
-const SUBSCRIPTION_TEMPLATE_KEYS = {
-  repair_submitted: 'REPAIR_SUBMIT',
-  order_received: 'DEVICE_RECEIVE_SHIP',
-  order_shipped: 'DEVICE_RECEIVE_SHIP',
-  quote_issued: 'PAYMENT_QUOTE',
-  payment_confirmed: 'PAYMENT_QUOTE',
-  payment_rejected: 'PAYMENT_QUOTE',
-  order_completed: 'ORDER_FINISH_INVOICE'
-}
-const SUBSCRIPTION_SCENE_LABELS = {
-  repair_submitted: '报修受理通知',
-  order_received: '设备取货通知',
-  quote_issued: '待支付提醒',
-  payment_confirmed: '待支付提醒',
-  payment_rejected: '待支付提醒',
-  order_shipped: '设备取货通知',
-  order_completed: '设备维修完成通知'
-}
-const SUBSCRIPTION_CONFIG_SCENES = [
-  { scene: 'repair_submit', title: '报修受理通知', envKey: 'REPAIR_SUBMIT' },
-  { scene: 'device_receive_ship', title: '设备取货通知', envKey: 'DEVICE_RECEIVE_SHIP' },
-  { scene: 'payment_quote', title: '待支付提醒', envKey: 'PAYMENT_QUOTE' },
-  { scene: 'process_tip', title: '报修进度提醒', envKey: 'PROCESS_TIP' },
-  { scene: 'order_finish_invoice', title: '设备维修完成通知', envKey: 'ORDER_FINISH_INVOICE' }
-]
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
 
 function getEnvValue(...names) {
@@ -399,7 +387,7 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  const key = SUBSCRIPTION_TEMPLATE_KEYS[scene] || SUBSCRIPTION_CONFIG_SCENES.find(item => item.scene === scene)?.envKey || String(scene || '').trim().toUpperCase()
+  const key = getSubscriptionTemplateKey(scene)
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 
@@ -518,40 +506,28 @@ async function sendWechatSubscribeMessage(payload = {}) {
   return data
 }
 
-function formatNotifyTime(value = Date.now()) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const pad = n => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function buildSubscriptionData(order = {}, scene = '', remark = '') {
-  const sceneLabel = SUBSCRIPTION_SCENE_LABELS[scene] || '工单状态更新'
-  const deviceName = normalizeText(order.product_model || order.device_model || order.product_name || order.device_name) || '维修设备'
-  const shipInfo = scene === 'order_shipped' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
-  const trackingNo = normalizeText(shipInfo.logistics_no || shipInfo.logisticsNo || shipInfo.return_no || shipInfo.returnNo)
-  const location = normalizeText(shipInfo.address || shipInfo.detail || shipInfo.recipient_address || shipInfo.recipientAddress)
-  const quoteTime = order.quote_update_time || order.quoteUpdateTime || order.update_time || order.create_time
-  const invoiceHint = '电子发票已开具，可在工单详情下载'
-  const finalRemark = scene === 'repair_submitted'
-    ? `报修设备：${deviceName}`
-    : (scene === 'order_received'
-        ? `维修仓库${normalizeText(order.warehouse_address || order.repair_warehouse_address) ? `：${normalizeText(order.warehouse_address || order.repair_warehouse_address)}` : ''}`
-        : (scene === 'order_shipped'
-            ? `${location || '诊所收件地址'}${trackingNo ? `，快递单号：${trackingNo}` : ''}`
-            : (scene === 'quote_issued'
-                ? `维修报价已出具，请核对费用后完成付款；${deviceName}`
-                : (scene === 'payment_confirmed'
-                    ? '款项已核验到账，将启动维修'
-                    : (scene === 'payment_rejected'
-                        ? '付款审核未通过，请重新核对支付'
-                        : (scene === 'order_completed' ? `${remark || '维修已完成'}，${invoiceHint}` : (remark || sceneLabel)))))))
-  return {
-    thing1: { value: deviceName.slice(0, 20) },
-    character_string2: { value: String(order.order_no || order._id || '').slice(0, 32) },
-    phrase3: { value: sceneLabel.slice(0, 10) },
-    time4: { value: formatNotifyTime(scene === 'quote_issued' ? quoteTime : (order.create_time || Date.now())) },
-    thing5: { value: String(finalRemark).slice(0, 20) }
+async function enrichSubscriptionOrder(order = {}) {
+  const hasDevice = normalizeText(order.product_model || order.device_model || order.product_name || order.device_name)
+  const hasSerial = normalizeText(order.sn || order.serial_no || order.device_sn)
+  if (hasDevice && hasSerial) return order
+  const orderKeys = [...new Set([order._id, order.order_no].filter(Boolean))]
+  if (!orderKeys.length) return order
+  try {
+    const itemRes = await db.collection('cicada_order_items')
+      .where({ order_id: dbCmd.in(orderKeys) })
+      .limit(1)
+      .get()
+    const item = itemRes.data && itemRes.data[0]
+    if (!item) return order
+    return {
+      ...order,
+      product_name: order.product_name || item.product_name || '',
+      product_model: order.product_model || item.product_model || '',
+      sn: order.sn || item.sn || '',
+      fix_solution: order.fix_solution || item.fix_solution || ''
+    }
+  } catch (e) {
+    return order
   }
 }
 
@@ -586,11 +562,12 @@ async function sendOrderSubscription(order = {}, scene = '', remark = '') {
       await logSubscriptionMessage({ ...logBase, status: 'skipped', fail_reason: '用户缺少openid' })
       return
     }
+    const messageOrder = await enrichSubscriptionOrder(order)
     await sendWechatSubscribeMessage({
       touser: user.openid,
       template_id: templateId,
       page: `pages/index/index?module=track&orderId=${encodeURIComponent(order.order_no || order._id || '')}`,
-      data: buildSubscriptionData(order, scene, remark)
+      data: buildSubscriptionData(messageOrder, scene, remark)
     })
     await logSubscriptionMessage({ ...logBase, openid: user.openid, status: 'sent' })
   } catch (e) {

@@ -1,0 +1,91 @@
+const test = require('node:test')
+const assert = require('node:assert/strict')
+
+const {
+  SUBSCRIPTION_CONFIG_SCENES,
+  getSubscriptionTemplateKey,
+  buildSubscriptionData
+} = require('./index')
+
+const order = {
+  _id: 'order-id',
+  order_no: 'DR202607200001',
+  product_name: '牙科综合治疗机',
+  product_model: 'DC-8800',
+  sn: 'SN-2026-001',
+  total_price: 1280.5,
+  create_time: Date.UTC(2026, 6, 20, 2, 30, 0),
+  quote_update_time: Date.UTC(2026, 6, 20, 3, 30, 0),
+  payment_update_time: Date.UTC(2026, 6, 20, 4, 30, 0),
+  warehouse_address: '广东省佛山市南海区维修中心',
+  ship_out_info: { logistics_no: 'SF1234567890' },
+  ship_back_info: {
+    region: '广东省佛山市南海区',
+    detail: '桂城街道某某口腔诊所',
+    logistics_no: 'YT9876543210'
+  }
+}
+
+test('exposes exactly five production template configurations', () => {
+  assert.deepEqual(
+    SUBSCRIPTION_CONFIG_SCENES.map(item => item.envKey),
+    ['REPAIR_SUBMIT', 'DEVICE_RECEIVE_SHIP', 'PAYMENT_QUOTE', 'PROCESS_TIP', 'ORDER_FINISH_INVOICE']
+  )
+})
+
+test('maps reused business scenes to the same template key', () => {
+  assert.equal(getSubscriptionTemplateKey('order_received'), 'DEVICE_RECEIVE_SHIP')
+  assert.equal(getSubscriptionTemplateKey('order_shipped'), 'DEVICE_RECEIVE_SHIP')
+  assert.equal(getSubscriptionTemplateKey('quote_issued'), 'PAYMENT_QUOTE')
+  assert.equal(getSubscriptionTemplateKey('payment_confirmed'), 'PAYMENT_QUOTE')
+  assert.equal(getSubscriptionTemplateKey('payment_rejected'), 'PAYMENT_QUOTE')
+  assert.equal(getSubscriptionTemplateKey('order_completed'), 'ORDER_FINISH_INVOICE')
+})
+
+test('builds repair submission fields for the real template keywords', () => {
+  const data = buildSubscriptionData(order, 'repair_submitted', '报修申请已提交')
+  assert.deepEqual(Object.keys(data), ['thing1', 'character_string2', 'phrase3', 'thing4'])
+  assert.equal(data.thing1.value, 'DC-8800')
+  assert.equal(data.character_string2.value, order.order_no)
+  assert.equal(data.phrase3.value, '已受理')
+})
+
+test('builds inbound and return shipment fields for the shared pickup template', () => {
+  const received = buildSubscriptionData(order, 'order_received', '设备已确认入库')
+  const shipped = buildSubscriptionData(order, 'order_shipped', '设备已回寄')
+
+  assert.deepEqual(Object.keys(received), ['character_string1', 'thing3', 'character_string6', 'thing5'])
+  assert.equal(received.character_string6.value, 'SF1234567890')
+  assert.match(received.thing3.value, /维修中心/)
+  assert.deepEqual(Object.keys(shipped), ['character_string1', 'thing3', 'character_string6', 'thing5'])
+  assert.equal(shipped.character_string6.value, 'YT9876543210')
+  assert.match(shipped.thing3.value, /口腔诊所/)
+})
+
+test('builds quote and payment-result fields for the shared pending-payment template', () => {
+  for (const scene of ['quote_issued', 'payment_confirmed', 'payment_rejected']) {
+    const data = buildSubscriptionData(order, scene)
+    assert.deepEqual(Object.keys(data), ['thing1', 'thing2', 'date3', 'amount4', 'character_string5'])
+    assert.equal(data.thing2.value, 'DC-8800')
+    assert.equal(data.amount4.value, '1280.50元')
+    assert.equal(data.character_string5.value, order.order_no)
+    assert.match(data.date3.value, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)
+  }
+  assert.match(buildSubscriptionData(order, 'payment_confirmed').thing1.value, /到账/)
+  assert.match(buildSubscriptionData(order, 'payment_rejected').thing1.value, /未通过/)
+})
+
+test('builds process and completion fields with valid lengths', () => {
+  const process = buildSubscriptionData(order, 'process_tip', '工程师正在检测设备故障')
+  const completed = buildSubscriptionData(order, 'order_completed', '更换主板后测试正常')
+
+  assert.deepEqual(Object.keys(process), ['character_string1', 'character_string2', 'thing3'])
+  assert.deepEqual(Object.keys(completed), ['character_string1', 'thing3', 'thing4'])
+  assert.match(completed.thing4.value, /发票已开具/)
+
+  for (const field of Object.values({ ...process, ...completed })) {
+    assert.ok(field.value.length <= 32)
+  }
+  assert.ok(completed.thing3.value.length <= 20)
+  assert.ok(completed.thing4.value.length <= 20)
+})
