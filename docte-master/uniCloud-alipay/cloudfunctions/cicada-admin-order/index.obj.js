@@ -366,28 +366,21 @@ async function countOrdersByMatch(matchCond, todoType = '') {
 const SUBSCRIPTION_SCENE_LABELS = {
   repair_submitted: '报修已提交',
   order_received: '设备已签收',
-  inspection_completed: '检测已完成',
   quote_issued: '维修报价已发布',
   payment_confirmed: '付款已确认',
   payment_rejected: '凭证已驳回',
-  repair_started: '开始维修',
   order_shipped: '设备已回寄',
   order_completed: '工单已完成',
-  invoice_issued: '发票已开具',
-  review_invite: '邀请服务评价'
+  invoice_issued: '发票已开具'
 }
 const SUBSCRIPTION_CONFIG_SCENES = [
   { scene: 'repair_submitted', title: '报修提交提醒' },
   { scene: 'order_received', title: '设备签收提醒' },
-  { scene: 'inspection_completed', title: '检测完成提醒' },
   { scene: 'quote_issued', title: '维修报价提醒' },
-  { scene: 'payment_confirmed', title: '付款到账提醒' },
-  { scene: 'payment_rejected', title: '凭证驳回提醒' },
-  { scene: 'repair_started', title: '开始维修提醒' },
+  { scene: 'payment_confirmed', title: '付款结果提醒' },
   { scene: 'order_shipped', title: '回寄发货提醒' },
   { scene: 'order_completed', title: '工单完成提醒' },
-  { scene: 'invoice_issued', title: '发票开具提醒' },
-  { scene: 'review_invite', title: '服务评价邀请' }
+  { scene: 'invoice_issued', title: '发票开具提醒' }
 ]
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
 
@@ -400,7 +393,9 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  const key = String(scene || '').trim().toUpperCase()
+  // 到账与驳回共用一个“付款结果”模板，驳回仍保留独立场景用于消息内容和日志。
+  const templateScene = scene === 'payment_rejected' ? 'payment_confirmed' : scene
+  const key = String(templateScene || '').trim().toUpperCase()
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 
@@ -2089,17 +2084,11 @@ module.exports = {
       })
       const sceneMap = {
         received: 'order_received',
-        inspecting: 'inspection_completed',
-        fixing: 'repair_started',
         shipped: 'order_shipped',
         completed: 'order_completed'
       }
       if (sceneMap[status] && order.status !== status) {
         await sendOrderSubscription({ ...order, status }, sceneMap[status])
-        // 工单完成后追加服务评价邀请（模板未配置时自动跳过）
-        if (status === 'completed') {
-          await sendOrderSubscription({ ...order, status }, 'review_invite', '邀请您对本次维修评价')
-        }
       }
       return { code: 0 }
     } catch (e) {

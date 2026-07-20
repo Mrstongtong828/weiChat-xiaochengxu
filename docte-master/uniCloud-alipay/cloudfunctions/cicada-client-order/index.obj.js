@@ -25,15 +25,12 @@ const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 const SUBSCRIPTION_SCENE_LABELS = {
   repair_submitted: '报修已提交',
   order_received: '设备已签收',
-  inspection_completed: '检测已完成',
   quote_issued: '维修报价已发布',
   payment_confirmed: '付款已确认',
   payment_rejected: '凭证已驳回',
-  repair_started: '开始维修',
   order_shipped: '设备已回寄',
   order_completed: '工单已完成',
-  invoice_issued: '发票已开具',
-  review_invite: '邀请服务评价'
+  invoice_issued: '发票已开具'
 }
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
 
@@ -46,7 +43,9 @@ function getEnvValue(...names) {
 }
 
 function getSubscriptionTemplateId(scene = '') {
-  const key = String(scene || '').trim().toUpperCase()
+  // 到账与驳回共用一个“付款结果”模板，驳回仍保留独立场景用于消息内容和日志。
+  const templateScene = scene === 'payment_rejected' ? 'payment_confirmed' : scene
+  const key = String(templateScene || '').trim().toUpperCase()
   return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
 }
 
@@ -1957,9 +1956,8 @@ module.exports = {
         order_no: order.order_no, order_id: order._id, status: 'completed', customer_id: customerId
       })
 
-      // 与 admin 标记完成保持一致：触发工单完成 + 服务评价邀请订阅提醒
+      // 与 admin 标记完成保持一致，只发送一次工单完成提醒。
       await sendOrderSubscription({ ...order, ...updateData }, 'order_completed', '维修已完成')
-      await sendOrderSubscription({ ...order, ...updateData }, 'review_invite', '邀请您对本次维修评价')
 
       return { code: 0, data: { ...updateData, ...exposeQuoteFields({ ...order, ...updateData }) } }
     } catch (e) {

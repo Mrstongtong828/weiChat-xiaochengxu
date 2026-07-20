@@ -1898,10 +1898,9 @@ const subscriptionSceneMap = {
 	repair_submit: ['repair_submitted', 'order_received', 'quote_issued'],
 	track_view: ['quote_issued', 'payment_confirmed', 'order_shipped'],
 	quote_confirm: ['payment_confirmed', 'order_shipped', 'order_completed'],
-	wechat_pay: ['order_shipped', 'order_completed', 'review_invite'],
-	payment_proof: ['payment_confirmed', 'payment_rejected', 'order_shipped'],
-	invoice_apply: ['invoice_issued'],
-	review_invite: ['review_invite']
+	wechat_pay: ['order_shipped', 'order_completed'],
+	payment_proof: ['payment_confirmed', 'order_shipped', 'order_completed'],
+	invoice_apply: ['invoice_issued']
 }
 
 const loadSubscriptionTemplates = async () => {
@@ -1923,6 +1922,7 @@ const requestStatusSubscription = async (scene) => {
 	const tmplIds = templates
 		.filter(item => sceneKeys.includes(item.scene) && item.templateId)
 		.map(item => item.templateId)
+		.filter((templateId, index, list) => list.indexOf(templateId) === index)
 		.slice(0, 3)
 	if (!tmplIds.length) return null
 	try {
@@ -3451,8 +3451,6 @@ const confirmRepairReceiptAction = (order = {}) => {
 		success: async ({ confirm }) => {
 			if (!confirm) return
 			try {
-				// 完成后服务端会推送"服务评价邀请"，先申请订阅授权
-				await requestStatusSubscription('review_invite')
 				uni.showLoading({ title: '提交中' })
 				await confirmRepairReceipt(order.recordId || order.id)
 				await refreshOrderFromServer(order)
