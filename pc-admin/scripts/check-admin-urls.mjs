@@ -37,6 +37,9 @@ const resolveUrl = (envKey, functionName) => {
 }
 
 const adminOrderUrl = resolveUrl('VITE_ADMIN_ORDER_URL', 'cicada-admin-order')
+const adminSysUrl = resolveUrl('VITE_ADMIN_SYS_URL', 'cicada-admin-sys')
+const adminKbUrl = resolveUrl('VITE_ADMIN_KB_URL', 'cicada-admin-kb')
+const adminCustomerUrl = resolveUrl('VITE_ADMIN_CUSTOMER_URL', 'cicada-admin-customer')
 const clientPublicUrl = normalizeBase(readEnv('VITE_CLIENT_PUBLIC_URL') || adminOrderUrl)
 const invalidToken = `codex-healthcheck-${Date.now()}`
 
@@ -91,6 +94,21 @@ const checks = [
     url: `${adminOrderUrl}/getTodoSummary`,
     body: { token: invalidToken },
     expect: isExpectedAuthFailure
+  },
+  {
+    name: 'manageStaff invalid token',
+    url: `${adminSysUrl}/manageStaff`,
+    body: { token: invalidToken, action: 'list' }
+  },
+  {
+    name: 'manageCategories invalid token',
+    url: `${adminKbUrl}/manageCategories`,
+    body: { token: invalidToken, action: 'list' }
+  },
+  {
+    name: 'getPermissionConfig invalid token',
+    url: `${adminCustomerUrl}/getPermissionConfig`,
+    body: { token: invalidToken }
   },
   {
     name: 'getSubscriptionConfig reachable',

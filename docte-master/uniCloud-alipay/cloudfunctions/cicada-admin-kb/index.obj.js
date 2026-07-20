@@ -1,13 +1,21 @@
 const db = uniCloud.database()
+const { createAdminAuthError, toAdminErrorResponse } = loadAdminAuthModule()
+
+function loadAdminAuthModule() {
+  try {
+    return require('cicada-admin-auth')
+  } catch (packageError) {
+    return require('../common/cicada-admin-auth')
+  }
+}
 
 async function verifyAdminToken(token, allowedRoles = ['admin']) {
-  if (!token) throw new Error('鉴权失败：非管理人员禁止访问该接口')
+  if (!token) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
-  if (!user || user.disabled || !allowedRoles.includes(user.role)) {
-    throw new Error('鉴权失败：非管理人员禁止访问该接口')
-  }
-  if (Date.now() > user.token_expire) throw new Error('鉴权失败：Token已过期')
+  if (!user || user.disabled) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
+  if (!allowedRoles.includes(user.role)) throw new Error('无权限执行该操作')
+  if (Date.now() > user.token_expire) throw createAdminAuthError('鉴权失败：Token已过期')
   return user
 }
 
@@ -34,12 +42,8 @@ module.exports = {
     await verifyAdminToken(token, ['admin', 'engineer'])
   },
 
-  // 统一错误出口：_before/方法体抛出的异常（如鉴权失败）转成 { code: -1 } 正常返回，
-  // 避免 URL 化下未捕获异常导致 HTTP 500（前端据 code 处理/跳登录）
   _after(error, result) {
-    if (error) {
-      return { code: -1, msg: (error && error.message) ? error.message : '请求失败' }
-    }
+    if (error) return toAdminErrorResponse(error)
     return result
   },
 

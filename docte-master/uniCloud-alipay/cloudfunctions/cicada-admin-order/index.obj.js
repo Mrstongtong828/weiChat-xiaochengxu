@@ -1,7 +1,7 @@
 const db = uniCloud.database()
 const dbCmd = db.command
 const crypto = require('crypto')
-const { createAdminAuthError, toAdminErrorResponse } = require('./auth-error')
+const { createAdminAuthError, toAdminErrorResponse } = loadAdminAuthModule()
 const expressProvider = loadExpressProvider()
 const {
   SUBSCRIPTION_CONFIG_SCENES,
@@ -15,6 +15,14 @@ function loadExpressProvider() {
     return require('cicada-express-provider')
   } catch (packageError) {
     return require('../common/cicada-express-provider')
+  }
+}
+
+function loadAdminAuthModule() {
+  try {
+    return require('cicada-admin-auth')
+  } catch (packageError) {
+    return require('../common/cicada-admin-auth')
   }
 }
 

@@ -1,12 +1,21 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
 const { ROLE_LABELS, ALL_ROLES, PERMISSIONS } = loadWorkflowModule()
+const { createAdminAuthError, toAdminErrorResponse, normalizeAdminAuthResult } = loadAdminAuthModule()
 
 function loadWorkflowModule() {
   try {
     return require('cicada-order-workflow')
   } catch (packageError) {
     return require('../common/cicada-order-workflow')
+  }
+}
+
+function loadAdminAuthModule() {
+  try {
+    return require('cicada-admin-auth')
+  } catch (packageError) {
+    return require('../common/cicada-admin-auth')
   }
 }
 
@@ -171,13 +180,12 @@ async function ensureGuideDefaults() {
 }
 
 async function verifyAdminToken(token, allowedRoles = ['admin']) {
-  if (!token) throw new Error('鉴权失败')
+  if (!token) throw createAdminAuthError('鉴权失败')
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
-  if (!user || user.disabled || (user.role !== 'superadmin' && !allowedRoles.includes(user.role))) {
-    throw new Error('无权限')
-  }
-  if (!user.token_expire || Date.now() > user.token_expire) throw new Error('Token已过期')
+  if (!user || user.disabled) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
+  if (user.role !== 'superadmin' && !allowedRoles.includes(user.role)) throw new Error('无权限')
+  if (!user.token_expire || Date.now() > user.token_expire) throw createAdminAuthError('鉴权失败：Token已过期')
   return user
 }
 
@@ -418,6 +426,11 @@ module.exports = {
         console.error('解析请求体失败:', e)
       }
     }
+  },
+
+  _after(error, result) {
+    if (error) return toAdminErrorResponse(error)
+    return normalizeAdminAuthResult(result)
   },
 
   async adminLogin(params) {
