@@ -113,66 +113,12 @@ const displayName = (value) => {
 	return text && !isGeneratedId(text) ? text : ''
 }
 
-const getLocalDevLoginSession = () => ({
-	token: `local-offline-token-${Date.now()}`,
-	offline: true,
-	phoneAuthorized: false,
-	userInfo: {
-		id: 'local-offline-user',
-		userId: 'local-offline-user',
-		phone: '',
-		nickname: '微信体验用户',
-		avatar: '',
-		unit: '云服务未连接',
-		role: 'user'
-	}
-})
-
-const allowOfflineLoginFallback = () => {
-	// #ifdef H5
-	return true
-	// #endif
-	return false
-}
-
-const isCloudUnavailableError = (error) => /云服务未连接|云服务未初始化|uniCloud 服务空间|importObject|uniCloud/i.test(String(error && (error.message || error.errMsg || error)))
-
 export const wechatLogin = (data = {}) => {
-	try {
-		const cloudObject = getUserCloudObject()
-		if (!cloudObject || typeof cloudObject.login !== 'function') {
-			throw new Error('云服务未连接，请先在 HBuilderX 关联并部署 uniCloud')
-		}
-		return cloudObject.login(data).then(unwrapCloudResult).catch((error) => {
-			if (allowOfflineLoginFallback() && isCloudUnavailableError(error)) {
-				console.warn('cloud login unavailable, using offline session:', error)
-				return getLocalDevLoginSession()
-			}
-			throw error
-		})
-	} catch (error) {
-		if (allowOfflineLoginFallback() && isCloudUnavailableError(error)) {
-			console.warn('cloud login unavailable, using offline session:', error)
-			return Promise.resolve(getLocalDevLoginSession())
-		}
-		return Promise.reject(error)
+	const cloudObject = getUserCloudObject()
+	if (!cloudObject || typeof cloudObject.login !== 'function') {
+		return Promise.reject(new Error('云端登录方法未部署，请重新部署 cicada-client-user'))
 	}
-}
-
-export const devLogin = async () => {
-	try {
-		const cloudObject = getUserCloudObject()
-		if (!cloudObject || typeof cloudObject.devLogin !== 'function') {
-			return getLocalDevLoginSession()
-		}
-		return await cloudObject.devLogin({}).then(unwrapCloudResult)
-	} catch (error) {
-		if (isCloudUnavailableError(error)) {
-			console.warn('cloud devLogin unavailable, using local dev session:', error)
-			return getLocalDevLoginSession()
-		}
-		throw error
-	}
+	return cloudObject.login(data).then(unwrapCloudResult)
 }
 
 export const logout = () => Promise.resolve()

@@ -1,6 +1,5 @@
 module.exports = {
-  code: '',
-  phoneCode: ''
+  code: ''
 }
 
 // 本文件中的内容只会在 HBuilderX 本地“运行云对象”时作为方法参数传入。

@@ -87,8 +87,7 @@ export const getUserInfo = async () => {
   return userInfo
 }
 
-// 微信授权登录统一走 login({ code, phoneCode })（code 换 openid、phoneCode 换真实手机号）。
-// 原 loginWithWechat 已随后端废弃移除。
+// 微信登录只使用 login({ code }) 换取 openid，报修联系电话不作为身份凭据。
 export const wechatLogin = (params = {}) => {
   return runLogin('login', params)
 }

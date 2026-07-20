@@ -17,9 +17,7 @@
 			class="login-auth-button tap"
 			:class="{ loading: loading, disabled: !agreed }"
 			:disabled="loading"
-			:open-type="agreed ? 'getPhoneNumber' : ''"
 			@click="onLoginButtonTap"
-			@getphonenumber="onGetPhoneNumber"
 		>
 			<view class="wechat-login-icon">
 				<view></view>
@@ -40,16 +38,15 @@
 			</view>
 			<text class="login-save-tip">首次登录后将自动保存账号，下次可直接进入</text>
 		</view>
-		<view class="phone-login" @click="onDevLogin">开发测试登录</view>
 		<PrivacyConsent />
 	</view>
 </template>
 <script setup>
 import { ref } from 'vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { devLogin, wechatLogin } from '@/api/content'
+import { wechatLogin } from '@/api/content'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
-import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
+import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 
 const agreed = ref(false)
 const loading = ref(false)
@@ -67,7 +64,11 @@ const toggleAgreement = async () => {
 }
 
 const onLoginButtonTap = () => {
-	if (!agreed.value) onLoginDisabledTap()
+	if (!agreed.value) {
+		onLoginDisabledTap()
+		return
+	}
+	doWechatLogin()
 }
 
 const onLoginDisabledTap = () => {
@@ -109,35 +110,15 @@ const applyLoginSuccess = (res = {}, message = '') => {
 	return false
 }
 
-// 先完成微信手机号授权，再通过 wx.login code 获取 openid 作为账号身份登录。
-const onGetPhoneNumber = async (e) => {
+// 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
+const doWechatLogin = async () => {
 	if (loading.value) return
 	loginError.value = ''
 	retrying.value = false
-
-	if (!agreed.value) {
-		onLoginDisabledTap()
-		return
-	}
-
-	const authDetail = normalizePhoneAuthDetail(e.detail || {})
-	if (!authDetail.ok) {
-		console.warn('wechat getPhoneNumber failed:', authDetail.raw || e.detail || {})
-		if (authDetail.privacyBlocked) {
-			loginError.value = ''
-			uni.showToast({ title: authDetail.message || '请完成微信隐私授权后再登录', icon: 'none' })
-		} else if (!authDetail.canceled) {
-			showLoginError(authDetail.message)
-		} else {
-			loginError.value = ''
-		}
-		return
-	}
-
 	loading.value = true
 
 	try {
-		const res = await loginWithWechatPhoneCode(wechatLogin, authDetail.phoneCode, {
+		const res = await loginWithWechatOpenid(wechatLogin, {
 			retries: 1,
 			onRetry: () => {
 				retrying.value = true
@@ -151,20 +132,6 @@ const onGetPhoneNumber = async (e) => {
 	} finally {
 		loading.value = false
 		retrying.value = false
-	}
-}
-
-const onDevLogin = async () => {
-	if (loading.value) return
-	loading.value = true
-	try {
-		const res = await devLogin()
-		applyLoginSuccess(res, '测试登录成功')
-	} catch (error) {
-		console.warn('dev login failed:', error)
-		showLoginError(error.message || '开发登录失败')
-	} finally {
-		loading.value = false
 	}
 }
 
@@ -458,20 +425,4 @@ const onDevLogin = async () => {
 	color: #E5484D;
 }
 
-.phone-login {
-	position: relative;
-	z-index: 4;
-	width: 280rpx;
-	height: 64rpx;
-	margin: 38rpx auto 0;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border: 2rpx solid rgba(30, 111, 224, 0.18);
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.72);
-	color: #1E6FE0;
-	font-size: 24rpx;
-	font-weight: 700;
-}
 </style>

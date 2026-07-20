@@ -1197,9 +1197,7 @@
 					class="login-auth-button tap"
 					:class="{ loading: loginSubmitting, disabled: !loginAgreementChecked }"
 					:disabled="loginSubmitting"
-					:open-type="loginAgreementChecked ? 'getPhoneNumber' : ''"
 					@click="onLoginButtonTap"
-					@getphonenumber="onGetPhoneNumberLogin"
 				>
 					<view class="wechat-login-icon">
 						<view></view>
@@ -1220,7 +1218,6 @@
 					</view>
 					<text class="login-save-tip">首次登录后将自动保存账号，下次可直接进入</text>
 				</view>
-				<view class="phone-login" @click="onDevLogin">开发测试登录</view>
 			</view>
 		</view>
 
@@ -1691,7 +1688,7 @@ import BottomTabbar from '@/components/BottomTabbar.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { getLoginErrorMessage, loginWithWechatPhoneCode, normalizePhoneAuthDetail } from '@/utils/wechat-phone-login.js'
+import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import {
 	getContact,
@@ -1715,7 +1712,6 @@ import {
 	deleteAddress,
 	addComplaint,
 	getComplaintList,
-	devLogin,
 	wechatLogin,
 	cancelAccount,
 	uploadFeedbackImage,
@@ -5017,35 +5013,15 @@ const submitFeedback = async () => {
 	}
 }
 
-const onGetPhoneNumberLogin = async (event = {}) => {
+// 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
+const doWechatLogin = async () => {
 	if (loginSubmitting.value) return
 	loginError.value = ''
 	loginRetrying.value = false
-
-	if (!loginAgreementChecked.value) {
-		showLoginError('请先勾选同意用户协议与隐私政策')
-		return
-	}
-
-	const authDetail = normalizePhoneAuthDetail(event.detail || {})
-	if (!authDetail.ok) {
-		console.warn('wechat getPhoneNumber failed:', authDetail.raw || event.detail || {})
-		if (authDetail.privacyBlocked) {
-			loginError.value = ''
-			loginPrivacyReady.value = false
-			uni.showToast({ title: authDetail.message || '请完成微信隐私授权后再登录', icon: 'none' })
-		} else if (authDetail.canceled) {
-			loginError.value = ''
-		} else {
-			showLoginError(authDetail.message)
-		}
-		return
-	}
-
 	loginSubmitting.value = true
 
 	try {
-		const res = await loginWithWechatPhoneCode(wechatLogin, authDetail.phoneCode, {
+		const res = await loginWithWechatOpenid(wechatLogin, {
 			retries: 1,
 			onRetry: () => {
 				loginRetrying.value = true
@@ -5057,7 +5033,7 @@ const onGetPhoneNumberLogin = async (event = {}) => {
 			uni.showToast({ title: res.offline ? '体验登录成功' : '登录成功', icon: 'success' })
 		}
 	} catch (error) {
-		console.warn('wechat phone login failed:', error)
+		console.warn('wechat login failed:', error)
 		const message = getLoginErrorMessage(error)
 		loginError.value = message
 		uni.showToast({ title: message, icon: 'none' })
@@ -5078,7 +5054,11 @@ const toggleLoginAgreement = async () => {
 }
 
 const onLoginButtonTap = () => {
-	if (!loginAgreementChecked.value) onLoginDisabledTap()
+	if (!loginAgreementChecked.value) {
+		onLoginDisabledTap()
+		return
+	}
+	doWechatLogin()
 }
 
 const onLoginDisabledTap = () => {
@@ -5205,18 +5185,6 @@ const applyLoginSession = (res = {}) => {
 	activeModule.value = ''
 	activeTab.value = 'mine'
 	return true
-}
-
-const onDevLogin = async () => {
-	try {
-		const res = await devLogin()
-		if (applyLoginSession(res)) {
-			uni.showToast({ title: '测试登录成功', icon: 'success' })
-		}
-	} catch (error) {
-		console.warn('dev login failed:', error)
-		uni.showToast({ title: error.message || '开发登录失败', icon: 'none' })
-	}
 }
 
 const logoutLocal = () => {
@@ -13529,23 +13497,6 @@ onUnmounted(() => {
 	line-height: 1.4;
 	color: #A2ACBA;
 	text-align: center;
-}
-
-.phone-login {
-	position: relative;
-	z-index: 4;
-	width: 280rpx;
-	height: 64rpx;
-	margin: 38rpx auto 0;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border: 2rpx solid rgba(30, 111, 224, 0.18);
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.72);
-	color: #1E6FE0;
-	font-size: 24rpx;
-	font-weight: 700;
 }
 
 .login-error,

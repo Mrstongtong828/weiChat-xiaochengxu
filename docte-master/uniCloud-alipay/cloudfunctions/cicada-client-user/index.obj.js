@@ -12,6 +12,11 @@ function genToken() {
   return crypto.randomBytes(32).toString('hex')
 }
 
+function stableDocumentId(prefix, value) {
+  const digest = crypto.createHash('sha256').update(String(value || '')).digest('hex')
+  return `${prefix}_${digest.slice(0, 28)}`
+}
+
 function getEnvValue(...names) {
   for (const name of names) {
     const value = process.env[name]
@@ -33,29 +38,10 @@ function buildWechatErrorMessage(data = {}, fallback = '微信接口调用失败
   const suffix = errcode ? `（${errcode}${errmsg ? `：${errmsg}` : ''}）` : ''
 
   if ([40013, 40125].includes(errcode)) return `微信小程序 AppID 或 Secret 配置不正确${suffix}`
-  if ([40029, 40163].includes(errcode)) return `授权凭证已失效，请重新点击微信手机号授权登录${suffix}`
-  if ([40001, 42001].includes(errcode)) return `微信 access_token 失效，请稍后重试或联系管理员检查小程序后台配置${suffix}`
+  if ([40029, 40163].includes(errcode)) return `微信登录凭证已失效，请重新点击登录${suffix}`
   if (errcode === 45011) return `微信接口调用过于频繁，请稍后重试${suffix}`
-  if (errcode === 43101) return `用户未授权手机号，请重新点击微信手机号授权登录${suffix}`
   if (errcode) return `${fallback}${suffix}`
   return errmsg || fallback
-}
-
-async function getAccessToken() {
-  const { appId, secret } = getWechatAppConfig()
-  if (!appId || !secret) {
-    throw new Error('请先配置微信小程序 WX_APPID 和 WX_SECRET')
-  }
-
-  const res = await uniCloud.httpclient.request(
-    `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(appId)}&secret=${encodeURIComponent(secret)}`,
-    { dataType: 'json' }
-  )
-  const data = res.data || {}
-  if (!data.access_token) {
-    throw new Error(buildWechatErrorMessage(data, '获取微信 access_token 失败'))
-  }
-  return data.access_token
 }
 
 async function getWechatOpenid(appId, secret, code) {
@@ -71,41 +57,8 @@ async function getWechatOpenid(appId, secret, code) {
   return data.openid
 }
 
-async function getPhoneNumberByCode(phoneCode) {
-  if (!phoneCode) return ''
-  const phoneRes = await uniCloud.httpclient.request(
-    'https://api.weixin.qq.com/wxa/business/getuserphonenumber',
-    {
-      method: 'POST',
-      data: JSON.stringify({ code: phoneCode }),
-      headers: { 'Content-Type': 'application/json' },
-      dataType: 'json',
-      params: { access_token: await getAccessToken() }
-    }
-  )
-  const data = phoneRes.data || {}
-  if (Number(data.errcode || 0) !== 0) {
-    throw new Error(buildWechatErrorMessage(data, '获取微信手机号失败，请确认小程序后台已开通手机号能力并完成隐私协议配置'))
-  }
-  const phoneInfo = data.phone_info || {}
-  const phone = phoneInfo.phoneNumber || phoneInfo.purePhoneNumber || ''
-  if (!phone) {
-    throw new Error('微信未返回手机号，请确认小程序后台已开通手机号能力并完成隐私协议配置')
-  }
-  return phone
-}
-
-// ⚠️ TEMP-DEV-LOGIN：固定测试 token，仅当云函数环境变量 DEV_LOGIN_ENABLED='true' 时才生效。
-// 生产环境务必不要设置该变量；不设置时此后门完全失效，外部即使拿到该 token 也无法登录。
-const DEV_FIXED_TOKEN = 'devtestfixedtoken00000000000000000000000000000000000000000000abcd'
-const DEV_TEST_UID = 'devtestuser0001'
-const DEV_LOGIN_ENABLED = process.env.DEV_LOGIN_ENABLED === 'true'
-
 async function verifyUserToken(token) {
   if (!token) throw new Error('鉴权失败')
-  if (DEV_LOGIN_ENABLED && token === DEV_FIXED_TOKEN) {
-    return { _id: DEV_TEST_UID, phone: '13800138000', role: 'user', nickname: '开发测试用户', disabled: false, token_expire: Date.now() + 365 * 24 * 3600 * 1000 }
-  }
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
   if (!user || user.disabled) throw new Error('鉴权失败')
@@ -169,38 +122,6 @@ function normalizePage(page, pageSize) {
   return { page: current, pageSize: size }
 }
 
-async function saveWechatUserByPhone(phone, extra = {}) {
-  const col = db.collection('cicada_users')
-  const now = Date.now()
-  const token = genToken()
-  const tokenExpire = now + TOKEN_EXPIRE
-  const found = await col.where({ phone }).limit(1).get()
-
-  if (!found.data.length) {
-    const userInfo = {
-      phone,
-      role: 'user',
-      token,
-      token_expire: tokenExpire,
-      create_time: now,
-      last_login: now,
-      ...extra
-    }
-    const ins = await col.add(userInfo)
-    return { token, userInfo: buildUserInfo(userInfo, ins.id) }
-  }
-
-  const user = found.data[0]
-  const update = {
-    token,
-    token_expire: tokenExpire,
-    last_login: now,
-    ...extra
-  }
-  await col.doc(user._id).update(update)
-  return { token, userInfo: buildUserInfo({ ...user, ...update }, user._id) }
-}
-
 // 小程序登录时自动建立/补全客户档案（cicada_customers）。
 // 防御式：任何异常都不得影响登录主流程。
 async function ensureCustomerProfile(userId, openid, phone, profile = {}) {
@@ -215,7 +136,7 @@ async function ensureCustomerProfile(userId, openid, phone, profile = {}) {
     const found = await col.where(db.command.or(matchOr)).limit(1).get()
     const now = Date.now()
     if (!found.data.length) {
-      await col.add({
+      await col.doc(stableDocumentId('wxc', userId || openid)).set({
         name: nickname || normalizeText(phone) || '微信客户',
         contact: '',
         phone: normalizeText(phone),
@@ -298,7 +219,8 @@ async function checkRateLimit(scope, identity, options) {
 module.exports = {
   _before() {},
 
-  async login({ code, phoneCode }) {
+  // OpenID 是唯一登录身份；报修联系电话不参与账号认领。
+  async login({ code }) {
     try {
       const { appId, secret } = getWechatAppConfig()
       if (!appId || !secret) {
@@ -306,48 +228,39 @@ module.exports = {
       }
       await checkRateLimit('login', `${getClientIdentity(this)}:${code || 'empty'}`)
 
-      // 1. 换取 openid
       const openid = await getWechatOpenid(appId, secret, code)
-
-      // 2. 换取手机号。若当前小程序账号没有手机号能力，允许降级为 openid 登录。
-      const phone = await getPhoneNumberByCode(phoneCode)
 
       const col = db.collection('cicada_users')
       const now = Date.now()
       const token = genToken()
       const tokenExpire = now + TOKEN_EXPIRE
 
-      // 3. 查询或创建用户
       const found = await col.where({ openid }).limit(1).get()
       let userId, role
-      let savedPhone = phone
+      let savedPhone = ''
       if (found.data.length === 0) {
-        const ins = await col.add({
+        userId = stableDocumentId('wxu', openid)
+        await col.doc(userId).set({
           openid,
-          phone,
+          phone: '',
           role: 'user',
           token,
           token_expire: tokenExpire,
-          phone_authorized: Boolean(phone),
+          phone_authorized: false,
           create_time: now,
           last_login: now
         })
-        userId = ins.id
         role = 'user'
       } else {
         const user = found.data[0]
         userId = user._id
         role = user.role
-        savedPhone = phone || user.phone || ''
+        savedPhone = user.phone || ''
         const update = { last_login: now, token, token_expire: tokenExpire }
-        if (phone) {
-          update.phone = phone
-          update.phone_authorized = true
-        }
         await col.doc(userId).update(update)
       }
 
-      await ensureCustomerProfile(userId, openid, phone)
+      await ensureCustomerProfile(userId, openid, savedPhone)
 
       return {
         code: 0,
@@ -356,40 +269,12 @@ module.exports = {
           token,
           userId,
           role,
-          phoneAuthorized: Boolean(phone),
+          phoneAuthorized: Boolean(savedPhone),
           userInfo: buildUserInfo({ phone: savedPhone, role }, userId)
         }
       }
     } catch (e) {
       return { code: -1, msg: e.message }
-    }
-  },
-
-  // 说明：原 loginWithWechat（仅换 openid + 伪造 138 手机号）已废弃移除。
-  // 小程序端统一走 login({ code, phoneCode })：code 换 openid、phoneCode 换真实手机号。
-
-  async devLogin() {
-    // ⚠️ TEMP-DEV-LOGIN：临时免授权登录，仅当环境变量 DEV_LOGIN_ENABLED='true' 时可用。
-    // 固定 token + 固定 _id：set 幂等写入；鉴权由 verifyUserToken 识别该固定 token 直接放行。
-    if (!DEV_LOGIN_ENABLED) {
-      return { code: -1, message: '测试登录已停用' }
-    }
-    try {
-      const now = Date.now()
-      try {
-        await db.collection('cicada_users').doc(DEV_TEST_UID).set({
-          phone: '13800138000', openid: 'dev_test_openid', nickname: '开发测试用户', role: 'user',
-          disabled: false, token: DEV_FIXED_TOKEN, token_expire: now + 365 * 24 * 3600 * 1000,
-          create_time: now, last_login: now
-        })
-      } catch (e) { /* 写失败不阻断：鉴权不依赖此记录 */ }
-      return {
-        code: 0,
-        message: '开发测试登录成功',
-        data: { token: DEV_FIXED_TOKEN, userInfo: { id: DEV_TEST_UID, userId: DEV_TEST_UID, phone: '13800138000', nickname: '开发测试用户', avatar: '', unit: '', role: 'user' } }
-      }
-    } catch (e) {
-      return { code: -1, message: e.message || '开发测试登录失败' }
     }
   },
 

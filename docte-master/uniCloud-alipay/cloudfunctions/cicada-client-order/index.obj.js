@@ -224,17 +224,8 @@ function getWechatPayConfig() {
   return config
 }
 
-// ⚠️ TEMP-DEV-LOGIN：固定测试 token，仅当云函数环境变量 DEV_LOGIN_ENABLED='true' 时才生效。
-// 生产环境务必不要设置该变量；不设置时此后门完全失效，外部即使拿到该 token 也无法登录。
-const DEV_FIXED_TOKEN = 'devtestfixedtoken00000000000000000000000000000000000000000000abcd'
-const DEV_TEST_UID = 'devtestuser0001'
-const DEV_LOGIN_ENABLED = process.env.DEV_LOGIN_ENABLED === 'true'
-
 async function verifyUserToken(token) {
   if (!token) throw new Error('鉴权失败')
-  if (DEV_LOGIN_ENABLED && token === DEV_FIXED_TOKEN) {
-    return { _id: DEV_TEST_UID, phone: '13800138000', role: 'user', nickname: '开发测试用户', disabled: false, token_expire: Date.now() + 365 * 24 * 3600 * 1000 }
-  }
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
   if (!user || user.disabled) throw new Error('鉴权失败')
@@ -271,6 +262,17 @@ function isPaymentConfirmedStatus(value = '') {
 
 function normalizePhoneLast4(value) {
   return normalizeText(value).replace(/\D/g, '').slice(-4)
+}
+
+// 从纯文本中提取合法的中国大陆手机号（11 位、1 开头）。非法则返回空串。
+function extractValidPhone(value) {
+  const digits = normalizeText(value).replace(/\D/g, '')
+  return /^1\d{10}$/.test(digits) ? digits : ''
+}
+
+function stableDocumentId(prefix, value) {
+  const digest = crypto.createHash('sha256').update(String(value || '')).digest('hex')
+  return `${prefix}_${digest.slice(0, 28)}`
 }
 
 // SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
@@ -1144,39 +1146,36 @@ async function markOrderWechatPaid(order = {}, transaction = {}) {
   return updateData
 }
 
-// 身份桥：按 (user_id / openid / 手机号) 匹配或自动创建 CRM 客户档案，返回 customer_id。
+// 身份桥：按 user_id / openid 匹配或自动创建 CRM 客户档案，报修电话仅作联系信息。
 // 让小程序下单的用户与后台 cicada_customers 客户档案自动打通；失败不阻断下单，整体兜底。
-async function ensureCustomerForUser(user = {}) {
+async function ensureCustomerForUser(user = {}, orderPhone = '') {
   const userId = user._id
   if (!userId) return ''
   const customerCol = db.collection('cicada_customers')
-  const phone = normalizeText(user.phone)
+  const accountPhone = normalizeText(user.phone)
+  const contactPhone = extractValidPhone(orderPhone)
+  const phone = accountPhone || contactPhone
   const openid = normalizeText(user.openid)
   const now = Date.now()
 
-  // 1) 已关联：user_id / openid 命中，直接复用
+  // 1) 已关联：user_id / openid 命中，直接复用；若档案缺手机号而账号已有，则顺带回填
   const primaryOr = [{ user_id: userId }]
   if (openid) primaryOr.push({ openid })
   const primary = await customerCol.where(db.command.or(primaryOr)).limit(1).get()
-  if (primary.data && primary.data[0]) return primary.data[0]._id
-
-  // 2) 线下导入客户回填：手机号命中且尚未绑定小程序账号
-  if (phone) {
-    const byPhone = await customerCol.where({ phone }).limit(1).get()
-    const matched = byPhone.data && byPhone.data[0]
-    if (matched && !normalizeText(matched.user_id)) {
-      await customerCol.doc(matched._id).update({
-        user_id: userId,
-        openid: openid || matched.openid || '',
-        nickname: matched.nickname || normalizeText(user.nickname),
-        update_time: now
-      })
-      return matched._id
+  if (primary.data && primary.data[0]) {
+    const existing = primary.data[0]
+    if (phone && !normalizeText(existing.phone)) {
+      await customerCol.where({
+        _id: existing._id,
+        phone: db.command.in(['', null])
+      }).update({ phone, update_time: now }).catch(() => {})
     }
+    return existing._id
   }
 
-  // 3) 自动建档（与后台 syncCustomersFromUsers 同构）
-  const addRes = await customerCol.add({
+  // 2) 自动建档；不使用联系电话认领存量客户
+  const customerId = stableDocumentId('wxc', userId || openid)
+  await customerCol.doc(customerId).set({
     name: normalizeText(user.name || user.nickname || phone || '微信客户'),
     contact: normalizeText(user.name || user.nickname),
     phone,
@@ -1192,7 +1191,7 @@ async function ensureCustomerForUser(user = {}) {
     create_time: now,
     update_time: now
   })
-  return addRes.id || ''
+  return customerId
 }
 
 // 设备档案沉淀：报修提交 / 维修完成时，按 (user_id, sn) 新增或更新设备档案。
@@ -1412,10 +1411,13 @@ module.exports = {
         }
       }
       const order_no = genOrderNo()
-      // 身份桥：下单即匹配/建档 CRM 客户，并把 customer_id 落到工单上
+      // 身份桥：未验证手机号只作当前 OpenID 档案的联系信息
       let customerId = ''
       try {
-        customerId = await ensureCustomerForUser(user)
+        customerId = await ensureCustomerForUser(
+          user,
+          (ship_out_info && ship_out_info.phone) || (ship_back_info && ship_back_info.phone) || ''
+        )
       } catch (customerErr) {
         customerId = ''
       }
