@@ -1,16 +1,22 @@
 # Database Index Checklist
 
-Create these indexes before production traffic. HBuilderX CLI can initialize
-`.index.json` files with `cloud functions --initdatabase true`, but Alipay Cloud
-returns only a generic `BIZ_EXCEPTION` when an index conflicts with existing
-data or an existing definition. Submit indexes one at a time when diagnosing a
-failure.
+Create these indexes before production traffic.
+
+> **Alipay Cloud warning:** Do not deploy indexes containing `long`, `int`,
+> `bool`, `double`, or `array` fields with the current HBuilderX CLI. In the
+> production space, `cloud functions --initdatabase true` silently created
+> those fields as `varchar` even though the `.index.json` files specified the
+> correct types. Use the web console for non-`varchar` indexes and verify the
+> rendered type after creation. The CLI is currently safe only for indexes
+> whose fields are all `varchar`.
 
 ## Production deployment status (2026-07-20)
 
 Cloud space: `env-00jy6g4qwi94` (`cicada-aftersales`).
 
-- 58 of the 70 checklist indexes were created or confirmed through HBuilderX CLI.
+- The CLI reported 58 of 70 checklist indexes as created or confirmed, but a
+  console audit later found 43 non-`varchar` index definitions were rendered as
+  `varchar`. These indexes are not accepted as correctly deployed.
 - The following 12 indexes were rejected and must be inspected in the web console
   and/or have their existing data cleaned before retrying:
   - `cicada_users.idx_username`
