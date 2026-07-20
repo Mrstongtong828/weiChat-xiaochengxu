@@ -21,7 +21,9 @@ function parseEnvFile(filePath) {
 
 const fileEnv = {
   ...parseEnvFile(path.join(projectRoot, '.env')),
-  ...parseEnvFile(path.join(projectRoot, '.env.local'))
+  ...parseEnvFile(path.join(projectRoot, '.env.local')),
+  ...parseEnvFile(path.join(projectRoot, '.env.production')),
+  ...parseEnvFile(path.join(projectRoot, '.env.production.local'))
 }
 
 const readEnv = (key) => process.env[key] || fileEnv[key] || ''
@@ -67,8 +69,8 @@ function isExpectedAuthFailure(result) {
     rawText.includes('鉴权失败')
   const businessCode = result.json && Number(result.json.code)
 
-  // uniCloud cloud objects may serialize handled auth errors as HTTP 200.
-  return result.status >= 200 && result.status < 600 && hasAuthFailure && businessCode !== 0
+  // uniCloud cloud objects may serialize a handled business error as HTTP 200.
+  return [200, 401].includes(result.status) && hasAuthFailure && businessCode === 401
 }
 
 function getResultMessage(result) {

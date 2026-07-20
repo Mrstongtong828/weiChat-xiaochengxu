@@ -21,7 +21,9 @@ function parseEnvFile(filePath) {
 
 const fileEnv = {
   ...parseEnvFile(path.join(projectRoot, '.env')),
-  ...parseEnvFile(path.join(projectRoot, '.env.local'))
+  ...parseEnvFile(path.join(projectRoot, '.env.local')),
+  ...parseEnvFile(path.join(projectRoot, '.env.production')),
+  ...parseEnvFile(path.join(projectRoot, '.env.production.local'))
 }
 
 const readEnv = (key) => process.env[key] || fileEnv[key] || ''
