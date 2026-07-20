@@ -1,22 +1,25 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import MainLayout from '../components/Layout/MainLayout.vue'
-import Home from '../views/Home.vue'
-import WorkOrder from '../views/WorkOrder.vue'
-import FaultDB from '../views/FaultDB.vue'
-import Users from '../views/Users.vue'
-import CustomerManagement from '../views/CustomerManagement.vue'
-import Feedback from '../views/Feedback.vue'
-import InventoryManagement from '../views/InventoryManagement.vue'
-import SettlementManagement from '../views/SettlementManagement.vue'
-import LogisticsMonitor from '../views/LogisticsMonitor.vue'
-import InvoiceManagement from '../views/InvoiceManagement.vue'
-import FinanceCenter from '../views/FinanceCenter.vue'
-import Settings from '../views/Settings.vue'
-import Summary from '../views/Summary.vue'
-import AuditLog from '../views/AuditLog.vue'
 import { clearAdminSession } from '../utils/adminSession.js'
 import { canAccessMenu } from '../config/menuAccess.js'
+
+// 各业务页按需懒加载：拆成独立异步 chunk，首屏只下载登录 + 布局壳，
+// 避免把 WorkOrder(3000+ 行)、Settings 等一次性打进首屏包。
+const Home = () => import('../views/Home.vue')
+const WorkOrder = () => import('../views/WorkOrder.vue')
+const FaultDB = () => import('../views/FaultDB.vue')
+const Users = () => import('../views/Users.vue')
+const CustomerManagement = () => import('../views/CustomerManagement.vue')
+const Feedback = () => import('../views/Feedback.vue')
+const InventoryManagement = () => import('../views/InventoryManagement.vue')
+const SettlementManagement = () => import('../views/SettlementManagement.vue')
+const LogisticsMonitor = () => import('../views/LogisticsMonitor.vue')
+const InvoiceManagement = () => import('../views/InvoiceManagement.vue')
+const FinanceCenter = () => import('../views/FinanceCenter.vue')
+const Settings = () => import('../views/Settings.vue')
+const Summary = () => import('../views/Summary.vue')
+const AuditLog = () => import('../views/AuditLog.vue')
 
 const router = createRouter({
   history: createWebHashHistory(),

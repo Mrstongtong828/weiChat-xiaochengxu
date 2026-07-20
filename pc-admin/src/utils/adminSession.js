@@ -15,8 +15,10 @@ export const handleSessionExpired = (message = '登录已过期，请重新登�
     ElMessage.warning(message)
   }
 
-  if (window.location.pathname !== '/login') {
-    window.location.replace('/login')
+  // 使用 hash 路由（createWebHashHistory），真实路由在 # 之后，
+  // 因此判断和跳转都要针对 hash，不能用 pathname / 无 # 的路径。
+  if (!/^#\/login\b/.test(window.location.hash)) {
+    window.location.replace(`${window.location.pathname}#/login`)
   }
 }
 

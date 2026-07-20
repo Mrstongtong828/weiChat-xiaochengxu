@@ -1636,14 +1636,27 @@ onMounted(async () => {
   loadOrders()
 })
 
+const reloadFromFilter = () => {
+  if (wo.page === 1) {
+    loadOrders()
+  } else {
+    wo.page = 1
+  }
+}
+
+// 下拉筛选变化立即生效
 watch(
-  () => [wo.search, wo.filter, wo.deviceFilter, wo.warrantyFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
+  () => [wo.filter, wo.deviceFilter, wo.warrantyFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
+  reloadFromFilter
+)
+
+// 关键词是逐字输入的自由文本，加防抖，避免每敲一个字就打一次接口
+let searchDebounceTimer = null
+watch(
+  () => wo.search,
   () => {
-    if (wo.page === 1) {
-      loadOrders()
-    } else {
-      wo.page = 1
-    }
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = setTimeout(reloadFromFilter, 350)
   }
 )
 
