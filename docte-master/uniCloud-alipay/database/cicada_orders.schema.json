@@ -15,6 +15,11 @@
       "bsonType": "string",
       "description": "关联 CRM 客户 cicada_customers._id"
     },
+    "customer_type": {
+      "bsonType": "string",
+      "enum": ["clinic", "dealer", "individual"],
+      "description": "下单时客户类型快照"
+    },
     "status": {
       "bsonType": "string",
       "enum": ["pending", "sent", "received", "inspecting", "fixing", "shipped", "completed", "cancelled"]

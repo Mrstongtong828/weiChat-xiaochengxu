@@ -1,7 +1,11 @@
 export const defaultRepairForm = () => ({
+	customerType: '',
 	logisticsCompany: '顺丰速运',
 	trackingNo: '',
 	sendMethod: '顺丰取件',
+	senderName: '',
+	senderPhone: '',
+	senderAddress: '',
 	receiverName: '',
 	receiverPhone: '',
 	receiverAddress: '',

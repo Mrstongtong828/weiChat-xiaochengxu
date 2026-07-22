@@ -45,12 +45,12 @@ const normalizeSubmitRepairPayload = (data = {}) => {
     : [data]
 
   return {
+    customer_type: data.customerType || data.customer_type || '',
     ship_out_info: {
-      name: data.senderName || data.receiverName || '',
-      phone: data.senderPhone || data.receiverPhone || '',
-      region: data.senderRegion || data.receiverRegion || '',
-      detail: data.senderAddress || data.receiverAddress || '',
-      unit: data.receiverUnit || '',
+      name: data.senderName || '',
+      phone: data.senderPhone || '',
+      region: data.senderRegion || '',
+      detail: data.senderAddress || '',
       logistics_company: data.logisticsCompany || '',
       logistics_no: data.trackingNo || '',
       send_method: data.sendMethod || ''

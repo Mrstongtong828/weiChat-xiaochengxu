@@ -14,6 +14,16 @@
 					<text class="warm-strong">温馨提示：</text>
 					<text>为了给您提供更快更好的服务，请务必在快递里面留纸条写明：寄回原因或故障描述，联系方式和收件地址。</text>
 				</view>
+				<view class="module-section-head single">
+					<text>用户信息</text>
+				</view>
+				<view class="repair-form-card">
+					<view class="repair-field select-row tap" @click="showCustomerTypePicker = true">
+						<text><text class="required-star">*</text>用户类型</text>
+						<text class="select-value">{{ customerTypeLabel(repairForm.customerType) || '请选择用户类型' }}</text>
+						<view class="field-arrow"></view>
+					</view>
+				</view>
 				<view class="module-section-head">
 					<text>产品信息</text>
 					<text>共 {{ repairProducts.length }} 件 · 可增加</text>
@@ -60,7 +70,7 @@
 								<input v-model="product.category" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
 							</view>
 							<view class="repair-field">
-								<text>产品型号</text>
+								<text><text class="required-star">*</text>产品型号</text>
 								<input v-model="product.model" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
 							</view>
 							<view class="repair-field">
@@ -127,10 +137,26 @@
 						<text>增加报修产品</text>
 					</view>
 
-				<view class="module-section-head single">
+				<view class="module-section-head">
 					<text>寄出信息</text>
+					<text class="tap" @click="openSavedAddressPicker('sender')">选择常用地址</text>
 				</view>
 				<view class="blue-tip">请妥善包装好设备，顺丰取件请在快递员到达后提供运单号。</view>
+				<view class="repair-form-card">
+					<view class="repair-field">
+						<text><text class="required-star">*</text>寄件人</text>
+						<input v-model="repairForm.senderName" placeholder="请输入寄件人姓名" placeholder-class="input-placeholder" />
+					</view>
+					<view class="repair-field">
+						<text><text class="required-star">*</text>联系电话</text>
+						<input v-model="repairForm.senderPhone" placeholder="请输入寄件人手机" placeholder-class="input-placeholder" type="number" />
+					</view>
+					<view class="repair-field last">
+						<text><text class="required-star">*</text>寄出地址</text>
+						<input v-model="repairForm.senderAddress" placeholder="请输入寄出详细地址" placeholder-class="input-placeholder" />
+						<view class="field-mini field-pin"></view>
+					</view>
+				</view>
 				<view class="invoice-type-row send-mode-row">
 					<view class="tap" :class="{ on: !trackingLater }" @click="trackingLater = false">
 						<text>已有运单号</text>
@@ -158,8 +184,9 @@
 					</view>
 				</view>
 
-				<view class="module-section-head single">
+				<view class="module-section-head">
 					<text>回寄信息</text>
+					<text class="tap" @click="openSavedAddressPicker('receiver')">选择常用地址</text>
 				</view>
 				<view class="repair-form-card">
 					<view class="repair-field">
@@ -203,6 +230,37 @@
 						<view v-for="item in logisticsList" :key="item.value" class="choice-row tap" @click="selectLogistics(item)">
 							<text>{{ item.label }}</text>
 							<view v-if="repairForm.logisticsCompany === item.value" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+				<view v-if="showCustomerTypePicker" class="sheet-mask" @click="showCustomerTypePicker = false"></view>
+				<view v-if="showCustomerTypePicker" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="showCustomerTypePicker = false">取消</text>
+						<text>选择用户类型</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y>
+						<view v-for="item in customerTypeOptions" :key="item.value" class="choice-row tap" @click="selectCustomerType(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="repairForm.customerType === item.value" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+				<view v-if="showSavedAddressPicker" class="sheet-mask" @click="showSavedAddressPicker = false"></view>
+				<view v-if="showSavedAddressPicker" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="showSavedAddressPicker = false">取消</text>
+						<text>选择常用地址</text>
+						<text class="tap" @click="addSavedAddress">新增</text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y>
+						<view v-for="item in savedAddressOptions" :key="item.id || item._id" class="choice-row address-choice-row tap" @click="selectSavedAddress(item)">
+							<view>
+								<text>{{ item.receiver || item.name }}　{{ item.phone }}</text>
+								<text class="address-choice-detail">{{ savedAddressText(item) }}</text>
+							</view>
+							<text v-if="item.isDefault" class="address-choice-default">默认</text>
 						</view>
 					</scroll-view>
 				</view>
@@ -1922,6 +1980,23 @@ const requestStatusSubscription = async (scene) => {
 	return subscriptionRequestPromise
 }
 const showLogisticsPicker = ref(false)
+const showCustomerTypePicker = ref(false)
+const customerTypeOptions = [
+	{ value: 'individual', label: '个人' },
+	{ value: 'clinic', label: '企业' },
+	{ value: 'dealer', label: '签约代理商（齿科）' }
+]
+const customerTypeLabel = (value) => {
+	const option = customerTypeOptions.find((item) => item.value === value)
+	return option ? option.label : ''
+}
+const selectCustomerType = (item) => {
+	repairForm.value.customerType = item.value
+	showCustomerTypePicker.value = false
+}
+const showSavedAddressPicker = ref(false)
+const savedAddressOptions = ref([])
+const savedAddressTarget = ref('sender')
 // 稍后补单号：详情页补填寄出运单号（独立状态，勿与报修表单的物流选择器混用）
 const showOutboundSheet = ref(false)
 const outboundSubmitting = ref(false)
@@ -4024,12 +4099,12 @@ const openOrderDetail = (order) => {
 	if (hasLoginToken()) syncFeedbackRecords().catch((error) => console.warn('sync feedback on detail failed:', error))
 }
 
-// 报修表单：自动带入默认回寄地址（仅填空字段，不覆盖用户已填）
+// 报修表单：自动带入默认寄出和回寄地址（仅填空字段，不覆盖用户已填）
 const cachedDefaultAddress = ref(null)
 const prefillRepairAddress = async () => {
 	if (!hasLoginToken()) return
 	const form = repairForm.value
-	if (form.receiverName || form.receiverPhone || form.receiverAddress) return
+	if ((form.senderName || form.senderPhone || form.senderAddress) && (form.receiverName || form.receiverPhone || form.receiverAddress)) return
 	try {
 		if (!cachedDefaultAddress.value) {
 			const list = await getAddressList()
@@ -4041,20 +4116,71 @@ const prefillRepairAddress = async () => {
 		if (!target) return
 		// 二次确认表单仍为空再写入（避免异步期间用户已开始填写）
 		const current = repairForm.value
-		if (current.receiverName || current.receiverPhone || current.receiverAddress) return
 		const region = Array.isArray(target.region) ? target.region.join(' ') : (target.region || '')
 		const fullAddress = [region, target.detail || ''].filter(Boolean).join(' ').trim()
 		repairForm.value = {
 			...current,
-			receiverName: target.receiver || target.name || '',
-			receiverPhone: target.phone || '',
-			receiverAddress: fullAddress,
-			receiverUnit: target.unit || ''
+			senderName: current.senderName || target.receiver || target.name || '',
+			senderPhone: current.senderPhone || target.phone || '',
+			senderAddress: current.senderAddress || fullAddress,
+			receiverName: current.receiverName || target.receiver || target.name || '',
+			receiverPhone: current.receiverPhone || target.phone || '',
+			receiverAddress: current.receiverAddress || fullAddress,
+			receiverUnit: current.receiverUnit || target.unit || ''
 		}
-		if (fullAddress || target.receiver) uni.showToast({ title: '已带入默认回寄地址', icon: 'none' })
+		if (fullAddress || target.receiver) uni.showToast({ title: '已带入默认地址', icon: 'none' })
 	} catch (error) {
 		console.warn('prefill repair address failed:', error)
 	}
+}
+
+const savedAddressText = (item = {}) => {
+	const region = Array.isArray(item.region) ? item.region.join(' ') : (item.region || '')
+	return [region, item.detail || ''].filter(Boolean).join(' ').trim()
+}
+
+const openSavedAddressPicker = async (target) => {
+	if (!hasLoginToken()) {
+		openModule('login')
+		uni.showToast({ title: '请先登录后选择常用地址', icon: 'none' })
+		return
+	}
+	savedAddressTarget.value = target
+	try {
+		const list = await getAddressList()
+		savedAddressOptions.value = Array.isArray(list) ? list : []
+		if (!savedAddressOptions.value.length) {
+			uni.showToast({ title: '暂无常用地址，请先新增', icon: 'none' })
+			openAddressPage()
+			return
+		}
+		showSavedAddressPicker.value = true
+	} catch (error) {
+		uni.showToast({ title: error.message || '地址加载失败，请稍后重试', icon: 'none' })
+	}
+}
+
+const selectSavedAddress = (item = {}) => {
+	const name = item.receiver || item.name || ''
+	const phone = item.phone || ''
+	const address = savedAddressText(item)
+	if (savedAddressTarget.value === 'receiver') {
+		repairForm.value.receiverName = name
+		repairForm.value.receiverPhone = phone
+		repairForm.value.receiverAddress = address
+		repairForm.value.receiverUnit = item.unit || repairForm.value.receiverUnit
+	} else {
+		repairForm.value.senderName = name
+		repairForm.value.senderPhone = phone
+		repairForm.value.senderAddress = address
+	}
+	showSavedAddressPicker.value = false
+	uni.showToast({ title: '地址已带入', icon: 'none' })
+}
+
+const addSavedAddress = () => {
+	showSavedAddressPicker.value = false
+	openAddressPage()
 }
 
 const addRepairProduct = () => {
@@ -4389,6 +4515,7 @@ const buildRepairPayload = () => {
 	const trackingNo = normalizeTrackingNo(repairForm.value.trackingNo)
 	const receiverPhone = normalizePhone(repairForm.value.receiverPhone)
 	return {
+		customerType: repairForm.value.customerType,
 		status: 'submitted',
 		statusText: '已提交',
 		productName: (product.name || product.model || '维修产品').trim(),
@@ -4402,9 +4529,9 @@ const buildRepairPayload = () => {
 		trackingNo,
 		trackingPending: Boolean(trackingLater.value && !trackingNo),
 		sendMethod: repairForm.value.sendMethod,
-		senderName: String(repairForm.value.receiverName || '').trim(),
-		senderPhone: receiverPhone,
-		senderAddress: String(repairForm.value.receiverAddress || '').trim(),
+		senderName: String(repairForm.value.senderName || '').trim(),
+		senderPhone: normalizePhone(repairForm.value.senderPhone),
+		senderAddress: String(repairForm.value.senderAddress || '').trim(),
 		receiverName: String(repairForm.value.receiverName || '').trim(),
 		receiverPhone,
 		receiverAddress: String(repairForm.value.receiverAddress || '').trim(),
@@ -4434,6 +4561,10 @@ const validateRepairStep = (step) => {
 	const products = repairProducts.value
 	if (step === 1) {
 		for (let i = 0; i < products.length; i += 1) {
+			if (!String(products[i].model || '').trim()) {
+				uni.showToast({ title: `第 ${i + 1} 个产品请填写产品型号`, icon: 'none' })
+				return false
+			}
 			if (!String(products[i].serial || '').trim()) {
 				uni.showToast({ title: `第 ${i + 1} 个产品请填写序列号`, icon: 'none' })
 				return false
@@ -4614,9 +4745,17 @@ const scanSn = (index) => {
 }
 
 const validateRepairForm = () => {
+	if (!customerTypeOptions.some((item) => item.value === repairForm.value.customerType)) {
+		uni.showToast({ title: '请选择用户类型', icon: 'none' })
+		return false
+	}
 	for (let index = 0; index < repairProducts.value.length; index += 1) {
 		const product = repairProducts.value[index] || {}
 		const label = `第 ${index + 1} 个产品`
+		if (!String(product.model || '').trim()) {
+			uni.showToast({ title: `${label}请填写产品型号`, icon: 'none' })
+			return false
+		}
 		if (!String(product.serial || '').trim()) {
 			uni.showToast({ title: `${label}请填写序列号`, icon: 'none' })
 			return false
@@ -4625,6 +4764,21 @@ const validateRepairForm = () => {
 			uni.showToast({ title: `${label}请填写故障描述`, icon: 'none' })
 			return false
 		}
+	}
+
+	if (!String(repairForm.value.senderName || '').trim()) {
+		uni.showToast({ title: '请填写寄件人', icon: 'none' })
+		return false
+	}
+
+	if (!isValidPhone(repairForm.value.senderPhone)) {
+		uni.showToast({ title: '请输入正确的寄件人手机号', icon: 'none' })
+		return false
+	}
+
+	if (!String(repairForm.value.senderAddress || '').trim()) {
+		uni.showToast({ title: '请填写寄出地址', icon: 'none' })
+		return false
 	}
 
 	if (!repairForm.value.logisticsCompany) {
@@ -4663,6 +4817,7 @@ const validateRepairForm = () => {
 	}
 
 	repairForm.value.trackingNo = normalizeTrackingNo(repairForm.value.trackingNo)
+	repairForm.value.senderPhone = normalizePhone(repairForm.value.senderPhone)
 	repairForm.value.receiverPhone = normalizePhone(repairForm.value.receiverPhone)
 	return true
 }

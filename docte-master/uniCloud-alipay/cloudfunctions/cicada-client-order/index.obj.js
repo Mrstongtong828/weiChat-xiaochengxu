@@ -1148,7 +1148,17 @@ async function markOrderWechatPaid(order = {}, transaction = {}) {
 
 // 身份桥：按 user_id / openid 匹配或自动创建 CRM 客户档案，报修电话仅作联系信息。
 // 让小程序下单的用户与后台 cicada_customers 客户档案自动打通；失败不阻断下单，整体兜底。
-async function ensureCustomerForUser(user = {}, orderPhone = '') {
+async function findCustomerForUser(user = {}) {
+  const userId = user._id
+  if (!userId) return null
+  const primaryOr = [{ user_id: userId }]
+  const openid = normalizeText(user.openid)
+  if (openid) primaryOr.push({ openid })
+  const result = await db.collection('cicada_customers').where(db.command.or(primaryOr)).limit(1).get()
+  return result.data && result.data[0] ? result.data[0] : null
+}
+
+async function ensureCustomerForUser(user = {}, orderPhone = '', customerType = 'clinic', linkedCustomer = null) {
   const userId = user._id
   if (!userId) return ''
   const customerCol = db.collection('cicada_customers')
@@ -1157,19 +1167,18 @@ async function ensureCustomerForUser(user = {}, orderPhone = '') {
   const phone = accountPhone || contactPhone
   const openid = normalizeText(user.openid)
   const now = Date.now()
+	const normalizedCustomerType = ['individual', 'clinic'].includes(customerType) ? customerType : 'clinic'
 
-  // 1) 已关联：user_id / openid 命中，直接复用；若档案缺手机号而账号已有，则顺带回填
-  const primaryOr = [{ user_id: userId }]
-  if (openid) primaryOr.push({ openid })
-  const primary = await customerCol.where(db.command.or(primaryOr)).limit(1).get()
-  if (primary.data && primary.data[0]) {
-    const existing = primary.data[0]
-    if (phone && !normalizeText(existing.phone)) {
-      await customerCol.where({
-        _id: existing._id,
-        phone: db.command.in(['', null])
-      }).update({ phone, update_time: now }).catch(() => {})
+  // 普通客户可通过本次报修修正历史默认成 clinic 的类型；已核验的代理商身份仍由后台维护。
+  const existing = linkedCustomer || await findCustomerForUser(user)
+  if (existing) {
+    const updateData = { update_time: now }
+    if (phone && !normalizeText(existing.phone)) updateData.phone = phone
+    const existingCustomerType = normalizeText(existing.customer_type)
+    if (existingCustomerType !== 'dealer' && existingCustomerType !== normalizedCustomerType) {
+      updateData.customer_type = normalizedCustomerType
     }
+    await customerCol.doc(existing._id).update(updateData).catch(() => {})
     return existing._id
   }
 
@@ -1179,7 +1188,7 @@ async function ensureCustomerForUser(user = {}, orderPhone = '') {
     name: normalizeText(user.name || user.nickname || phone || '微信客户'),
     contact: normalizeText(user.name || user.nickname),
     phone,
-    customer_type: 'clinic',
+    customer_type: normalizedCustomerType,
     source: 'miniapp',
     address: '',
     tags: [],
@@ -1393,8 +1402,35 @@ module.exports = {
       if (!Array.isArray(items) || items.length === 0) {
         return { code: -1, msg: '请至少提交一个维修产品' }
       }
+      const customerType = normalizeText(params.customer_type)
+      if (!['individual', 'clinic', 'dealer'].includes(customerType)) {
+        return { code: -1, msg: '请选择正确的用户类型' }
+      }
       if (items.some(item => !item || !item.product_name)) {
         return { code: -1, msg: '产品名称不能为空' }
+      }
+      if (items.some(item => !normalizeText(item && item.product_model))) {
+        return { code: -1, msg: '产品型号不能为空' }
+      }
+      if (items.some(item => !normalizeText(item && item.sn))) {
+        return { code: -1, msg: '产品序列号不能为空' }
+      }
+      if (items.some(item => !normalizeText(item && item.fault_desc))) {
+        return { code: -1, msg: '故障描述不能为空' }
+      }
+      if (items.some(item => normalizeText(item && item.fault_desc).length > 2000)) {
+        return { code: -1, msg: '故障描述不能超过2000字' }
+      }
+      if (!ship_out_info || !normalizeText(ship_out_info.name) || !extractValidPhone(ship_out_info.phone) || !normalizeText(ship_out_info.detail)) {
+        return { code: -1, msg: '请完善产品寄出信息' }
+      }
+      if (!ship_back_info || !normalizeText(ship_back_info.name) || !extractValidPhone(ship_back_info.phone) || !normalizeText(ship_back_info.detail) || !normalizeText(ship_back_info.unit)) {
+        return { code: -1, msg: '请完善产品回寄信息' }
+      }
+
+      const linkedCustomer = await findCustomerForUser(user)
+      if (customerType === 'dealer' && (!linkedCustomer || normalizeText(linkedCustomer.customer_type) !== 'dealer')) {
+        return { code: -1, msg: '当前账号尚未绑定签约代理商身份，请联系售后核验后再提交' }
       }
 
       const now = Date.now()
@@ -1416,7 +1452,9 @@ module.exports = {
       try {
         customerId = await ensureCustomerForUser(
           user,
-          (ship_out_info && ship_out_info.phone) || (ship_back_info && ship_back_info.phone) || ''
+          (ship_out_info && ship_out_info.phone) || (ship_back_info && ship_back_info.phone) || '',
+          customerType,
+          linkedCustomer
         )
       } catch (customerErr) {
         customerId = ''
@@ -1427,6 +1465,7 @@ module.exports = {
         order_no,
         user_id: user._id,
         customer_id: customerId,
+        customer_type: customerType,
         status: 'pending',
         ship_out_info,
         ship_back_info,
