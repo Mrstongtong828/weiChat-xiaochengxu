@@ -220,7 +220,10 @@
 				</view>
 
 				<view class="repair-bottom-bar">
-					<view class="bottom-more tap" @click="showRepairTools = true"><view></view><text>工具</text></view>
+					<view class="bottom-more tap" @click="showRepairTools = true">
+						<view class="bottom-more-icon"><view></view><view></view><view></view></view>
+						<text>工具</text>
+					</view>
 					<view class="bottom-submit tap" :class="{ disabled: repairSubmitting }" @click="submitRepair">{{ repairSubmitting ? '提交中...' : '立即提交报修' }}</view>
 				</view>
 
@@ -1737,7 +1740,7 @@
 			<view class="repair-tool-grabber"></view>
 			<view class="repair-tool-head">
 				<text>报修工具</text>
-				<text>保存进度或重新填写当前报修单</text>
+				<text>保存进度、复制寄修纸条或重新填写</text>
 			</view>
 			<view class="repair-tool-list">
 				<view class="repair-tool-row tap" @click="saveRepairDraft">
@@ -1745,6 +1748,13 @@
 					<view>
 						<text>保存草稿</text>
 						<text>把当前填写内容保存在本机，下次继续填写</text>
+					</view>
+				</view>
+				<view class="repair-tool-row tap" @click="copyRepairNoteTemplate">
+					<view class="repair-tool-icon tool-note"><view><view></view><view></view><view></view></view></view>
+					<view>
+						<text>复制寄修纸条模板</text>
+						<text>自动整理故障、联系方式和回寄地址</text>
 					</view>
 				</view>
 				<view class="repair-tool-row tap danger" @click="confirmClearRepair">
@@ -4489,6 +4499,47 @@ const saveRepairDraft = () => {
 	} else {
 		uni.showToast({ title: '保存失败，请稍后重试', icon: 'none' })
 	}
+}
+
+const repairNoteValue = (value) => String(value || '').trim() || '未填写'
+
+const buildRepairNoteTemplate = () => {
+	const form = repairForm.value || {}
+	const contactName = form.senderName || form.receiverName
+	const contactPhone = form.senderPhone || form.receiverPhone
+	const products = (repairProducts.value || []).map((product, index) => {
+		const name = repairNoteValue(product.name || product.category)
+		const model = repairNoteValue(product.model)
+		const serial = repairNoteValue(product.serial)
+		const fault = repairNoteValue(product.faultDesc)
+		return [
+			`${index + 1}. 产品：${name}`,
+			`   型号：${model}`,
+			`   SN：${serial}`,
+			`   故障：${fault}`
+		].join('\n')
+	})
+
+	return [
+		'思科达售后寄修纸条',
+		`用户类型：${customerTypeLabel(form.customerType) || '未填写'}`,
+		`联系人：${repairNoteValue(contactName)}`,
+		`联系电话：${repairNoteValue(contactPhone)}`,
+		`回寄地址：${repairNoteValue(form.receiverAddress)}`,
+		`单位名称：${repairNoteValue(form.receiverUnit)}`,
+		`寄出物流：${repairNoteValue(form.logisticsCompany)}`,
+		`运单号：${trackingLater.value ? '稍后补填' : repairNoteValue(form.trackingNo)}`,
+		'',
+		'设备与故障：',
+		products.length ? products.join('\n\n') : '未填写',
+		'',
+		'请维修前先联系确认检测结果和报价。'
+	].join('\n')
+}
+
+const copyRepairNoteTemplate = () => {
+	showRepairTools.value = false
+	writeClipboard(buildRepairNoteTemplate(), 'repairNote')
 }
 
 const clearRepairForm = (notify = true) => {
@@ -9723,24 +9774,35 @@ onUnmounted(() => {
 }
 
 .bottom-more {
-	width: 116rpx;
-	height: 96rpx;
+	width: 108rpx;
+	height: 92rpx;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 6rpx;
-	border-radius: 16rpx;
+	gap: 8rpx;
+	border-radius: 18rpx;
+	background: #F5F8FC;
 	color: #324563;
 	font-size: 21rpx;
 }
 
-.bottom-more > view {
-	width: 36rpx;
-	height: 8rpx;
+.bottom-more-icon {
+	width: 46rpx;
+	height: 30rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6rpx;
+	border-radius: 999rpx;
+	background: #E9F0FA;
+}
+
+.bottom-more-icon > view {
+	width: 6rpx;
+	height: 6rpx;
 	border-radius: 999rpx;
 	background: #324563;
-	box-shadow: 0 -12rpx 0 #324563, 0 12rpx 0 #324563;
 }
 
 .bottom-submit {
@@ -9973,6 +10035,29 @@ onUnmounted(() => {
 .tool-save {
 	background: #E8F1FE;
 	color: #1E6FE0;
+}
+
+.tool-note {
+	background: #F0F6EF;
+	color: #2F7D46;
+}
+
+.tool-note > view {
+	width: 30rpx;
+	height: 36rpx;
+	padding: 8rpx 6rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 5rpx;
+	border: 3rpx solid currentColor;
+	border-radius: 8rpx;
+	box-sizing: border-box;
+}
+
+.tool-note > view > view {
+	height: 3rpx;
+	border-radius: 999rpx;
+	background: currentColor;
 }
 
 .tool-clear {
