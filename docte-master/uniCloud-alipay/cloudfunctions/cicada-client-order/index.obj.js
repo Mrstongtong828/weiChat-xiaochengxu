@@ -1,8 +1,9 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
-const { assertOrderStatusTransition } = loadWorkflowModule()
+const { assertOrderStatusTransition, canTransitionOrderStatus } = loadWorkflowModule()
 const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
+const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 
 function loadWorkflowModule() {
   try {
@@ -28,10 +29,97 @@ function loadSubscriptionMessageModule() {
   }
 }
 
+function loadWechatPayCryptoModule() {
+  try {
+    return require('cicada-wechat-pay-crypto')
+  } catch (packageError) {
+    return require('../common/cicada-wechat-pay-crypto')
+  }
+}
+
 const CREATE_ORDER_LIMIT = { windowMs: 60 * 1000, max: 8 }
 const DUPLICATE_ORDER_WINDOW_MS = 10 * 60 * 1000
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
+
+function isAuthErrorMessage(message = '') {
+  return /鉴权失败|Token已过期|未登录|账号已禁用|账号已注销|内部员工账号/i.test(String(message || ''))
+}
+
+function fail(error, fallbackMessage = '请求失败') {
+  const message = (error && error.message) || fallbackMessage
+  if (isAuthErrorMessage(message)) {
+    return { code: 401, msg: message, message }
+  }
+  return { code: -1, msg: message, message }
+}
+
+function sanitizeShipInfo(info = {}) {
+  const source = info && typeof info === 'object' ? info : {}
+  return {
+    name: normalizeText(source.name).slice(0, 40),
+    phone: extractValidPhone(source.phone) || normalizeText(source.phone).replace(/\D/g, '').slice(0, 20),
+    unit: normalizeText(source.unit).slice(0, 80),
+    region: Array.isArray(source.region) ? source.region.map(item => normalizeText(item).slice(0, 40)).filter(Boolean).slice(0, 4) : [],
+    detail: normalizeText(source.detail).slice(0, 200),
+    logistics_company: normalizeText(source.logistics_company || source.logisticsCompany).slice(0, 40),
+    logistics_no: normalizeText(source.logistics_no || source.logisticsNo || source.trackingNo).replace(/\s/g, '').slice(0, 40)
+  }
+}
+
+function sanitizeOrderItemInput(item = {}) {
+  const data = pickFields(item, [
+    'product_name',
+    'product_category',
+    'product_model',
+    'sn',
+    'buy_date',
+    'fault_desc',
+    'media_urls',
+    'voucher_urls',
+    'image_urls',
+    'video_urls'
+  ])
+  data.product_name = normalizeText(data.product_name).slice(0, 80)
+  data.product_category = normalizeText(data.product_category).slice(0, 80)
+  data.product_model = normalizeText(data.product_model).slice(0, 80)
+  data.sn = normalizeText(data.sn).slice(0, 80)
+  data.buy_date = normalizeText(data.buy_date).slice(0, 20)
+  data.fault_desc = normalizeText(data.fault_desc).slice(0, 2000)
+  data.media_urls = normalizeArray(data.media_urls).slice(0, 12)
+  data.voucher_urls = normalizeArray(data.voucher_urls).slice(0, 12)
+  data.image_urls = normalizeArray(data.image_urls).slice(0, 12)
+  data.video_urls = normalizeArray(data.video_urls).slice(0, 6)
+  data.sn_normalized = normalizeSn(data.sn)
+  return data
+}
+
+function projectClientOrder(order = {}, extras = {}) {
+  const quote = exposeQuoteFields(order)
+  return {
+    _id: order._id,
+    order_no: order.order_no || '',
+    status: order.status || '',
+    customer_type: order.customer_type || '',
+    ship_out_info: order.ship_out_info || {},
+    ship_back_info: order.ship_back_info || {},
+    timeline: Array.isArray(order.timeline) ? order.timeline : [],
+    create_time: order.create_time || 0,
+    update_time: order.update_time || 0,
+    in_warranty: Boolean(order.in_warranty),
+    warranty_status: order.warranty_status || '',
+    charge_type: order.charge_type || '',
+    invoice_info: order.invoice_info || {},
+    payment_method: order.payment_method || '',
+    payment_reject_reason: order.payment_reject_reason || '',
+    payment_paid_time: order.payment_paid_time || 0,
+    wechat_pay_out_trade_no: order.wechat_pay_out_trade_no || '',
+    review: order.review || null,
+    ...quote,
+    ...extras
+  }
+}
+
 
 function getEnvValue(...names) {
   for (const name of names) {
@@ -193,7 +281,11 @@ function normalizePrivateKey(value = '') {
 }
 
 function getWechatPayPrivateKey() {
-  const base64Key = getEnvValue('WX_PAY_PRIVATE_KEY_BASE64', 'WXPAY_PRIVATE_KEY_BASE64', 'WECHAT_PAY_PRIVATE_KEY_BASE64')
+  const base64Key = getChunkedEnvValue(process.env, [
+    'WX_PAY_PRIVATE_KEY_BASE64',
+    'WXPAY_PRIVATE_KEY_BASE64',
+    'WECHAT_PAY_PRIVATE_KEY_BASE64'
+  ])
   if (base64Key) {
     return Buffer.from(base64Key, 'base64').toString('utf8')
   }
@@ -204,13 +296,32 @@ function getWechatPayApiV3Key() {
   return getEnvValue('WX_PAY_API_V3_KEY', 'WXPAY_API_V3_KEY', 'WECHAT_PAY_API_V3_KEY')
 }
 
+function getWechatPayPublicKeyConfig() {
+  const base64 = getChunkedEnvValue(process.env, [
+    'WX_PAY_PUBLIC_KEY_BASE64',
+    'WXPAY_PUBLIC_KEY_BASE64',
+    'WECHAT_PAY_PUBLIC_KEY_BASE64'
+  ])
+  const publicKey = base64
+    ? Buffer.from(base64, 'base64').toString('utf8')
+    : normalizePem(getEnvValue('WX_PAY_PUBLIC_KEY', 'WXPAY_PUBLIC_KEY', 'WECHAT_PAY_PUBLIC_KEY'))
+  const publicKeyId = getEnvValue('WX_PAY_PUBLIC_KEY_ID', 'WXPAY_PUBLIC_KEY_ID', 'WECHAT_PAY_PUBLIC_KEY_ID')
+  const missing = []
+  if (!publicKeyId) missing.push('WX_PAY_PUBLIC_KEY_ID')
+  if (!publicKey) missing.push('WX_PAY_PUBLIC_KEY 或 WX_PAY_PUBLIC_KEY_BASE64')
+  if (missing.length) throw new Error(`微信支付公钥模式暂未配置：${missing.join('、')}`)
+  return { publicKey, publicKeyId }
+}
+
 function getWechatPayConfig() {
+  const verifyConfig = getWechatPayPublicKeyConfig()
   const config = {
     appId: getEnvValue('WX_PAY_APPID', 'WXPAY_APPID', 'WECHAT_PAY_APPID', 'WX_APPID'),
     mchId: getEnvValue('WX_PAY_MCH_ID', 'WXPAY_MCH_ID', 'WECHAT_PAY_MCH_ID'),
     serialNo: getEnvValue('WX_PAY_SERIAL_NO', 'WXPAY_SERIAL_NO', 'WECHAT_PAY_SERIAL_NO'),
     notifyUrl: getEnvValue('WX_PAY_NOTIFY_URL', 'WXPAY_NOTIFY_URL', 'WECHAT_PAY_NOTIFY_URL'),
-    privateKey: getWechatPayPrivateKey()
+    privateKey: getWechatPayPrivateKey(),
+    ...verifyConfig
   }
   const missing = []
   if (!config.appId) missing.push('WX_PAY_APPID 或 WX_APPID')
@@ -281,9 +392,6 @@ function normalizeSn(value) {
   return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
 }
 
-// 默认整机质保月数：当设备无显式 warranty_expire/warranty_months 时，用购机日期推算到期日
-const DEFAULT_WARRANTY_MONTHS = 12
-
 // 将 YYYY-MM-DD 加上 N 个月，返回 YYYY-MM-DD；无效输入返回空串
 function addMonthsToDateStr(dateStr, months) {
   const s = normalizeText(dateStr)
@@ -298,11 +406,12 @@ function addMonthsToDateStr(dateStr, months) {
   return `${y}-${mo}-${day}`
 }
 
-// 推算质保到期日：优先已存 warranty_expire；否则由 buy_date + warranty_months(默认12) 推算
+// 推算质保到期日：优先已存截止日；否则仅在明确填写月数时由购机日期推算。
 function deriveWarrantyExpire(device = {}) {
   const stored = normalizeText(device.warranty_expire)
   if (stored) return stored
-  const months = Number(device.warranty_months) > 0 ? Number(device.warranty_months) : DEFAULT_WARRANTY_MONTHS
+  const months = Number(device.warranty_months)
+  if (!Number.isFinite(months) || months <= 0) return ''
   return addMonthsToDateStr(device.buy_date || device.buyDate, months)
 }
 
@@ -551,7 +660,9 @@ function buildPackageTimeline(order = {}, matchedType = 'out', fullAccess = fals
   if (order.status && order.status !== 'pending') {
     rows.push({
       title: '售后已登记',
-      desc: `已关联工单 ${order.order_no || order._id || ''}`.trim(),
+      desc: fullAccess
+        ? `已关联工单 ${order.order_no || order._id || ''}`.trim()
+        : '售后已登记该包裹，登录后可查看完整工单信息',
       time: formatTimelineTime(order.update_time || order.create_time),
       pending: false
     })
@@ -936,7 +1047,7 @@ async function requestWechatPay(method, url, body = null, config = getWechatPayC
   const res = await uniCloud.httpclient.request(`${WECHAT_PAY_API_BASE}${url}`, {
     method,
     data: bodyText || undefined,
-    dataType: 'json',
+    dataType: 'text',
     headers: {
       Authorization: buildWechatPayAuthorization(method, url, bodyText, config),
       Accept: 'application/json',
@@ -944,14 +1055,29 @@ async function requestWechatPay(method, url, body = null, config = getWechatPayC
     }
   })
 
+  const rawBody = Buffer.isBuffer(res.data) ? res.data.toString('utf8') : String(res.data || '')
+  let responseData = {}
+  try {
+    responseData = rawBody ? JSON.parse(rawBody) : {}
+  } catch (error) {
+    throw new Error('微信支付返回了无法解析的响应')
+  }
+
   if (res.status < 200 || res.status >= 300) {
-    const message = res.data && (res.data.message || res.data.code)
-      ? `${res.data.message || res.data.code}`
+    const message = responseData && (responseData.message || responseData.code)
+      ? `${responseData.message || responseData.code}`
       : `微信支付请求失败(${res.status})`
     throw new Error(message)
   }
 
-  return { data: res.data || {}, config }
+  verifyWechatPaySignature({
+    headers: res.headers || {},
+    rawBody,
+    publicKey: config.publicKey,
+    publicKeyId: config.publicKeyId
+  })
+
+  return { data: responseData, config }
 }
 
 async function queryWechatPayTransaction(outTradeNo, config = getWechatPayConfig()) {
@@ -989,68 +1115,25 @@ function parseHttpBody(ctx) {
   return JSON.parse(httpInfo.body)
 }
 
-// 取请求头（uniCloud 会将头名小写化，这里做大小写无关匹配）
-function getHeaderValue(headers = {}, name = '') {
-  if (!headers) return ''
-  const lower = String(name).toLowerCase()
-  for (const key of Object.keys(headers)) {
-    if (String(key).toLowerCase() === lower) return headers[key]
-  }
-  return ''
-}
-
 // 取微信支付回调的“原始报文字符串”（验签必须用未经二次序列化的原文）
 function getRawHttpBody(httpInfo) {
-  if (!httpInfo || httpInfo.body === undefined || httpInfo.body === null) return ''
-  if (typeof httpInfo.body !== 'string') return JSON.stringify(httpInfo.body)
-  return httpInfo.isBase64Encoded ? Buffer.from(httpInfo.body, 'base64').toString('utf8') : httpInfo.body
+  if (!httpInfo) return ''
+  const body = httpInfo.rawBody !== undefined && httpInfo.rawBody !== null ? httpInfo.rawBody : httpInfo.body
+  if (body === undefined || body === null) return ''
+  if (Buffer.isBuffer(body)) return body.toString('utf8')
+  if (typeof body !== 'string') return JSON.stringify(body)
+  return httpInfo.isBase64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body
 }
 
-// 微信支付平台公钥/平台证书（公钥模式优先）：从云函数环境变量读取
-function getWechatPayPlatformPublicKey() {
-  const base64 = getEnvValue('WX_PAY_PLATFORM_PUBLIC_KEY_BASE64', 'WXPAY_PLATFORM_PUBLIC_KEY_BASE64', 'WECHAT_PAY_PLATFORM_PUBLIC_KEY_BASE64')
-  if (base64) return Buffer.from(base64, 'base64').toString('utf8')
-  return getEnvValue('WX_PAY_PLATFORM_PUBLIC_KEY', 'WXPAY_PLATFORM_PUBLIC_KEY', 'WECHAT_PAY_PLATFORM_PUBLIC_KEY', 'WX_PAY_PLATFORM_CERT')
-}
-
-// 兼容“平台证书 PEM”与“平台公钥 PEM”两种配置形态
-function resolveWechatPayVerifyKey(pem) {
-  const text = String(pem || '').trim()
-  if (!text) return null
-  if (text.includes('BEGIN CERTIFICATE')) {
-    try {
-      return crypto.X509Certificate ? new crypto.X509Certificate(text).publicKey : text
-    } catch (e) {
-      return text
-    }
-  }
-  return text
-}
-
-// 校验微信支付 v3 异步通知签名 + 时间戳防重放。
-// 配置了平台公钥则强制验签（失败抛错，微信会重试）；未配置则告警并退化为“仅 APIv3 解密 + 服务端查单”兜底。
 function verifyWechatPayNotifySignature(httpInfo, rawBody) {
-  const publicKeyPem = getWechatPayPlatformPublicKey()
-  if (!publicKeyPem) {
-    console.warn('[wechatPayNotify] 未配置微信支付平台公钥(WX_PAY_PLATFORM_PUBLIC_KEY)，已跳过验签，仅依赖 APIv3 解密 + 服务端查单。请尽快在云函数环境变量中配置以启用验签与防重放。')
-    return { verified: false, skipped: true }
-  }
-  const headers = (httpInfo && httpInfo.headers) || {}
-  const timestamp = getHeaderValue(headers, 'Wechatpay-Timestamp')
-  const nonce = getHeaderValue(headers, 'Wechatpay-Nonce')
-  const signature = getHeaderValue(headers, 'Wechatpay-Signature')
-  if (!timestamp || !nonce || !signature) {
-    throw new Error('微信支付通知缺少验签请求头')
-  }
-  const ts = Number(timestamp) * 1000
-  if (!ts || Math.abs(Date.now() - ts) > 5 * 60 * 1000) {
-    throw new Error('微信支付通知时间戳超出有效期（防重放）')
-  }
-  const message = `${timestamp}\n${nonce}\n${rawBody}\n`
-  const verifyKey = resolveWechatPayVerifyKey(publicKeyPem)
-  const ok = crypto.createVerify('RSA-SHA256').update(message, 'utf8').verify(verifyKey, signature, 'base64')
-  if (!ok) throw new Error('微信支付通知验签失败')
-  return { verified: true }
+  const config = getWechatPayPublicKeyConfig()
+  return verifyWechatPaySignature({
+    headers: (httpInfo && httpInfo.headers) || {},
+    rawBody,
+    publicKey: config.publicKey,
+    publicKeyId: config.publicKeyId,
+    checkTimestamp: true
+  })
 }
 
 async function confirmWechatPaySuccess(outTradeNo, order = null) {
@@ -1058,12 +1141,21 @@ async function confirmWechatPaySuccess(outTradeNo, order = null) {
   if (!normalized) throw new Error('缺少微信支付商户订单号')
   const currentOrder = order || await findOrderByWechatOutTradeNo(normalized)
   if (!currentOrder) throw new Error('微信支付对应工单不存在')
-  if (currentOrder.wechat_pay_out_trade_no && normalized !== currentOrder.wechat_pay_out_trade_no) {
+  const boundOutTradeNo = normalizeOutTradeNo(currentOrder.wechat_pay_out_trade_no)
+  if (order) {
+    // 前端同步路径：必须使用该工单已绑定的商户订单号，防止一笔支付确认多单
+    if (!boundOutTradeNo || boundOutTradeNo !== normalized) {
+      throw new Error('商户订单号与工单不匹配')
+    }
+  } else if (boundOutTradeNo && boundOutTradeNo !== normalized) {
     throw new Error('商户订单号与工单不匹配')
   }
 
   const config = getWechatPayConfig()
   const transaction = await queryWechatPayTransaction(normalized, config)
+  if (normalizeText(transaction.mchid) !== config.mchId || normalizeText(transaction.appid) !== config.appId) {
+    throw new Error('微信支付商户号或小程序 AppID 与工单配置不一致')
+  }
   if (transaction.trade_state !== 'SUCCESS') {
     throw new Error(transaction.trade_state_desc || '微信支付尚未完成')
   }
@@ -1120,12 +1212,22 @@ async function markOrderWechatPaid(order = {}, transaction = {}) {
     timeline: buildPaidTimeline(order, now, amountFen)
   }
 
-  if (!['shipped', 'completed', 'cancelled'].includes(order.status)) {
-    assertOrderStatusTransition(order.status, 'fixing')
+  // 支付成功优先落账；仅当状态机允许时才推进到 fixing，避免 pending/sent 支付后整单失败
+  if (canTransitionOrderStatus(order.status, 'fixing') && order.status !== 'fixing') {
     updateData.status = 'fixing'
   }
 
-  await db.collection('cicada_orders').doc(order._id).update(updateData)
+  const updateRes = await db.collection('cicada_orders')
+    .where({ _id: order._id, payment_status: db.command.neq('paid') })
+    .update(updateData)
+  if (!updateRes.updated) {
+    const latest = await db.collection('cicada_orders').doc(order._id).get()
+    const current = latest.data && latest.data[0]
+    if (current && current.payment_status === 'paid') {
+      return { ...current, payment_status: 'paid' }
+    }
+    throw new Error('支付状态更新失败，请稍后重试')
+  }
   await logOrderEvent({
     order,
     source: 'wechat_pay',
@@ -1229,19 +1331,8 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
         model: normalizeText(item.product_model) || (existing && existing.model) || '',
         buy_date: buyDate
       }
-      // 质保沉淀：若设备尚无 warranty_expire，但有购机日期，则按默认质保月数推算并落库，
-      // 使自助报修设备也具备在保/过保判定依据（此前该字段仅后台手工建档才写）。
-      const existingExpire = existing && normalizeText(existing.warranty_expire)
-      if (!existingExpire && buyDate) {
-        const months = (existing && Number(existing.warranty_months) > 0)
-          ? Number(existing.warranty_months)
-          : DEFAULT_WARRANTY_MONTHS
-        const derivedExpire = addMonthsToDateStr(buyDate, months)
-        if (derivedExpire) {
-          baseFields.warranty_expire = derivedExpire
-          baseFields.warranty_months = months
-        }
-      }
+      // 质保期限不信任客户端提交；仅保留已建档设备上的服务端数据。
+      // 新建设备时不写 warranty_expire/months，由后台/CRM 后续补录。
       const trackFields = {
         last_order_no: orderMeta.order_no || (existing && existing.last_order_no) || '',
         last_order_id: orderMeta.order_id || (existing && existing.last_order_id) || '',
@@ -1299,8 +1390,11 @@ async function computeOrderWarranty(userId, items = []) {
         device = null
       }
     }
-    // 已建档设备用其质保数据；否则用本次提交的购机日期推算
-    const source = device || { buy_date: item && item.buy_date }
+    // 已建档设备用其质保数据；客户端不可伪造 warranty_expire/months。
+    // 未建档时仅保留购机日期，质保期限等待后台/CRM 补录。
+    const source = device || {
+      buy_date: item && item.buy_date
+    }
     const expire = deriveWarrantyExpire(source)
     if (!expire) continue
     anyEvaluated = true
@@ -1389,7 +1483,7 @@ module.exports = {
         }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1460,15 +1554,18 @@ module.exports = {
         customerId = ''
       }
       // 在保/过保自动判定：用于区分免费(在保质量问题)/收费(过保或人为损坏)维修
-      const warranty = await computeOrderWarranty(user._id, items)
+      const safeShipOut = sanitizeShipInfo(ship_out_info)
+      const safeShipBack = sanitizeShipInfo(ship_back_info)
+      const safeItems = items.map(item => sanitizeOrderItemInput(item))
+      const warranty = await computeOrderWarranty(user._id, safeItems)
       const newOrder = {
         order_no,
         user_id: user._id,
         customer_id: customerId,
         customer_type: customerType,
         status: 'pending',
-        ship_out_info,
-        ship_back_info,
+        ship_out_info: safeShipOut,
+        ship_back_info: safeShipBack,
         engineer_id: '',
         total_price: 0,
         in_warranty: warranty.in_warranty,
@@ -1483,26 +1580,8 @@ module.exports = {
       orderId = orderRes.id
       const persistedOrder = { ...newOrder, _id: orderId }
 
-      await Promise.all(items.map(item => {
-        const data = pickFields(item, [
-          'product_name',
-          'product_category',
-          'product_model',
-          'sn',
-          'buy_date',
-          'fault_desc',
-          'media_urls',
-          'voucher_urls',
-          'image_urls',
-          'video_urls',
-          'fix_solution'
-        ])
-        data.media_urls = normalizeArray(data.media_urls)
-        data.voucher_urls = normalizeArray(data.voucher_urls)
-        data.image_urls = normalizeArray(data.image_urls)
-        data.video_urls = normalizeArray(data.video_urls)
-        data.sn_normalized = normalizeSn(data.sn) // 容错检索键
-        return db.collection('cicada_order_items').add({ ...data, order_id: orderId })
+      await Promise.all(safeItems.map(item => {
+        return db.collection('cicada_order_items').add({ ...item, order_id: orderId })
       }))
 
       await logOrderEvent({
@@ -1512,13 +1591,13 @@ module.exports = {
         before: {},
         after: {
           status: newOrder.status,
-          item_count: items.length,
-          ship_out_info,
-          ship_back_info
+          item_count: safeItems.length,
+          ship_out_info: safeShipOut,
+          ship_back_info: safeShipBack
         }
       })
       // 报修提交即沉淀设备档案（按 SN），并带上 customer_id 与 CRM 设备台账合流
-      await upsertUserDevicesFromItems(user, items, { order_no, order_id: orderId, status: 'pending', countRepair: true, customer_id: customerId })
+      await upsertUserDevicesFromItems(user, safeItems, { order_no, order_id: orderId, status: 'pending', countRepair: true, customer_id: customerId })
       await sendOrderSubscription({ ...newOrder, _id: orderId }, 'repair_submitted', '报修申请已提交')
       await subscribeOrderTrack(persistedOrder, 'out')
       return { code: 0, msg: '提交成功', data: { order_id: orderId, order_no } }
@@ -1529,7 +1608,7 @@ module.exports = {
           db.collection('cicada_order_items').where({ order_id: orderId }).remove()
         ]).catch(() => {})
       }
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1568,9 +1647,7 @@ module.exports = {
         const items = (itemsByKey[order._id] || []).concat(itemsByKey[order.order_no] || [])
         const firstItem = items[0] || {}
         const shipOutInfo = order.ship_out_info || {}
-        return {
-          ...order,
-          ...exposeQuoteFields(order),
+        return projectClientOrder(order, {
           items,
           product_name: firstItem.product_name || '',
           product_model: firstItem.product_model || '',
@@ -1579,12 +1656,12 @@ module.exports = {
           buy_date: firstItem.buy_date || '',
           logistics_company: shipOutInfo.logistics_company || '',
           logistics_no: shipOutInfo.logistics_no || ''
-        }
+        })
       })
 
       return { code: 0, data: orders }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1628,7 +1705,7 @@ module.exports = {
 
       return { code: 0, data: { total, pending, fixing, shipped, completed, byStatus, todo } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1687,7 +1764,7 @@ module.exports = {
 
       return { code: 0, data: { list, total: countRes.total || 0, page: pagination.page, pageSize: pagination.pageSize } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1704,9 +1781,9 @@ module.exports = {
           .where({ order_id: db.command.in(itemKeys) })
           .get()
         : { data: [] }
-      return { code: 0, data: { ...order, ...exposeQuoteFields(order), items: itemsRes.data } }
+      return { code: 0, data: projectClientOrder(order, { items: itemsRes.data }) }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1717,6 +1794,9 @@ module.exports = {
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
+      if (!['pending', 'sent'].includes(order.status)) {
+        return { code: -1, msg: '当前状态不可修改寄出物流' }
+      }
 
       const company = normalizeText(logistics_company || logisticsCompany)
       const no = normalizeText(trackingNo || logisticsNo).replace(/\s/g, '')
@@ -1757,7 +1837,7 @@ module.exports = {
       await subscribeOrderTrack({ ...order, ...updateData }, 'out')
       return { code: 0, msg: '寄出物流已补充', data: { logistics_company: company, logistics_no: no, status: updateData.status || order.status } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1782,7 +1862,8 @@ module.exports = {
         return res.data && res.data[0]
       }
       let device = await findDevice({ user_id: user._id })
-      if (!device) device = await findDevice()
+      // 跨用户 SN 不回传他人设备档案，避免购机日/在保状态泄露
+      // if (!device) device = await findDevice()
 
       // 历史维修记录：当前用户名下、含该 SN 的工单（按规范化键，回退精确 SN）
       let itemRes = await db.collection('cicada_order_items')
@@ -1831,7 +1912,7 @@ module.exports = {
         }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1859,7 +1940,7 @@ module.exports = {
       }).catch(() => {})
       return { code: 0 }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1871,6 +1952,15 @@ module.exports = {
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (!['issued', 'confirmed'].includes(order.quote_status)) {
         return { code: -1, msg: '当前工单暂无可确认报价' }
+      }
+
+      const isZeroAmount = Number(order.total_price || 0) <= 0
+      const isWarrantyFree = isZeroAmount
+        && order.charge_type === 'free'
+        && Boolean(order.in_warranty)
+        && ['in_warranty', 'extended'].includes(order.warranty_status)
+      if (isZeroAmount && !isWarrantyFree) {
+        return { code: -1, msg: '该零元方案未通过在保校验，请联系售后重新核实' }
       }
 
       const now = Date.now()
@@ -1886,8 +1976,10 @@ module.exports = {
         updateData.timeline = [
           ...timeline,
           {
-            title: '客户已确认费用',
-            desc: `客户已确认维修费用 ${Number(order.total_price || 0).toFixed(2)} 元。`,
+            title: isWarrantyFree ? '客户已确认质保维修' : '客户已确认费用',
+            desc: isWarrantyFree
+              ? '客户已确认零元质保方案，无需付款，授权开始维修。'
+              : `客户已确认维修费用 ${Number(order.total_price || 0).toFixed(2)} 元。`,
             time: now,
             done: true
           }
@@ -1911,7 +2003,7 @@ module.exports = {
       })
       return { code: 0, data: { ...updateData, ...exposeQuoteFields({ ...order, ...updateData }) } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -1972,7 +2064,7 @@ module.exports = {
       })
       return { code: 0, data: { ...updateData, ...exposeQuoteFields({ ...order, ...updateData }) } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2029,7 +2121,7 @@ module.exports = {
 
       return { code: 0, data: { ...updateData, ...exposeQuoteFields({ ...order, ...updateData }) } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2091,7 +2183,7 @@ module.exports = {
 
       return { code: 0, data: { review, complaintId } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2145,7 +2237,7 @@ module.exports = {
 
       return { code: 0, data: { list, total: countRes.total || 0, page: pagination.page, pageSize: pagination.pageSize } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2252,7 +2344,7 @@ module.exports = {
         }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2271,7 +2363,7 @@ module.exports = {
       const data = await confirmWechatPaySuccess(outTradeNo, order)
       return { code: 0, data }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2286,8 +2378,7 @@ module.exports = {
         verifyWechatPayNotifySignature(httpInfo, rawBody)
         body = rawBody ? JSON.parse(rawBody) : {}
       } else {
-        // 无 HTTP 上下文的直连兜底（仅内部联调），无法验签，依赖 APIv3 解密 + 服务端查单
-        body = params && params.resource ? params : {}
+        throw new Error('微信支付通知只接受已验签的 HTTP 回调')
       }
       const transaction = decryptWechatPayResource(body.resource || {})
       const outTradeNo = normalizeOutTradeNo(transaction.out_trade_no)
@@ -2378,7 +2469,7 @@ module.exports = {
       })
       return { code: 0, data: { ...updateData, ...exposeQuoteFields({ ...order, ...updateData }) } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2420,6 +2511,10 @@ module.exports = {
       const billable = Number(order.total_price || 0) > 0 && isPaymentConfirmedStatus(order.payment_status)
       if (!billable) {
         return { code: -1, msg: '仅已付款或已核款工单可申请开票' }
+      }
+      const oldInvoiceStatus = normalizeText((order.invoice_info || {}).status)
+      if (['开具中', '已开具', '已寄出', '已签收'].includes(oldInvoiceStatus)) {
+        return { code: -1, msg: '发票已进入开具流程，如需修改请联系客服' }
       }
 
       const invoiceKind = normalizeText(invoice_type || invoiceType || '电子普通发票') || '电子普通发票'
@@ -2494,7 +2589,7 @@ module.exports = {
 
       return { code: 0, data: invoiceInfo }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -2505,8 +2600,8 @@ module.exports = {
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
-      if (!['pending', 'received'].includes(order.status)) {
-        return { code: -1, msg: '当前状态不可取消' }
+      if (!['pending', 'sent'].includes(order.status)) {
+        return { code: -1, msg: '当前状态不可取消，设备入库后请联系客服处理' }
       }
       assertOrderStatusTransition(order.status, 'cancelled')
       const now = Date.now()
@@ -2528,7 +2623,7 @@ module.exports = {
       })
       return { code: 0 }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   }
 }

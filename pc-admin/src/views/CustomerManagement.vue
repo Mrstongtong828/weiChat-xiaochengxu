@@ -189,11 +189,11 @@
           <el-table-column prop="purchase_channel" label="采购渠道" width="110" show-overflow-tooltip />
           <el-table-column prop="dealer_name" label="销售方" width="120" show-overflow-tooltip />
           <el-table-column prop="buy_date" label="采购日期" width="110" />
-          <el-table-column label="质保月数" width="90">
-            <template #default="{row}">{{ row.warranty_months ? `${row.warranty_months}个月` : '-' }}</template>
+          <el-table-column label="质保月数" width="100">
+            <template #default="{row}">{{ row.warranty_months ? `${row.warranty_months}个月` : '待补充' }}</template>
           </el-table-column>
           <el-table-column label="质保到期" width="120">
-            <template #default="{row}"><span :class="{ 'text-danger': row.warranty_state === 'expired' }">{{ row.effective_expire || '-' }}</span></template>
+            <template #default="{row}"><span :class="{ 'text-danger': row.warranty_state === 'expired' }">{{ row.effective_expire || '待补充' }}</span></template>
           </el-table-column>
           <el-table-column label="质保状态" width="90">
             <template #default="{row}"><el-tag size="small" :type="warrantyTag(row.warranty_state)">{{ warrantyLabel(row.warranty_state) }}</el-tag></template>
@@ -249,8 +249,16 @@
       <el-form-item label="采购渠道"><el-input v-model.trim="deviceForm.purchase_channel" placeholder="厂家 / 经销商 / 线下导入" /></el-form-item>
       <el-form-item label="销售方"><el-input v-model.trim="deviceForm.dealer_name" placeholder="经销商或来源单位" /></el-form-item>
       <el-form-item label="采购日期"><el-date-picker v-model="deviceForm.buy_date" type="date" value-format="YYYY-MM-DD" style="width:100%;" /></el-form-item>
-      <el-form-item label="质保月数"><el-input-number v-model="deviceForm.warranty_months" :min="0" :precision="0" controls-position="right" style="width:100%;" /></el-form-item>
-      <el-form-item label="质保到期"><el-date-picker v-model="deviceForm.warranty_expire" type="date" value-format="YYYY-MM-DD" style="width:100%;" /></el-form-item>
+      <div class="warranty-form-block">
+        <div class="warranty-form-head">
+          <strong>质保信息（可后补）</strong>
+          <el-tag :type="deviceWarrantyPreview.type" size="small">{{ deviceWarrantyPreview.label }}</el-tag>
+        </div>
+        <p>质保月数和截止日期任选一种填写。填写采购日期 + 质保月数后系统自动计算；直接填写截止日期时以截止日期为准。</p>
+        <el-form-item label="质保月数"><el-input-number v-model="deviceForm.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" style="width:100%;" /></el-form-item>
+        <el-form-item label="质保到期"><el-date-picker v-model="deviceForm.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接选择截止日期" clearable style="width:100%;" /></el-form-item>
+        <div class="warranty-preview">{{ deviceWarrantyPreview.detail }}</div>
+      </div>
       <el-form-item label="保养周期"><el-input v-model.trim="deviceForm.maintenance_cycle" placeholder="如 6个月 / 12个月" /></el-form-item>
     </el-form>
     <template #footer>
@@ -346,17 +354,17 @@ import { downloadCustomerTemplate, exportCustomerWorkbook, parseCustomerExcelFil
 
 const TYPE_LABELS = { clinic: '终端诊所', dealer: '经销商', individual: '个人散户' }
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
-const WARRANTY_LABELS = { in_warranty: '在保', extended: '已延保', expired: '过保', unknown: '未知' }
+const WARRANTY_LABELS = { in_warranty: '在保', extended: '已延保', expired: '过保', unknown: '待补充' }
 const ORDER_STATUS_LABELS = { pending: '待寄出', sent: '已寄出', received: '已收货', inspecting: '检测中', fixing: '维修中', shipped: '已寄回', completed: '已完成', cancelled: '已取消' }
 const LOG_ACTION_LABELS = { create: '新增', edit: '编辑', cancel: '注销', view_phone: '查看手机号', device_save: '设备变更', device_delete: '解绑设备', sync: '同步', export: '导出' }
 
 const typeLabel = (t) => TYPE_LABELS[t] || t || '-'
 const sourceLabel = (s) => SOURCE_LABELS[s] || '-'
-const warrantyLabel = (s) => WARRANTY_LABELS[s] || '未知'
+const warrantyLabel = (s) => WARRANTY_LABELS[s] || '待补充'
 const orderStatusLabel = (s) => ORDER_STATUS_LABELS[s] || s
 const logActionLabel = (a) => LOG_ACTION_LABELS[a] || a
 const typeTag = (t) => (t === 'dealer' ? 'warning' : t === 'individual' ? 'info' : 'success')
-const warrantyTag = (s) => (s === 'expired' ? 'danger' : s === 'unknown' ? 'info' : 'success')
+const warrantyTag = (s) => (s === 'expired' ? 'danger' : (!s || s === 'unknown') ? 'warning' : 'success')
 
 const pad = (n) => String(n).padStart(2, '0')
 const fmtDate = (ts) => { if (!ts) return '-'; const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
@@ -529,7 +537,24 @@ const loadLogs = async () => { tabLoading.value = true; try { logs.value = await
 
 // ===== 设备弹窗 =====
 const deviceVisible = ref(false)
-const deviceForm = reactive({ _id: null, product_category: '', product_name: '', model: '', sn: '', purchase_channel: '', dealer_name: '', buy_date: '', warranty_months: 0, warranty_expire: '', maintenance_cycle: '' })
+const deviceForm = reactive({ _id: null, product_category: '', product_name: '', model: '', sn: '', purchase_channel: '', dealer_name: '', buy_date: '', warranty_months: null, warranty_expire: '', maintenance_cycle: '' })
+const addMonthsToDate = (dateStr, months) => {
+  const amount = Number(months)
+  if (!dateStr || !Number.isFinite(amount) || amount <= 0) return ''
+  const date = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return ''
+  date.setMonth(date.getMonth() + amount)
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+const deviceWarrantyPreview = computed(() => {
+  const expire = deviceForm.warranty_expire || addMonthsToDate(deviceForm.buy_date, deviceForm.warranty_months)
+  if (!expire) {
+    const missingDate = deviceForm.warranty_months && !deviceForm.buy_date
+    return { type: 'warning', label: '待补充', detail: missingDate ? '已填写质保月数，请再填写采购日期；也可以直接填写质保到期日。' : '当前不会自动判定保内或保外，后续可随时补充。' }
+  }
+  const active = Date.now() <= new Date(`${expire}T23:59:59`).getTime()
+  return { type: active ? 'success' : 'danger', label: active ? '预计在保' : '预计过保', detail: `系统判定依据：质保截止 ${expire}` }
+})
 const openDevice = (row) => {
   Object.assign(deviceForm, {
     _id: row ? row._id : null,
@@ -540,7 +565,7 @@ const openDevice = (row) => {
     purchase_channel: row ? (row.purchase_channel || '') : '',
     dealer_name: row ? (row.dealer_name || '') : '',
     buy_date: row ? (row.buy_date || '') : '',
-    warranty_months: row ? (Number(row.warranty_months || 0) || 0) : 0,
+    warranty_months: row && Number(row.warranty_months) > 0 ? Number(row.warranty_months) : null,
     warranty_expire: row ? (row.warranty_expire || '') : '',
     maintenance_cycle: row ? (row.maintenance_cycle || '') : ''
   })
@@ -550,7 +575,7 @@ const saveDevice = async () => {
   if (!deviceForm.product_name) { ElMessage.warning('请填写设备名称'); return }
   saving.value = true
   try {
-    await saveCustomerDevice(detail._id, { ...deviceForm })
+    await saveCustomerDevice(detail._id, { ...deviceForm, warranty_months: Number(deviceForm.warranty_months) > 0 ? Number(deviceForm.warranty_months) : 0 })
     ElMessage.success('已保存')
     deviceVisible.value = false
     loadDevices()
@@ -662,4 +687,8 @@ onMounted(() => { loadPermissionConfig(); load(); loadDealers(); loadTags() })
 .tag-add-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .import-tip { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .import-result { margin-top: 12px; }
+.warranty-form-block { margin: 6px 0 18px; padding: 14px 14px 2px; border: 1px solid #e5eefb; border-radius: 10px; background: #f7fbff; }
+.warranty-form-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; color: #1d2129; font-size: 14px; }
+.warranty-form-block > p { margin: 0 0 14px; color: #4e5969; font-size: 12px; line-height: 1.6; }
+.warranty-preview { margin: -6px 0 12px 100px; color: #4e5969; font-size: 12px; line-height: 1.5; }
 </style>

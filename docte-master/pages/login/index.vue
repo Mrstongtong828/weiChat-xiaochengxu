@@ -47,6 +47,7 @@ import { cicadaAssets } from '@/config/cicada-assets'
 import { wechatLogin } from '@/api/content'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
+import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 
 const agreed = ref(false)
 const loading = ref(false)
@@ -54,7 +55,7 @@ const retrying = ref(false)
 const loginError = ref('')
 
 const openPolicy = (type) => {
-	uni.navigateTo({ url: `/pages/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
+	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
 }
 
 const toggleAgreement = async () => {
@@ -106,7 +107,7 @@ const applyLoginSuccess = (res = {}, message = '') => {
 		}, 1200)
 		return true
 	}
-	showLoginError('登录响应缺少 token')
+	showLoginError(toCustomerErrorMessage('token missing', '登录状态获取失败，请重新登录'))
 	return false
 }
 

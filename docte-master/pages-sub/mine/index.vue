@@ -6,19 +6,23 @@
 			</view>
 
 			<view class="profile-row">
-				<view class="avatar" :class="{ 'avatar-logged': logged }">
-					<text v-if="logged">{{ userAvatarText }}</text>
+				<view class="avatar" :class="{ 'avatar-logged': logged }" @click="logged && openEditProfile()">
+					<image v-if="logged && avatarDisplayUrl" class="avatar-img" :src="avatarDisplayUrl" mode="aspectFill"></image>
+					<text v-else-if="logged">{{ userAvatarText }}</text>
 					<image v-else class="avatar-empty" src="/static/default-user-avatar.png" mode="aspectFit"></image>
 				</view>
-				<view class="profile-copy">
-					<text class="profile-name">{{ logged ? userDisplayName : '未登录' }}</text>
+				<view class="profile-copy" @click="logged && openEditProfile()">
+					<view class="profile-name-row">
+						<text class="profile-name">{{ logged ? userDisplayName : '未登录' }}</text>
+						<text v-if="logged" class="profile-edit-tag">编辑</text>
+					</view>
 					<view v-if="logged" class="profile-meta">
 						<text>{{ userDisplayUnit }}</text>
 						<text class="member-tag">已登录</text>
 					</view>
 					<text v-else class="profile-meta-text">登录后查看您的维修订单</text>
 				</view>
-				<view class="logout-btn tap" @click="toggleLogin">{{ logged ? '退出' : '注册/登录' }}</view>
+				<view class="logout-btn tap" @click.stop="toggleLogin">{{ logged ? '退出' : '注册/登录' }}</view>
 			</view>
 		</view>
 
@@ -80,15 +84,54 @@
 		</view>
 
 		<BottomTabbar :tabs="tabs" active-id="mine" @select="go" />
+
+		<!-- 编辑资料弹层：微信已禁止自动获取昵称头像，须用户主动选择/填写 -->
+		<view v-if="editVisible" class="edit-mask" @click="closeEditProfile">
+			<view class="edit-sheet" @click.stop>
+				<view class="edit-title">编辑资料</view>
+
+				<view class="edit-avatar-row">
+					<button class="edit-avatar-btn" open-type="chooseAvatar" @chooseavatar="onChooseAvatar">
+						<image v-if="editAvatarUrl" class="edit-avatar-img" :src="editAvatarUrl" mode="aspectFill"></image>
+						<view v-else class="edit-avatar-ph">选择头像</view>
+					</button>
+					<text class="edit-avatar-hint">点击选择微信头像</text>
+				</view>
+
+				<view class="edit-field">
+					<text class="edit-label">昵称</text>
+					<input
+						class="edit-input"
+						type="nickname"
+						:value="editNickname"
+						placeholder="点击输入，可使用微信昵称"
+						placeholder-class="edit-input-ph"
+						maxlength="30"
+						@input="onNicknameInput"
+						@blur="onNicknameInput"
+					/>
+				</view>
+
+				<view class="edit-actions">
+					<view class="edit-btn cancel tap" @click="closeEditProfile">取消</view>
+					<view class="edit-btn save tap" :class="{ disabled: saving }" @click="saveProfile">{{ saving ? '保存中…' : '保存' }}</view>
+				</view>
+			</view>
+		</view>
 	</view>
 </template>
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import { getMyDevices, getRepairList, getRepairStats } from '@/api/repair'
 import { countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
+import { updateProfile, logout as logoutRemote } from '@/api/auth'
+import { uploadToCloud } from '@/api/cloudHelpers.js'
+import { getCloudTempFileURL } from '@/utils/cloud.js'
+import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 
 const logged = ref(false)
 const currentUser = ref({})
@@ -96,19 +139,115 @@ const repairCounts = ref({ all: 0, pending: 0, fixing: 0, shipped: 0 })
 const statsTodo = ref({ unfinished: 0, payment: 0, receipt: 0, invoice: 0 })
 const productCount = ref(0)
 
-onMounted(() => {
+// 头像展示：库里存 cloud:// fileID，需转临时链接才能渲染
+const avatarDisplayUrl = ref('')
+// 编辑资料弹层状态
+const editVisible = ref(false)
+const editNickname = ref('')
+const editAvatarUrl = ref('')       // 弹层内预览用的可显示 URL
+const editAvatarFileId = ref('')    // 待保存的 cloud:// fileID（选新头像后才有值）
+const saving = ref(false)
+
+const syncLoginState = () => {
 	const token = uni.getStorageSync('token')
 	currentUser.value = uni.getStorageSync('userInfo') || {}
 	logged.value = Boolean(token)
 	if (token) {
+		resolveAvatar(currentUser.value.avatar)
 		loadRepairCounts()
 		loadProductCount()
+	} else {
+		avatarDisplayUrl.value = ''
+		repairCounts.value = { all: 0, pending: 0, fixing: 0, shipped: 0 }
+		statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
+		productCount.value = 0
 	}
-})
+}
+
+onMounted(syncLoginState)
+onShow(syncLoginState)
+
+// 把 cloud:// fileID 转成可显示的临时链接；已是 http(s) 直链则原样用
+const resolveAvatar = async (raw) => {
+	const value = String(raw || '')
+	if (!value) { avatarDisplayUrl.value = ''; return }
+	if (!value.startsWith('cloud://')) { avatarDisplayUrl.value = value; return }
+	try {
+		const res = await getCloudTempFileURL([value])
+		const item = res && res.fileList && res.fileList[0]
+		avatarDisplayUrl.value = (item && item.tempFileURL) || ''
+	} catch (e) {
+		avatarDisplayUrl.value = ''
+	}
+}
 
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
 const userAvatarText = computed(() => String(userDisplayName.value || '用').slice(0, 1))
+
+// ============== 编辑资料（昵称/头像） ==============
+const openEditProfile = () => {
+	editNickname.value = currentUser.value.nickname || ''
+	editAvatarUrl.value = avatarDisplayUrl.value || ''
+	editAvatarFileId.value = ''
+	editVisible.value = true
+}
+
+const closeEditProfile = () => {
+	if (saving.value) return
+	editVisible.value = false
+}
+
+const onNicknameInput = (e) => {
+	editNickname.value = (e && e.detail && e.detail.value) || ''
+}
+
+// chooseAvatar 返回本地临时路径，先本地预览，保存时再上传云存储
+const onChooseAvatar = (e) => {
+	const path = e && e.detail && e.detail.avatarUrl
+	if (!path) return
+	editAvatarUrl.value = path
+	editAvatarFileId.value = path // 暂存本地路径，saveProfile 时上传换成 fileID
+}
+
+const saveProfile = async () => {
+	if (saving.value) return
+	const nickname = String(editNickname.value || '').trim()
+	// 头像未换时 fileId 为空，nickname 与原值相同则视为无改动
+	const localAvatarPath = editAvatarFileId.value
+	if (!nickname && !localAvatarPath) {
+		uni.showToast({ title: '请填写昵称或选择头像', icon: 'none' })
+		return
+	}
+	saving.value = true
+	uni.showLoading({ title: '保存中…', mask: true })
+	try {
+		const payload = {}
+		if (nickname !== (currentUser.value.nickname || '')) payload.nickname = nickname
+		// 选了新头像才上传；上传得到 cloud:// fileID 再提交
+		if (localAvatarPath && localAvatarPath.indexOf('cloud://') !== 0) {
+			const up = await uploadToCloud(localAvatarPath, 'avatars', 'png')
+			payload.avatar = (up && (up.fileID || up.url)) || ''
+		}
+		if (!Object.keys(payload).length) {
+			uni.hideLoading()
+			saving.value = false
+			editVisible.value = false
+			return
+		}
+		const info = await updateProfile(payload)
+		currentUser.value = info || currentUser.value
+		await resolveAvatar(currentUser.value.avatar)
+		uni.hideLoading()
+		uni.showToast({ title: '已保存', icon: 'success' })
+		editVisible.value = false
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: toCustomerErrorMessage(error, '保存失败，请稍后重试'), icon: 'none' })
+	} finally {
+		saving.value = false
+	}
+}
 
 const statusItems = computed(() => [
 	{ id: 'all', title: '全部', count: repairCounts.value.all, color: '#1E6FE0', bg: 'rgba(30, 111, 224, 0.09)', icon: 'invoice', type: 0 },
@@ -193,25 +332,28 @@ const routes = {
 
 const toggleLogin = () => {
 	if (logged.value) {
-		// 退出登录
 		uni.showModal({
 			title: '提示',
 			content: '确定要退出登录吗？',
-			success: (res) => {
-				if (res.confirm) {
+			success: async (res) => {
+				if (!res.confirm) return
+				try {
+					await logoutRemote()
+				} catch (error) {
 					uni.removeStorageSync('token')
 					uni.removeStorageSync('isLoggedIn')
 					uni.removeStorageSync('userInfo')
-					currentUser.value = {}
-					repairCounts.value = { all: 0, pending: 0, fixing: 0, shipped: 0 }
-					statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
-					logged.value = false
-					uni.showToast({ title: '已退出登录', icon: 'success' })
 				}
+				currentUser.value = {}
+				repairCounts.value = { all: 0, pending: 0, fixing: 0, shipped: 0 }
+				statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
+				productCount.value = 0
+				avatarDisplayUrl.value = ''
+				logged.value = false
+				uni.showToast({ title: '已退出登录', icon: 'success' })
 			}
 		})
 	} else {
-		// 去登录
 		uni.navigateTo({ url: '/pages/login/index' })
 	}
 }
@@ -319,11 +461,33 @@ const goOrder = (type) => {
 	display: block;
 }
 
+.avatar-img {
+	width: 120rpx;
+	height: 120rpx;
+	display: block;
+	border-radius: 999rpx;
+}
+
 .profile-copy {
 	min-width: 0;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
+}
+
+.profile-name-row {
+	display: flex;
+	align-items: center;
+	gap: 12rpx;
+}
+
+.profile-edit-tag {
+	font-size: 21rpx;
+	line-height: 1;
+	color: #FFFFFF;
+	padding: 5rpx 14rpx;
+	border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.22);
 }
 
 .profile-name {
@@ -772,6 +936,135 @@ const goOrder = (type) => {
 	border-bottom: 7rpx solid currentColor;
 	border-radius: 0 0 14rpx 0;
 	transform: rotate(45deg);
+}
+
+/* ============== 编辑资料弹层 ============== */
+.edit-mask {
+	position: fixed;
+	left: 0;
+	right: 0;
+	top: 0;
+	bottom: 0;
+	z-index: 200;
+	background: rgba(15, 23, 42, 0.45);
+	display: flex;
+	align-items: flex-end;
+}
+
+.edit-sheet {
+	width: 100%;
+	background: #FFFFFF;
+	border-radius: 28rpx 28rpx 0 0;
+	padding: 36rpx 40rpx calc(40rpx + constant(safe-area-inset-bottom));
+	padding: 36rpx 40rpx calc(40rpx + env(safe-area-inset-bottom));
+	box-sizing: border-box;
+}
+
+.edit-title {
+	font-size: 32rpx;
+	font-weight: 700;
+	color: #1E293B;
+	text-align: center;
+	margin-bottom: 32rpx;
+}
+
+.edit-avatar-row {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 12rpx;
+	margin-bottom: 32rpx;
+}
+
+.edit-avatar-btn {
+	width: 140rpx;
+	height: 140rpx;
+	padding: 0;
+	border-radius: 999rpx;
+	overflow: hidden;
+	background: #F1F5F9;
+	border: 2rpx solid #E4ECF7;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	line-height: 1;
+}
+
+.edit-avatar-btn::after {
+	border: none;
+}
+
+.edit-avatar-img {
+	width: 140rpx;
+	height: 140rpx;
+	display: block;
+}
+
+.edit-avatar-ph {
+	font-size: 24rpx;
+	color: #94A3B8;
+}
+
+.edit-avatar-hint {
+	font-size: 22rpx;
+	color: #94A3B8;
+}
+
+.edit-field {
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+	padding: 24rpx 0;
+	border-top: 2rpx solid #F1F5F9;
+}
+
+.edit-label {
+	font-size: 28rpx;
+	color: #475569;
+	width: 96rpx;
+	flex-shrink: 0;
+}
+
+.edit-input {
+	flex: 1;
+	font-size: 28rpx;
+	color: #1E293B;
+	text-align: right;
+}
+
+.edit-input-ph {
+	color: #CBD5E1;
+}
+
+.edit-actions {
+	display: flex;
+	gap: 20rpx;
+	margin-top: 36rpx;
+}
+
+.edit-btn {
+	flex: 1;
+	height: 84rpx;
+	border-radius: 16rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 30rpx;
+	font-weight: 600;
+}
+
+.edit-btn.cancel {
+	background: #F1F5F9;
+	color: #475569;
+}
+
+.edit-btn.save {
+	background: #1E6FE0;
+	color: #FFFFFF;
+}
+
+.edit-btn.save.disabled {
+	opacity: 0.6;
 }
 
 </style>

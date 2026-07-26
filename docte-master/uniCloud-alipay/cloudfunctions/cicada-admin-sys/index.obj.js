@@ -25,6 +25,9 @@ const ADMIN_LOGIN_RATE_LIMIT = {
   max: 5,
   windowMs: 15 * 60 * 1000
 }
+const ADMIN_PASSWORD_MIN_LENGTH = 10
+const ADMIN_ACCOUNT_LOCK_THRESHOLD = 8
+const ADMIN_ACCOUNT_LOCK_MS = 15 * 60 * 1000
 const GUIDE_DEFAULTS = [
   {
     type: 'quick',
@@ -76,6 +79,25 @@ function genSalt() {
 
 function hashPassword(password, salt) {
   return crypto.pbkdf2Sync(String(password), salt, 100000, 64, 'sha512').toString('hex')
+}
+
+function assertPasswordPolicy(password, label = '密码') {
+  const value = String(password || '')
+  if (value.length < ADMIN_PASSWORD_MIN_LENGTH) {
+    throw new Error(`${label}至少需要 ${ADMIN_PASSWORD_MIN_LENGTH} 位`)
+  }
+  if (value.length > 128) throw new Error(`${label}不能超过 128 位`)
+  if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) {
+    throw new Error(`${label}必须同时包含字母和数字`)
+  }
+  return value
+}
+
+function genTemporaryPassword() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+  let result = ''
+  while (result.length < 16) result += alphabet[crypto.randomInt(alphabet.length)]
+  return result
 }
 
 function pickFields(source = {}, fields = []) {
@@ -179,12 +201,13 @@ async function ensureGuideDefaults() {
   }
 }
 
-async function verifyAdminToken(token, allowedRoles = ['admin']) {
+async function verifyAdminToken(token, allowedRoles = ['admin'], options = {}) {
   if (!token) throw createAdminAuthError('鉴权失败')
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
   if (!user || user.disabled) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
   if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
+  if (user.must_change_password && !options.allowPasswordChange) throw new Error('当前使用临时密码，请先修改密码')
   if (user.role !== 'superadmin' && !allowedRoles.includes(user.role)) throw new Error('无权限')
   return user
 }
@@ -267,10 +290,16 @@ async function recordAdminLoginFailure(username, ip, userId = '') {
   ])
 
   if (userId) {
+    const current = await db.collection('cicada_users').doc(userId).get()
+    const existing = current.data && current.data[0]
+    const nextFailedCount = (Number(existing && existing.failed_login_count) || 0) + 1
     await db.collection('cicada_users').doc(userId).update({
       failed_login_count: db.command.inc(1),
       last_failed_login: Date.now(),
-      last_login_ip: ip
+      last_login_ip: ip,
+      ...(nextFailedCount >= ADMIN_ACCOUNT_LOCK_THRESHOLD
+        ? { lock_until: Date.now() + ADMIN_ACCOUNT_LOCK_MS }
+        : {})
     })
   }
 }
@@ -463,6 +492,9 @@ module.exports = {
         await recordAdminLoginFailure(username, loginIp, user._id)
         return { code: -1, msg: '无管理权限' }
       }
+      if (Number(user.lock_until) > Date.now()) {
+        return { code: -1, msg: '账号已临时锁定，请 15 分钟后再试' }
+      }
       const pwdCheck = verifyPassword(user, password)
       if (!pwdCheck) {
         await recordAdminLoginFailure(username, loginIp, user._id)
@@ -481,11 +513,12 @@ module.exports = {
       if (!user.password_hash || !user.password_salt) {
         Object.assign(updateData, buildPasswordFields(password))
       }
-      // admin_root 紧急救援账号固定为超级管理员（首次登录自愈）
+      // 保留既有紧急救援账号规则：首次登录时自愈为超级管理员。
       if (user.username === 'admin_root' && user.role !== 'superadmin') {
         updateData.role = 'superadmin'
         user.role = 'superadmin'
       }
+      updateData.lock_until = 0
       await db.collection('cicada_users').doc(user._id).update(updateData)
       await clearAdminLoginFailures(username, loginIp)
 
@@ -495,6 +528,7 @@ module.exports = {
         token: token,
         userId: user._id,
         role: user.role,
+        mustChangePassword: Boolean(user.must_change_password),
         isAdmin: user.role === 'admin',
         isEngineer: user.role === 'engineer',
         isFinance: user.role === 'finance',
@@ -505,7 +539,8 @@ module.exports = {
           name: user.name || user.nickname || '',
           phone: user.phone || '',
           role: user.role,
-          roleDisplay: ROLE_LABELS[user.role] || user.role
+          roleDisplay: ROLE_LABELS[user.role] || user.role,
+          mustChangePassword: Boolean(user.must_change_password)
         }
       }
     } catch (e) {
@@ -527,14 +562,15 @@ module.exports = {
       }
 
       if (!oldPassword || !newPassword) return { code: -1, msg: '请填写原密码和新密码' }
-      if (String(newPassword).length < 6) return { code: -1, msg: '新密码至少需要 6 位' }
+      assertPasswordPolicy(newPassword, '新密码')
       if (oldPassword === newPassword) return { code: -1, msg: '新密码不能与原密码相同' }
 
-      const user = await verifyAdminToken(token, STAFF_ROLES)
+      const user = await verifyAdminToken(token, STAFF_ROLES, { allowPasswordChange: true })
       if (!verifyPassword(user, oldPassword)) return { code: -1, msg: '原密码不正确' }
 
       await db.collection('cicada_users').doc(user._id).update({
         ...buildPasswordFields(newPassword),
+        must_change_password: false,
         token: '',
         token_expire: 0,
         update_time: Date.now()
@@ -568,15 +604,17 @@ module.exports = {
       if (!target || !STAFF_ROLES.includes(target.role)) return { code: -1, msg: '用户不存在' }
       if (target.username === 'admin_root') return { code: -1, msg: 'admin_root 为紧急救援账号，禁止重置密码' }
 
+      const temporaryPassword = genTemporaryPassword()
       await col.doc(userId).update({
-        ...buildPasswordFields('123456'),
+        ...buildPasswordFields(temporaryPassword),
+        must_change_password: true,
         token: '',
         token_expire: 0,
         update_time: Date.now()
       })
 
-      await writeAdminLog(operator, 'reset_password', { id: userId, name: target.username || target.name || '' }, { role: target.role })
-      return { code: 0 }
+      await writeAdminLog(operator, 'reset_password', { id: userId, name: target.username || target.name || '' }, { role: target.role, temporaryPasswordIssued: true })
+      return { code: 0, data: { temporaryPassword } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -598,6 +636,7 @@ module.exports = {
       const col = db.collection('cicada_users')
       if (action === 'add') {
         if (!staff || !staff.username || !staff.password) return { code: -1, msg: '账号和密码不能为空' }
+        assertPasswordPolicy(staff.password, '登录密码')
         if (!STAFF_ROLES.includes(staff.role)) return { code: -1, msg: '角色不正确' }
         if (staff.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可创建超级管理员账号' }
         const exists = await col.where({ username: staff.username }).limit(1).get()
@@ -617,7 +656,10 @@ module.exports = {
         const data = pickFields(staff, ['username', 'name', 'phone', 'avatar', 'role', 'disabled', 'device_categories', 'service_areas'])
         if (data.role && !STAFF_ROLES.includes(data.role)) return { code: -1, msg: '角色不正确' }
         if (data.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可设置超级管理员角色' }
-        if (staff.password) Object.assign(data, buildPasswordFields(staff.password))
+        if (staff.password) {
+          assertPasswordPolicy(staff.password, '登录密码')
+          Object.assign(data, buildPasswordFields(staff.password), { must_change_password: true, token: '', token_expire: 0 })
+        }
         if (!Object.keys(data).length) return { code: -1, msg: '没有可更新的员工字段' }
         const res = await col.where({ _id: staff._id, role: db.command.in(STAFF_ROLES) }).update(data)
         if (!res.updated) return { code: -1, msg: '员工不存在' }

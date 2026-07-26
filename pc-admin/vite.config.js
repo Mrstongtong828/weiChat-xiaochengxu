@@ -21,6 +21,7 @@ export default defineConfig({
         manualChunks(id) {
           if (id.includes('@wangeditor')) return 'vendor-editor'
           if (id.includes('exceljs')) return 'vendor-excel'
+          if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
           if (id.includes('element-plus')) return 'vendor-element'
         },
       },

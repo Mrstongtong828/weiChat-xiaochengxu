@@ -12,6 +12,7 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     deviceModel: filters.deviceModel || '',
     invoiceStatus: filters.invoiceStatus || '',
     warrantyStatus: filters.warrantyStatus || '',
+    customerType: filters.customerType || filters.customer_type || '',
     todoType: filters.todoType || '',
     slaLevel: filters.slaLevel || '',
     responseMode: filters.responseMode || 'array'

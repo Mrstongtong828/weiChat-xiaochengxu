@@ -12,7 +12,6 @@ export const MENU_ROLES = {
   faultdb: ['superadmin', 'admin', 'engineer'],
   users: ['superadmin', 'admin'],
   feedback: ['superadmin', 'admin', 'support'],
-  summary: ['superadmin', 'admin', 'finance'],
   audit: ['superadmin', 'admin', 'finance'],
   settings: ['superadmin', 'admin']
 }

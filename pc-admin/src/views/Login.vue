@@ -45,6 +45,8 @@ const handleLogin = async () => {
     const res = await adminLogin(loginForm.username, loginForm.password)
     localStorage.setItem('adminToken', res.token)
     localStorage.setItem('adminUser', JSON.stringify(res.user))
+    if (res.mustChangePassword) localStorage.setItem('adminMustChangePassword', '1')
+    else localStorage.removeItem('adminMustChangePassword')
     resetSessionExpiredNotice()
     ElMessage.success('登录成功')
     router.push('/home')

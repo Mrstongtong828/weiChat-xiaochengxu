@@ -18,7 +18,6 @@ const LogisticsMonitor = () => import('../views/LogisticsMonitor.vue')
 const InvoiceManagement = () => import('../views/InvoiceManagement.vue')
 const FinanceCenter = () => import('../views/FinanceCenter.vue')
 const Settings = () => import('../views/Settings.vue')
-const Summary = () => import('../views/Summary.vue')
 const AuditLog = () => import('../views/AuditLog.vue')
 
 const router = createRouter({
@@ -41,7 +40,6 @@ const router = createRouter({
         { path: 'faultdb', name: 'FaultDB', component: FaultDB },
         { path: 'users', name: 'Users', component: Users },
         { path: 'feedback', name: 'Feedback', component: Feedback },
-        { path: 'summary', name: 'Summary', component: Summary },
         { path: 'audit', name: 'AuditLog', component: AuditLog },
         { path: 'settings', name: 'Settings', component: Settings },
       ]

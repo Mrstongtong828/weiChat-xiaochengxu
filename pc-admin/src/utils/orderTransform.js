@@ -31,6 +31,12 @@ const normalizeOrderItems = (order) => {
     product_model: item.product_model || '',
     sn: item.sn || '',
     buy_date: item.buy_date || '',
+    warranty_months: Number(item.warranty_months || 0) || 0,
+    warranty_expire: item.warranty_expire || '',
+    warranty_status: item.warranty_status || item.warrantyStatus || '',
+    coverage_result: item.coverage_result || item.coverageResult || '',
+    coverage_reason: item.coverage_reason || item.coverageReason || '',
+    coverage_note: item.coverage_note || item.coverageNote || '',
     fault_desc: item.fault_desc || '',
     quantity: item.quantity || 1,
     voucher_urls: normalizeUrlArray(item.voucher_urls, item.voucherUrls),
@@ -104,6 +110,8 @@ export const transformOrder = (order) => {
     customerName: shipBack.name || '',
     phone: shipBack.phone || '',
     address: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
+    // 下单用户类型快照：clinic / dealer / individual（优先订单字段，其次 CRM 摘要）
+    customerType: order.customer_type || order.customerType || (order.customer && order.customer.customer_type) || '',
 
     // 物流信息
     senderName: shipOut.name || '',
@@ -145,7 +153,7 @@ export const transformOrder = (order) => {
     // 报价/付款
     quoteDetail,
     quoteItems,
-    quoteStatus: order.quote_status || order.quoteStatus || (totalPrice > 0 ? 'issued' : 'pending'),
+    quoteStatus: order.quote_status || order.quoteStatus || 'pending',
     quoteRemark: order.quote_remark || order.quoteRemark || '',
     partsFee,
     laborFee,

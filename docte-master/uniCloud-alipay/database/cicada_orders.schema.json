@@ -1,6 +1,17 @@
 {
   "bsonType": "object",
-  "required": ["order_no", "user_id", "status", "create_time"],
+  "required": [
+    "order_no",
+    "user_id",
+    "status",
+    "create_time"
+  ],
+  "permission": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "properties": {
     "_id": {
       "description": "ID"
@@ -17,12 +28,25 @@
     },
     "customer_type": {
       "bsonType": "string",
-      "enum": ["clinic", "dealer", "individual"],
+      "enum": [
+        "clinic",
+        "dealer",
+        "individual"
+      ],
       "description": "下单时客户类型快照"
     },
     "status": {
       "bsonType": "string",
-      "enum": ["pending", "sent", "received", "inspecting", "fixing", "shipped", "completed", "cancelled"]
+      "enum": [
+        "pending",
+        "sent",
+        "received",
+        "inspecting",
+        "fixing",
+        "shipped",
+        "completed",
+        "cancelled"
+      ]
     },
     "in_warranty": {
       "bsonType": "bool",
@@ -115,7 +139,10 @@
     },
     "arrival_confirm_status": {
       "bsonType": "string",
-      "enum": ["pending", "confirmed"],
+      "enum": [
+        "pending",
+        "confirmed"
+      ],
       "description": "寄入物流签收后的人工入库确认状态"
     },
     "arrival_detected_at": {

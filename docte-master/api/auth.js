@@ -5,7 +5,8 @@ let userCloudObject = null
 
 const getCloudObject = () => {
   if (!userCloudObject) {
-    userCloudObject = importCloudObject('cicada-client-user')
+    const next = importCloudObject('cicada-client-user')
+    if (next) userCloudObject = next
   }
   if (!userCloudObject) {
     throw new Error('云对象 cicada-client-user 未连接，请先在 HBuilderX 关联云空间并部署该云对象')
@@ -84,6 +85,26 @@ export const getUserInfo = async () => {
   const userInfo = await getCloudObject().getUserInfo({ token }).then(unwrapCloudResult)
   uni.setStorageSync('userInfo', userInfo || {})
   uni.setStorageSync('isLoggedIn', true)
+  return userInfo
+}
+
+// 用户自助修改资料（昵称/头像）。avatar 传 cloud:// fileID，成功后回写本地登录态
+export const updateProfile = async ({ nickname, avatar } = {}) => {
+  const token = getToken()
+  if (!token) {
+    clearAuthSession()
+    throw new Error('未登录')
+  }
+  const cloudObject = getCloudObject()
+  if (typeof cloudObject.updateProfile !== 'function') {
+    throw new Error('云端资料修改方法未部署，请重新部署 cicada-client-user')
+  }
+  const payload = { token }
+  if (nickname !== undefined) payload.nickname = nickname
+  if (avatar !== undefined) payload.avatar = avatar
+
+  const userInfo = await cloudObject.updateProfile(payload).then(unwrapCloudResult)
+  uni.setStorageSync('userInfo', userInfo || {})
   return userInfo
 }
 

@@ -1,3 +1,5 @@
+import { toCustomerErrorMessage } from './customer-error.js'
+
 const RETRYABLE_LOGIN_PATTERNS = [
 	/网络|超时|timeout|request:fail|服务繁忙|系统繁忙|temporarily|network/i,
 	/云服务未连接|云服务未初始化|请求失败/i
@@ -8,15 +10,15 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 export const getLoginErrorMessage = (error) => {
 	const message = String((error && (error.message || error.errMsg || error.msg)) || '登录失败')
 	if (/WX_APPID|WX_SECRET|AppID|Secret/i.test(message)) {
-		return '登录服务未配置微信小程序 AppID/Secret，请联系管理员检查 uniCloud 环境变量'
+		return '登录服务暂时不可用，请稍后重试或联系客服'
 	}
 	if (/40029|40163|凭证|code/i.test(message)) {
 		return '微信登录凭证已失效，请重新点击登录'
 	}
 	if (/access_token|40001|42001/i.test(message)) {
-		return '微信接口凭证失效，请稍后重试；若持续失败请联系管理员检查小程序后台配置'
+		return '登录服务暂时不可用，请稍后重试或联系客服'
 	}
-	return message
+	return toCustomerErrorMessage(error, message)
 }
 
 export const isRetryableLoginError = (error) => {

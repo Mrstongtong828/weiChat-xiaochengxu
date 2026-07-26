@@ -208,6 +208,10 @@ const saveUser = async () => {
     ElMessage.warning('请输入登录密码')
     return
   }
+  if (userForm.password && (userForm.password.length < 10 || !/[A-Za-z]/.test(userForm.password) || !/\d/.test(userForm.password))) {
+    ElMessage.warning('登录密码至少需要 10 位，并同时包含字母和数字')
+    return
+  }
 
   loading.value = true
   try {
@@ -263,7 +267,7 @@ const confirmResetPassword = async (user) => {
   if (!user) return
   try {
     await ElMessageBox.confirm(
-      `确定将 ${user.roleDisplay || '账号'} [${user.name || user.username}] 的密码重置为系统默认密码 123456 吗？`,
+      `确定将 ${user.roleDisplay || '账号'} [${user.name || user.username}] 的密码重置为一次性临时密码吗？`,
       '重置密码确认',
       {
         confirmButtonText: '确认重置',
@@ -274,8 +278,12 @@ const confirmResetPassword = async (user) => {
 
     loading.value = true
     const token = localStorage.getItem('adminToken')
-    await resetUserPassword(token, user._id)
-    ElMessage.success('密码已重置为 123456，请提醒用户登录后立即修改密码')
+    const result = await resetUserPassword(token, user._id)
+    await ElMessageBox.alert(
+      `临时密码：${result.temporaryPassword}\n\n该密码仅在此处显示，请通过安全渠道交给用户，并提醒其登录后立即修改。`,
+      '密码已重置',
+      { confirmButtonText: '我已记录', type: 'success' }
+    )
     await loadUsers()
   } catch (error) {
     if (error !== 'cancel') {

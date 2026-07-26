@@ -4,12 +4,36 @@ const crypto = require('crypto')
 const TOKEN_EXPIRE = 7 * 24 * 3600 * 1000 // 7天
 
 const RATE_LIMITS = {
-  login: { windowMs: 60 * 1000, max: 30 },
-  feedback: { windowMs: 60 * 1000, max: 10 }
+  // 登录主限流按 IP，避免用 code 分桶被刷穿 jscode2session
+  login: { windowMs: 60 * 1000, max: 20 },
+  feedback: { windowMs: 60 * 1000, max: 10 },
+  feedback_day: { windowMs: 24 * 60 * 60 * 1000, max: 30 }
 }
 
 function genToken() {
   return crypto.randomBytes(32).toString('hex')
+}
+
+function isAuthErrorMessage(message = '') {
+  return /鉴权失败|Token已过期|未登录|账号已禁用|账号已注销|内部员工账号/i.test(String(message || ''))
+}
+
+function fail(error, fallbackMessage = '请求失败') {
+  const message = (error && error.message) || fallbackMessage
+  if (isAuthErrorMessage(message)) {
+    return { code: 401, msg: message, message }
+  }
+  return { code: -1, msg: message, message }
+}
+
+function isAllowedFeedbackImage(url = '') {
+  const value = normalizeText(url)
+  if (!value) return false
+  if (/^cloud:\/\//i.test(value)) return true
+  if (/^https:\/\//i.test(value) && /tcb\.qcloud\.la|file\.myqcloud\.com|cloudbase|unicloud|aliyuncs\.com|bspapp\.com/i.test(value)) {
+    return true
+  }
+  return false
 }
 
 function stableDocumentId(prefix, value) {
@@ -98,7 +122,7 @@ function normalizeFeedbackImages(images) {
       return item.fileID || item.fileId || item.cloudUrl || item.url || item.fileUrl || item.path || ''
     })
     .map(normalizeText)
-    .filter(Boolean)
+    .filter(isAllowedFeedbackImage)
     .slice(0, 3)
 }
 
@@ -226,7 +250,7 @@ module.exports = {
       if (!appId || !secret) {
         return { code: -1, message: '请先配置微信小程序 WX_APPID 和 WX_SECRET' }
       }
-      await checkRateLimit('login', `${getClientIdentity(this)}:${code || 'empty'}`)
+      await checkRateLimit('login', getClientIdentity(this))
 
       const openid = await getWechatOpenid(appId, secret, code)
 
@@ -253,10 +277,18 @@ module.exports = {
         role = 'user'
       } else {
         const user = found.data[0]
+        if (user.disabled || user.status === 'cancelled') {
+          return { code: 401, msg: '账号已禁用或已注销', message: '账号已禁用或已注销' }
+        }
+        // 员工账号不得通过小程序 openid 登录拿到 staff token
+        const staffRoles = ['superadmin', 'admin', 'engineer', 'finance', 'support']
+        if (staffRoles.includes(String(user.role || ''))) {
+          return { code: 401, msg: '该账号为内部员工账号，请使用后台登录', message: '该账号为内部员工账号，请使用后台登录' }
+        }
         userId = user._id
-        role = user.role
+        role = 'user'
         savedPhone = user.phone || ''
-        const update = { last_login: now, token, token_expire: tokenExpire }
+        const update = { last_login: now, token, token_expire: tokenExpire, role: 'user' }
         await col.doc(userId).update(update)
       }
 
@@ -268,13 +300,28 @@ module.exports = {
         data: {
           token,
           userId,
-          role,
+          role: 'user',
           phoneAuthorized: Boolean(savedPhone),
-          userInfo: buildUserInfo({ phone: savedPhone, role }, userId)
+          userInfo: buildUserInfo({ phone: savedPhone, role: 'user' }, userId)
         }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
+    }
+  },
+
+
+  async logout({ token }) {
+    try {
+      const user = await verifyUserToken(token)
+      await db.collection('cicada_users').doc(user._id).update({
+        token: '',
+        token_expire: 0,
+        update_time: Date.now()
+      })
+      return { code: 0, msg: '已退出登录' }
+    } catch (e) {
+      return fail(e)
     }
   },
 
@@ -283,7 +330,44 @@ module.exports = {
       const user = await verifyUserToken(token)
       return { code: 0, data: buildUserInfo(user, user._id) }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
+    }
+  },
+
+  // 用户自助修改资料：昵称 / 头像（微信已禁止自动获取昵称头像，只能由用户主动填写/选择）
+  // avatar 传入的是客户端上传云存储后得到的 cloud:// fileID，原样存储，读取时前端转临时链接
+  async updateProfile({ token, nickname, avatar }) {
+    try {
+      const user = await verifyUserToken(token)
+      const update = {}
+      // 只更新本次实际传入的字段：未传（undefined）跳过，传空串视为清空
+      if (nickname !== undefined) {
+        const value = normalizeText(nickname)
+        if (value.length > 30) return { code: -1, msg: '昵称过长（最多 30 个字符）' }
+        update.nickname = value
+      }
+      if (avatar !== undefined) {
+        update.avatar = normalizeText(avatar)
+      }
+      if (!Object.keys(update).length) return { code: -1, msg: '没有可更新的资料' }
+
+      update.update_time = Date.now()
+      await db.collection('cicada_users').doc(user._id).update(update)
+
+      // 同步到客户档案（cicada_customers），失败不阻断资料更新主流程
+      try {
+        await ensureCustomerProfile(user._id, user.openid, user.phone, {
+          nickname: update.nickname !== undefined ? update.nickname : user.nickname,
+          avatar: update.avatar !== undefined ? update.avatar : user.avatar
+        })
+      } catch (syncErr) {
+        console.warn('[updateProfile] 同步客户档案失败:', syncErr && syncErr.message)
+      }
+
+      const merged = { ...user, ...update }
+      return { code: 0, data: buildUserInfo(merged, user._id) }
+    } catch (e) {
+      return fail(e)
     }
   },
 
@@ -331,7 +415,7 @@ module.exports = {
       }
       return { code: 0, msg: '账号已注销' }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -370,7 +454,7 @@ module.exports = {
         return { code: 0, data: list.data }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -380,7 +464,7 @@ module.exports = {
       const userId = user._id
       const col = db.collection('cicada_user_devices')
       if (action === 'add') {
-        const data = pickFields(device, ['product_name', 'sn', 'buy_date', 'warranty_status'])
+        const data = pickFields(device, ['product_name', 'sn', 'buy_date'])
         const sn = normalizeText(data.sn)
         if (!sn) return { code: -1, msg: '请填写设备序列号(SN)' }
         data.sn = sn
@@ -400,7 +484,7 @@ module.exports = {
         return { code: 0, data: { id: res.id } }
       } else if (action === 'edit') {
         if (!device || !device._id) return { code: -1, msg: '缺少设备ID' }
-        const data = pickFields(device, ['product_name', 'sn', 'buy_date', 'warranty_status'])
+        const data = pickFields(device, ['product_name', 'sn', 'buy_date'])
         if (!Object.keys(data).length) return { code: -1, msg: '没有可更新的设备字段' }
         // 若修改 SN，需保证非空且不与其他设备（含他人）重复
         if (Object.prototype.hasOwnProperty.call(data, 'sn')) {
@@ -431,7 +515,7 @@ module.exports = {
         return { code: 0, data: list.data }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -439,12 +523,26 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       await checkRateLimit('feedback', user._id)
+      await checkRateLimit('feedback_day', user._id, RATE_LIMITS.feedback_day)
       const feedbackType = normalizeText(type)
       const feedbackContent = normalizeText(content)
       const feedbackImages = normalizeFeedbackImages(images)
       if (!['投诉', '建议'].includes(feedbackType)) return { code: -1, msg: '反馈类型不正确' }
       if (!feedbackContent) return { code: -1, msg: '反馈内容不能为空' }
       if (feedbackContent.length > 500) return { code: -1, msg: '反馈内容不能超过500字' }
+      const linkedOrderNo = normalizeText(rel_order_no).slice(0, 50)
+      if (linkedOrderNo) {
+        const orderRes = await db.collection('cicada_orders')
+          .where(db.command.or([
+            { order_no: linkedOrderNo, user_id: user._id },
+            { _id: linkedOrderNo, user_id: user._id }
+          ]))
+          .limit(1)
+          .get()
+        if (!orderRes.data || !orderRes.data.length) {
+          return { code: -1, msg: '关联工单不存在或无权限' }
+        }
+      }
       const res = await db.collection('cicada_feedbacks').add({
         user_id: user._id,
         type: feedbackType,
@@ -452,13 +550,13 @@ module.exports = {
         images: feedbackImages,
         contact_type: normalizeText(contact_type).slice(0, 30),
         contact_value: normalizeText(contact_value).slice(0, 80),
-        rel_order_no: normalizeText(rel_order_no).slice(0, 50),
+        rel_order_no: linkedOrderNo,
         status: '待处理',
         create_time: Date.now()
       })
       return { code: 0, data: { id: res.id, ticketNo: res.id, images: feedbackImages } }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   },
 
@@ -511,7 +609,7 @@ module.exports = {
         }
       }
     } catch (e) {
-      return { code: -1, msg: e.message }
+      return fail(e)
     }
   }
 }

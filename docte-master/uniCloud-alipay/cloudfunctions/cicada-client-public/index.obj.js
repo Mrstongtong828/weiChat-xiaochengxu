@@ -12,6 +12,40 @@ function loadSubscriptionMessageModule() {
 const CACHE_TTL = 5 * 60 * 1000
 const cacheStore = Object.create(null)
 
+// 小程序公开可读的 settings key 白名单；禁止全表扫描，避免对公账户/打印模板等泄漏
+const PUBLIC_SETTING_KEYS = new Set([
+  'warranty_policy',
+  'warranty_policy_sections',
+  'fee_description',
+  'fee_policy',
+  'home_guide_popup_enabled',
+  'home_guide_popup_content',
+  'contact_phone',
+  'contact_email',
+  'contact_address',
+  'work_time',
+  'company_name',
+  'bank_transfer_company_name',
+  'bank_transfer_tax_no',
+  'bank_transfer_address_phone',
+  'bank_transfer_bank_name',
+  'bank_transfer_account_no',
+  'bank_transfer_line_no',
+  'customer_service_title',
+  'customer_service_desc',
+  'customer_service_wechat',
+  'customer_service_qrcode',
+  'wechat_name',
+  'wechat_desc',
+  'wechat_qrcode',
+  'privacy_policy',
+  'account_cancellation_policy',
+  'qualifications',
+  'survey_config'
+])
+
+const SURVEY_RATE_LIMIT = { windowMs: 60 * 60 * 1000, max: 5 }
+
 function getCache(key) {
   const cache = cacheStore[key]
   if (!cache || Date.now() > cache.expireAt) return null
@@ -23,6 +57,52 @@ function setCache(key, data, ttl = CACHE_TTL) {
     data,
     expireAt: Date.now() + ttl
   }
+}
+
+function getClientIdentity(ctx, fallback = 'anonymous') {
+  const clientInfo = ctx && ctx.getClientInfo ? ctx.getClientInfo() : {}
+  return clientInfo.clientIP || clientInfo.ip || clientInfo.userAgent || fallback
+}
+
+async function checkRateLimit(scope, identity, config) {
+  if (!identity || !config) return
+  const now = Date.now()
+  const key = `${scope}:${identity}`
+  const col = db.collection('cicada_rate_limits')
+  const found = await col.where({ key }).limit(1).get()
+  const record = found.data[0]
+  if (!record || now > record.reset_time) {
+    if (record) {
+      await col.doc(record._id).update({
+        count: 1,
+        reset_time: now + config.windowMs,
+        update_time: now
+      })
+    } else {
+      await col.add({
+        key,
+        scope,
+        identity,
+        count: 1,
+        reset_time: now + config.windowMs,
+        create_time: now,
+        update_time: now
+      })
+    }
+    return
+  }
+  if (record.count >= config.max) {
+    throw new Error('操作过于频繁，请稍后再试')
+  }
+  await col.doc(record._id).update({
+    count: db.command.inc(1),
+    update_time: now
+  })
+}
+
+function isClientAudienceGuide(item = {}) {
+  const audience = String(item.audience || 'client').trim().toLowerCase()
+  return !audience || audience === 'client' || audience === 'public' || audience === 'all'
 }
 
 const GUIDE_CATEGORY_ALIASES = {
@@ -146,6 +226,8 @@ module.exports = {
 
   async submitSurvey(data = {}) {
     try {
+      await checkRateLimit('survey', getClientIdentity(this), SURVEY_RATE_LIMIT)
+
       const configRes = await db.collection('cicada_settings').where({ key: 'survey_config' }).limit(1).get()
       const config = parseSurveyConfig(configRes.data && configRes.data[0] && configRes.data[0].value)
       if (config.enabled === false) return { code: -1, msg: '调研表暂未启用' }
@@ -160,8 +242,23 @@ module.exports = {
       if (!rating) return { code: -1, msg: '请选择服务评分' }
       if (!safeText(data.resolved, 30)) return { code: -1, msg: '请选择问题是否解决' }
 
+      // 不信任客户端伪造的 user_id；有 token 时才绑定真实用户
+      let userId = ''
+      const token = safeText(data.token, 128)
+      if (token) {
+        try {
+          const userRes = await db.collection('cicada_users').where({ token }).limit(1).get()
+          const user = userRes.data && userRes.data[0]
+          if (user && !user.disabled && user.token_expire && Date.now() <= user.token_expire) {
+            userId = user._id || ''
+          }
+        } catch (authErr) {
+          userId = ''
+        }
+      }
+
       const res = await db.collection('cicada_surveys').add({
-        user_id: safeText(data.user_id, 60),
+        user_id: userId,
         order_no: safeText(data.orderNo || data.order_no, 80),
         satisfaction: safeText(data.satisfaction, 30),
         rating,
@@ -232,13 +329,25 @@ module.exports = {
 
   async getSettings({ keys } = {}) {
     try {
-      const query = keys && keys.length > 0
-        ? db.collection('cicada_settings').where({ key: db.command.in(keys) })
-        : db.collection('cicada_settings')
-      const res = await query.get()
+      const requested = Array.isArray(keys)
+        ? keys.map(key => String(key || '').trim()).filter(Boolean)
+        : []
+      if (!requested.length) {
+        return { code: -1, msg: '请指定要读取的配置项' }
+      }
+      const allowedKeys = [...new Set(requested.filter(key => PUBLIC_SETTING_KEYS.has(key)))]
+      if (!allowedKeys.length) {
+        return { code: 0, data: {} }
+      }
+
+      const res = await db.collection('cicada_settings')
+        .where({ key: db.command.in(allowedKeys) })
+        .get()
       const settings = {}
       res.data.forEach(item => {
-        settings[item.key] = item.value
+        if (PUBLIC_SETTING_KEYS.has(item.key)) {
+          settings[item.key] = item.value
+        }
       })
       return { code: 0, data: settings }
     } catch (e) {
@@ -248,14 +357,17 @@ module.exports = {
 
   async getGuides({ forceRefresh = false } = {}) {
     try {
-      const cacheKey = 'guides:all'
+      const cacheKey = 'guides:client'
       if (!forceRefresh) {
         const cached = getCache(cacheKey)
         if (cached) return { code: 0, data: cached, cache: true }
       }
 
       const res = await db.collection('cicada_guides').orderBy('sort', 'asc').get()
-      const guides = res.data.map(item => normalizeGuide(item))
+      // 工程师内部指南不暴露给小程序端
+      const guides = res.data
+        .filter(isClientAudienceGuide)
+        .map(item => normalizeGuide(item))
       setCache(cacheKey, guides)
       return { code: 0, data: guides }
     } catch (e) {
@@ -266,7 +378,7 @@ module.exports = {
   async getGuide({ type = '', forceRefresh = false } = {}) {
     try {
       const guideType = String(type || '').trim()
-      const cacheKey = `guide:${guideType || 'default'}`
+      const cacheKey = `guide:client:${guideType || 'default'}`
       if (!forceRefresh) {
         const cached = getCache(cacheKey)
         if (cached) return { code: 0, data: cached, cache: true }
@@ -275,8 +387,10 @@ module.exports = {
       const aliases = GUIDE_CATEGORY_ALIASES[guideType] || [guideType]
       const res = await db.collection('cicada_guides').orderBy('sort', 'asc').get()
       const matched = res.data.find(item =>
-        item.type === guideType ||
-        aliases.some(alias => item.category && item.category.includes(alias))
+        isClientAudienceGuide(item) && (
+          item.type === guideType ||
+          aliases.some(alias => item.category && item.category.includes(alias))
+        )
       )
 
       if (!matched) return { code: 0, data: null }

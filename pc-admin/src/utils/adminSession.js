@@ -5,6 +5,7 @@ let sessionExpiredNotified = false
 export const clearAdminSession = () => {
   localStorage.removeItem('adminToken')
   localStorage.removeItem('adminUser')
+  localStorage.removeItem('adminMustChangePassword')
 }
 
 export const handleSessionExpired = (message = '登录已过期，请重新登录') => {

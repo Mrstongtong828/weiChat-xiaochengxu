@@ -144,12 +144,12 @@ function addMonthsToDateStr(dateStr, months) {
   return `${y}-${mo}-${day}`
 }
 
-// 计算设备实际质保到期（取基础质保与所有延保中的最晚值）与状态
-// 若未填 warranty_expire 但有 buy_date + warranty_months(默认12)，则自动推算基础到期日
+// 计算设备实际质保到期（取基础质保与所有延保中的最晚值）与状态。
+// 仅在明确填写质保月数时才由采购日期推算；资料缺失保持 unknown，避免误判收费。
 function computeWarranty(device) {
   let expire = normalizeText(device.warranty_expire)
-  if (!expire && normalizeText(device.buy_date)) {
-    const months = Number(device.warranty_months) > 0 ? Number(device.warranty_months) : 12
+  const months = Number(device.warranty_months)
+  if (!expire && normalizeText(device.buy_date) && Number.isFinite(months) && months > 0) {
     expire = addMonthsToDateStr(device.buy_date, months)
   }
   let expireTs = toTimestamp(expire)
@@ -704,6 +704,7 @@ module.exports = {
           productCategory: device ? (device.product_category || '') : '',
           model: device ? (device.model || '') : '',
           buyDate: device ? (device.buy_date || '') : '',
+          warrantyMonths: device ? (Number(device.warranty_months || 0) || 0) : 0,
           warrantyExpire: warranty.effective_expire || '',
           warrantyStatus: warranty.warranty_state,
           inWarranty,

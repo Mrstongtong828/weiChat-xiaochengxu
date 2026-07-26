@@ -29,12 +29,16 @@ defineEmits(['select'])
 	right: 0;
 	bottom: 0;
 	z-index: 70;
-	height: calc(84rpx + constant(safe-area-inset-bottom));
-	height: calc(84rpx + env(safe-area-inset-bottom));
-	padding: 4rpx 34rpx constant(safe-area-inset-bottom);
-	padding: 4rpx 34rpx env(safe-area-inset-bottom);
+	/* 固定内容区 96rpx，底部再叠加安全区；无 Home Indicator 的设备（安卓/旧机型
+	   safe-area-inset-bottom=0）用 max() 兜底 16rpx，避免图标文字贴死屏幕最底边显得偏低 */
+	height: calc(96rpx + constant(safe-area-inset-bottom));
+	height: calc(96rpx + max(env(safe-area-inset-bottom), 16rpx));
+	padding-left: 34rpx;
+	padding-right: 34rpx;
+	padding-bottom: constant(safe-area-inset-bottom);
+	padding-bottom: max(env(safe-area-inset-bottom), 16rpx);
 	display: flex;
-	align-items: flex-end;
+	align-items: center;
 	justify-content: space-around;
 	border-top: 2rpx solid #E4ECF7;
 	background: #FFFFFF;

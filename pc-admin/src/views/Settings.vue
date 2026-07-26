@@ -44,7 +44,8 @@
           <span>过保收费阶梯模板</span>
           <el-button type="primary" link @click="addFeeTier">+ 新增收费项</el-button>
         </div>
-        <div v-if="!feeTiers.length" class="empty-tip">预设检测费、基础维修费、加急服务费等标准价，报价弹窗可一键带出；小程序收费指南展示价格表。</div>
+        <div class="sub-label">预设检测费、基础维修费、加急服务费等标准价，仅用于后台「维修报价」弹窗一键带出，不在小程序端展示。小程序收费说明以上方「收费办法说明」为准。</div>
+        <div v-if="!feeTiers.length" class="empty-tip">暂无收费项，点击右上角「新增收费项」添加。</div>
         <el-table v-else :data="feeTiers" class="modern-table" style="width:100%;">
           <el-table-column label="收费项" width="200">
             <template #default="{ row }"><el-input v-model="row.name" placeholder="如 检测费 / 加急服务费" /></template>

@@ -18,7 +18,6 @@
         <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><span>客户管理</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><span>产品故障知识库</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><span>投诉与建议</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('summary')" index="summary"><el-icon><DataAnalysis /></el-icon><span>运营统计</span></el-menu-item>
         <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><span>小程序配置</span></el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
@@ -44,7 +43,7 @@
         <div class="header-actions">
           <el-button type="primary" plain round size="small" class="visit-miniapp-btn" @click="openMiniappDialog"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
           <el-dropdown>
-            <el-avatar :size="40" class="admin-avatar" src="https://dummyimage.com/80x80/e8f3ff/165DFF.png&text=Admin"></el-avatar>
+            <el-avatar :size="40" class="admin-avatar"><el-icon :size="20"><User /></el-icon></el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-if="canAccessMenu('users')" @click="handleMenuSelect('users')"><el-icon><Setting /></el-icon>用户管理</el-dropdown-item>
@@ -67,7 +66,7 @@
 
     <el-drawer v-model="profileDrawerVisible" title="个人信息" direction="rtl" :size="isMobile ? '100%' : '400px'">
       <div class="profile-avatar">
-        <el-avatar :size="80" src="https://dummyimage.com/64x64/e8f3ff/165DFF.png&text=Admin"></el-avatar>
+        <el-avatar :size="80" class="admin-avatar"><el-icon :size="40"><User /></el-icon></el-avatar>
       </div>
       <el-form :model="profileForm" label-width="90px">
         <el-form-item label="登录账号"><el-input v-model="profileForm.username" disabled></el-input></el-form-item>
@@ -97,14 +96,14 @@
       </div>
     </el-dialog>
 
-    <el-dialog title="修改登录密码" v-model="pwdDialogVisible" width="400px" align-center>
+    <el-dialog title="修改登录密码" v-model="pwdDialogVisible" width="400px" align-center :show-close="!forcedPasswordChange" :close-on-click-modal="!forcedPasswordChange" :close-on-press-escape="!forcedPasswordChange">
       <el-form :model="pwdForm" label-width="100px">
         <el-form-item label="原密码"><el-input v-model="pwdForm.oldPassword" type="password" show-password placeholder="请输入原密码"></el-input></el-form-item>
         <el-form-item label="新密码"><el-input v-model="pwdForm.newPassword" type="password" show-password placeholder="请输入新密码"></el-input></el-form-item>
         <el-form-item label="确认新密码"><el-input v-model="pwdForm.confirmPassword" type="password" show-password placeholder="请再次输入新密码"></el-input></el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="pwdDialogVisible = false">取消</el-button>
+        <el-button v-if="!forcedPasswordChange" @click="pwdDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="pwdSaving" @click="saveNewPassword">确认修改</el-button>
       </template>
     </el-dialog>
@@ -135,7 +134,6 @@ const menuTitles = {
   users: '用户管理',
   settings: '小程序图文及政策配置',
   feedback: '客户投诉与建议列表',
-  summary: '运营汇总看板',
   audit: '工单操作审计日志（合规备查）'
 }
 
@@ -146,6 +144,7 @@ const activeMenu = ref(getMenuFromPath())
 const profileDrawerVisible = ref(false)
 const profileForm = reactive({ username: '', realName: '', phone: '', role: '' })
 const pwdDialogVisible = ref(false)
+const forcedPasswordChange = ref(localStorage.getItem('adminMustChangePassword') === '1')
 const pwdSaving = ref(false)
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
 
@@ -233,8 +232,8 @@ const saveNewPassword = async () => {
     ElMessage.warning('请完整填写密码信息')
     return
   }
-  if (pwdForm.newPassword.length < 6) {
-    ElMessage.warning('新密码至少需要 6 位')
+  if (pwdForm.newPassword.length < 10 || !/[A-Za-z]/.test(pwdForm.newPassword) || !/\d/.test(pwdForm.newPassword)) {
+    ElMessage.warning('新密码至少需要 10 位，并同时包含字母和数字')
     return
   }
   if (pwdForm.newPassword === pwdForm.oldPassword) {
@@ -253,6 +252,7 @@ const saveNewPassword = async () => {
     pwdDialogVisible.value = false
     localStorage.removeItem('adminToken')
     localStorage.removeItem('adminUser')
+    localStorage.removeItem('adminMustChangePassword')
     ElMessage.success('密码修改成功，请使用新密码重新登录')
     router.push('/login')
   } catch (error) {
@@ -267,6 +267,10 @@ watch(() => route.path, () => { activeMenu.value = getMenuFromPath() })
 onMounted(() => {
   checkMobile()
   syncProfileFromStorage()
+  if (forcedPasswordChange.value) {
+    ElMessage.warning('当前使用临时密码，请先修改登录密码')
+    openPwdDialog()
+  }
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => { window.removeEventListener('resize', checkMobile) })

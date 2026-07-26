@@ -84,6 +84,7 @@
 					placeholder-class="input-placeholder"
 				></textarea>
 				<view class="recognize-btn tap" @click="recognizeAddress">确认识别</view>
+				<view class="map-location-btn tap" @click="chooseMapLocation"><view class="field-pin"></view><text>地图搜索地址</text></view>
 			</view>
 
 			<view class="form-card">
@@ -153,6 +154,7 @@ import {
 	updateAddress,
 	deleteAddress as removeAddressRemote
 } from '@/api/content'
+import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 
 const STORAGE_KEY = 'receiverAddressList'
 
@@ -171,6 +173,7 @@ const toRemotePayload = (item = {}) => ({
 	isDefault: Boolean(item.isDefault)
 })
 
+const addressSaving = ref(false)
 const addresses = ref([])
 const showForm = ref(false)
 
@@ -282,6 +285,29 @@ const onRegionChange = (event) => {
 	form.value.region = event.detail.value || []
 }
 
+const chooseMapLocation = () => {
+	if (!uni.chooseLocation) {
+		uni.showToast({ title: '当前环境暂不支持地图选址', icon: 'none' })
+		return
+	}
+	uni.chooseLocation({
+		success: ({ address = '', name = '' } = {}) => {
+			const selectedAddress = [address, name].filter((item, index, list) => item && list.indexOf(item) === index).join(' ')
+			if (!selectedAddress) {
+				uni.showToast({ title: '未获取到地址，请重新选择', icon: 'none' })
+				return
+			}
+			form.value.detail = selectedAddress
+			uni.showToast({ title: '地址已带入，请核对', icon: 'none' })
+		},
+		fail: (error) => {
+			if (!String(error && error.errMsg || '').includes('cancel')) {
+				uni.showToast({ title: '地图选址失败，请手动填写', icon: 'none' })
+			}
+		}
+	})
+}
+
 const validContacts = (item) => normalizeContactPhones(item.contactPhones).filter(Boolean)
 
 const fullAddress = (item) => {
@@ -359,12 +385,14 @@ const validatePhones = () => {
 }
 
 const saveAddress = async () => {
+	if (addressSaving.value) return
 	if (!form.value.receiver.trim() || !form.value.phone || !form.value.detail.trim()) {
 		uni.showToast({ title: '请完善地址信息', icon: 'none' })
 		return
 	}
 
 	if (!validatePhones()) return
+	addressSaving.value = true
 
 	const now = Date.now()
 	const payload = {
@@ -408,11 +436,13 @@ const saveAddress = async () => {
 	} catch (error) {
 		uni.hideLoading()
 		console.warn('save address to cloud failed:', error)
-		uni.showToast({ title: error.message || '云端保存失败，已暂存本机', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '暂时无法同步，已先保存在本机'), icon: 'none' })
 		setTimeout(() => {
 			showForm.value = false
 			form.value = emptyForm()
 		}, 800)
+	} finally {
+		addressSaving.value = false
 	}
 }
 
@@ -923,6 +953,30 @@ const goBack = () => {
 	color: #1E6FE0;
 	font-size: 26rpx;
 	font-weight: 800;
+}
+
+.map-location-btn {
+	display: inline-flex;
+	align-items: center;
+	gap: 12rpx;
+	margin: 18rpx 0 0 16rpx;
+	padding: 14rpx 22rpx;
+	color: #0F766E;
+	font-size: 26rpx;
+	font-weight: 700;
+}
+
+.map-location-btn .field-pin {
+	width: 22rpx;
+	height: 27rpx;
+	background: #14B8A6;
+}
+
+.map-location-btn .field-pin::after {
+	left: 7rpx;
+	top: 7rpx;
+	width: 8rpx;
+	height: 8rpx;
 }
 
 .form-card {

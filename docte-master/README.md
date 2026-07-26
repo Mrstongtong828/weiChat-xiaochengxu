@@ -160,8 +160,12 @@ unpackage/              编译输出
 - `WX_PAY_NOTIFY_URL`
 - `WX_PAY_PRIVATE_KEY` 或 `WX_PAY_PRIVATE_KEY_BASE64`
 - `WX_PAY_API_V3_KEY`
+- `WX_PAY_PUBLIC_KEY_ID`
+- `WX_PAY_PUBLIC_KEY` 或 `WX_PAY_PUBLIC_KEY_BASE64`
 
-其中 `WX_PAY_NOTIFY_URL` 需要配置成 URL 化后的 `cicada-client-order/wechatPayNotify` 地址；否则前端主动同步仍可确认支付，但微信异步通知兜底不会生效。
+当前采用微信支付公钥模式。`WX_PAY_SERIAL_NO` 是商户 API 证书序列号；`WX_PAY_PUBLIC_KEY_ID` 是微信支付公钥 ID，两者不能混用。支付 API 成功响应和异步通知都会校验 `Wechatpay-Serial` 与公钥 ID，并使用下载的微信支付公钥验签。
+
+`WX_PAY_NOTIFY_URL` 需要配置成 URL 化后的 `cicada-client-order/wechatPayNotify` 地址。`admin.cicadadental.cn` 当前是 PC 后台静态托管域名，只有在网关已将请求体及全部 `Wechatpay-*` 请求头原样代理到云函数时，才能作为支付回调域名。
 
 ### 订阅消息提醒
 

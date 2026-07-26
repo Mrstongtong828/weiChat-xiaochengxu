@@ -3,6 +3,7 @@ const dbCmd = db.command
 const crypto = require('crypto')
 const { createAdminAuthError, toAdminErrorResponse, isAdminTokenExpired } = loadAdminAuthModule()
 const expressProvider = loadExpressProvider()
+const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 const {
   SUBSCRIPTION_CONFIG_SCENES,
   getSubscriptionTemplateKey,
@@ -31,6 +32,14 @@ function loadSubscriptionMessageModule() {
     return require('cicada-subscription-message')
   } catch (packageError) {
     return require('../common/cicada-subscription-message')
+  }
+}
+
+function loadWechatPayCryptoModule() {
+  try {
+    return require('cicada-wechat-pay-crypto')
+  } catch (packageError) {
+    return require('../common/cicada-wechat-pay-crypto')
   }
 }
 
@@ -306,7 +315,11 @@ async function fetchAdminOrderPage(matchCond, pagination) {
 // sharedUrlMap 传入时用共享映射（列表场景，整页一次换链接，避免 N+1）；
 // 不传时退回单订单自取（详情等单条场景）。
 async function enrichAdminOrderForList(order = {}, currentAdmin = {}, sharedUrlMap = null) {
-  const itemDetail = (order.itemsList && order.itemsList.length > 0) ? order.itemsList[0] : {}
+  // sharedUrlMap 同时覆盖订单级支付凭证与 item 级媒体（购买凭证/故障图/视频）的 cloud:// → 临时链接
+  const itemsList = sharedUrlMap
+    ? applyItemMediaUrlMap(order.itemsList || [], sharedUrlMap)
+    : (order.itemsList || [])
+  const itemDetail = (itemsList.length > 0) ? itemsList[0] : {}
   const orderWithProofs = sharedUrlMap
     ? { ...order, payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], sharedUrlMap) }
     : await enrichPaymentProofs(order)
@@ -320,7 +333,7 @@ async function enrichAdminOrderForList(order = {}, currentAdmin = {}, sharedUrlM
     sn: itemDetail.sn || '',
     buy_date: itemDetail.buy_date || '',
     fix_solution: itemDetail.fix_solution || '',
-    itemsList: order.itemsList || [],
+    itemsList,
     sla_info: getSlaInfo(order)
   }, currentAdmin)
 }
@@ -358,18 +371,24 @@ async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
   }
   orders.forEach(o => {
     const c = byId[normalizeText(o.customer_id)] || byUser[normalizeText(o.user_id)] || null
-    if (!c) return
+    // 下单时写入的 customer_type 快照优先；无快照时再回退 CRM 档案类型
+    const orderType = normalizeText(o.customer_type)
+    if (!c) {
+      o.customer_type = orderType
+      return
+    }
     const displayPhone = canViewFullPhone ? (c.phone || '') : maskPhone(c.phone)
+    const crmType = normalizeText(c.customer_type)
     o.customer = {
       id: c._id,
       name: c.name || '',
       phone: displayPhone,
-      customer_type: c.customer_type || '',
+      customer_type: crmType,
       tags: Array.isArray(c.tags) ? c.tags : []
     }
     o.customer_name = c.name || ''
     o.customer_phone = displayPhone
-    o.customer_type = c.customer_type || ''
+    o.customer_type = orderType || crmType
   })
 }
 
@@ -379,6 +398,9 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
   const allProofFileIds = []
   rawOrders.forEach(order => {
     collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || [])
+      .forEach(id => allProofFileIds.push(id))
+    // item 级媒体（购买凭证/故障图/视频）的 cloud:// 也一并纳入同一批换链接
+    collectItemMediaCloudFileIds(order.itemsList || [])
       .forEach(id => allProofFileIds.push(id))
   })
   const sharedUrlMap = await fetchTempUrlMap(allProofFileIds)
@@ -426,18 +448,41 @@ function normalizeWxPrivateKey(value = '') {
 }
 
 function getWechatPayPrivateKey() {
-  const base64Key = getEnvValue('WX_PAY_PRIVATE_KEY_BASE64', 'WXPAY_PRIVATE_KEY_BASE64', 'WECHAT_PAY_PRIVATE_KEY_BASE64')
+  const base64Key = getChunkedEnvValue(process.env, [
+    'WX_PAY_PRIVATE_KEY_BASE64',
+    'WXPAY_PRIVATE_KEY_BASE64',
+    'WECHAT_PAY_PRIVATE_KEY_BASE64'
+  ])
   if (base64Key) return Buffer.from(base64Key, 'base64').toString('utf8')
   return normalizeWxPrivateKey(getEnvValue('WX_PAY_PRIVATE_KEY', 'WXPAY_PRIVATE_KEY', 'WECHAT_PAY_PRIVATE_KEY'))
 }
 
+function getWechatPayPublicKeyConfig() {
+  const base64 = getChunkedEnvValue(process.env, [
+    'WX_PAY_PUBLIC_KEY_BASE64',
+    'WXPAY_PUBLIC_KEY_BASE64',
+    'WECHAT_PAY_PUBLIC_KEY_BASE64'
+  ])
+  const publicKey = base64
+    ? Buffer.from(base64, 'base64').toString('utf8')
+    : normalizePem(getEnvValue('WX_PAY_PUBLIC_KEY', 'WXPAY_PUBLIC_KEY', 'WECHAT_PAY_PUBLIC_KEY'))
+  const publicKeyId = getEnvValue('WX_PAY_PUBLIC_KEY_ID', 'WXPAY_PUBLIC_KEY_ID', 'WECHAT_PAY_PUBLIC_KEY_ID')
+  const missing = []
+  if (!publicKeyId) missing.push('WX_PAY_PUBLIC_KEY_ID')
+  if (!publicKey) missing.push('WX_PAY_PUBLIC_KEY 或 WX_PAY_PUBLIC_KEY_BASE64')
+  if (missing.length) throw new Error(`微信支付公钥模式暂未配置：${missing.join('、')}`)
+  return { publicKey, publicKeyId }
+}
+
 function getWechatPayConfig() {
+  const verifyConfig = getWechatPayPublicKeyConfig()
   const config = {
     appId: getEnvValue('WX_PAY_APPID', 'WXPAY_APPID', 'WECHAT_PAY_APPID', 'WX_APPID'),
     mchId: getEnvValue('WX_PAY_MCH_ID', 'WXPAY_MCH_ID', 'WECHAT_PAY_MCH_ID'),
     serialNo: getEnvValue('WX_PAY_SERIAL_NO', 'WXPAY_SERIAL_NO', 'WECHAT_PAY_SERIAL_NO'),
-    notifyUrl: getEnvValue('WX_PAY_REFUND_NOTIFY_URL', 'WX_PAY_NOTIFY_URL', 'WXPAY_NOTIFY_URL', 'WECHAT_PAY_NOTIFY_URL'),
-    privateKey: getWechatPayPrivateKey()
+    notifyUrl: getEnvValue('WX_PAY_REFUND_NOTIFY_URL', 'WXPAY_REFUND_NOTIFY_URL', 'WECHAT_PAY_REFUND_NOTIFY_URL'),
+    privateKey: getWechatPayPrivateKey(),
+    ...verifyConfig
   }
   const missing = []
   if (!config.mchId) missing.push('WX_PAY_MCH_ID')
@@ -467,18 +512,31 @@ async function requestWechatPay(method, url, body, config) {
   const res = await uniCloud.httpclient.request(`${WECHAT_PAY_API_BASE}${url}`, {
     method,
     data: bodyText || undefined,
-    dataType: 'json',
+    dataType: 'text',
     headers: {
       Authorization: buildWechatPayAuthorization(method, url, bodyText, config),
       Accept: 'application/json',
       'Content-Type': 'application/json'
     }
   })
+  const rawBody = Buffer.isBuffer(res.data) ? res.data.toString('utf8') : String(res.data || '')
+  let responseData = {}
+  try {
+    responseData = rawBody ? JSON.parse(rawBody) : {}
+  } catch (error) {
+    throw new Error('微信支付返回了无法解析的响应')
+  }
   if (res.status < 200 || res.status >= 300) {
-    const message = res.data && (res.data.message || res.data.code) ? `${res.data.message || res.data.code}` : `微信退款请求失败(${res.status})`
+    const message = responseData && (responseData.message || responseData.code) ? `${responseData.message || responseData.code}` : `微信退款请求失败(${res.status})`
     throw new Error(message)
   }
-  return res.data || {}
+  verifyWechatPaySignature({
+    headers: res.headers || {},
+    rawBody,
+    publicKey: config.publicKey,
+    publicKeyId: config.publicKeyId
+  })
+  return responseData
 }
 
 function getOrderPaidAmountFen(order = {}) {
@@ -711,7 +769,9 @@ function validateTrackingNo(rawNo, company = '') {
 // 免费/在保（total_price=0 或 charge_type='free'）无需付款，放行。返回拦截原因或 ''。
 function blockShipUnpaidReason(order = {}) {
   const totalPrice = Number(order.total_price || 0)
-  const isFree = order.charge_type === 'free' || totalPrice <= 0
+  // 质保未知/待补充时，即使当前金额还是 0，也不能直接当作免费放行。
+  const isFree = order.charge_type === 'free'
+    || (totalPrice <= 0 && order.charge_type !== 'pending' && order.warranty_status !== 'unknown')
   if (isFree) return ''
   if (order.payment_status !== 'paid') return '该工单尚未确认到账（payment_status≠paid），未支付不可录入发货物流'
   return ''
@@ -753,8 +813,6 @@ function normalizeSn(value) {
   return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
 }
 
-const DEFAULT_WARRANTY_MONTHS = 12
-
 // 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串（与 client-order 口径一致）
 function addMonthsToDateStr(dateStr, months) {
   const s = normalizeText(dateStr)
@@ -769,12 +827,27 @@ function addMonthsToDateStr(dateStr, months) {
   return `${yyyy}-${mm}-${dd}`
 }
 
-// 由设备/工单项推算质保到期日：优先 warranty_expire，否则 buy_date + warranty_months(默认12)
+// 由设备/工单项推算质保到期日：优先显式截止日，否则仅在明确填写月数时计算。
 function deriveWarrantyExpire(source = {}) {
   const stored = normalizeText(source.warranty_expire)
   if (stored) return stored
-  const months = Number(source.warranty_months) > 0 ? Number(source.warranty_months) : DEFAULT_WARRANTY_MONTHS
+  const months = Number(source.warranty_months)
+  if (!Number.isFinite(months) || months <= 0) return ''
   return addMonthsToDateStr(source.buy_date, months)
+}
+
+function computeWarrantyState(source = {}) {
+  const expire = deriveWarrantyExpire(source)
+  if (!expire) return { warranty_status: 'unknown', in_warranty: false, expire: '' }
+  const expireTs = new Date(`${expire}T23:59:59`).getTime()
+  if (Number.isNaN(expireTs)) return { warranty_status: 'unknown', in_warranty: false, expire: '' }
+  const inWarranty = Date.now() <= expireTs
+  const hasExtended = Array.isArray(source.ext_warranty) && source.ext_warranty.length
+  return {
+    warranty_status: inWarranty ? (hasExtended ? 'extended' : 'in_warranty') : 'expired',
+    in_warranty: inWarranty,
+    expire
+  }
 }
 
 // 重算工单级在保结论：逐个 SN 优先查已建档设备，否则用工单项购机日期推算。
@@ -782,6 +855,10 @@ function deriveWarrantyExpire(source = {}) {
 async function computeOrderWarrantyFromItems(items = []) {
   let anyInWarranty = false
   let anyEvaluated = false
+  let anyPendingReview = false
+  let anyFree = false
+  let anyPaid = false
+  const evaluatedItems = []
   for (const item of items) {
     const sn = normalizeText(item && item.sn)
     let device = null
@@ -795,19 +872,54 @@ async function computeOrderWarrantyFromItems(items = []) {
         device = res.data && res.data[0]
       } catch (e) { device = null }
     }
-    const source = device || { buy_date: item && item.buy_date }
-    const expire = deriveWarrantyExpire(source)
-    if (!expire) continue
+    const hasItemWarranty = Boolean(normalizeText(item && item.warranty_expire))
+      || (Number(item && item.warranty_months) > 0 && Boolean(normalizeText(item && item.buy_date)))
+    const source = hasItemWarranty ? {
+      ...(device || {}),
+      buy_date: item && item.buy_date,
+      warranty_months: item && item.warranty_months,
+      warranty_expire: item && item.warranty_expire
+    } : (device || {})
+    const warrantyState = computeWarrantyState(source)
+    if (warrantyState.warranty_status === 'unknown') continue
+    if (item) item.warranty_status = warrantyState.warranty_status
     anyEvaluated = true
-    const expireTs = new Date(`${expire}T23:59:59`).getTime()
-    if (!Number.isNaN(expireTs) && Date.now() <= expireTs) anyInWarranty = true
+    if (warrantyState.in_warranty) anyInWarranty = true
+    const coverageResult = normalizeText(item && item.coverage_result)
+    const isExplicitFree = coverageResult === 'free'
+    const isExplicitPaid = ['paid', 'partial', 'not_covered'].includes(coverageResult)
+    const isPendingCoverage = warrantyState.in_warranty && !coverageResult
+    if (isPendingCoverage || coverageResult === 'pending') anyPendingReview = true
+    if (isExplicitFree) anyFree = true
+    if (isExplicitPaid || (!warrantyState.in_warranty && coverageResult !== 'free')) anyPaid = true
+    evaluatedItems.push({
+      warranty_status: warrantyState.warranty_status,
+      coverage_result: coverageResult,
+      free: isExplicitFree && warrantyState.in_warranty
+    })
   }
   if (!anyEvaluated) return { in_warranty: false, warranty_status: 'unknown', charge_type: 'pending' }
+  const allExplicitFree = evaluatedItems.length > 0 && evaluatedItems.every(item => item.free)
   return {
     in_warranty: anyInWarranty,
     warranty_status: anyInWarranty ? 'in_warranty' : 'expired',
-    charge_type: anyInWarranty ? 'free' : 'paid'
+    charge_type: allExplicitFree ? 'free' : (anyPendingReview && !anyPaid && !anyFree ? 'pending' : 'paid')
   }
+}
+
+async function isOrderWarrantyFreeConfirmed(order = {}) {
+  if (!(order.charge_type === 'free' && Boolean(order.in_warranty) && ['in_warranty', 'extended'].includes(order.warranty_status))) {
+    return false
+  }
+  const itemKeys = [order._id, order.order_no].filter(Boolean)
+  if (!itemKeys.length) return false
+  const res = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+  const items = res.data || []
+  if (!items.length) return false
+  return items.every(item =>
+    normalizeText(item.coverage_result) === 'free'
+    && ['in_warranty', 'extended'].includes(normalizeText(item.warranty_status || order.warranty_status))
+  )
 }
 
 function normalizeInvoiceStatusFilter(value = '') {
@@ -997,7 +1109,7 @@ async function findOrderByNo(orderNo) {
 
 const INVOICE_STATUS = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收']
 const QUOTE_STATUS = ['pending', 'draft', 'issued', 'confirmed', 'rejected']
-const PAYMENT_STATUS = ['pending', 'uploaded', 'paid', 'rejected']
+const PAYMENT_STATUS = ['pending', 'uploaded', 'paid', 'rejected', 'not_required']
 const DEFAULT_PAYMENT_DEADLINE_DAYS = 7
 
 function normalizeInvoiceStatusValue(status = '') {
@@ -1381,7 +1493,7 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
   return { skipped: false, flows }
 }
 
-function buildQuoteData(quote = {}, now) {
+function buildQuoteData(quote = {}, now, order = {}) {
   const status = normalizeText(quote.status || quote.quote_status || quote.quoteStatus || 'draft') || 'draft'
   if (!QUOTE_STATUS.includes(status)) {
     throw new Error('报价状态不正确')
@@ -1426,7 +1538,36 @@ function buildQuoteData(quote = {}, now) {
     throw new Error('报价备注不能超过200字')
   }
 
-  if ((status === 'draft' || status === 'issued') && (!quoteItems.length || totalPrice <= 0 || autoTotal <= 0)) {
+  const isWarrantyFree = order.warranty_free_confirmed === true
+  if ((status === 'draft' || status === 'issued') && totalPrice <= 0) {
+    if (!isWarrantyFree) throw new Error('仅所有设备均明确为质保免费的工单可以发布零元质保方案')
+    quoteDetail = {
+      ...quoteDetail,
+      parts: [],
+      services: [{
+        name: '质保服务',
+        unit_price: 0,
+        quantity: 1,
+        amount: 0,
+        remark: quoteRemark || '原厂质保期内免收维修费用'
+      }],
+      others: [],
+      parts_total: 0,
+      services_total: 0,
+      others_total: 0,
+      auto_total: 0,
+      final_price: 0
+    }
+    quoteItems = [{
+      name: '质保服务',
+      desc: quoteRemark || '原厂质保期内免收维修费用',
+      parts_fee: 0,
+      labor_fee: 0
+    }]
+    partsFee = 0
+    laborFee = 0
+    autoTotal = 0
+  } else if ((status === 'draft' || status === 'issued') && (!quoteItems.length || autoTotal <= 0)) {
     throw new Error('请填写有效报价项目和金额')
   }
 
@@ -1496,6 +1637,37 @@ function applyProofUrlMap(proofs = [], urlMap = {}) {
           previewUrl: tempUrl
         }
       : proof
+  })
+}
+
+// 工单 item 上承载媒体 URL 的字段：购买凭证 / 故障图 / 视频 / 通用附件
+const ITEM_MEDIA_FIELDS = ['voucher_urls', 'image_urls', 'video_urls', 'media_urls']
+
+// 从 itemsList 里收集所有 cloud:// 媒体 fileID（去重）。这些图上传时存的是
+// cloud:// fileID，浏览器端（后台）无法直接渲染，必须换成临时 https 链接。
+function collectItemMediaCloudFileIds(itemsList = []) {
+  const ids = []
+  ;(Array.isArray(itemsList) ? itemsList : []).forEach(item => {
+    ITEM_MEDIA_FIELDS.forEach(field => {
+      const arr = item && item[field]
+      if (Array.isArray(arr)) arr.forEach(u => { if (isCloudFileId(u)) ids.push(u) })
+    })
+  })
+  return ids
+}
+
+// 用已算好的 urlMap 把 itemsList 里各媒体数组中的 cloud:// 逐个替换为临时链接（纯函数）
+function applyItemMediaUrlMap(itemsList = [], urlMap = {}) {
+  if (!Array.isArray(itemsList) || !itemsList.length) return itemsList
+  return itemsList.map(item => {
+    if (!item || typeof item !== 'object') return item
+    const next = { ...item }
+    ITEM_MEDIA_FIELDS.forEach(field => {
+      if (Array.isArray(next[field])) {
+        next[field] = next[field].map(u => (isCloudFileId(u) && urlMap[u]) ? urlMap[u] : u)
+      }
+    })
+    return next
   })
 }
 
@@ -1660,11 +1832,18 @@ function getDashboardMetrics(orders = [], feedbacks = [], startTime, endTime, gr
     paidAmount: 0,
     totalOrders: 0,
     totalFeedbacks: 0,
-    pendingFeedbacks: 0
+    pendingFeedbacks: 0,
+    // 各状态在库工单数（环形图「工单状态分布」用；不含 cancelled）
+    statusBreakdown: {
+      pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0
+    }
   }
 
   orders.forEach(order => {
     if (order.status !== 'cancelled') metrics.totalOrders += 1
+    if (Object.prototype.hasOwnProperty.call(metrics.statusBreakdown, order.status)) {
+      metrics.statusBreakdown[order.status] += 1
+    }
     const createTime = Number(order.create_time || 0)
     const completedTime = getOrderCompletedTime(order)
     const createKey = getTrendKey(createTime, granularity)
@@ -1763,6 +1942,8 @@ module.exports = {
         deviceModel = '',
         invoiceStatus = '',
         warrantyStatus = '',
+        customerType = '',
+        customer_type = '',
         todoType = '',
         slaLevel = '',
         responseMode = 'array'
@@ -1775,8 +1956,14 @@ module.exports = {
       const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
+      const normalizedCustomerType = normalizeText(customerType || customer_type)
+      if (normalizedCustomerType && !['clinic', 'dealer', 'individual'].includes(normalizedCustomerType)) {
+        return { code: -1, msg: '用户类型不正确' }
+      }
       const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
+      // customer_type 为订单快照等值字段，可直接下推；有 CRM 回退场景时 JS 过滤仍会兜底
+      if (directMatchCond && normalizedCustomerType) directMatchCond.customer_type = normalizedCustomerType
       const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedSlaLevel
 
       let list = []
@@ -1787,6 +1974,10 @@ module.exports = {
       if (canUseDirectQuery) {
         const pageResult = await fetchAdminOrderPage(directMatchCond, pagination)
         list = await enrichAdminOrdersForList(pageResult.rawOrders, currentAdmin)
+        // 快照为空、靠 CRM 回填类型的工单不在 DB 等值结果里；当前以订单快照筛选为准
+        if (normalizedCustomerType) {
+          list = list.filter(order => normalizeText(order.customer_type) === normalizedCustomerType)
+        }
         total = pageResult.total
         deviceModels = collectDeviceModelsFromOrders(list)
       } else {
@@ -1799,6 +1990,8 @@ module.exports = {
         //           绝不能下推可能误删有效行的条件（keyword/设备型号/SLA/发票状态默认值等仍留在 JS）。
         // 1) 在保状态：独立等值字段，系统写入值规范，直接下推
         if (normalizedWarrantyStatus) fallbackMatchCond.warranty_status = normalizedWarrantyStatus
+        // 1.5) 用户类型快照：下单写入的 customer_type，可等值下推
+        if (normalizedCustomerType) fallbackMatchCond.customer_type = normalizedCustomerType
         // 2) 直接型待办(inbound/payment/return)的 DB 条件与 matchesTodoType 完全等价；
         //    仅在未显式指定 status 时下推，避免与 status 参数的交集语义冲突（该冲突场景交给 JS 兜底）
         if (!status) {
@@ -1822,6 +2015,7 @@ module.exports = {
           const productSns = items.map(item => normalizeText(item.sn)).filter(Boolean)
           const invoiceInfo = order.invoice_info || {}
           const orderInvoiceStatus = normalizeInvoiceStatusFilter(invoiceInfo.status || (invoiceInfo.need_invoice ? '待开票' : '无需开票'))
+          const orderCustomerType = normalizeText(order.customer_type)
           const searchableText = [
             order.order_no,
             order._id,
@@ -1829,6 +2023,8 @@ module.exports = {
             order.product_name,
             order.product_model,
             order.fault_desc,
+            orderCustomerType,
+            order.customer_name,
             order.ship_back_info && order.ship_back_info.name,
             order.ship_back_info && order.ship_back_info.phone,
             order.ship_back_info && order.ship_back_info.unit,
@@ -1843,6 +2039,7 @@ module.exports = {
             (!normalizedDeviceModel || productModels.includes(normalizedDeviceModel)) &&
             (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
             (!normalizedWarrantyStatus || normalizeText(order.warranty_status) === normalizedWarrantyStatus) &&
+            (!normalizedCustomerType || orderCustomerType === normalizedCustomerType) &&
             matchesSlaFilter(order, normalizedSlaLevel)
         })
 
@@ -1904,11 +2101,18 @@ module.exports = {
       }
 
       const order = res.data[0]
-      const itemDetail = (order.itemsList && order.itemsList.length > 0) ? order.itemsList[0] : {}
 
-      const orderWithProofs = await enrichPaymentProofs(order)
+      // 详情页一次性把 item 级媒体 + 订单级支付凭证的 cloud:// 换成临时链接
+      const detailUrlMap = await fetchTempUrlMap([
+        ...collectItemMediaCloudFileIds(order.itemsList || []),
+        ...collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || [])
+      ])
+      const itemsList = applyItemMediaUrlMap(order.itemsList || [], detailUrlMap)
+      const itemDetail = (itemsList.length > 0) ? itemsList[0] : {}
+
       const orderData = stripPaymentProofsIfForbidden({
-        ...orderWithProofs,
+        ...order,
+        payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], detailUrlMap),
         product_name: itemDetail.product_name || '',
         product_model: itemDetail.product_model || '',
         fault_desc: itemDetail.fault_desc || '',
@@ -1916,7 +2120,7 @@ module.exports = {
         sn: itemDetail.sn || '',
         buy_date: itemDetail.buy_date || '',
         fix_solution: itemDetail.fix_solution || '',
-        itemsList: order.itemsList || []
+        itemsList
       }, currentAdmin)
 
       return { code: 0, data: orderData }
@@ -2639,6 +2843,19 @@ module.exports = {
         : { data: [] }
       const ownedItems = existingRes.data || []
       const ownedById = new Map(ownedItems.map(it => [String(it._id), it]))
+      const changesWarrantyEvidence = items.some(item => {
+        const owned = item && ownedById.get(normalizeText(item._id))
+        if (!owned) return false
+        const nextMonths = Math.max(0, Number(item.warranty_months || 0) || 0)
+        const nextExpire = normalizeText(item.warranty_expire)
+        const nextCoverage = normalizeText(item.coverage_result)
+        const nextReason = normalizeText(item.coverage_reason)
+        return nextMonths !== Math.max(0, Number(owned.warranty_months || 0) || 0)
+          || nextExpire !== normalizeText(owned.warranty_expire)
+          || nextCoverage !== normalizeText(owned.coverage_result)
+          || nextReason !== normalizeText(owned.coverage_reason)
+      })
+      if (changesWarrantyEvidence) assertRolePermission(currentAdmin, 'issue_quote')
 
       // 逐条更新工单项（仅限本工单下的项，按 _id 精确更新）
       for (const item of items) {
@@ -2646,19 +2863,55 @@ module.exports = {
         const owned = itemId && ownedById.get(itemId)
         if (!owned) continue // 跳过不属于本工单的项
         const sn = normalizeText(item.sn)
+        const rawCoverageResult = normalizeText(item.coverage_result)
+        const coverageResult = ['pending', 'free', 'paid', 'partial', 'not_covered'].includes(rawCoverageResult)
+          ? rawCoverageResult
+          : ''
         const patch = {
           product_category: normalizeText(item.product_category),
           product_model: normalizeText(item.product_model),
           sn,
           sn_normalized: normalizeSn(sn),
-          buy_date: normalizeText(item.buy_date)
+          buy_date: normalizeText(item.buy_date),
+          warranty_months: Math.max(0, Number(item.warranty_months || 0) || 0),
+          warranty_expire: normalizeText(item.warranty_expire),
+          coverage_result: coverageResult,
+          coverage_reason: normalizeText(item.coverage_reason),
+          coverage_note: normalizeText(item.coverage_note).slice(0, 500)
         }
         await db.collection('cicada_order_items').doc(itemId).update(patch).catch(() => {})
         Object.assign(owned, patch) // 同步内存副本，供下方在保重算
+
+        // 工单内明确补录的质保信息同步回 SN 设备档案，供后续报修复用。
+        const hasExplicitWarranty = Boolean(patch.warranty_expire) || patch.warranty_months > 0
+        if (sn && hasExplicitWarranty) {
+          const devicePatch = {
+            warranty_months: patch.warranty_months,
+            warranty_expire: patch.warranty_expire,
+            update_time: now
+          }
+          if (patch.buy_date) devicePatch.buy_date = patch.buy_date
+          try {
+            const snKey = normalizeSn(sn)
+            let deviceRes = await db.collection('cicada_user_devices').where({ sn_normalized: snKey }).limit(1).get()
+            if (!deviceRes.data || !deviceRes.data.length) {
+              deviceRes = await db.collection('cicada_user_devices').where({ sn }).limit(1).get()
+            }
+            const device = deviceRes.data && deviceRes.data[0]
+            if (device) await db.collection('cicada_user_devices').doc(device._id).update(devicePatch)
+          } catch (e) {
+            console.warn('同步设备质保信息失败:', e && e.message)
+          }
+        }
       }
 
       // 用更新后的本工单产品项重算在保结论
       const warranty = await computeOrderWarrantyFromItems(ownedItems)
+      await Promise.all(ownedItems
+        .filter(item => item && item._id && item.warranty_status)
+        .map(item => db.collection('cicada_order_items').doc(item._id).update({
+          warranty_status: item.warranty_status
+        }).catch(() => {})))
 
       await db.collection('cicada_orders').doc(targetOrderId).update({
         in_warranty: warranty.in_warranty,
@@ -2861,26 +3114,37 @@ module.exports = {
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
 
-      const quoteData = buildQuoteData(quote, now)
+      const warrantyFreeConfirmed = await isOrderWarrantyFreeConfirmed(order)
+      const quoteData = buildQuoteData(quote, now, { ...order, warranty_free_confirmed: warrantyFreeConfirmed })
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
       const updateData = {
         ...quoteData
       }
 
-      if (quoteData.quote_status === 'issued' && !order.payment_status) {
-        updateData.payment_status = 'pending'
+      const isWarrantyFree = quoteData.total_price <= 0 && warrantyFreeConfirmed
+
+      if (quoteData.quote_status === 'issued') {
+        updateData.payment_status = isWarrantyFree
+          ? 'not_required'
+          : (order.payment_status === 'paid' ? 'paid' : 'pending')
       }
 
       if (quoteData.quote_status === 'issued') {
-        // 付款截止时间：优先用后台传入的绝对时间，其次按天数，否则默认 7 天
-        const days = Math.max(1, parseInt(quote.payment_deadline_days ?? quote.paymentDeadlineDays ?? DEFAULT_PAYMENT_DEADLINE_DAYS, 10) || DEFAULT_PAYMENT_DEADLINE_DAYS)
-        const absoluteDeadline = parseInt(quote.payment_deadline ?? quote.paymentDeadline ?? 0, 10) || 0
-        updateData.payment_deadline = absoluteDeadline > now ? absoluteDeadline : (now + days * 24 * 3600 * 1000)
+        if (isWarrantyFree) {
+          updateData.payment_deadline = 0
+        } else {
+          // 付款截止时间：优先用后台传入的绝对时间，其次按天数，否则默认 7 天
+          const days = Math.max(1, parseInt(quote.payment_deadline_days ?? quote.paymentDeadlineDays ?? DEFAULT_PAYMENT_DEADLINE_DAYS, 10) || DEFAULT_PAYMENT_DEADLINE_DAYS)
+          const absoluteDeadline = parseInt(quote.payment_deadline ?? quote.paymentDeadline ?? 0, 10) || 0
+          updateData.payment_deadline = absoluteDeadline > now ? absoluteDeadline : (now + days * 24 * 3600 * 1000)
+        }
         updateData.timeline = [
           ...timeline,
           {
-            title: '维修报价已发布',
-            desc: `报价合计 ${quoteData.total_price.toFixed(2)} 元，等待客户确认。`,
+            title: isWarrantyFree ? '质保方案已发布' : '维修报价已发布',
+            desc: isWarrantyFree
+              ? '本次维修符合质保免收费条件，等待客户确认维修。'
+              : `报价合计 ${quoteData.total_price.toFixed(2)} 元，等待客户确认。`,
             time: now,
             done: true
           }
@@ -3667,7 +3931,8 @@ module.exports = {
           monthOrders: metrics.newOrders,
           paidAmount: metrics.paidAmount,
           totalFeedbacks: metrics.totalFeedbacks,
-          pendingFeedbacks: metrics.pendingFeedbacks
+          pendingFeedbacks: metrics.pendingFeedbacks,
+          statusBreakdown: metrics.statusBreakdown
         }
       }
     } catch (e) {

@@ -161,6 +161,7 @@ import {
 	updateAddress,
 	deleteAddress as removeAddressRemote
 } from '@/api/content'
+import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 
 const STORAGE_KEY = 'receiverAddressList'
 
@@ -416,7 +417,7 @@ const saveAddress = async () => {
 	} catch (error) {
 		uni.hideLoading()
 		console.warn('save address to cloud failed:', error)
-		uni.showToast({ title: error.message || '云端保存失败，已暂存本机', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '暂时无法同步，已先保存在本机'), icon: 'none' })
 		setTimeout(() => {
 			showForm.value = false
 			form.value = emptyForm()

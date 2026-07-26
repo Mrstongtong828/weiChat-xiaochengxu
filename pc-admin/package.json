@@ -12,13 +12,15 @@
     "check:staff": "node scripts/check-admin-staff.mjs",
     "check:subscription": "node scripts/check-subscription-config.mjs",
     "check:errors": "node scripts/check-request-error-parser.mjs",
-    "check:security": "node scripts/check-admin-security.mjs"
+    "check:security": "node scripts/check-admin-security.mjs",
+    "check:warranty": "node scripts/check-warranty-free-flow.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "@wangeditor/editor": "^5.1.23",
     "@wangeditor/editor-for-vue": "^5.1.12",
     "axios": "^1.16.1",
+    "echarts": "^6.1.0",
     "element-plus": "^2.14.0",
     "exceljs": "^4.4.0",
     "pinia": "^3.0.4",

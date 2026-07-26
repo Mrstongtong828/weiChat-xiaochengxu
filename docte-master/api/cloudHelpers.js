@@ -18,8 +18,11 @@ export const unwrapCloudResult = (result = {}, fallbackMessage = '请求失败')
   if (result.code === 0 || result.code === undefined) {
     return result.data === undefined ? result : result.data
   }
-  if (AUTH_ERROR_CODES.includes(Number(result.code))) clearAuthSession()
-  throw new Error(result.message || result.msg || fallbackMessage)
+  const message = result.message || result.msg || fallbackMessage
+  const isAuthCode = AUTH_ERROR_CODES.includes(Number(result.code))
+  const isAuthMessage = /鉴权失败|Token已过期|未登录|账号已禁用|账号已注销/i.test(String(message || ''))
+  if (isAuthCode || isAuthMessage) clearAuthSession()
+  throw new Error(message)
 }
 
 const getFileExt = (filePath = '', fallback = 'jpg') => {

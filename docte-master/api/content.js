@@ -7,25 +7,34 @@ let userCloudObject = null
 let orderCloudObject = null
 
 const getPublicCloudObject = () => {
-	if (!publicCloudObject) publicCloudObject = importCloudObject('cicada-client-public')
 	if (!publicCloudObject) {
-		throw new Error('云服务暂不可用，请稍后重试或联系客服')
+		const next = importCloudObject('cicada-client-public')
+		if (next) publicCloudObject = next
+	}
+	if (!publicCloudObject) {
+		throw new Error('服务暂不可用，请稍后重试或联系客服')
 	}
 	return publicCloudObject
 }
 
 const getUserCloudObject = () => {
-	if (!userCloudObject) userCloudObject = importCloudObject('cicada-client-user')
 	if (!userCloudObject) {
-		throw new Error('云服务暂不可用，请稍后重试或联系客服')
+		const next = importCloudObject('cicada-client-user')
+		if (next) userCloudObject = next
+	}
+	if (!userCloudObject) {
+		throw new Error('服务暂不可用，请稍后重试或联系客服')
 	}
 	return userCloudObject
 }
 
 const getOrderCloudObject = () => {
-	if (!orderCloudObject) orderCloudObject = importCloudObject('cicada-client-order')
 	if (!orderCloudObject) {
-		throw new Error('云服务暂不可用，请稍后重试或联系客服')
+		const next = importCloudObject('cicada-client-order')
+		if (next) orderCloudObject = next
+	}
+	if (!orderCloudObject) {
+		throw new Error('服务暂不可用，请稍后重试或联系客服')
 	}
 	return orderCloudObject
 }
@@ -83,7 +92,7 @@ const normalizeAddress = (data = {}) => {
 	}
 }
 
-// 后端地址 → 地址管理页（pages/address）使用的结构
+// 后端地址 → 地址管理页（pages-sub/address）使用的结构
 const denormalizeAddress = (item = {}) => ({
 	id: item._id || item.id || '',
 	receiver: item.name || '',
@@ -368,7 +377,7 @@ export const getProductCategories = () => getPublicCloudObject().getCategories({
 export const getSurveyConfig = () => getPublicCloudObject().getSurveyConfig({}).then(unwrapCloudResult)
 
 export const submitAfterSalesSurvey = (data = {}) => getPublicCloudObject()
-	.submitSurvey({
+	.submitSurvey(withToken({
 		orderNo: data.orderNo || '',
 		satisfaction: data.satisfaction || '',
 		rating: data.rating || 0,
@@ -376,7 +385,7 @@ export const submitAfterSalesSurvey = (data = {}) => getPublicCloudObject()
 		comment: data.comment || '',
 		contact: data.contact || '',
 		source: 'miniapp'
-	})
+	}))
 	.then(unwrapCloudResult)
 
 export const getCompliance = async () => {

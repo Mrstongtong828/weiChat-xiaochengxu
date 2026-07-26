@@ -14,20 +14,22 @@
 					<text class="warm-strong">温馨提示：</text>
 					<text>为了给您提供更快更好的服务，请务必在快递里面留纸条写明：寄回原因或故障描述，联系方式和收件地址。</text>
 				</view>
-				<view class="module-section-head single">
+				<view class="module-section-head repair-section-head tap" @click="toggleRepairSection('user')">
 					<text>用户信息</text>
+					<view class="repair-section-toggle"><text>{{ repairSectionOpen.user ? '收起' : (customerTypeLabel(repairForm.customerType) || '展开') }}</text><view class="section-chevron" :class="{ open: repairSectionOpen.user }"></view></view>
 				</view>
-				<view class="repair-form-card">
+				<view v-show="repairSectionOpen.user" class="repair-form-card">
 					<view class="repair-field select-row tap" @click="showCustomerTypePicker = true">
 						<text><text class="required-star">*</text>用户类型</text>
 						<text class="select-value">{{ customerTypeLabel(repairForm.customerType) || '请选择用户类型' }}</text>
 						<view class="field-arrow"></view>
 					</view>
 				</view>
-				<view class="module-section-head">
+				<view class="module-section-head repair-section-head tap" @click="toggleRepairSection('products')">
 					<text>产品信息</text>
-					<text>共 {{ repairProducts.length }} 件 · 可增加</text>
+					<view class="repair-section-toggle"><text>{{ repairSectionOpen.products ? `共 ${repairProducts.length} 件 · 收起` : `共 ${repairProducts.length} 件 · 展开` }}</text><view class="section-chevron" :class="{ open: repairSectionOpen.products }"></view></view>
 				</view>
+				<view v-show="repairSectionOpen.products" class="repair-section-body">
 				<view v-for="(product, index) in repairProducts" :key="product.id" class="repair-product">
 						<view class="repair-product-strip">
 							<view class="repair-product-name">
@@ -136,11 +138,13 @@
 						<text>+</text>
 						<text>增加报修产品</text>
 					</view>
-
-				<view class="module-section-head">
-					<text>寄出信息</text>
-					<text class="tap" @click="openSavedAddressPicker('sender')">选择常用地址</text>
 				</view>
+
+				<view class="module-section-head repair-section-head tap" @click="toggleRepairSection('sender')">
+					<text>寄出信息</text>
+					<view class="repair-section-actions"><text class="tap" @click.stop="openSavedAddressPicker('sender')">常用地址</text><view class="repair-section-toggle"><text>{{ repairSectionOpen.sender ? '收起' : '展开' }}</text><view class="section-chevron" :class="{ open: repairSectionOpen.sender }"></view></view></view>
+				</view>
+				<view v-show="repairSectionOpen.sender" class="repair-section-body">
 				<view class="blue-tip">请妥善包装好设备，顺丰取件请在快递员到达后提供运单号。</view>
 				<view class="repair-form-card">
 					<view class="repair-field">
@@ -154,7 +158,7 @@
 					<view class="repair-field last">
 						<text><text class="required-star">*</text>寄出地址</text>
 						<input v-model="repairForm.senderAddress" placeholder="请输入寄出详细地址" placeholder-class="input-placeholder" />
-						<view class="field-mini field-pin"></view>
+						<view class="location-action tap" @click="chooseRepairLocation('sender')"><view class="field-mini field-pin"></view><text>地图</text></view>
 					</view>
 				</view>
 				<view class="invoice-type-row send-mode-row">
@@ -183,12 +187,13 @@
 						</view>
 					</view>
 				</view>
-
-				<view class="module-section-head">
-					<text>回寄信息</text>
-					<text class="tap" @click="openSavedAddressPicker('receiver')">选择常用地址</text>
 				</view>
-				<view class="repair-form-card">
+
+				<view class="module-section-head repair-section-head tap" @click="toggleRepairSection('receiver')">
+					<text>回寄信息</text>
+					<view class="repair-section-actions"><text class="tap" @click.stop="openSavedAddressPicker('receiver')">常用地址</text><view class="repair-section-toggle"><text>{{ repairSectionOpen.receiver ? '收起' : '展开' }}</text><view class="section-chevron" :class="{ open: repairSectionOpen.receiver }"></view></view></view>
+				</view>
+				<view v-show="repairSectionOpen.receiver" class="repair-form-card">
 					<view class="repair-field">
 						<text><text class="required-star">*</text>收货人</text>
 						<input v-model="repairForm.receiverName" placeholder="请输入用户姓名" placeholder-class="input-placeholder" />
@@ -201,7 +206,7 @@
 					<view class="repair-field">
 						<text><text class="required-star">*</text>详细地址</text>
 						<input v-model="repairForm.receiverAddress" placeholder="请输入用户地址" placeholder-class="input-placeholder" />
-						<view class="field-mini field-pin"></view>
+						<view class="location-action tap" @click="chooseRepairLocation('receiver')"><view class="field-mini field-pin"></view><text>地图</text></view>
 					</view>
 					<view class="repair-field last">
 						<text><text class="required-star">*</text>单位名称</text>
@@ -272,7 +277,7 @@
 				<text class="success-desc">工程师将于 30 分钟内联系您，请保持手机畅通</text>
 				<view class="success-card">
 					<view class="success-row"><text>工单号</text><text class="copy-link tap" @click="copyOne(submittedOrderId, '工单号')">复制</text></view>
-					<text class="success-no">{{ submittedOrderId || '工单号待后台返回' }}</text>
+					<text class="success-no">{{ submittedOrderId || '工单号生成中' }}</text>
 					<view class="success-grid">
 						<view><text>预计响应</text><text>30 分钟内</text></view>
 						<view><text>物流方式</text><text>顺丰到付</text></view>
@@ -283,6 +288,7 @@
 					<view class="ghost-button tap" @click="closeModule">返回首页</view>
 					<view class="primary-button tap" @click="go('track')">查看进度</view>
 				</view>
+				<view class="continue-repair-button tap" @click="startNewRepair">继续新建报修单</view>
 			</view>
 
 			<view v-else-if="activeModule === 'track'" class="track-module">
@@ -659,7 +665,7 @@
 						</view>
 					</view>
 					<view v-else-if="getQuoteTotal(detailOrder)" class="billing-empty">
-						<text>维修费用已由后台确认，合计 {{ getBillingAmountText(detailOrder) }}。如需费用明细可联系售后客服。</text>
+						<text>维修费用已由售后确认，合计 {{ getBillingAmountText(detailOrder) }}。如需费用明细可联系售后客服。</text>
 					</view>
 					<view v-else class="billing-empty">
 						<text>工程师检测完成后，这里会显示维修项目、费用明细和下一步操作。</text>
@@ -1056,7 +1062,7 @@
 					</view>
 					<view v-if="activeDoc.fileUrl" class="guide-file-card">
 					<view>
-						<text>后台上传文档</text>
+						<text>服务文档</text>
 						<text>{{ activeDoc.fileName || '操作教程文档' }}</text>
 					</view>
 					<view class="small-primary tap" @click="openGuideFile(activeDoc)">打开文档</view>
@@ -1440,7 +1446,7 @@
 							<view class="receiver-line">
 								<view class="receiver-text">
 									<text class="receiver-label">{{ item.label }}</text>
-									<text class="receiver-value">{{ item.value }}</text>
+									<text class="receiver-value" selectable user-select>{{ item.value }}</text>
 								</view>
 								<view class="copy-button tap" @click="copyOne(item.value, item.label)">
 									<view v-if="copied === item.label" class="mini-icon mini-check"></view>
@@ -1557,20 +1563,24 @@
 			<view v-else class="mine-body">
 				<view class="mine-hero">
 					<view class="profile-row">
-						<view class="avatar" :class="{ 'avatar-logged': logged }">
-							<text v-if="logged">{{ userAvatarText }}</text>
+						<view class="avatar" :class="{ 'avatar-logged': logged }" @click="logged && openEditProfile()">
+							<image v-if="logged && avatarDisplayUrl" class="avatar-image" :src="avatarDisplayUrl" mode="aspectFill"></image>
+							<text v-else-if="logged">{{ userAvatarText }}</text>
 							<image v-else class="avatar-image" src="/static/default-user-avatar.png" mode="aspectFit"></image>
 						</view>
-						<view class="profile-copy">
-							<text class="profile-name">{{ logged ? userDisplayName : '未登录' }}</text>
+						<view class="profile-copy" @click="logged && openEditProfile()">
+							<view class="profile-name-row">
+								<text class="profile-name">{{ logged ? userDisplayName : '未登录' }}</text>
+								<text v-if="logged" class="profile-edit-tag">编辑</text>
+							</view>
 							<view v-if="logged" class="profile-meta">
 								<text>{{ userDisplayUnit }}</text>
 								<text class="member-tag">已登录</text>
-								<text class="logout-btn tap" @click="logoutLocal">退出</text>
+								<text class="logout-btn tap" @click.stop="logoutLocal">退出</text>
 							</view>
 							<view v-else class="profile-meta">
 								<text>登录后查看您的维修订单</text>
-								<text class="logout-btn tap" @click="go('login')">注册/登录</text>
+								<text class="logout-btn tap" @click.stop="go('login')">注册/登录</text>
 							</view>
 						</view>
 					</view>
@@ -1658,6 +1668,37 @@
 		</view>
 
 		<BottomTabbar v-if="showBottomTabbar" :tabs="tabs" :active-id="activeTab" @select="go" />
+
+		<!-- 编辑资料弹层：微信已禁止自动获取昵称头像，须用户主动选择/填写 -->
+		<view v-if="editProfileVisible" class="edit-mask" @click="closeEditProfile">
+			<view class="edit-sheet" @click.stop>
+				<view class="edit-title">编辑资料</view>
+				<view class="edit-avatar-row">
+					<button class="edit-avatar-btn" open-type="chooseAvatar" @chooseavatar="onChooseAvatar">
+						<image v-if="editAvatarUrl" class="edit-avatar-img" :src="editAvatarUrl" mode="aspectFill"></image>
+						<view v-else class="edit-avatar-ph">选择头像</view>
+					</button>
+					<text class="edit-avatar-hint">点击选择微信头像</text>
+				</view>
+				<view class="edit-field">
+					<text class="edit-label">昵称</text>
+					<input
+						class="edit-input"
+						type="nickname"
+						:value="editNickname"
+						placeholder="点击输入，可使用微信昵称"
+						placeholder-class="edit-input-ph"
+						maxlength="30"
+						@input="onNicknameInput"
+						@blur="onNicknameInput"
+					/>
+				</view>
+				<view class="edit-actions">
+					<view class="edit-btn cancel tap" @click="closeEditProfile">取消</view>
+					<view class="edit-btn save tap" :class="{ disabled: profileSaving }" @click="saveProfile">{{ profileSaving ? '保存中…' : '保存' }}</view>
+				</view>
+			</view>
+		</view>
 
 		<view v-if="showOfficial" class="modal-mask">
 			<view class="official-modal" @click.stop>
@@ -1787,6 +1828,7 @@ import {
 	lookupDeviceBySn,
 	logSnAction,
 	rejectRepairQuote,
+	confirmRepairQuote,
 	confirmRepairReceipt,
 	submitRepairReview,
 	getMyDevices,
@@ -1795,6 +1837,7 @@ import {
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
+import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { normalizePolicyHtml } from '@/utils/policyHtml.js'
 import {
 	basics,
@@ -1833,6 +1876,7 @@ import {
 } from './composables/orderFormatters'
 import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
 import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 import {
 	createRepairStatusMeta,
 	deriveDisplayStatus,
@@ -1909,6 +1953,7 @@ const repairSubmitting = ref(false)
 const repairStep = ref(1)
 const invoiceSubmitting = ref(false)
 const paymentSubmitting = ref(false)
+const actionSubmitting = ref(false)
 const paymentProofUploading = ref(false)
 const selectedPaymentMethod = ref('wechat')
 const subscriptionTemplates = ref(null)
@@ -2054,6 +2099,7 @@ const repairForm = ref(defaultRepairForm())
 const trackingLater = ref(false)
 const submittedOrderId = ref('')
 const repairProducts = ref([defaultRepairProduct()])
+const repairSectionOpen = ref({ user: true, products: true, sender: true, receiver: true })
 
 let repairProductSeed = 1
 let repairMediaSeed = 1
@@ -2092,7 +2138,7 @@ const defaultDiagConfirmSections = [
 		title: '解决方法',
 		color: '#10B981',
 		numbered: true,
-		items: ['后台暂未配置解决方法']
+		items: ['暂未提供对应处理建议']
 	}
 ]
 
@@ -2311,6 +2357,41 @@ const selectLogistics = (item) => {
 	showLogisticsPicker.value = false
 }
 
+const toggleRepairSection = (section) => {
+	if (!Object.prototype.hasOwnProperty.call(repairSectionOpen.value, section)) return
+	repairSectionOpen.value[section] = !repairSectionOpen.value[section]
+}
+
+const openRepairSection = (section) => {
+	if (Object.prototype.hasOwnProperty.call(repairSectionOpen.value, section)) {
+		repairSectionOpen.value[section] = true
+	}
+}
+
+const chooseRepairLocation = (target) => {
+	if (!uni.chooseLocation) {
+		uni.showToast({ title: '当前环境暂不支持地图选址', icon: 'none' })
+		return
+	}
+	uni.chooseLocation({
+		success: ({ address = '', name = '' } = {}) => {
+			const selectedAddress = [address, name].filter((item, index, list) => item && list.indexOf(item) === index).join(' ')
+			if (!selectedAddress) {
+				uni.showToast({ title: '未获取到地址，请重新选择', icon: 'none' })
+				return
+			}
+			if (target === 'receiver') repairForm.value.receiverAddress = selectedAddress
+			else repairForm.value.senderAddress = selectedAddress
+			uni.showToast({ title: '地址已带入，请核对', icon: 'none' })
+		},
+		fail: (error) => {
+			if (!String(error && error.errMsg || '').includes('cancel')) {
+				uni.showToast({ title: '地图选址失败，请手动填写', icon: 'none' })
+			}
+		}
+	})
+}
+
 const scanTrackingNo = () => {
 	uni.scanCode({
 		onlyFromCamera: false,
@@ -2423,7 +2504,7 @@ const normalizeOrder = (item = {}) => {
 		time: formatDateTime(updateTime, 5, 16) || merged.time || '',
 		price: merged.price || merged.amount || merged.totalFee || merged.total_fee || merged.total_price || (totalFee ? formatMoney(totalFee) : ''),
 		date: formatDateTime(createTime, 0, 10),
-		doneTime: merged.doneTime || merged.expectedDoneTime || '待后台同步',
+		doneTime: merged.doneTime || merged.expectedDoneTime || '待工作人员同步',
 		invoiceStatus: merged.invoiceStatus || merged.invoice_status || invoiceInfo.status,
 		invoiced: merged.invoiced || invoiceInfo.status === '已开具',
 		invoiceType: merged.invoiceType || merged.invoice_type || invoiceInfo.invoice_type || '',
@@ -2452,6 +2533,7 @@ const normalizeOrder = (item = {}) => {
 		quoteWarrantyMonths: Number(merged.quoteWarrantyMonths ?? merged.quote_warranty_months ?? 0) || 0,
 		warrantyStatus: merged.warrantyStatus || merged.warranty_status || '',
 		inWarranty: Boolean(merged.inWarranty ?? merged.in_warranty),
+		chargeType: merged.chargeType || merged.charge_type || '',
 		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
 		returnLogisticsCompany,
 		returnLogisticsNo,
@@ -2497,7 +2579,7 @@ const normalizeProduct = (item = {}) => {
 
 const normalizePackageTimeline = (timeline = []) => {
 	if (!Array.isArray(timeline) || !timeline.length) {
-		return [{ title: '等待录入', desc: '后台录入快递单号后，这里会显示签收和处理记录。', time: '', pending: true }]
+		return [{ title: '等待录入', desc: '工作人员更新快递单号后，这里会显示签收和处理记录。', time: '', pending: true }]
 	}
 
 	return timeline.map((item = {}) => ({
@@ -2567,7 +2649,7 @@ const queryPackage = async () => {
 	} catch (error) {
 		console.warn('package query failed:', error)
 		packageQuerySearched.value = true
-		uni.showToast({ title: error.message || '暂未查到包裹记录', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '暂未查到包裹记录'), icon: 'none' })
 	} finally {
 		packageQueryLoading.value = false
 	}
@@ -2719,7 +2801,7 @@ const diagProductLabel = computed(() => {
 const diagEmptyText = computed(() => (
 	diagProducts.value.length
 		? '选择产品类型与故障现象，系统将自动展示解决方法。'
-		: '暂无故障自查数据，请联系管理员在后台配置。'
+		: '暂未提供故障自查方案，可联系售后协助判断。'
 ))
 const diagFaultPlaceholder = computed(() => (diagProduct.value ? '请选择故障现象' : '请先选择产品类型'))
 const diagFaultOptions = computed(() => {
@@ -2755,6 +2837,91 @@ const isDocModule = computed(() => docModuleIds.includes(activeModule.value))
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
 const userAvatarText = computed(() => String(userDisplayName.value || '用').slice(0, 1))
+
+// ============== 编辑资料（昵称/头像） ==============
+// 库里头像存 cloud:// fileID，展示需转临时链接
+const avatarDisplayUrl = ref('')
+const editProfileVisible = ref(false)
+const editNickname = ref('')
+const editAvatarUrl = ref('')       // 弹层内预览用可显示 URL
+const editAvatarLocalPath = ref('') // chooseAvatar 返回的本地临时路径（保存时才上传）
+const profileSaving = ref(false)
+
+const resolveAvatarDisplay = async (raw) => {
+	const value = String(raw || '')
+	if (!value) { avatarDisplayUrl.value = ''; return }
+	if (value.indexOf('cloud://') !== 0) { avatarDisplayUrl.value = value; return }
+	try {
+		const res = await getCloudTempFileURL([value])
+		const item = res && res.fileList && res.fileList[0]
+		avatarDisplayUrl.value = (item && item.tempFileURL) || ''
+	} catch (e) {
+		avatarDisplayUrl.value = ''
+	}
+}
+
+const openEditProfile = () => {
+	editNickname.value = currentUser.value.nickname || ''
+	editAvatarUrl.value = avatarDisplayUrl.value || ''
+	editAvatarLocalPath.value = ''
+	editProfileVisible.value = true
+}
+
+const closeEditProfile = () => {
+	if (profileSaving.value) return
+	editProfileVisible.value = false
+}
+
+const onNicknameInput = (e) => {
+	editNickname.value = (e && e.detail && e.detail.value) || ''
+}
+
+const onChooseAvatar = (e) => {
+	const path = e && e.detail && e.detail.avatarUrl
+	if (!path) return
+	editAvatarUrl.value = path
+	editAvatarLocalPath.value = path
+}
+
+const saveProfile = async () => {
+	if (profileSaving.value) return
+	const nickname = String(editNickname.value || '').trim()
+	if (!nickname && !editAvatarLocalPath.value) {
+		uni.showToast({ title: '请填写昵称或选择头像', icon: 'none' })
+		return
+	}
+	profileSaving.value = true
+	uni.showLoading({ title: '保存中…', mask: true })
+	try {
+		const payload = {}
+		if (nickname !== (currentUser.value.nickname || '')) payload.nickname = nickname
+		if (editAvatarLocalPath.value) {
+			// 与报修图片上传同一套流程：先压缩再上传，取规范化后的 fileID
+			const compressed = await compressForUpload(editAvatarLocalPath.value)
+			const up = await uploadImage(compressed)
+			const avatarFileId = normalizeUploadFileId(up) || (up && up.fileID) || (up && up.url) || ''
+			if (!avatarFileId) throw new Error('头像上传失败，请重试')
+			payload.avatar = avatarFileId
+		}
+		if (!Object.keys(payload).length) {
+			uni.hideLoading()
+			profileSaving.value = false
+			editProfileVisible.value = false
+			return
+		}
+		const info = await updateProfile(payload)
+		currentUser.value = info || currentUser.value
+		await resolveAvatarDisplay(currentUser.value.avatar)
+		uni.hideLoading()
+		uni.showToast({ title: '已保存', icon: 'success' })
+		editProfileVisible.value = false
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: toCustomerErrorMessage(error, '保存失败'), icon: 'none' })
+	} finally {
+		profileSaving.value = false
+	}
+}
 const feedbackContact = computed(() => feedbackContacts.find((item) => item.id === feedbackContactKind.value) || feedbackContacts[0])
 const receiverLastIndex = computed(() => receiver.value.length - 1)
 const filteredTrackOrders = computed(() => {
@@ -3037,7 +3204,7 @@ const detailTimeline = computed(() => {
 	return [
 		{
 			title: detailOrder.value.status || '已提交',
-			desc: '工单进度已同步，更多节点会在后台更新后展示。',
+			desc: '工单进度已同步，更多节点会在工作人员更新后展示。',
 			time: detailOrder.value.time || detailOrder.value.date || '',
 			pending: false
 		}
@@ -3058,6 +3225,13 @@ const detailOrderComplaints = computed(() => {
 
 const detailQuoteVisible = computed(() => ['issued', 'confirmed', 'rejected'].includes(detailOrder.value.quoteStatus))
 
+const isWarrantyFreeOrder = (order = {}) => Boolean(
+	order.chargeType === 'free'
+	&& order.inWarranty
+	&& ['in_warranty', 'extended'].includes(order.warrantyStatus)
+	&& ['issued', 'confirmed'].includes(order.quoteStatus)
+)
+
 const detailWarrantyText = computed(() => {
 	const m = Number(detailOrder.value.quoteWarrantyMonths || 0)
 	return m > 0 ? `本次维修质保 ${m} 个月` : '本次维修质保以全局质保政策为准'
@@ -3072,7 +3246,7 @@ const detailWarrantyHint = computed(() => {
 	if (status === 'expired') {
 		return { show: true, tone: 'out', text: '该设备已超出质保期，维修收取全额工时、上门及配件费用' }
 	}
-	return { show: false, tone: '', text: '' }
+	return { show: true, tone: 'unknown', text: '质保信息待补充，工作人员核实期限后再确认本次收费方式' }
 })
 
 const detailPaymentDeadlineText = computed(() => {
@@ -3128,21 +3302,33 @@ const markCopied = (label) => {
 	}, 1400)
 }
 
-const copyOne = (value, label) => {
+const writeClipboard = (value, label) => {
+	const text = String(value ?? '').trim()
+	if (!text) {
+		uni.showToast({ title: '暂无可复制内容', icon: 'none' })
+		return
+	}
+
 	uni.setClipboardData({
-		data: value,
-		success: () => markCopied(label),
-		fail: () => markCopied(label)
+		data: text,
+		success: () => {
+			markCopied(label)
+			uni.showToast({ title: '复制成功', icon: 'success' })
+		},
+		fail: (error) => {
+			console.warn('set clipboard failed:', error)
+			uni.showToast({ title: '复制失败，请长按信息复制', icon: 'none' })
+		}
 	})
+}
+
+const copyOne = (value, label) => {
+	writeClipboard(value, label)
 }
 
 const copyAll = () => {
 	const text = receiver.value.map((item) => `${item.label}: ${item.value}`).join('\n')
-	uni.setClipboardData({
-		data: text,
-		success: () => markCopied('all'),
-		fail: () => markCopied('all')
-	})
+	writeClipboard(text, 'all')
 }
 
 function resolveOrderRecord(order = {}) {
@@ -3232,13 +3418,19 @@ const getQuoteMeta = (order = {}) => {
 }
 
 const getAuthorizationMeta = (order = {}) => {
+	if (isWarrantyFreeOrder(order)) {
+		return order.authorizationStatus === 'confirmed'
+			? { label: '已授权', tone: 'ok', desc: order.authorizationTime ? `客户已于 ${order.authorizationTime} 确认质保维修。` : '客户已确认质保维修。' }
+			: { label: '待授权', tone: 'warn', desc: '请确认本次零元质保方案后授权维修。' }
+	}
 	if (!getQuoteTotal(order)) return { label: '待报价', tone: 'muted', desc: '检测报价生成后才需要授权。' }
 	if (order.authorizationStatus === 'confirmed') return { label: '已授权', tone: 'ok', desc: order.authorizationTime ? `客户已于 ${order.authorizationTime} 授权维修。` : '客户已授权维修。' }
-	return { label: '待授权', tone: 'warn', desc: '客户确认报价后，后台再安排维修。' }
+	return { label: '待授权', tone: 'warn', desc: '客户确认报价后，售后再安排维修。' }
 }
 
 const getPaymentMeta = (order = {}) => {
 	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
+	if (isWarrantyFreeOrder(order)) return { label: '质保免收费', tone: 'ok', desc: '本次维修费用由质保承担，无需微信支付或上传付款凭证。' }
 	if (!getQuoteTotal(order)) return { label: '待报价', tone: 'muted', desc: '报价金额确认后，可微信支付；企业客户也可上传对公转账凭证。' }
 	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
 	if (order.paymentStatus === 'rejected') return { label: '已驳回', tone: 'warn', desc: order.paymentRejectReason ? `转账凭证被驳回：${order.paymentRejectReason}` : '转账凭证被驳回，请核对后重新上传。' }
@@ -3248,13 +3440,19 @@ const getPaymentMeta = (order = {}) => {
 
 const getBillingAmountText = (order = {}) => {
 	const total = getQuoteTotal(order)
-	return total ? formatMoney(total) : '待后台报价'
+	if (isWarrantyFreeOrder(order)) return '¥0.00（质保免收费）'
+	return total ? formatMoney(total) : '待售后报价'
 }
 
 const getBillingMeta = (order = {}) => {
 	const quoteTotal = getQuoteTotal(order)
 	const invoiceMeta = getInvoiceMeta(resolveOrderRecord(order))
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
+	if (isWarrantyFreeOrder(order)) {
+		return order.authorizationStatus === 'confirmed'
+			? { label: '质保已确认', tone: 'ok', desc: '本次维修免收费，已进入后续维修流程。' }
+			: { label: '质保免收费', tone: 'ok', desc: '本次方案应付 0 元，确认后无需进入付款流程。' }
+	}
 	if (!quoteTotal) return { label: '待报价', tone: 'muted', desc: '工程师检测后会在这里给出正式报价。' }
 	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: invoiceMeta.desc || '微信支付已完成，订单已自动进入后续维修流程。' }
 	if (order.paymentStatus === 'rejected') return { label: '已驳回', tone: 'warn', desc: order.paymentRejectReason ? `转账凭证被驳回：${order.paymentRejectReason}` : '转账凭证被驳回，请核对后重新上传。' }
@@ -3264,6 +3462,15 @@ const getBillingMeta = (order = {}) => {
 
 const getBillingAction = (order = {}) => {
 	if (!order.id) return { visible: false, text: '', disabled: true }
+	if (isWarrantyFreeOrder(order) && order.authorizationStatus !== 'confirmed') {
+		return {
+			visible: true,
+			text: paymentSubmitting.value ? '确认中...' : '确认质保维修',
+			disabled: paymentSubmitting.value,
+			type: 'confirm-warranty'
+		}
+	}
+	if (isWarrantyFreeOrder(order)) return { visible: false, text: '', disabled: true }
 	if (canPayRepair(order)) {
 		return {
 			visible: true,
@@ -3291,7 +3498,7 @@ const getPaymentProofAction = (order = {}) => {
 		}
 	}
 	if (proofs.length || order.paymentStatus === 'uploaded') {
-		return { visible: false, text: '', disabled: true, hint: '付款凭证已上传，等待后台核销。' }
+		return { visible: false, text: '', disabled: true, hint: '付款凭证已上传，等待工作人员确认。' }
 	}
 	return {
 		visible: true,
@@ -3308,7 +3515,37 @@ const handleBillingAction = (order = {}) => {
 		payRepairQuote(order)
 		return
 	}
+	if (action.type === 'confirm-warranty') {
+		confirmWarrantyRepair(order)
+		return
+	}
 	handleInvoiceAction(order)
+}
+
+const confirmWarrantyRepair = (order = {}) => {
+	if (!isWarrantyFreeOrder(order) || order.authorizationStatus === 'confirmed' || paymentSubmitting.value) return
+	uni.showModal({
+		title: '确认质保维修',
+		content: '本次维修处于质保范围，应付金额为 0 元。确认后将授权工程师开始维修，无需付款。',
+		confirmText: '确认维修',
+		cancelText: '再看看',
+		success: async ({ confirm }) => {
+			if (!confirm) return
+			try {
+				paymentSubmitting.value = true
+				uni.showLoading({ title: '确认中' })
+				await confirmRepairQuote(order.recordId || order.id)
+				await refreshOrderFromServer(order)
+				uni.hideLoading()
+				uni.showToast({ title: '已确认质保维修', icon: 'success' })
+			} catch (error) {
+				uni.hideLoading()
+				uni.showToast({ title: toCustomerErrorMessage(error, '确认失败'), icon: 'none' })
+			} finally {
+				paymentSubmitting.value = false
+			}
+		}
+	})
 }
 
 const handlePaymentProofAction = (order = {}) => {
@@ -3382,9 +3619,7 @@ const payRepairQuote = (order = {}) => {
 				}, 600)
 			} catch (error) {
 				console.warn('wechat pay failed:', error)
-				const message = error && (error.message || error.errMsg)
-					? (error.message || error.errMsg)
-					: '支付失败'
+				const message = toCustomerErrorMessage(error, '支付失败')
 				if (paymentFinished) {
 					uni.showToast({ title: '已支付，到账确认中', icon: 'none' })
 				} else {
@@ -3441,7 +3676,7 @@ const openLinkedOrder = (orderId = '') => {
 const canRejectQuote = (order = {}) => Boolean(order.id && order.quoteStatus === 'issued' && order.paymentStatus !== 'paid')
 
 const rejectRepairQuoteAction = (order = {}) => {
-	if (!canRejectQuote(order)) return
+	if (!canRejectQuote(order) || actionSubmitting.value) return
 	uni.showModal({
 		title: '拒绝维修报价',
 		editable: true,
@@ -3449,7 +3684,8 @@ const rejectRepairQuoteAction = (order = {}) => {
 		confirmText: '确认拒绝',
 		cancelText: '再想想',
 		success: async ({ confirm, content }) => {
-			if (!confirm) return
+			if (!confirm || actionSubmitting.value) return
+			actionSubmitting.value = true
 			try {
 				uni.showLoading({ title: '提交中' })
 				await rejectRepairQuote(order.recordId || order.id, content || '')
@@ -3458,7 +3694,9 @@ const rejectRepairQuoteAction = (order = {}) => {
 				uni.showToast({ title: '已拒绝报价', icon: 'success' })
 			} catch (error) {
 				uni.hideLoading()
-				uni.showToast({ title: (error && error.message) || '操作失败', icon: 'none' })
+				uni.showToast({ title: toCustomerErrorMessage(error, '操作失败'), icon: 'none' })
+			} finally {
+				actionSubmitting.value = false
 			}
 		}
 	})
@@ -3499,21 +3737,22 @@ const submitOutboundTracking = async (order = {}) => {
 		uni.showToast({ title: '运单号已提交', icon: 'success' })
 	} catch (error) {
 		uni.hideLoading()
-		uni.showToast({ title: (error && error.message) || '提交失败，请稍后重试', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '提交失败，请稍后重试'), icon: 'none' })
 	} finally {
 		outboundSubmitting.value = false
 	}
 }
 
 const confirmRepairReceiptAction = (order = {}) => {
-	if (!canConfirmReceipt(order)) return
+	if (!canConfirmReceipt(order) || actionSubmitting.value) return
 	uni.showModal({
 		title: '确认收货',
 		content: '确认已收到回寄的设备？确认后工单将标记为已完成。',
 		confirmText: '确认收货',
 		cancelText: '再看看',
 		success: async ({ confirm }) => {
-			if (!confirm) return
+			if (!confirm || actionSubmitting.value) return
+			actionSubmitting.value = true
 			try {
 				uni.showLoading({ title: '提交中' })
 				await confirmRepairReceipt(order.recordId || order.id)
@@ -3522,7 +3761,9 @@ const confirmRepairReceiptAction = (order = {}) => {
 				uni.showToast({ title: '已确认收货', icon: 'success' })
 			} catch (error) {
 				uni.hideLoading()
-				uni.showToast({ title: (error && error.message) || '操作失败', icon: 'none' })
+				uni.showToast({ title: toCustomerErrorMessage(error, '操作失败'), icon: 'none' })
+			} finally {
+				actionSubmitting.value = false
 			}
 		}
 	})
@@ -3569,7 +3810,7 @@ const reviewOrder = (order = {}) => {
 				}
 			} catch (error) {
 				uni.hideLoading()
-				uni.showToast({ title: (error && error.message) || '评价失败', icon: 'none' })
+				uni.showToast({ title: toCustomerErrorMessage(error, '评价失败'), icon: 'none' })
 			}
 		},
 		fail: () => {}
@@ -3818,7 +4059,7 @@ const submitInvoiceApply = async () => {
 		})
 	} catch (error) {
 		console.warn('submit invoice failed:', error)
-		uni.showToast({ title: error.message || '开票申请提交失败', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '开票申请提交失败'), icon: 'none' })
 	} finally {
 		invoiceSubmitting.value = false
 	}
@@ -4156,7 +4397,7 @@ const openSavedAddressPicker = async (target) => {
 		}
 		showSavedAddressPicker.value = true
 	} catch (error) {
-		uni.showToast({ title: error.message || '地址加载失败，请稍后重试', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '地址加载失败，请稍后重试'), icon: 'none' })
 	}
 }
 
@@ -4198,6 +4439,7 @@ const normalizeRepairProducts = (products = []) => {
 	return products.map((item, index) => ({
 		id: Number(item.id) || index + 1,
 		name: item.name || '',
+		category: item.category || '',
 		model: item.model || '',
 		serial: item.serial || '',
 		buyDate: item.buyDate || '',
@@ -4249,15 +4491,22 @@ const saveRepairDraft = () => {
 	}
 }
 
-const clearRepairForm = () => {
+const clearRepairForm = (notify = true) => {
 	repairForm.value = defaultRepairForm()
 	trackingLater.value = false
 	repairProducts.value = [defaultRepairProduct()]
+	repairSectionOpen.value = { user: true, products: true, sender: true, receiver: true }
 	repairProductSeed = 1
 	repairMediaSeed = 1
 	uni.removeStorageSync(repairDraftKey)
 	showRepairTools.value = false
-	uni.showToast({ title: '已清空，可重新填写', icon: 'none' })
+	if (notify) uni.showToast({ title: '已清空，可重新填写', icon: 'none' })
+}
+
+const startNewRepair = () => {
+	clearRepairForm(false)
+	submittedOrderId.value = ''
+	openModule('repair')
 }
 
 const confirmClearRepair = () => {
@@ -4665,13 +4914,13 @@ const doRecognizeSn = async (index, sn) => {
 	})
 }
 
-// 未匹配档案兜底：弹窗提示，确认后清空回填的设备字段，开放手填
+// 未识别到产品信息时，引导客户核对序列号或继续手动填写。
 const handleSnNotFound = (index) => {
 	uni.showModal({
-		title: '未找到设备档案',
-		content: '未查询到该设备档案，请核对SN编号，或联系管理员录入设备台账',
+		title: '暂未查到产品信息',
+		content: '请确认序列号是否正确。您也可以手动填写产品分类、型号和购买日期，继续提交报修。',
 		showCancel: false,
-		confirmText: '我知道了',
+		confirmText: '继续填写',
 		success: () => {
 			const product = repairProducts.value[index]
 			if (!product) return
@@ -4716,7 +4965,7 @@ const openHistoryOrder = async (orderId) => {
 		openOrderDetail({ id: normalized.id })
 	} catch (error) {
 		uni.hideLoading()
-		uni.showToast({ title: (error && error.message) || '工单加载失败', icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '工单加载失败'), icon: 'none' })
 	}
 }
 
@@ -4746,6 +4995,7 @@ const scanSn = (index) => {
 
 const validateRepairForm = () => {
 	if (!customerTypeOptions.some((item) => item.value === repairForm.value.customerType)) {
+		openRepairSection('user')
 		uni.showToast({ title: '请选择用户类型', icon: 'none' })
 		return false
 	}
@@ -4753,65 +5003,78 @@ const validateRepairForm = () => {
 		const product = repairProducts.value[index] || {}
 		const label = `第 ${index + 1} 个产品`
 		if (!String(product.model || '').trim()) {
+			openRepairSection('products')
 			uni.showToast({ title: `${label}请填写产品型号`, icon: 'none' })
 			return false
 		}
 		if (!String(product.serial || '').trim()) {
+			openRepairSection('products')
 			uni.showToast({ title: `${label}请填写序列号`, icon: 'none' })
 			return false
 		}
 		if (!String(product.faultDesc || '').trim()) {
+			openRepairSection('products')
 			uni.showToast({ title: `${label}请填写故障描述`, icon: 'none' })
 			return false
 		}
 	}
 
 	if (!String(repairForm.value.senderName || '').trim()) {
+		openRepairSection('sender')
 		uni.showToast({ title: '请填写寄件人', icon: 'none' })
 		return false
 	}
 
 	if (!isValidPhone(repairForm.value.senderPhone)) {
+		openRepairSection('sender')
 		uni.showToast({ title: '请输入正确的寄件人手机号', icon: 'none' })
 		return false
 	}
 
 	if (!String(repairForm.value.senderAddress || '').trim()) {
+		openRepairSection('sender')
 		uni.showToast({ title: '请填写寄出地址', icon: 'none' })
 		return false
 	}
 
 	if (!repairForm.value.logisticsCompany) {
+		openRepairSection('sender')
 		uni.showToast({ title: '请选择物流公司', icon: 'none' })
 		return false
 	}
 
 	const trimmedTracking = String(repairForm.value.trackingNo || '').trim()
 	if (!trackingLater.value && !trimmedTracking) {
+		openRepairSection('sender')
 		uni.showToast({ title: '请填写运单号，或选择「稍后补单号」', icon: 'none' })
 		return false
 	}
 	if (trimmedTracking && !isValidTrackingNo(trimmedTracking)) {
+		openRepairSection('sender')
 		uni.showToast({ title: '请输入正确运单号', icon: 'none' })
 		return false
 	}
 
 	if (!String(repairForm.value.receiverName || '').trim()) {
+		openRepairSection('receiver')
 		uni.showToast({ title: '请填写收货人', icon: 'none' })
 		return false
 	}
 
 	if (!isValidPhone(repairForm.value.receiverPhone)) {
+		openRepairSection('receiver')
 		uni.showToast({ title: '请输入正确手机号', icon: 'none' })
 		return false
 	}
 
 	if (!String(repairForm.value.receiverAddress || '').trim()) {
+		openRepairSection('receiver')
 		uni.showToast({ title: '请填写详细地址', icon: 'none' })
 		return false
 	}
 
 	if (!String(repairForm.value.receiverUnit || '').trim()) {
+		openRepairSection('receiver')
 		uni.showToast({ title: '请填写单位名称', icon: 'none' })
 		return false
 	}
@@ -4849,7 +5112,7 @@ const submitRepair = async () => {
 		}
 		console.warn('submit repair failed:', error)
 		const draftSaved = persistRepairDraft()
-		uni.showToast({ title: error.message || (draftSaved ? '提交失败，已保留草稿' : '提交失败，请重试'), icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, draftSaved ? '提交失败，已保留草稿' : '提交失败，请重试'), icon: 'none' })
 	} finally {
 		repairSubmitting.value = false
 	}
@@ -4862,7 +5125,7 @@ const openFaultSheet = () => {
 	}
 
 	if (!diagFaultOptions.value.length) {
-		uni.showToast({ title: '当前产品暂无故障现象，请联系管理员配置', icon: 'none' })
+		uni.showToast({ title: '该产品暂未提供故障现象选项，可联系售后协助判断', icon: 'none' })
 		return
 	}
 
@@ -5071,7 +5334,7 @@ const saveAddress = async () => {
 	} catch (error) {
 		console.warn('save address fallback:', error)
 		uni.showToast({
-			title: error.message || '保存地址失败，请重试',
+			title: toCustomerErrorMessage(error, '保存地址失败，请重试'),
 			icon: 'none'
 		})
 	}
@@ -5116,7 +5379,7 @@ const handleDeleteAddress = async () => {
 					}, 1500)
 				} catch (error) {
 					console.warn('delete address fallback:', error)
-					uni.showToast({ title: '地址接口未开放', icon: 'none' })
+					uni.showToast({ title: '地址功能暂不可用，请稍后再试', icon: 'none' })
 				}
 			}
 		}
@@ -5154,15 +5417,14 @@ const submitFeedback = async () => {
 		resetFeedbackForm()
 		syncFeedbackRecords()
 	} catch (error) {
-		console.warn('submit feedback fallback:', error)
-		const record = addLocalFeedbackRecord('submitted')
-		uni.showModal({
-			title: '已生成反馈单',
-			content: `反馈单号：${record.ticketNo}。网络或登录状态异常，已先在本机保留记录；恢复后可再次提交或由后台同步处理。`,
-			showCancel: false,
-			confirmText: '知道了'
-		})
-		resetFeedbackForm()
+		console.warn('submit feedback failed:', error)
+		if (isAuthError(error)) {
+			logoutLocal()
+			openModule('login')
+			uni.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
+		} else {
+			uni.showToast({ title: toCustomerErrorMessage(error, '提交失败，请稍后重试'), icon: 'none' })
+		}
 	} finally {
 		feedbackSubmitting.value = false
 	}
@@ -5328,7 +5590,7 @@ const chooseVideoWithPrivacy = async (options = {}) => {
 
 const applyLoginSession = (res = {}) => {
 	if (!res || !res.token) {
-		uni.showToast({ title: '登录响应缺少 token', icon: 'none' })
+		uni.showToast({ title: '登录状态获取失败，请重新登录', icon: 'none' })
 		return false
 	}
 
@@ -5337,15 +5599,22 @@ const applyLoginSession = (res = {}) => {
 	uni.setStorageSync('isLoggedIn', true)
 	currentUser.value = res.userInfo || {}
 	logged.value = true
+	resolveAvatarDisplay(currentUser.value.avatar)
 	activeModule.value = ''
 	activeTab.value = 'mine'
+	// 登录后立即拉工单/设备，避免角标与列表空到下次 onShow
+	loadRemoteContent().catch((error) => console.warn('load after login failed:', error))
 	return true
 }
 
-const logoutLocal = () => {
-	uni.removeStorageSync('token')
-	uni.removeStorageSync('userInfo')
-	uni.removeStorageSync('isLoggedIn')
+const logoutLocal = async () => {
+	try {
+		await logoutRemote()
+	} catch (error) {
+		uni.removeStorageSync('token')
+		uni.removeStorageSync('userInfo')
+		uni.removeStorageSync('isLoggedIn')
+	}
 	currentUser.value = {}
 	logged.value = false
 }
@@ -5368,7 +5637,7 @@ const onCancelAccount = () => {
 				uni.showToast({ title: '账号已注销', icon: 'success' })
 			} catch (error) {
 				uni.hideLoading()
-				uni.showToast({ title: error.message || '注销失败，请稍后重试', icon: 'none' })
+				uni.showToast({ title: toCustomerErrorMessage(error, '注销失败，请稍后重试'), icon: 'none' })
 			}
 		}
 	})
@@ -5543,6 +5812,7 @@ const loadRemoteContent = async () => {
 
 onMounted(() => {
 	logBoot('onMounted start')
+	if (logged.value) resolveAvatarDisplay(currentUser.value.avatar)
 	uni.$on('wechatPrivacyReady', syncLoginPrivacyReady)
 	getWechatPrivacyReady().then((ready) => {
 		loginPrivacyReady.value = ready
@@ -8587,6 +8857,48 @@ onUnmounted(() => {
 	color: #94A3B8;
 }
 
+.repair-section-head {
+	min-height: 92rpx;
+	padding-top: 28rpx;
+}
+
+.repair-section-actions,
+.repair-section-toggle {
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+}
+
+.repair-section-actions {
+	gap: 26rpx;
+}
+
+.repair-section-actions > text {
+	color: #0F766E !important;
+	font-size: 23rpx !important;
+	font-weight: 600 !important;
+}
+
+.repair-section-toggle > text {
+	width: auto !important;
+	color: #64748B !important;
+	font-size: 23rpx !important;
+	font-weight: 500 !important;
+}
+
+.section-chevron {
+	width: 14rpx;
+	height: 14rpx;
+	border-right: 3rpx solid #94A3B8;
+	border-bottom: 3rpx solid #94A3B8;
+	transform: rotate(45deg);
+	transition: transform 160ms ease;
+}
+
+.section-chevron.open {
+	transform: rotate(225deg);
+}
+
 .warm-card {
 	padding: 24rpx 28rpx;
 	border-radius: 16rpx;
@@ -8770,6 +9082,21 @@ onUnmounted(() => {
 	align-items: center;
 	gap: 20rpx;
 	flex-shrink: 0;
+}
+
+.location-action {
+	min-width: 76rpx;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4rpx;
+	flex-shrink: 0;
+	color: #0F766E;
+	font-size: 22rpx;
+}
+
+.location-action .field-pin {
+	color: #14B8A6;
 }
 
 .field-action-icon {
@@ -9551,6 +9878,7 @@ onUnmounted(() => {
 }
 .quote-warranty-hint-in { background: #E3F8EE; color: #0F8A4F; border: 2rpx solid #BDEBD3; }
 .quote-warranty-hint-out { background: #FDECEC; color: #D23E39; border: 2rpx solid #F6CFCD; }
+.quote-warranty-hint-unknown { background: #FFF7E6; color: #9A6700; border: 2rpx solid #F5D58A; }
 
 .repair-field.column { flex-direction: column; align-items: stretch; gap: 12rpx; }
 .repair-field.column textarea {
@@ -9791,6 +10119,22 @@ onUnmounted(() => {
 .dual-actions .primary-button,
 .dual-actions .ghost-button {
 	flex: 1;
+}
+
+.continue-repair-button {
+	width: 100%;
+	height: 88rpx;
+	margin-top: 20rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2rpx solid #B9DCD8;
+	border-radius: 16rpx;
+	background: #F0FDFA;
+	color: #0F766E;
+	font-size: 28rpx;
+	font-weight: 700;
+	box-sizing: border-box;
 }
 
 .ghost-button {
@@ -12173,6 +12517,10 @@ onUnmounted(() => {
 	box-sizing: border-box;
 }
 
+.address-choice-row > view { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 8rpx; }
+.address-choice-detail { font-size: 23rpx; color: #86909C; white-space: normal; line-height: 1.45; }
+.address-choice-default { width: auto; flex-shrink: 0; font-size: 22rpx; color: #1E6FE0; }
+
 .choice-head {
 	padding: 28rpx 32rpx;
 	display: flex;
@@ -13716,6 +14064,47 @@ onUnmounted(() => {
 .guide-media-type { font-size: 24rpx; color: #1E6FE0; flex-shrink: 0; }
 .guide-media-name { flex: 1; font-size: 26rpx; color: #1d2129; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .guide-media-open { font-size: 24rpx; color: #86909c; flex-shrink: 0; }
+
+/* ============== 编辑资料入口 + 弹层 ============== */
+.profile-name-row { display: flex; align-items: center; gap: 12rpx; }
+.profile-edit-tag {
+	font-size: 21rpx; line-height: 1; color: #FFFFFF;
+	padding: 5rpx 14rpx; border-radius: 999rpx;
+	background: rgba(255, 255, 255, 0.22);
+}
+.avatar .avatar-image { width: 120rpx; height: 120rpx; border-radius: 999rpx; }
+
+.edit-mask {
+	position: fixed; left: 0; right: 0; top: 0; bottom: 0;
+	z-index: 200; background: rgba(15, 23, 42, 0.45);
+	display: flex; align-items: flex-end;
+}
+.edit-sheet {
+	width: 100%; background: #FFFFFF; border-radius: 28rpx 28rpx 0 0;
+	padding: 36rpx 40rpx calc(40rpx + constant(safe-area-inset-bottom));
+	padding: 36rpx 40rpx calc(40rpx + env(safe-area-inset-bottom));
+	box-sizing: border-box;
+}
+.edit-title { font-size: 32rpx; font-weight: 700; color: #1E293B; text-align: center; margin-bottom: 32rpx; }
+.edit-avatar-row { display: flex; flex-direction: column; align-items: center; gap: 12rpx; margin-bottom: 32rpx; }
+.edit-avatar-btn {
+	width: 140rpx; height: 140rpx; padding: 0; border-radius: 999rpx; overflow: hidden;
+	background: #F1F5F9; border: 2rpx solid #E4ECF7;
+	display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.edit-avatar-btn::after { border: none; }
+.edit-avatar-img { width: 140rpx; height: 140rpx; display: block; }
+.edit-avatar-ph { font-size: 24rpx; color: #94A3B8; }
+.edit-avatar-hint { font-size: 22rpx; color: #94A3B8; }
+.edit-field { display: flex; align-items: center; gap: 20rpx; padding: 24rpx 0; border-top: 2rpx solid #F1F5F9; }
+.edit-label { font-size: 28rpx; color: #475569; width: 96rpx; flex-shrink: 0; }
+.edit-input { flex: 1; font-size: 28rpx; color: #1E293B; text-align: right; }
+.edit-input-ph { color: #CBD5E1; }
+.edit-actions { display: flex; gap: 20rpx; margin-top: 36rpx; }
+.edit-btn { flex: 1; height: 84rpx; border-radius: 16rpx; display: flex; align-items: center; justify-content: center; font-size: 30rpx; font-weight: 600; }
+.edit-btn.cancel { background: #F1F5F9; color: #475569; }
+.edit-btn.save { background: #1E6FE0; color: #FFFFFF; }
+.edit-btn.save.disabled { opacity: 0.6; }
 </style>
 
 

@@ -12,13 +12,30 @@
     "after",
     "create_time"
   ],
+  "permission": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
   "properties": {
-    "_id": { "description": "ID" },
-    "order_id": { "bsonType": "string" },
-    "order_no": { "bsonType": "string" },
+    "_id": {
+      "description": "ID"
+    },
+    "order_id": {
+      "bsonType": "string"
+    },
+    "order_no": {
+      "bsonType": "string"
+    },
     "source": {
       "bsonType": "string",
-      "enum": ["client", "admin", "system", "wechat_pay"]
+      "enum": [
+        "client",
+        "admin",
+        "system",
+        "wechat_pay"
+      ]
     },
     "action": {
       "bsonType": "string",
@@ -47,11 +64,23 @@
         "update_order_items"
       ]
     },
-    "actor_id": { "bsonType": "string" },
-    "actor_role": { "bsonType": "string" },
-    "actor_name": { "bsonType": "string" },
-    "before": { "bsonType": "object" },
-    "after": { "bsonType": "object" },
-    "create_time": { "bsonType": "timestamp" }
+    "actor_id": {
+      "bsonType": "string"
+    },
+    "actor_role": {
+      "bsonType": "string"
+    },
+    "actor_name": {
+      "bsonType": "string"
+    },
+    "before": {
+      "bsonType": "object"
+    },
+    "after": {
+      "bsonType": "object"
+    },
+    "create_time": {
+      "bsonType": "timestamp"
+    }
   }
 }

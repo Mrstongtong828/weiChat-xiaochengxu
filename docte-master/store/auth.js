@@ -54,7 +54,7 @@ export const fetchUserInfo = async () => {
 // 更新用户信息
 export const updateProfile = async (data) => {
 	try {
-		const res = await authApi.updateUserInfo(data)
+		const res = await authApi.updateProfile(data)
 		userInfo.value = { ...userInfo.value, ...data }
 		uni.setStorageSync('userInfo', userInfo.value)
 		return { success: true, data: res }

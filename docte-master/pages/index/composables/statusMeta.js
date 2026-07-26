@@ -112,7 +112,7 @@ export const deriveDisplayStatus = (order = {}) => {
 	// inspecting / fixing 受报价、付款子状态细分
 	if (payment === 'uploaded') return '待核款'
 	if (quote === 'issued') return '待确认报价'
-	if (quote === 'confirmed' && payment !== 'paid') return '待付款'
+	if (quote === 'confirmed' && !['paid', 'not_required'].includes(payment)) return '待付款'
 	if (key === 'inspecting') return '检测中'
 	return '维修中'
 }
@@ -161,8 +161,6 @@ export const getOrderStatusTone = (order = {}) => {
 	return order.tone || 'info'
 }
 
-const repairProgressNodeLabels = ['已提交', '已寄出', '已签收', '检测中', '待报价', '待付款', '维修中', '已回寄', '已完成']
-
 export const getRepairProgressNodes = (order = {}) => {
 	if (!order.id) return []
 	const cancelled = order.statusKey === 'cancelled' || order.status === '已取消'
@@ -172,8 +170,19 @@ export const getRepairProgressNodes = (order = {}) => {
 	if (reached === undefined) reached = cnBaseMap[order.status]
 	if (reached === undefined) reached = 0
 	if (['issued', 'confirmed', 'rejected'].includes(order.quoteStatus)) reached = Math.max(reached, 4)
-	if (order.paymentStatus === 'paid') reached = Math.max(reached, 5)
+	if (['paid', 'not_required'].includes(order.paymentStatus)) reached = Math.max(reached, 6)
 	const completed = order.statusKey === 'completed' || order.status === '已完成'
+	const repairProgressNodeLabels = [
+		'已提交',
+		'已寄出',
+		'已签收',
+		'检测中',
+		order.paymentStatus === 'not_required' ? '质保方案' : '待报价',
+		order.paymentStatus === 'not_required' ? '质保免付' : '待付款',
+		'维修中',
+		'已回寄',
+		'已完成'
+	]
 	return repairProgressNodeLabels.map((label, index) => ({
 		label,
 		state: cancelled ? 'pending' : (completed ? 'done' : (index < reached ? 'done' : (index === reached ? 'current' : 'pending')))

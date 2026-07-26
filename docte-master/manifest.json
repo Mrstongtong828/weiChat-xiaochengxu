@@ -57,6 +57,12 @@
         "__usePrivacyCheck__" : true,
         "optimization" : {
             "subPackages" : true
+        },
+        "requiredPrivateInfos" : [ "chooseLocation" ],
+        "permission" : {
+            "scope.userLocation" : {
+                "desc" : "用于选择报修设备的寄出和回寄地址"
+            }
         }
     },
     "mp-alipay" : {
