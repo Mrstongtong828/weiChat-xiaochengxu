@@ -980,7 +980,7 @@ module.exports = {
       if (!rows.length) return { code: -1, msg: '没有可导入的数据' }
       if (rows.length > 1000) return { code: -1, msg: '单次最多导入 1000 条' }
 
-      const TYPE_ALIAS = { '终端诊所': 'clinic', '诊所': 'clinic', '经销商': 'dealer', '个人散户': 'individual', '散户': 'individual', '个人': 'individual', clinic: 'clinic', dealer: 'dealer', individual: 'individual' }
+      const TYPE_ALIAS = { '企业': 'clinic', '终端诊所': 'clinic', '诊所': 'clinic', '签约代理商（齿科）': 'dealer', '经销商': 'dealer', '个人散户': 'individual', '散户': 'individual', '个人': 'individual', clinic: 'clinic', dealer: 'dealer', individual: 'individual' }
       const col = db.collection('cicada_customers')
       const now = Date.now()
       const failed = []

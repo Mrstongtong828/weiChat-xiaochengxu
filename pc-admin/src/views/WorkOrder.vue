@@ -31,9 +31,9 @@
         </el-select>
         <el-select v-model="wo.customerTypeFilter" placeholder="用户类型" clearable>
           <el-option label="全部用户类型" value=""></el-option>
-          <el-option label="终端诊所" value="clinic"></el-option>
-          <el-option label="经销商" value="dealer"></el-option>
-          <el-option label="个人散户" value="individual"></el-option>
+          <el-option label="企业" value="clinic"></el-option>
+          <el-option label="签约代理商（齿科）" value="dealer"></el-option>
+          <el-option label="个人" value="individual"></el-option>
         </el-select>
         <el-select v-model="slaFilter" placeholder="SLA 状态" clearable>
           <el-option label="全部 SLA 状态" value=""></el-option>
@@ -1565,9 +1565,9 @@ const todoTypeMap = {
 }
 
 const CUSTOMER_TYPE_META = {
-  clinic: { label: '终端诊所', type: 'success' },
-  dealer: { label: '经销商', type: 'warning' },
-  individual: { label: '个人散户', type: 'info' }
+  clinic: { label: '企业', type: 'success' },
+  dealer: { label: '签约代理商（齿科）', type: 'warning' },
+  individual: { label: '个人', type: 'info' }
 }
 
 const customerTypeMeta = (type = '') => CUSTOMER_TYPE_META[String(type || '').trim()] || null

@@ -20,10 +20,10 @@
     <div class="filter-bar">
       <el-input v-model.trim="filters.keyword" placeholder="客户名称 / 联系人 / 手机号" clearable
         style="width:240px;" @keyup.enter="reload" @clear="reload" />
-      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable style="width:140px;" @change="reload">
-        <el-option label="终端诊所" value="clinic" />
-        <el-option label="经销商" value="dealer" />
-        <el-option label="个人散户" value="individual" />
+      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable style="width:200px;" @change="reload">
+        <el-option label="企业" value="clinic" />
+        <el-option label="签约代理商（齿科）" value="dealer" />
+        <el-option label="个人" value="individual" />
       </el-select>
       <el-select v-model="filters.status" style="width:130px;" @change="reload">
         <el-option label="正常客户" value="active" />
@@ -104,9 +104,9 @@
     <el-form :model="form" label-width="100px">
       <el-form-item label="客户类型">
         <el-select v-model="form.customer_type" style="width:100%;">
-          <el-option label="终端诊所" value="clinic" />
-          <el-option label="经销商" value="dealer" />
-          <el-option label="个人散户" value="individual" />
+          <el-option label="企业" value="clinic" />
+          <el-option label="签约代理商（齿科）" value="dealer" />
+          <el-option label="个人" value="individual" />
         </el-select>
       </el-form-item>
       <el-form-item label="客户名称" required>
@@ -352,7 +352,7 @@ import {
 } from '../api/customer.js'
 import { downloadCustomerTemplate, exportCustomerWorkbook, parseCustomerExcelFile } from '../utils/customerExcel.js'
 
-const TYPE_LABELS = { clinic: '终端诊所', dealer: '经销商', individual: '个人散户' }
+const TYPE_LABELS = { clinic: '企业', dealer: '签约代理商（齿科）', individual: '个人' }
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
 const WARRANTY_LABELS = { in_warranty: '在保', extended: '已延保', expired: '过保', unknown: '待补充' }
 const ORDER_STATUS_LABELS = { pending: '待寄出', sent: '已寄出', received: '已收货', inspecting: '检测中', fixing: '维修中', shipped: '已寄回', completed: '已完成', cancelled: '已取消' }
