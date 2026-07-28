@@ -295,7 +295,7 @@ const go = (id) => {
 	if (id === 'company') return
 	uni.redirectTo({
 		url: routes[id] || `/pages/${id}/index`,
-		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
+		fail: () => uni.showToast({ title: '打开失败', icon: 'none' })
 	})
 }
 

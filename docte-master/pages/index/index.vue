@@ -277,7 +277,7 @@
 			<view v-else-if="activeModule === 'repair-success'" class="module-content success-module">
 				<view class="success-icon"><view class="mini-icon mini-check mini-check-white"></view></view>
 				<text class="success-title">报修已提交</text>
-				<text class="success-desc">报修已提交，工作人员将尽快联系您</text>
+				<text class="success-desc">工作人员将尽快联系您</text>
 				<view class="success-card">
 					<view class="success-row"><text>工单号</text><text class="copy-link tap" @click="copyOne(submittedOrderId, '工单号')">复制</text></view>
 					<text class="success-no">{{ submittedOrderId || '工单号生成中' }}</text>
@@ -3596,7 +3596,7 @@ const payRepairQuote = (order = {}) => {
 				const paymentOrder = await createRepairWechatPay(order.recordId || order.id)
 				const paymentParams = paymentOrder.payment || {}
 				if (!paymentParams.timeStamp || !paymentParams.nonceStr || !paymentParams.package || !paymentParams.paySign) {
-					throw new Error('支付参数异常')
+					throw new Error('暂时无法支付，请稍后重试')
 				}
 
 				uni.hideLoading()
@@ -4245,7 +4245,7 @@ const submitSurveyForm = async () => {
 		resetSurveyForm(true)
 	} catch (error) {
 		saveLocalSurveyRecord({ ...record, status: 'local_fallback' })
-		uni.showToast({ title: '已保存在本机', icon: 'none' })
+		uni.showToast({ title: '提交失败，请稍后重试', icon: 'none' })
 	} finally {
 		surveySubmitting.value = false
 	}
@@ -5682,7 +5682,7 @@ const go = (id, type) => {
 		return
 	}
 
-	uni.showToast({ title: '功能已接入当前页面', icon: 'none' })
+	uni.showToast({ title: '暂不可用', icon: 'none' })
 }
 
 const openAddressPage = () => {
