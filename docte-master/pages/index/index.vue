@@ -2003,8 +2003,25 @@ const surveyForm = ref({
 })
 const surveyRecords = ref([])
 
+const SUBSCRIPTION_PROMPTED_KEY = 'cicada_subscription_prompted_v1'
 let subscriptionRequested = false
 let subscriptionRequestPromise = null
+
+const hasRequestedSubscription = () => {
+	try {
+		return Boolean(uni.getStorageSync(SUBSCRIPTION_PROMPTED_KEY))
+	} catch (error) {
+		return false
+	}
+}
+
+const markSubscriptionRequested = () => {
+	try {
+		uni.setStorageSync(SUBSCRIPTION_PROMPTED_KEY, '1')
+	} catch (error) {
+		// 内存标记仍可保证本次运行不重复弹窗。
+	}
+}
 
 const loadSubscriptionTemplates = async () => {
 	if (Array.isArray(subscriptionTemplates.value)) return subscriptionTemplates.value
@@ -2018,20 +2035,27 @@ const loadSubscriptionTemplates = async () => {
 	return subscriptionTemplates.value
 }
 
-const requestStatusSubscription = async (scene) => {
+const requestStatusSubscription = (_scene) => {
 	if (!uni.requestSubscribeMessage) return null
-	if (subscriptionRequested) return null
-	subscriptionRequested = true
+	if (subscriptionRequested || hasRequestedSubscription()) return null
 	if (subscriptionRequestPromise) return subscriptionRequestPromise
-	const templates = await loadSubscriptionTemplates()
-	const tmplIds = [...new Set(templates
-		.filter(item => item.templateId)
-		.map(item => item.templateId))].slice(0, 5)
-	if (!tmplIds.length) return null
-	subscriptionRequestPromise = uni.requestSubscribeMessage({ tmplIds }).catch(error => {
-		console.warn('request subscribe message failed:', error)
-		return null
-	})
+	subscriptionRequestPromise = (async () => {
+		const templates = await loadSubscriptionTemplates()
+		const tmplIds = [...new Set(templates
+			.filter(item => item.templateId)
+			.map(item => item.templateId))].slice(0, 5)
+		if (!tmplIds.length) return null
+
+		// 无论同意、拒绝还是关闭，后续都不再请求，避免打断业务操作。
+		subscriptionRequested = true
+		markSubscriptionRequested()
+		try {
+			return await uni.requestSubscribeMessage({ tmplIds })
+		} catch (error) {
+			console.warn('request subscribe message failed:', error)
+			return null
+		}
+	})()
 	return subscriptionRequestPromise
 }
 const showLogisticsPicker = ref(false)
@@ -4314,7 +4338,6 @@ const returnFromModule = () => {
 }
 
 const openTrackDetail = (order) => {
-	requestStatusSubscription('track_view')
 	trackDetailOrder.value = order.id
 	openModule('order-detail')
 }
@@ -5677,7 +5700,6 @@ const go = (id, type) => {
 	}
 
 	if (moduleMap[id]) {
-		if (id === 'track') requestStatusSubscription('track_view')
 		openModule(id, type)
 		return
 	}
