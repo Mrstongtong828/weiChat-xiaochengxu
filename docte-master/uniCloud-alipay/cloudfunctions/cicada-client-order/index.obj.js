@@ -38,6 +38,7 @@ function loadWechatPayCryptoModule() {
 }
 
 const CREATE_ORDER_LIMIT = { windowMs: 60 * 1000, max: 8 }
+const QUERY_PACKAGE_LIMIT = { windowMs: 60 * 1000, max: 12 }
 const DUPLICATE_ORDER_WINDOW_MS = 10 * 60 * 1000
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 let wechatAccessTokenCache = { token: '', expireAt: 0 }
@@ -918,44 +919,67 @@ function genOrderNo() {
   return 'DR' + datePart + crypto.randomBytes(4).toString('hex').toUpperCase()
 }
 
+function getClientIdentity(ctx, fallback = 'anonymous') {
+  const clientInfo = ctx && ctx.getClientInfo ? ctx.getClientInfo() : {}
+  return clientInfo.clientIP || clientInfo.ip || clientInfo.userAgent || fallback
+}
+
 async function checkRateLimit(scope, identity, config) {
   if (!identity || !config) return
 
-  const now = Date.now()
   const key = `${scope}:${identity}`
   const col = db.collection('cicada_rate_limits')
-  const found = await col.where({ key }).limit(1).get()
-  const record = found.data[0]
 
-  if (!record || now > record.reset_time) {
-    if (record) {
-      await col.doc(record._id).update({
-        count: 1,
-        reset_time: now + config.windowMs,
-        update_time: now
-      })
-    } else {
-      await col.add({
-        key,
-        scope,
-        identity,
-        count: 1,
-        reset_time: now + config.windowMs,
-        create_time: now,
-        update_time: now
-      })
+  // `key` has a unique index. Conditional updates make the limit hold under concurrent requests.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const now = Date.now()
+    const found = await col.where({ key }).limit(1).get()
+    const record = found.data && found.data[0]
+
+    if (!record) {
+      try {
+        await col.add({
+          key,
+          scope,
+          identity,
+          count: 1,
+          reset_time: now + config.windowMs,
+          create_time: now,
+          update_time: now
+        })
+        return
+      } catch (error) {
+        if (attempt === 2) throw error
+        continue
+      }
     }
-    return
-  }
 
-  if (record.count >= config.max) {
+    if (now > Number(record.reset_time || 0)) {
+      const reset = await col.where({
+        _id: record._id,
+        reset_time: db.command.lt(now)
+      }).update({
+        count: 1,
+        reset_time: now + config.windowMs,
+        update_time: now
+      })
+      if (reset.updated) return
+      continue
+    }
+
+    const increment = await col.where({
+      _id: record._id,
+      reset_time: db.command.gte(now),
+      count: db.command.lt(config.max)
+    }).update({
+      count: db.command.inc(1),
+      update_time: now
+    })
+    if (increment.updated) return
     throw new Error('操作过于频繁，请稍后再试')
   }
 
-  await col.doc(record._id).update({
-    count: db.command.inc(1),
-    update_time: now
-  })
+  throw new Error('操作过于频繁，请稍后再试')
 }
 
 async function findRecentDuplicateOrder(userId, items = [], now = Date.now()) {
@@ -1422,6 +1446,7 @@ module.exports = {
       if (!/^[A-Za-z0-9-]{6,40}$/.test(normalizedTrackingNo)) {
         return { code: -1, msg: '快递单号格式不正确' }
       }
+      await checkRateLimit('query-package', getClientIdentity(this), QUERY_PACKAGE_LIMIT)
 
       const found = await findOrderByTrackingNo(normalizedTrackingNo)
       if (!found || !found.order) return { code: 0, data: null }
@@ -1430,12 +1455,6 @@ module.exports = {
       const matchedCompany = matchedType === 'invoice'
         ? normalizeText((order.invoice_info || {}).mail_company || (order.invoice_info || {}).mailCompany)
         : getShipInfo(order, matchedType).company
-      if (isCompanyMismatch(inputCompany, matchedCompany)) {
-        return {
-          code: -1,
-          msg: `该单号已关联${matchedCompany || '其他快递公司'}，与当前选择的${inputCompany}不一致，请切换快递公司后重试。`
-        }
-      }
       const shipBackInfo = matchedType === 'invoice' ? (order.invoice_info || {}) : (order.ship_back_info || {})
       const storedLast4 = normalizePhoneLast4(
         shipBackInfo.phone || shipBackInfo.mobile || shipBackInfo.receiverPhone || shipBackInfo.receiver_phone || shipBackInfo.recipient_phone
@@ -1453,8 +1472,12 @@ module.exports = {
       }
 
       const phoneLast4Matched = Boolean(storedLast4 && inputLast4 && storedLast4 === inputLast4)
-      const privacyLimited = Boolean(!isOwner && inputLast4 && !phoneLast4Matched)
-      const fullAccess = Boolean(isOwner || phoneLast4Matched)
+      if (!isOwner && !phoneLast4Matched) return { code: 0, data: null }
+      if (isCompanyMismatch(inputCompany, matchedCompany)) {
+        return { code: -1, msg: '快递公司与工单记录不一致，请切换后重试。' }
+      }
+
+      const fullAccess = true
       if (matchedType !== 'invoice') order = await refreshOrderTrack(order, matchedType)
       // 设备型号：取工单首个维修产品名，供卡片底部「工单号+型号」防混淆展示
       let model = ''
@@ -1477,7 +1500,7 @@ module.exports = {
           model: fullAccess ? model : '',
           matchedType,
           phoneLast4Matched,
-          privacyLimited,
+          privacyLimited: false,
           out: buildPackageSegment(order, 'out', fullAccess),
           back: matchedType === 'invoice' ? buildInvoicePackageSegment(order, fullAccess) : buildPackageSegment(order, 'back', fullAccess)
         }

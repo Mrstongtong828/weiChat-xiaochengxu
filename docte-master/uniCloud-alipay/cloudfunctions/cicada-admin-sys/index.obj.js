@@ -1089,7 +1089,7 @@ module.exports = {
       } else if (this.params) {
         ({ token } = this.params)
       }
-      await verifyAdminToken(token, ['admin', 'engineer'])
+      await verifyAdminToken(token, ['admin'])
 
       await ensureGuideDefaults()
       const res = await db.collection('cicada_guides').orderBy('sort', 'asc').get()

@@ -66,38 +66,59 @@ function getClientIdentity(ctx, fallback = 'anonymous') {
 
 async function checkRateLimit(scope, identity, config) {
   if (!identity || !config) return
-  const now = Date.now()
   const key = `${scope}:${identity}`
   const col = db.collection('cicada_rate_limits')
-  const found = await col.where({ key }).limit(1).get()
-  const record = found.data[0]
-  if (!record || now > record.reset_time) {
-    if (record) {
-      await col.doc(record._id).update({
-        count: 1,
-        reset_time: now + config.windowMs,
-        update_time: now
-      })
-    } else {
-      await col.add({
-        key,
-        scope,
-        identity,
-        count: 1,
-        reset_time: now + config.windowMs,
-        create_time: now,
-        update_time: now
-      })
+
+  // `key` has a unique index. Conditional updates make the limit hold under concurrent requests.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const now = Date.now()
+    const found = await col.where({ key }).limit(1).get()
+    const record = found.data && found.data[0]
+
+    if (!record) {
+      try {
+        await col.add({
+          key,
+          scope,
+          identity,
+          count: 1,
+          reset_time: now + config.windowMs,
+          create_time: now,
+          update_time: now
+        })
+        return
+      } catch (error) {
+        if (attempt === 2) throw error
+        continue
+      }
     }
-    return
-  }
-  if (record.count >= config.max) {
+
+    if (now > Number(record.reset_time || 0)) {
+      const reset = await col.where({
+        _id: record._id,
+        reset_time: db.command.lt(now)
+      }).update({
+        count: 1,
+        reset_time: now + config.windowMs,
+        update_time: now
+      })
+      if (reset.updated) return
+      continue
+    }
+
+    const increment = await col.where({
+      _id: record._id,
+      reset_time: db.command.gte(now),
+      count: db.command.lt(config.max)
+    }).update({
+      count: db.command.inc(1),
+      update_time: now
+    })
+    if (increment.updated) return
     throw new Error('操作过于频繁，请稍后再试')
   }
-  await col.doc(record._id).update({
-    count: db.command.inc(1),
-    update_time: now
-  })
+
+  throw new Error('操作过于频繁，请稍后再试')
 }
 
 function isClientAudienceGuide(item = {}) {
