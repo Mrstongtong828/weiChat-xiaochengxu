@@ -46,6 +46,9 @@
     /* 小程序特有相关 */
     "mp-weixin" : {
         "appid" : "wx25289fbe4a3bf011",
+		"useExtendedLib" : {
+			"weui" : true
+		},
         "setting" : {
             "urlCheck" : true,
             "minified" : true,
@@ -58,12 +61,7 @@
         "optimization" : {
             "subPackages" : true
         },
-        "requiredPrivateInfos" : [ "chooseLocation" ],
-        "permission" : {
-            "scope.userLocation" : {
-                "desc" : "用于选择报修设备的寄出和回寄地址"
-            }
-        }
+        "requiredPrivateInfos" : [ "chooseAddress" ]
     },
     "mp-alipay" : {
         "usingComponents" : true

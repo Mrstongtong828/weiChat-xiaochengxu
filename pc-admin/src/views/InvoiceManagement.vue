@@ -162,13 +162,15 @@
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRoute } from 'vue-router'
 import { getInvoiceApplications, batchImportInvoices, updateInvoiceStatus } from '../api/order.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { downloadInvoiceTemplate, parseInvoiceExcelFile } from '../utils/invoiceExcel.js'
 
 const getToken = () => localStorage.getItem('adminToken')
+const route = useRoute()
 const STATUS_OPTIONS = ['待开票', '开具中', '已开具', '已寄出', '已签收', '无需开票']
 const INVOICE_STATUS_LABELS = {
   待开票: '资料审核中',
@@ -204,6 +206,10 @@ const load = async () => {
 }
 const reload = () => { page.value = 1; load() }
 const onPageChange = (p) => { page.value = p; load() }
+const applyRouteFilter = () => {
+  const requested = String(route.query.status || '')
+  filters.status = requested === 'pending' ? '待开票' : (STATUS_OPTIONS.includes(requested) ? requested : '')
+}
 
 // ===== 登记开票 + PDF 上传 =====
 const issueDialog = ref(false)
@@ -309,7 +315,8 @@ const downloadTemplate = () => downloadInvoiceTemplate().catch(e => ElMessage.er
 
 // 开票数据导出已统一到「财务中心 · 四流台账导出」（FinanceCenter.vue）
 
-onMounted(load)
+onMounted(() => { applyRouteFilter(); load() })
+watch(() => route.query.status, () => { applyRouteFilter(); reload() })
 </script>
 
 <style scoped>

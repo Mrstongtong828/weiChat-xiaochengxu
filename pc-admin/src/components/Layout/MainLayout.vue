@@ -41,6 +41,40 @@
           <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
         </div>
         <div class="header-actions">
+          <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="440" trigger="click" @show="loadNotifications()">
+            <template #reference>
+              <el-badge :value="notificationTotal" :max="99" :hidden="!notificationTotal" class="notification-badge">
+                <el-button circle text class="notification-trigger" aria-label="打开提醒中心">
+                  <el-icon :size="20"><Bell /></el-icon>
+                </el-button>
+              </el-badge>
+            </template>
+            <div v-loading="notificationLoading" class="notification-panel">
+              <div class="notification-panel-head">
+                <div><strong>提醒中心</strong><span>{{ notificationTotal ? `共 ${notificationTotal} 项待处理` : '当前没有待处理提醒' }}</span></div>
+                <el-tooltip content="刷新提醒" placement="top">
+                  <el-button circle text size="small" aria-label="刷新提醒" @click="loadNotifications(true)"><el-icon><Refresh /></el-icon></el-button>
+                </el-tooltip>
+              </div>
+              <el-alert v-if="notificationUnavailable.length" type="warning" :closable="false" show-icon class="notification-alert"
+                :title="`${notificationUnavailable.join('、')}暂时无法加载，其他提醒仍可使用`" />
+              <el-empty v-if="!notificationLoading && !notificationGroups.length" :image-size="72" description="当前没有待处理提醒" />
+              <div v-else class="notification-groups">
+                <section v-for="group in notificationGroups" :key="group.key" class="notification-group" :class="`notification-group--${group.severity}`">
+                  <button class="notification-group-head" type="button" @click="goNotification(group.key)">
+                    <span class="notification-severity"></span>
+                    <strong>{{ group.title }}</strong>
+                    <el-tag size="small" :type="notificationTagType(group.severity)">{{ group.count }}</el-tag>
+                    <el-icon class="notification-go"><ArrowRight /></el-icon>
+                  </button>
+                  <button v-for="sample in group.samples" :key="`${group.key}-${sample.id}-${sample.title}`" type="button" class="notification-sample" @click="goNotification(group.key)">
+                    <strong>{{ sample.title }}</strong><span>{{ sample.desc }}</span>
+                  </button>
+                  <el-button type="primary" link size="small" class="notification-more" @click="goNotification(group.key)">查看全部</el-button>
+                </section>
+              </div>
+            </div>
+          </el-popover>
           <el-button type="primary" plain round size="small" class="visit-miniapp-btn" @click="openMiniappDialog"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
           <el-dropdown>
             <el-avatar :size="40" class="admin-avatar"><el-icon :size="20"><User /></el-icon></el-avatar>
@@ -76,7 +110,7 @@
       </el-form>
       <template #footer>
         <el-button @click="profileDrawerVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveProfile">保存修改</el-button>
+        <el-button type="primary" :loading="profileSaving" @click="saveProfile">保存修改</el-button>
       </template>
     </el-drawer>
 
@@ -111,16 +145,24 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { computed, ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { changeMyPassword, getSettings, getTempFileURL } from '../../api/admin.js'
+import { changeMyPassword, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
+import { getNotificationSummary } from '../../api/order.js'
+import { getWarrantyAlerts } from '../../api/customer.js'
 import { canAccessMenu, getCurrentAdminRole } from '../../config/menuAccess.js'
 
 const router = useRouter()
 const route = useRoute()
 const isMobile = ref(false)
 const sidebarOpen = ref(false)
+const notificationVisible = ref(false)
+const notificationLoading = ref(false)
+const notificationGroups = ref([])
+const notificationUnavailable = ref([])
+const notificationTotal = computed(() => notificationGroups.value.reduce((sum, group) => sum + Number(group.count || 0), 0))
+let notificationLoadedAt = 0
 
 const menuTitles = {
   home: '工作台首页',
@@ -138,11 +180,30 @@ const menuTitles = {
 }
 
 const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
+const canLoadWarrantyNotifications = () => ['superadmin', 'admin', 'support'].includes(getCurrentAdminRole())
+const notificationTagType = (severity) => ({ critical: 'danger', warning: 'warning', info: 'primary' }[severity] || 'info')
+const notificationRoutes = {
+  warranty_missing: { path: '/customers', query: { alert: 'missing' } },
+  warranty_expiring: { path: '/customers', query: { alert: 'expiring' } },
+  warranty_expired: { path: '/customers', query: { alert: 'expired' } },
+  logistics: { path: '/logistics', query: { tab: 'exception' } },
+  quote: { path: '/workorder', query: { todo: 'quote' } },
+  payment: { path: '/workorder', query: { todo: 'payment' } },
+  invoice: { path: '/invoices', query: { status: 'pending' } },
+  sla_warning: { path: '/workorder', query: { sla: 'warning' } },
+  sla_critical: { path: '/workorder', query: { sla: 'critical' } }
+}
+const warrantyNotificationMeta = {
+  missing: { title: '保修资料待补充', severity: 'info', key: 'warranty_missing', desc: item => `${item.customer_name || '客户'} · ${item.product_name || '设备'}，请补充质保资料` },
+  expiring: { title: '保修即将到期', severity: 'warning', key: 'warranty_expiring', desc: item => `${item.customer_name || '客户'} · ${item.product_name || '设备'}，到期日 ${item.effective_expire || '-'}` },
+  expired: { title: '保修已过期', severity: 'warning', key: 'warranty_expired', desc: item => `${item.customer_name || '客户'} · ${item.product_name || '设备'}，请核对是否延保` }
+}
 const getMenuFromPath = () => route.path.replace(/^\//, '') || 'home'
 const activeMenu = ref(getMenuFromPath())
 
 const profileDrawerVisible = ref(false)
 const profileForm = reactive({ username: '', realName: '', phone: '', role: '' })
+const profileSaving = ref(false)
 const pwdDialogVisible = ref(false)
 const forcedPasswordChange = ref(localStorage.getItem('adminMustChangePassword') === '1')
 const pwdSaving = ref(false)
@@ -215,9 +276,103 @@ const handleLogout = () => {
   router.push('/login')
 }
 
-const saveProfile = () => {
-  profileDrawerVisible.value = false
-  ElMessage.info('个人资料保存接口待补充，当前仅展示登录信息')
+const saveProfile = async () => {
+  const name = profileForm.realName.trim()
+  const phone = profileForm.phone.trim()
+  if (!name) {
+    ElMessage.warning('请输入真实姓名')
+    return
+  }
+  if (name.length > 50) {
+    ElMessage.warning('真实姓名不能超过 50 个字符')
+    return
+  }
+  if (phone && !/^[0-9+()\-\s]{6,32}$/.test(phone)) {
+    ElMessage.warning('请输入有效的联系电话')
+    return
+  }
+
+  profileSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const res = await updateMyProfile(token, { name, phone })
+    const profile = res?.data || { name, phone }
+    const user = JSON.parse(localStorage.getItem('adminUser') || '{}')
+    localStorage.setItem('adminUser', JSON.stringify({
+      ...user,
+      name: profile.name || name,
+      phone: profile.phone ?? phone
+    }))
+    profileForm.realName = profile.name || name
+    profileForm.phone = profile.phone ?? phone
+    profileDrawerVisible.value = false
+    ElMessage.success('个人资料已保存')
+  } catch (error) {
+    ElMessage.error(error.message || '个人资料保存失败')
+  } finally {
+    profileSaving.value = false
+  }
+}
+
+const loadNotifications = async (force = false) => {
+  const now = Date.now()
+  if (notificationLoading.value || (!force && notificationLoadedAt && now - notificationLoadedAt < 30000)) return
+  const token = localStorage.getItem('adminToken')
+  if (!token) return
+  notificationLoading.value = true
+  try {
+    const requests = [getNotificationSummary(token)]
+    if (canLoadWarrantyNotifications()) requests.push(getWarrantyAlerts({ page: 1, pageSize: 5 }))
+    const results = await Promise.allSettled(requests)
+    const groups = []
+    const unavailable = []
+    const orderResult = results[0]
+    if (orderResult.status === 'fulfilled') {
+      const data = orderResult.value?.data || orderResult.value || {}
+      groups.push(...(Array.isArray(data.groups) ? data.groups : []))
+      unavailable.push(...(Array.isArray(data.unavailable) ? data.unavailable : []))
+    } else {
+      unavailable.push('工单提醒')
+    }
+    if (canLoadWarrantyNotifications()) {
+      const warrantyResult = results[1]
+      if (warrantyResult && warrantyResult.status === 'fulfilled') {
+        const data = warrantyResult.value?.data || warrantyResult.value || {}
+        const counts = data.counts || {}
+        const samples = data.samples || {}
+        Object.entries(warrantyNotificationMeta).forEach(([category, meta]) => {
+          const count = Number(counts[category] || 0)
+          if (!count) return
+          groups.push({
+            key: meta.key,
+            title: meta.title,
+            severity: meta.severity,
+            count,
+            samples: (samples[category] || []).map(item => ({
+              id: item.device_id || '',
+              title: `${item.customer_name || '客户'} · ${item.product_name || '设备'}`,
+              desc: meta.desc(item)
+            }))
+          })
+        })
+      } else {
+        unavailable.push('保修待办')
+      }
+    }
+    const severityRank = { critical: 0, warning: 1, info: 2 }
+    notificationGroups.value = groups.sort((a, b) => (severityRank[a.severity] - severityRank[b.severity]) || Number(b.count || 0) - Number(a.count || 0))
+    notificationUnavailable.value = [...new Set(unavailable)]
+    notificationLoadedAt = Date.now()
+  } finally {
+    notificationLoading.value = false
+  }
+}
+
+const goNotification = (key) => {
+  const target = notificationRoutes[key]
+  if (!target) return
+  notificationVisible.value = false
+  router.push(target)
 }
 
 const openPwdDialog = () => {
@@ -263,10 +418,12 @@ const saveNewPassword = async () => {
 }
 
 watch(() => route.path, () => { activeMenu.value = getMenuFromPath() })
+watch(() => route.fullPath, () => { loadNotifications() })
 
 onMounted(() => {
   checkMobile()
   syncProfileFromStorage()
+  loadNotifications()
   if (forcedPasswordChange.value) {
     ElMessage.warning('当前使用临时密码，请先修改登录密码')
     openPwdDialog()

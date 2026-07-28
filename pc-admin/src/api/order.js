@@ -170,6 +170,11 @@ export const getTodoSummary = (token) => {
   return request.post(`${API_BASE.adminOrder}/getTodoSummary`, { token })
 }
 
+// 站内提醒中心：角色过滤后的工单、物流和 SLA 待办汇总
+export const getNotificationSummary = (token) => {
+  return request.post(`${API_BASE.adminOrder}/getNotificationSummary`, { token })
+}
+
 // 物流异常预警列表（48h未揽收 / 72h停滞）
 export const getLogisticsExceptions = (token) => {
   return request.post(`${API_BASE.adminOrder}/getLogisticsExceptions`, { token })
@@ -183,6 +188,16 @@ export const getLogisticsLedger = (token, filters = {}) => {
     keyword: filters.keyword || '',
     page: filters.page || 1,
     pageSize: filters.pageSize || 20
+  })
+}
+
+// 查询指定工单的寄出/回寄物流轨迹，后端仅以订单存量物流信息为准
+export const getLogisticsTrack = (token, orderId, segment, refresh = false) => {
+  return request.post(`${API_BASE.adminOrder}/getLogisticsTrack`, {
+    token,
+    orderId,
+    segment,
+    refresh
   })
 }
 

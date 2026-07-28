@@ -18,6 +18,15 @@ export const changeMyPassword = (token, oldPassword, newPassword) => {
   })
 }
 
+// 更新当前登录管理员的个人资料（账号与角色不可由本人修改）
+export const updateMyProfile = (token, profile = {}) => {
+  return request.post(`${API_BASE.adminSys}/updateMyProfile`, {
+    token,
+    name: profile.name,
+    phone: profile.phone
+  })
+}
+
 // 获取员工列表
 export const getStaffList = (token) => {
   return request.post(`${API_BASE.adminSys}/manageStaff`, {

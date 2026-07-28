@@ -84,7 +84,7 @@
 					placeholder-class="input-placeholder"
 				></textarea>
 				<view class="recognize-btn tap" @click="recognizeAddress">确认识别</view>
-				<view class="map-location-btn tap" @click="chooseMapLocation"><view class="field-pin"></view><text>地图搜索地址</text></view>
+				<view class="wechat-address-btn tap" @click="chooseWechatAddress">微信地址</view>
 			</view>
 
 			<view class="form-card">
@@ -128,14 +128,12 @@
 				</view>
 			</view>
 
-			<view class="default-card tap" @click="form.isDefault = !form.isDefault">
+			<view class="default-card">
 				<view class="default-copy">
 					<text>设为默认地址</text>
 					<text>维修回寄时优先使用该地址</text>
 				</view>
-				<view class="default-check" :class="{ checked: form.isDefault }">
-					<view></view>
-				</view>
+				<switch :checked="form.isDefault" color="#1E6FE0" @change="form.isDefault = $event.detail.value" />
 			</view>
 
 			<view class="form-actions">
@@ -285,23 +283,21 @@ const onRegionChange = (event) => {
 	form.value.region = event.detail.value || []
 }
 
-const chooseMapLocation = () => {
-	if (!uni.chooseLocation) {
-		uni.showToast({ title: '当前环境暂不支持地图选址', icon: 'none' })
+const chooseWechatAddress = () => {
+	if (typeof uni.chooseAddress !== 'function') {
+		uni.showToast({ title: '当前微信版本不支持地址导入', icon: 'none' })
 		return
 	}
-	uni.chooseLocation({
-		success: ({ address = '', name = '' } = {}) => {
-			const selectedAddress = [address, name].filter((item, index, list) => item && list.indexOf(item) === index).join(' ')
-			if (!selectedAddress) {
-				uni.showToast({ title: '未获取到地址，请重新选择', icon: 'none' })
-				return
-			}
-			form.value.detail = selectedAddress
+	uni.chooseAddress({
+		success: (result = {}) => {
+			form.value.receiver = String(result.userName || '').trim()
+			form.value.phone = normalizePhone(result.telNumber)
+			form.value.region = [result.provinceName, result.cityName, result.countyName].filter(Boolean)
+			form.value.detail = String(result.detailInfo || '').trim()
 		},
 		fail: (error) => {
 			if (!String(error && error.errMsg || '').includes('cancel')) {
-				uni.showToast({ title: '选址失败，可手动填写', icon: 'none' })
+				uni.showToast({ title: '微信地址导入失败', icon: 'none' })
 			}
 		}
 	})
@@ -954,28 +950,15 @@ const goBack = () => {
 	font-weight: 800;
 }
 
-.map-location-btn {
+.wechat-address-btn {
 	display: inline-flex;
-	align-items: center;
-	gap: 12rpx;
-	margin: 18rpx 0 0 16rpx;
-	padding: 14rpx 22rpx;
-	color: #0F766E;
+	margin: 18rpx 0 0 12rpx;
+	padding: 14rpx 20rpx;
+	border-radius: 16rpx;
+	background: #EEF8F3;
+	color: #078A48;
 	font-size: 26rpx;
-	font-weight: 700;
-}
-
-.map-location-btn .field-pin {
-	width: 22rpx;
-	height: 27rpx;
-	background: #14B8A6;
-}
-
-.map-location-btn .field-pin::after {
-	left: 7rpx;
-	top: 7rpx;
-	width: 8rpx;
-	height: 8rpx;
+	font-weight: 800;
 }
 
 .form-card {
@@ -1092,36 +1075,6 @@ const goBack = () => {
 .default-copy text:last-child {
 	font-size: 24rpx;
 	color: #7B8EA8;
-}
-
-.default-check {
-	width: 48rpx;
-	height: 48rpx;
-	border-radius: 14rpx;
-	border: 2rpx solid #D7E2F0;
-	background: #FFFFFF;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	box-sizing: border-box;
-}
-
-.default-check.checked {
-	border-color: #1E6FE0;
-	background: #1E6FE0;
-}
-
-.default-check view {
-	width: 18rpx;
-	height: 10rpx;
-	border-left: 4rpx solid #FFFFFF;
-	border-bottom: 4rpx solid #FFFFFF;
-	transform: rotate(-45deg);
-	opacity: 0;
-}
-
-.default-check.checked view {
-	opacity: 1;
 }
 
 .form-actions {

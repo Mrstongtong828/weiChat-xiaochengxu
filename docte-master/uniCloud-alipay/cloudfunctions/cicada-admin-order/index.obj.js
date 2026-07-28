@@ -765,6 +765,50 @@ function validateTrackingNo(rawNo, company = '') {
   return { ok: true, value, reason: '' }
 }
 
+async function validateTrackingNoBeforeSave(order, rawNo, company, segment = 'back') {
+  const localCheck = validateTrackingNo(rawNo, company)
+  if (!localCheck.ok) return localCheck
+
+  const phone = getOrderShipInfo(order, segment).phone
+  const validation = await expressProvider.verifyWaybill({
+    company,
+    trackingNo: localCheck.value,
+    phone
+  })
+  if (!validation.ok) {
+    return {
+      ok: false,
+      value: localCheck.value,
+      reason: validation.message || '物流单号实时校验未通过',
+      validation
+    }
+  }
+  return {
+    ok: true,
+    value: localCheck.value,
+    reason: '',
+    warning: validation.warning || '',
+    validation
+  }
+}
+
+function attachVerifiedTrackCache(updateData, order, segment, trackCheck) {
+  const validation = trackCheck && trackCheck.validation
+  if (!validation || !validation.verified || !validation.cache) return updateData
+  const existing = (order.track_cache && order.track_cache[segment]) || {}
+  return {
+    ...updateData,
+    track_cache: {
+      ...(order.track_cache || {}),
+      [segment]: {
+        ...existing,
+        ...validation.cache,
+        waybillVerifiedAt: Date.now()
+      }
+    }
+  }
+}
+
 // 回寄发货前置校验：需付费工单（有金额且非免费/在保）必须已确认到账才能录入发货。
 // 免费/在保（total_price=0 或 charge_type='free'）无需付款，放行。返回拦截原因或 ''。
 function blockShipUnpaidReason(order = {}) {
@@ -1288,14 +1332,110 @@ function normalizePartInput(part = {}) {
     model: normalizeText(part.model || part.part_model || part.partModel),
     compatible_models: Array.isArray(part.compatible_models)
       ? part.compatible_models.map(normalizeText).filter(Boolean)
-      : normalizeText(part.compatibleModels || part.compatible_models).split(/[,，\n]/).map(normalizeText).filter(Boolean),
+      : normalizeText(part.compatibleModels || part.compatible_models).split(/[,，、\n]/).map(normalizeText).filter(Boolean),
     purchase_cost: normalizeQuoteAmount(part.purchase_cost ?? part.purchaseCost),
     sale_price: normalizeQuoteAmount(part.sale_price ?? part.salePrice ?? part.unit_price ?? part.unitPrice),
     stock: Math.max(Number(part.stock ?? 0) || 0, 0),
     warning_threshold: Math.max(Number(part.warning_threshold ?? part.warningThreshold ?? 0) || 0, 0),
-    enabled: part.enabled === undefined ? true : Boolean(part.enabled),
+    enabled: normalizeBooleanValue(part.enabled, true),
     remark: normalizeText(part.remark)
   }
+}
+
+function canViewNotificationGroup(user = {}, roles = []) {
+  return user.role === 'superadmin' || roles.includes(user.role)
+}
+
+function buildOrderNotificationSamples(orders = [], description) {
+  return orders.slice(0, 5).map(order => ({
+    id: order._id || '',
+    title: `工单 ${order.order_no || order._id || '-'}`,
+    desc: description(order)
+  }))
+}
+
+async function collectLogisticsExceptions(sourceOrders = null) {
+  const now = Date.now()
+  const H = 60 * 60 * 1000
+  const NO_PICKUP_MS = 48 * H
+  const STALLED_MS = 72 * H
+  const orders = Array.isArray(sourceOrders)
+    ? sourceOrders.filter(order => ['pending', 'sent', 'shipped'].includes(order.status))
+    : await fetchOrderBatches({ status: dbCmd.in(['pending', 'sent', 'shipped']) })
+  const exceptions = []
+  for (const order of orders) {
+    const out = order.ship_out_info || {}
+    const back = order.ship_back_info || {}
+    const outTrack = (order.track_cache && order.track_cache.out) || {}
+    const backTrack = (order.track_cache && order.track_cache.back) || {}
+    const outNo = normalizeText(out.logistics_no || out.logisticsNo)
+    const backNo = normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo)
+    const updatedAt = Number(order.update_time) || Number(order.create_time) || 0
+    const base = { orderNo: order.order_no || '', orderId: order._id }
+    const pushException = (segment, track, fallback) => {
+      const state = normalizeText(track.state)
+      if (!['2', '4', '6', '14'].includes(state)) return false
+      exceptions.push({
+        ...base,
+        segment,
+        type: 'provider_exception',
+        hours: 0,
+        company: fallback.company,
+        trackingNo: fallback.trackingNo,
+        reason: track.status || track.message || '快递100返回物流异常，请及时核实'
+      })
+      return true
+    }
+    if (outNo && ['pending', 'sent'].includes(order.status) && !pushException('out', outTrack, { company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo })) {
+      const lastTrackAt = Date.parse(outTrack.lastTrackAt || '') || 0
+      const since = now - (lastTrackAt || Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
+      if (order.status === 'pending' && since > NO_PICKUP_MS) {
+        exceptions.push({ ...base, segment: 'out', type: 'no_pickup', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出超 48h 未签收，建议催寄/核实' })
+      } else if (normalizeText(outTrack.state) !== '3' && order.status === 'sent' && since > STALLED_MS) {
+        exceptions.push({ ...base, segment: 'out', type: 'stalled', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出运输停滞超 72h，建议联系快递核实' })
+      }
+    }
+    if (backNo && order.status === 'shipped' && !pushException('back', backTrack, { company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo })) {
+      const lastTrackAt = Date.parse(backTrack.lastTrackAt || '') || updatedAt
+      if (normalizeText(backTrack.state) !== '3' && lastTrackAt && now - lastTrackAt > STALLED_MS) {
+        exceptions.push({ ...base, segment: 'back', type: 'stalled', hours: Math.floor((now - lastTrackAt) / H), company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo, reason: '回寄运输停滞超 72h，建议联系快递核实' })
+      }
+    }
+  }
+  return exceptions.sort((a, b) => b.hours - a.hours)
+}
+
+function normalizeBooleanValue(value, defaultValue = true) {
+  if (value === undefined || value === null || value === '') return defaultValue
+  if (typeof value === 'boolean') return value
+  const text = normalizeText(value).toLowerCase()
+  if (['true', '1', 'yes', 'y', '启用', '是', '正常'].includes(text)) return true
+  if (['false', '0', 'no', 'n', '禁用', '否', '停用'].includes(text)) return false
+  return Boolean(value)
+}
+
+const PART_IMPORT_NUMBER_FIELDS = [
+  { label: '采购成本', keys: ['purchase_cost', 'purchaseCost'], integer: false },
+  { label: '销售单价', keys: ['sale_price', 'salePrice', 'unit_price', 'unitPrice'], integer: false },
+  { label: '当前库存', keys: ['stock'], integer: true },
+  { label: '预警阈值', keys: ['warning_threshold', 'warningThreshold'], integer: true }
+]
+
+function pickRawPartField(part = {}, keys = []) {
+  for (const key of keys) {
+    if (part[key] !== undefined && part[key] !== null && normalizeText(part[key]) !== '') return part[key]
+  }
+  return ''
+}
+
+function getInvalidPartNumberFields(part = {}) {
+  return PART_IMPORT_NUMBER_FIELDS.filter(field => {
+    const value = pickRawPartField(part, field.keys)
+    if (value === '') return false
+    const numberValue = Number(value)
+    if (!Number.isFinite(numberValue) || numberValue < 0) return true
+    return field.integer && !Number.isInteger(numberValue)
+  }).map(field => field.label)
 }
 
 // canViewCost：采购成本属敏感商业数据，仅 admin/finance 可见；engineer 等角色不下发成本字段
@@ -1321,7 +1461,7 @@ function mapPartForClient(part = {}, canViewCost = true) {
 
 // 是否允许查看配件采购成本
 function canViewPartCost(admin = {}) {
-  return ['admin', 'finance'].includes(String(admin && admin.role || '').toLowerCase())
+  return ['superadmin', 'admin', 'finance'].includes(String(admin && admin.role || '').toLowerCase())
 }
 
 function getQuoteInventoryLines(order = {}) {
@@ -2159,6 +2299,32 @@ module.exports = {
     }
   },
 
+  async exportParts(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const showCost = canViewPartCost(currentAdmin)
+      const { keyword = '', stockStatus = '', enabled = '' } = pickParam(this, params)
+      const normalizedKeyword = normalizeText(keyword).toLowerCase()
+      const allRes = await db.collection('cicada_parts').orderBy('create_time', 'desc').limit(1000).get()
+      const list = (allRes.data || []).filter(part => {
+        const searchable = [
+          part.part_code,
+          part.part_name,
+          part.model,
+          ...(Array.isArray(part.compatible_models) ? part.compatible_models : [])
+        ].filter(Boolean).join(' ').toLowerCase()
+        const stock = Number(part.stock || 0) || 0
+        const warning = Number(part.warning_threshold || 0) || 0
+        return (!normalizedKeyword || searchable.includes(normalizedKeyword)) &&
+          (enabled === undefined || enabled === '' || Boolean(part.enabled) === normalizeBooleanValue(enabled, true)) &&
+          (!stockStatus || (stockStatus === 'low' ? warning > 0 && stock <= warning : stockStatus === 'out' ? stock <= 0 : true))
+      }).map(part => mapPartForClient(part, showCost))
+      return { code: 0, data: { list, total: list.length, truncated: (allRes.data || []).length >= 1000 } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async savePart(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'manage_inventory')
@@ -2234,6 +2400,140 @@ module.exports = {
       const res = await db.collection('cicada_parts').doc(part_id).update(updateData)
       if (!res.updated) return { code: -1, msg: '配件不存在' }
       return { code: 0, data: updateData }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async batchUpdatePartStatus(params) {
+    try {
+      requireAdminPermission(this, 'manage_inventory')
+      const { part_ids = [], enabled = false } = pickParam(this, params)
+      const ids = [...new Set((Array.isArray(part_ids) ? part_ids : []).map(normalizeText).filter(Boolean))]
+      if (!ids.length) return { code: -1, msg: '请选择要操作的配件' }
+      if (ids.length > 100) return { code: -1, msg: '单次最多批量处理 100 个配件' }
+
+      const summary = { total: ids.length, updated: 0, failed: [] }
+      const updateData = { enabled: normalizeBooleanValue(enabled, false), update_time: Date.now() }
+      for (const partId of ids) {
+        try {
+          const result = await db.collection('cicada_parts').doc(partId).update(updateData)
+          if (!result.updated) {
+            summary.failed.push({ part_id: partId, reason: '配件不存在或已被删除' })
+            continue
+          }
+          summary.updated += 1
+        } catch (error) {
+          summary.failed.push({ part_id: partId, reason: error.message || '状态更新失败' })
+        }
+      }
+      return { code: 0, data: summary }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async batchImportParts(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const showCost = canViewPartCost(currentAdmin)
+      const { rows = [], mode = 'upsert' } = pickParam(this, params)
+      if (!Array.isArray(rows) || !rows.length) return { code: -1, msg: '导入数据不能为空' }
+      if (rows.length > 1000) return { code: -1, msg: '单次最多导入 1000 条' }
+
+      const importMode = ['insert_only', 'upsert', 'stocktake'].includes(mode) ? mode : 'upsert'
+      const now = Date.now()
+      const summary = { total: rows.length, created: 0, updated: 0, skipped: 0, failed: [], mode: importMode }
+      const seenCodes = new Set()
+      const partsRes = await db.collection('cicada_parts').limit(1000).get()
+      const partByCode = new Map((partsRes.data || []).map(part => [normalizeText(part.part_code), part]))
+
+      for (let i = 0; i < rows.length; i++) {
+        const raw = rows[i] || {}
+        const rowNo = Number(raw.row || raw.rowNo || 0) || i + 2
+        const invalidNumberFields = getInvalidPartNumberFields(raw)
+        const data = normalizePartInput(raw)
+        if (!data.part_code) { summary.failed.push({ row: rowNo, part_code: '', part_name: data.part_name, reason: '配件编码为空' }); continue }
+        if (!data.part_name) { summary.failed.push({ row: rowNo, part_code: data.part_code, part_name: '', reason: '配件名称为空' }); continue }
+        if (seenCodes.has(data.part_code)) { summary.failed.push({ row: rowNo, part_code: data.part_code, part_name: data.part_name, reason: '文件内配件编码重复' }); continue }
+        if (invalidNumberFields.length) { summary.failed.push({ row: rowNo, part_code: data.part_code, part_name: data.part_name, reason: `${invalidNumberFields.join('、')}格式不正确` }); continue }
+        seenCodes.add(data.part_code)
+
+        let oldPart = partByCode.get(data.part_code)
+        if (!oldPart) {
+          const latestRes = await db.collection('cicada_parts').where({ part_code: data.part_code }).limit(1).get()
+          oldPart = latestRes.data && latestRes.data[0]
+          if (oldPart) partByCode.set(data.part_code, oldPart)
+        }
+        if (!oldPart) {
+          if (!showCost) data.purchase_cost = 0
+          const createData = { ...data, create_time: now, update_time: now }
+          let addRes
+          try {
+            addRes = await db.collection('cicada_parts').add(createData)
+          } catch (error) {
+            summary.failed.push({ row: rowNo, part_code: data.part_code, part_name: data.part_name, reason: error.message || '新增失败' })
+            continue
+          }
+          partByCode.set(data.part_code, { _id: addRes.id, ...createData })
+          if (data.stock > 0) {
+            await db.collection('cicada_inventory_flows').add({
+              part_id: addRes.id,
+              part_code: data.part_code,
+              part_name: data.part_name,
+              flow_type: 'inbound',
+              quantity: data.stock,
+              before_stock: 0,
+              after_stock: data.stock,
+              operator_id: currentAdmin._id || '',
+              operator_name: currentAdmin.name || currentAdmin.username || '',
+              remark: 'Excel批量导入初始入库',
+              create_time: now
+            })
+          }
+          summary.created += 1
+          continue
+        }
+
+        if (importMode === 'insert_only') {
+          summary.skipped += 1
+          continue
+        }
+
+        const updateData = {
+          part_name: data.part_name,
+          model: data.model,
+          compatible_models: data.compatible_models,
+          sale_price: data.sale_price,
+          warning_threshold: data.warning_threshold,
+          enabled: data.enabled,
+          remark: data.remark,
+          update_time: now
+        }
+        if (showCost) updateData.purchase_cost = data.purchase_cost
+        if (importMode === 'stocktake') updateData.stock = data.stock
+
+        await db.collection('cicada_parts').doc(oldPart._id).update(updateData)
+        if (importMode === 'stocktake' && Number(oldPart.stock || 0) !== Number(data.stock || 0)) {
+          await db.collection('cicada_inventory_flows').add({
+            part_id: oldPart._id,
+            part_code: data.part_code,
+            part_name: data.part_name,
+            flow_type: 'adjust',
+            quantity: Number(data.stock || 0) - Number(oldPart.stock || 0),
+            before_stock: Number(oldPart.stock || 0),
+            after_stock: Number(data.stock || 0),
+            operator_id: currentAdmin._id || '',
+            operator_name: currentAdmin.name || currentAdmin.username || '',
+            remark: 'Excel批量导入库存盘点调整',
+            create_time: now
+          })
+        }
+        partByCode.set(data.part_code, { ...oldPart, ...updateData })
+        summary.updated += 1
+      }
+
+      return { code: 0, data: summary }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -2427,7 +2727,8 @@ module.exports = {
         total: normalizedList.length,
         success: 0,
         fail: 0,
-        errors: []
+        errors: [],
+        warnings: []
       }
       const seen = new Set()
       const now = Date.now()
@@ -2472,7 +2773,25 @@ module.exports = {
           continue
         }
 
-        const updateData = buildLogisticsImportUpdate(order, item, importType, now, importDate)
+        const segment = importType === 'inbound' ? 'out' : 'back'
+        const trackCheck = await validateTrackingNoBeforeSave(
+          order,
+          item.logisticsNo,
+          item.logisticsCompany,
+          segment
+        )
+        if (!trackCheck.ok) {
+          summary.fail += 1
+          summary.errors.push({ orderNo: item.orderNo, reason: trackCheck.reason })
+          continue
+        }
+        item.logisticsNo = trackCheck.value
+        if (trackCheck.warning) {
+          summary.warnings.push({ orderNo: item.orderNo, warning: trackCheck.warning })
+        }
+
+        let updateData = buildLogisticsImportUpdate(order, item, importType, now, importDate)
+        updateData = attachVerifiedTrackCache(updateData, order, segment, trackCheck)
         const targetStatus = importType === 'inbound' ? 'received' : 'shipped'
         try {
           assertOrderStatusTransition(order.status, targetStatus)
@@ -2539,6 +2858,10 @@ module.exports = {
           results.push({ ...item, success: false, reason: '缺少回寄运单号' })
           continue
         }
+        if (!item.logistics_company) {
+          results.push({ ...item, success: false, reason: '缺少物流公司' })
+          continue
+        }
         if (seen.has(item.order_no)) {
           results.push({ ...item, success: false, reason: 'Excel中工单编号重复' })
           continue
@@ -2575,18 +2898,17 @@ module.exports = {
           continue
         }
         // 录入源头防错：单号格式 + 快递公司一致性校验，不符直接拦截该行
-        const trackCheck = validateTrackingNo(item.logistics_no, item.logistics_company)
+        const trackCheck = await validateTrackingNoBeforeSave(order, item.logistics_no, item.logistics_company, 'back')
         if (!trackCheck.ok) {
           results.push({ ...item, success: false, reason: trackCheck.reason })
           continue
         }
         item.logistics_no = trackCheck.value
-        // TODO(express): provider 接通后在此调用真实查询，若返回「无此运单」则拦截保存
 
         const shipBackInfo = buildShipBackInfo(order, item, now)
         const timeline = Array.isArray(order.timeline) ? order.timeline : []
         const timelineText = `${item.logistics_company || '物流'} ${item.logistics_no}`
-        const updateData = {
+        let updateData = {
           ship_back_info: shipBackInfo,
           status: 'shipped',
           timeline: [
@@ -2600,6 +2922,7 @@ module.exports = {
           ],
           update_time: now
         }
+        updateData = attachVerifiedTrackCache(updateData, order, 'back', trackCheck)
         try {
           assertOrderStatusTransition(order.status, updateData.status)
         } catch (e) {
@@ -2632,7 +2955,8 @@ module.exports = {
           ...item,
           order_id: order._id,
           success: true,
-          reason: '已更新'
+          reason: '已更新',
+          warning: trackCheck.warning || ''
         })
       }
 
@@ -2666,7 +2990,8 @@ module.exports = {
         total: normalizedList.length,
         success: 0,
         fail: 0,
-        errors: []
+        errors: [],
+        warnings: []
       }
       const seen = new Set()
       const now = Date.now()
@@ -2719,17 +3044,19 @@ module.exports = {
           continue
         }
         // 录入源头防错：单号格式 + 快递公司一致性校验
-        const trackCheck = validateTrackingNo(item.returnNo, item.returnCompany)
+        const trackCheck = await validateTrackingNoBeforeSave(order, item.returnNo, item.returnCompany, 'back')
         if (!trackCheck.ok) {
           summary.fail += 1
           summary.errors.push({ orderNo: item.orderNo, reason: trackCheck.reason })
           continue
         }
         item.returnNo = trackCheck.value
-        // TODO(express): provider 接通后在此调用真实查询，若返回「无此运单」则拦截保存
+        if (trackCheck.warning) {
+          summary.warnings.push({ orderNo: item.orderNo, warning: trackCheck.warning })
+        }
 
         const timeline = Array.isArray(order.timeline) ? order.timeline : []
-        const updateData = {
+        let updateData = {
           status: 'shipped',
           ship_back_info: buildReturnShippingInfo(order, item, now),
           timeline: [
@@ -2743,6 +3070,7 @@ module.exports = {
           ],
           update_time: now
         }
+        updateData = attachVerifiedTrackCache(updateData, order, 'back', trackCheck)
         try {
           assertOrderStatusTransition(order.status, updateData.status)
         } catch (e) {
@@ -3627,61 +3955,177 @@ module.exports = {
     }
   },
 
+  // 站内提醒中心：聚合现有工单、物流与 SLA 规则，不创建第二份待办数据。
+  async getNotificationSummary(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'view_order')
+      const groups = []
+      const unavailable = []
+      let orders = []
+      try {
+        orders = await fetchOrderBatches({ status: dbCmd.neq('cancelled') }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT })
+      } catch (error) {
+        unavailable.push('工单待办')
+      }
+
+      const addOrderGroup = ({ key, title, severity, roles, filter, description }) => {
+        if (!canViewNotificationGroup(currentAdmin, roles)) return
+        const matched = orders.filter(filter).sort((a, b) => Number(b.update_time || b.create_time || 0) - Number(a.update_time || a.create_time || 0))
+        if (!matched.length) return
+        groups.push({
+          key,
+          title,
+          severity,
+          count: matched.length,
+          samples: buildOrderNotificationSamples(matched, description)
+        })
+      }
+
+      if (!unavailable.length) {
+        addOrderGroup({
+          key: 'quote', title: '待报价', severity: 'info', roles: ['admin', 'engineer', 'support'],
+          filter: order => matchesTodoType(order, 'quote'),
+          description: order => `当前状态：${ORDER_STATUS_LABELS[order.status] || order.status || '待处理'}`
+        })
+        addOrderGroup({
+          key: 'payment', title: '待核销', severity: 'warning', roles: ['admin', 'finance'],
+          filter: order => matchesTodoType(order, 'payment'),
+          description: () => '客户已提交付款凭证，等待核验'
+        })
+        addOrderGroup({
+          key: 'invoice', title: '待开票', severity: 'warning', roles: ['admin', 'finance'],
+          filter: order => matchesTodoType(order, 'invoice'),
+          description: () => '客户已提交开票申请，等待处理'
+        })
+        addOrderGroup({
+          key: 'sla_warning', title: 'SLA 临近超时', severity: 'warning', roles: ['admin', 'engineer', 'support'],
+          filter: order => getSlaInfo(order).level === 'warning',
+          description: order => {
+            const sla = getSlaInfo(order)
+            return `${sla.title || '当前阶段'}已停留 ${sla.dwell_hours} 小时，建议${sla.action || '尽快处理'}`
+          }
+        })
+        addOrderGroup({
+          key: 'sla_critical', title: 'SLA 已超时', severity: 'critical', roles: ['admin', 'engineer', 'support'],
+          filter: order => getSlaInfo(order).level === 'critical',
+          description: order => {
+            const sla = getSlaInfo(order)
+            return `${sla.title || '当前阶段'}已停留 ${sla.dwell_hours} 小时，需优先处理`
+          }
+        })
+        if (canViewNotificationGroup(currentAdmin, ['admin', 'engineer', 'support'])) {
+          try {
+            const exceptions = await collectLogisticsExceptions(orders)
+            if (exceptions.length) {
+              groups.push({
+                key: 'logistics',
+                title: '物流异常',
+                severity: exceptions.some(item => item.type === 'provider_exception') ? 'critical' : 'warning',
+                count: exceptions.length,
+                samples: exceptions.slice(0, 5).map(item => ({
+                  id: item.orderId || '',
+                  title: `工单 ${item.orderNo || item.orderId || '-'}`,
+                  desc: item.reason || '物流异常，建议及时核实'
+                }))
+              })
+            }
+          } catch (error) {
+            unavailable.push('物流异常')
+          }
+        }
+      }
+
+      const severityRank = { critical: 0, warning: 1, info: 2 }
+      groups.sort((a, b) => {
+        const rank = severityRank[a.severity] - severityRank[b.severity]
+        return rank || b.count - a.count
+      })
+      return { code: 0, data: { total: groups.reduce((sum, group) => sum + group.count, 0), groups, unavailable } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 物流异常列表：扫在途工单，按时间信号判定 48h 未揽收 / 72h 停滞，供后台主动联系客户
   // 注：当前轨迹按工单状态合成，判定基于工单时间戳；接通真实物流轨迹后判定会更精准。
   async getLogisticsExceptions(params) {
     try {
       requireAdminPermission(this, 'view_order')
-      const now = Date.now()
-      const H = 60 * 60 * 1000
-      const NO_PICKUP_MS = 48 * H // 48h 未揽收
-      const STALLED_MS = 72 * H   // 72h 停滞
-      // 仅扫在途：客户寄出（pending/sent）与回寄发货（shipped）
-      const orders = await fetchOrderBatches({ status: dbCmd.in(['pending', 'sent', 'shipped']) })
-      const exceptions = []
-      for (const order of orders) {
-        const out = order.ship_out_info || {}
-        const back = order.ship_back_info || {}
-        const outTrack = (order.track_cache && order.track_cache.out) || {}
-        const backTrack = (order.track_cache && order.track_cache.back) || {}
-        const outNo = normalizeText(out.logistics_no || out.logisticsNo)
-        const backNo = normalizeText(back.logistics_no || back.logisticsNo || back.return_no || back.returnNo)
-        const updatedAt = Number(order.update_time) || Number(order.create_time) || 0
-        const base = { orderNo: order.order_no || '', orderId: order._id }
-        const pushException = (segment, track, fallback) => {
-          const state = normalizeText(track.state)
-          if (!['2', '4', '6', '14'].includes(state)) return false
-          exceptions.push({
+      const exceptions = await collectLogisticsExceptions()
+      return { code: 0, data: { total: exceptions.length, exceptions } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 查询单段物流轨迹。物流公司、运单号和手机号均只从订单存量数据取得，禁止前端透传。
+  async getLogisticsTrack(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'view_order')
+      const p = pickParam(this, params)
+      const orderId = normalizeText(p.orderId || p.order_id)
+      const segment = normalizeText(p.segment)
+      const refresh = p.refresh === true || p.refresh === 'true'
+      if (!orderId) return { code: -1, msg: '缺少工单ID' }
+      if (!['out', 'back'].includes(segment)) return { code: -1, msg: '物流段参数不正确' }
+
+      const orderRes = await db.collection('cicada_orders').doc(orderId).get()
+      const order = orderRes.data && orderRes.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      const shipInfo = getOrderShipInfo(order, segment)
+      const existingCache = (order.track_cache && order.track_cache[segment]) || {}
+      const providerConfig = expressProvider.getConfig()
+      const base = {
+        segment,
+        company: shipInfo.company,
+        tracking_no: shipInfo.trackingNo,
+        configured: Boolean(providerConfig.queryConfigured),
+        cache: existingCache
+      }
+      if (!shipInfo.company || !shipInfo.trackingNo) {
+        return { code: 0, data: { ...base, available: false, message: '该物流段尚未录入快递公司或运单号' } }
+      }
+
+      if (!refresh && expressProvider.isFresh(existingCache, shipInfo.trackingNo)) {
+        return { code: 0, data: { ...base, available: true, cached: true, message: '' } }
+      }
+
+      let result
+      try {
+        result = await expressProvider.query(shipInfo)
+      } catch (error) {
+        return {
+          code: 0,
+          data: {
             ...base,
-            segment,
-            type: 'provider_exception',
-            hours: 0,
-            company: fallback.company,
-            trackingNo: fallback.trackingNo,
-            reason: track.status || track.message || '快递100返回物流异常，请及时核实'
-          })
-          return true
-        }
-        // 寄出段：有单号但长时间未推进
-        if (outNo && ['pending', 'sent'].includes(order.status) && !pushException('out', outTrack, { company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo })) {
-          const lastTrackAt = Date.parse(outTrack.lastTrackAt || '') || 0
-          const since = now - (lastTrackAt || Number(out.shipped_at || out.shippedAt) || Number(order.create_time) || 0)
-          if (order.status === 'pending' && since > NO_PICKUP_MS) {
-            exceptions.push({ ...base, segment: 'out', type: 'no_pickup', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出超 48h 未签收，建议催寄/核实' })
-          } else if (normalizeText(outTrack.state) !== '3' && order.status === 'sent' && since > STALLED_MS) {
-            exceptions.push({ ...base, segment: 'out', type: 'stalled', hours: Math.floor(since / H), company: normalizeText(out.logistics_company || out.logisticsCompany), trackingNo: outNo, reason: '客户寄出运输停滞超 72h，建议联系快递核实' })
-          }
-        }
-        // 回寄段：已发货长时间未完成
-        if (backNo && order.status === 'shipped' && !pushException('back', backTrack, { company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo })) {
-          const lastTrackAt = Date.parse(backTrack.lastTrackAt || '') || updatedAt
-          if (normalizeText(backTrack.state) !== '3' && lastTrackAt && now - lastTrackAt > STALLED_MS) {
-            exceptions.push({ ...base, segment: 'back', type: 'stalled', hours: Math.floor((now - lastTrackAt) / H), company: normalizeText(back.logistics_company || back.logisticsCompany || back.returnCompany), trackingNo: backNo, reason: '回寄运输停滞超 72h，建议联系快递核实' })
+            available: Boolean(existingCache && existingCache.tracks),
+            cached: Boolean(existingCache && existingCache.tracks),
+            message: error.message || '物流查询暂不可用'
           }
         }
       }
-      exceptions.sort((a, b) => b.hours - a.hours)
-      return { code: 0, data: { total: exceptions.length, exceptions } }
+      if (!result.configured) {
+        return { code: 0, data: { ...base, available: Boolean(existingCache && existingCache.tracks), cached: Boolean(existingCache && existingCache.tracks), message: '物流查询服务尚未配置' } }
+      }
+      if (!result.success || !result.cache) {
+        return { code: 0, data: { ...base, available: Boolean(existingCache && existingCache.tracks), cached: Boolean(existingCache && existingCache.tracks), message: result.message || '暂无物流轨迹' } }
+      }
+
+      const now = Date.now()
+      const nextCache = { ...existingCache, ...result.cache }
+      await db.collection('cicada_orders').doc(order._id).update({
+        track_cache: { ...(order.track_cache || {}), [segment]: nextCache },
+        logistics_track_update_time: now
+      })
+      // 审计不记录手机号、运单号或第三方凭证，仅保留操作结果。
+      await logOrderEvent({
+        order,
+        source: 'admin',
+        action: 'logistics_track_refresh',
+        actor: currentAdmin,
+        after: { segment, result: 'success', fetched_at: now }
+      })
+      return { code: 0, data: { ...base, available: true, cached: false, cache: nextCache, message: '' } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

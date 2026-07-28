@@ -5,8 +5,8 @@
         <h2>专业医疗设备维保</h2>
         <p>高效 · 精准 · 数字化服务体系</p>
         <div class="hero-actions">
-          <button type="button" @click="navigateTo('workorder', '')">处理工单</button>
-          <button type="button" @click="navigateTo('settlement', '')">查看结算</button>
+          <el-button class="hero-action" type="primary" @click="navigateTo('workorder', '')">处理工单</el-button>
+          <el-button class="hero-action" plain @click="navigateTo('settlement', '')">查看结算</el-button>
         </div>
       </div>
       <div class="hero-clock">
@@ -17,42 +17,49 @@
     <section v-if="showOverview" class="overview-section" v-loading="overviewLoading">
       <div class="overview-header">
         <div class="overview-title">
-          <ShadBadge variant="primary">本月经营概览</ShadBadge>
+          <el-tag type="primary" effect="light">本月经营概览</el-tag>
           <span class="overview-hint">数据截至今日 · 点击数字可下钻</span>
         </div>
       </div>
       <div class="overview-grid">
-        <ShadCard
+        <el-card
           v-for="card in overviewCards"
           :key="card.key"
-          clickable
+          shadow="never"
+          :body-style="{ padding: '0' }"
           class="overview-card"
           @click="goOverview(card)"
         >
+          <div class="overview-card-head">
+            <span class="overview-icon" :class="'overview-icon--' + card.tone">
+              <el-icon><component :is="card.icon" /></el-icon>
+            </span>
+            <span class="overview-caption">本月</span>
+          </div>
           <div class="overview-label">{{ card.title }}</div>
           <div class="overview-value" :class="card.accent">{{ card.value }}<small>{{ card.unit }}</small></div>
-        </ShadCard>
+        </el-card>
       </div>
     </section>
 
     <section v-if="showOverview" class="dashboard-section" v-loading="overviewLoading">
       <div class="section-header dashboard-header">
         <div>
-          <ShadBadge variant="primary">Data Board</ShadBadge>
+          <el-tag type="primary" effect="plain">数据看板</el-tag>
           <h3>实时数据看板</h3>
         </div>
-        <span class="dashboard-refresh" @click="refreshDashboard">↻ 刷新</span>
+        <el-button class="dashboard-refresh" type="primary" link @click="refreshDashboard"><el-icon><Refresh /></el-icon>刷新</el-button>
       </div>
       <div class="dashboard-grid">
-        <ShadCard class="ring-card">
+        <el-card shadow="never" :body-style="{ padding: '0' }" class="ring-card reference-chart-card">
           <div class="ring-card-title">工单状态分布</div>
           <RingChart
             :data="statusRingData"
             :center-value="String(overview.totalOrders || 0)"
             center-label="在库工单"
           />
-        </ShadCard>
-        <ShadCard class="ring-card">
+        </el-card>
+        <el-card shadow="never" :body-style="{ padding: '0' }" class="ring-card reference-chart-card">
           <div class="ring-card-title">本月完工率</div>
           <RingChart
             :data="completionRingData"
@@ -61,8 +68,8 @@
             :center-color="'#16a34a'"
             :show-legend="true"
           />
-        </ShadCard>
-        <ShadCard class="ring-card money-card">
+        </el-card>
+        <el-card shadow="never" :body-style="{ padding: '0' }" class="ring-card money-card reference-chart-card">
           <div class="ring-card-title">本月已收</div>
           <div class="money-figure">
             <span class="money-symbol">¥</span>
@@ -73,53 +80,31 @@
             <span>·</span>
             <span>平均 {{ overview.avgHandleHours || 0 }} 小时</span>
           </div>
+          <LineChart v-if="trendRows.length" class="money-chart" :categories="trendCategories" :series="trendSeries" />
+          <div v-else class="money-chart-empty">本月暂无趋势数据</div>
           <div class="money-foot" @click="navigateTo('settlement', '')">查看结算 →</div>
-        </ShadCard>
+        </el-card>
       </div>
-
-      <ShadCard class="trend-card">
-        <div class="trend-card-head">
-          <div class="ring-card-title">本月工单趋势</div>
-          <span class="trend-legend-hint">新增 / 完成 / 待处理（按日）</span>
-        </div>
-        <LineChart v-if="trendRows.length" :categories="trendCategories" :series="trendSeries" />
-        <el-empty v-else description="本月暂无趋势数据" :image-size="80" />
-      </ShadCard>
     </section>
-
-    <div class="stat-grid">
-      <ShadCard
-        v-for="item in statCards"
-        :key="item.key"
-        clickable
-        class="stat-card"
-        @click="navigateTo(item.route, item.filter)"
-      >
-        <div class="stat-head">
-          <span>{{ item.title }}</span>
-          <ShadBadge :variant="item.badgeVariant">{{ item.badge }}</ShadBadge>
-        </div>
-        <div class="stat-value" :class="item.className">{{ item.value }}<small>{{ item.unit }}</small></div>
-        <p>{{ item.desc }}</p>
-      </ShadCard>
-    </div>
 
     <section class="todo-section">
       <div class="section-header">
         <div>
-          <ShadBadge variant="default">Todo Center</ShadBadge>
           <h3>待办中心</h3>
         </div>
         <el-tag v-if="todoError" type="danger" effect="plain">{{ todoError }}</el-tag>
       </div>
       <div v-loading="todoLoading" class="todo-grid">
-        <ShadCard v-for="item in displayedTodoGroups" :key="item.key" clickable class="todo-card" @click="navigateTodo(item.key)">
-          <div class="todo-title">
-            <span>{{ item.title }}</span>
-            <ShadBadge :variant="item.count ? 'warning' : 'default'">{{ item.count }} 件</ShadBadge>
+        <el-card v-for="item in displayedTodoGroups" :key="item.key" shadow="never" :body-style="{ padding: '0' }" class="todo-card" @click="navigateTodo(item.key)">
+          <div class="todo-card-inner">
+            <span class="todo-icon" :class="'todo-icon--' + todoMeta(item.key).tone"><el-icon><component :is="todoMeta(item.key).icon" /></el-icon></span>
+            <div class="todo-copy">
+              <div class="todo-title"><span class="todo-label">{{ item.title }}</span><el-tag :type="item.count ? 'warning' : 'info'" size="small" effect="light">{{ item.count }} 件</el-tag></div>
+              <div class="todo-desc">{{ item.desc }}</div>
+              <div class="todo-footer"><span>进入处理 →</span></div>
+            </div>
           </div>
-          <div class="todo-desc">{{ item.desc }}</div>
-        </ShadCard>
+        </el-card>
       </div>
     </section>
   </div>
@@ -129,11 +114,10 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ChatLineRound, CircleCheck, Document, Money, Tickets, Timer } from '@element-plus/icons-vue'
 import { getStatistics, getTodoSummary, getDashboardSummary } from '../api/order.js'
 import { getFeedbackStats } from '../api/admin.js'
 import { canAccessMenu } from '../config/menuAccess.js'
-import ShadCard from '../components/ui/ShadCard.vue'
-import ShadBadge from '../components/ui/ShadBadge.vue'
 import RingChart from '../components/ui/RingChart.vue'
 import LineChart from '../components/ui/LineChart.vue'
 
@@ -237,10 +221,12 @@ const statCards = computed(() => [
     value: stats.value.pendingCount || 0,
     unit: '件',
     badge: '急',
-    badgeVariant: 'danger',
+    tagType: 'danger',
     route: 'workorder',
     filter: '',
     className: 'is-primary',
+    icon: Tickets,
+    tone: 'blue',
     desc: '优先处理签收、检测和维修中的服务请求'
   },
   {
@@ -249,10 +235,12 @@ const statCards = computed(() => [
     value: stats.value.todayCount || 0,
     unit: '件',
     badge: 'New',
-    badgeVariant: 'primary',
+    tagType: 'primary',
     route: 'workorder',
     filter: '',
     className: 'is-dark',
+    icon: Timer,
+    tone: 'violet',
     desc: '跟踪当天新增需求，辅助安排客服与工程师'
   },
   {
@@ -261,10 +249,12 @@ const statCards = computed(() => [
     value: stats.value.unreadCount || 0,
     unit: '条',
     badge: 'Care',
-    badgeVariant: 'warning',
+    tagType: 'warning',
     route: 'feedback',
     filter: '',
     className: 'is-warning',
+    icon: ChatLineRound,
+    tone: 'orange',
     desc: '客户声音集中处理，避免服务体验断点'
   }
 ])
@@ -273,13 +263,24 @@ const statCards = computed(() => [
 const fmtMoney = (n) => Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const overviewCards = computed(() => [
-  { key: 'paidAmount', title: '本月已收', value: fmtMoney(overview.value.paidAmount), unit: '元', accent: 'is-success', route: 'settlement' },
-  { key: 'newOrders', title: '本月新增工单', value: overview.value.newOrders || 0, unit: '件', accent: 'is-primary', route: 'workorder' },
-  { key: 'completedOrders', title: '本月完工', value: overview.value.completedOrders || 0, unit: '件', accent: 'is-dark', route: 'workorder' },
-  { key: 'quotePendingOrders', title: '待报价', value: overview.value.quotePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'workorder', todo: 'quote' },
-  { key: 'invoicePendingOrders', title: '待开票', value: overview.value.invoicePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'invoices' },
-  { key: 'avgHandleHours', title: '平均处理时长', value: overview.value.avgHandleHours || 0, unit: '小时', accent: 'is-dark', route: '' }
+  { key: 'paidAmount', title: '本月已收', value: fmtMoney(overview.value.paidAmount), unit: '元', accent: 'is-success', route: 'settlement', icon: Money, tone: 'green' },
+  { key: 'newOrders', title: '本月新增工单', value: overview.value.newOrders || 0, unit: '件', accent: 'is-primary', route: 'workorder', icon: Tickets, tone: 'blue' },
+  { key: 'completedOrders', title: '本月完工', value: overview.value.completedOrders || 0, unit: '件', accent: 'is-dark', route: 'workorder', icon: CircleCheck, tone: 'violet' },
+  { key: 'quotePendingOrders', title: '待报价', value: overview.value.quotePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'workorder', todo: 'quote', icon: Document, tone: 'orange' },
+  { key: 'invoicePendingOrders', title: '待开票', value: overview.value.invoicePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'invoices', icon: Document, tone: 'amber' },
+  { key: 'avgHandleHours', title: '平均处理时长', value: overview.value.avgHandleHours || 0, unit: '小时', accent: 'is-dark', route: '', icon: Timer, tone: 'navy' }
 ])
+
+const TODO_META = {
+  pending: { icon: Tickets, tone: 'blue' },
+  inbound: { icon: Tickets, tone: 'blue' },
+  quote: { icon: Document, tone: 'orange' },
+  payment: { icon: Money, tone: 'green' },
+  invoice: { icon: Document, tone: 'amber' },
+  return: { icon: CircleCheck, tone: 'violet' },
+  exception: { icon: ChatLineRound, tone: 'rose' }
+}
+const todoMeta = (key) => TODO_META[key] || { icon: Document, tone: 'blue' }
 
 const monthRangeParams = () => {
   const now = new Date()
@@ -428,28 +429,31 @@ onMounted(() => {
 .hero-copy h2 { margin: 0 0 8px; font-size: 34px; line-height: 1.16; font-weight: 900; }
 .hero-copy p { margin: 0; font-size: 22px; line-height: 1.25; font-weight: 800; }
 .hero-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.hero-actions button {
+.hero-actions :deep(.hero-action) {
   min-width: 118px;
-  height: 28px;
-  border: 0;
-  border-radius: 999px;
-  background: #ffffff;
-  color: #2563eb;
-  font-size: 13px;
+  height: 32px;
   font-weight: 700;
-  cursor: pointer;
 }
+.hero-actions :deep(.el-button--primary.hero-action) { color: #2563eb; background: #ffffff; border-color: #ffffff; }
+.hero-actions :deep(.el-button--default.hero-action) { color: #ffffff; background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .75); }
 /* 本月经营概览条：紧凑 KPI，区别于下方大号待办卡 */
-.overview-section { display: grid; gap: 14px; }
+.overview-section { display: grid; gap: 12px; }
 .overview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .overview-title { display: flex; align-items: center; gap: 12px; }
 .overview-hint { font-size: 13px; color: #64748b; }
 .overview-more { font-size: 14px; font-weight: 700; color: #2563eb; cursor: pointer; white-space: nowrap; }
 .overview-more:hover { text-decoration: underline; }
-.overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
-.overview-card { padding: 18px 20px; min-height: 96px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
-.overview-label { font-size: 14px; font-weight: 700; color: #536783; }
-.overview-value { font-size: 26px; font-weight: 900; line-height: 1.1; color: #0f172a; word-break: break-all; }
+.overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+.overview-card { min-height: 140px; border-color: #e7edf6; border-radius: 10px; cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.overview-card:hover, .stat-card:hover, .todo-card:hover { border-color: #8bbcf2; box-shadow: 0 5px 14px rgba(30, 111, 224, .1); }
+.overview-card:hover { transform: translateY(-2px); }
+.overview-card :deep(.el-card__body) { min-height: 140px; padding: 16px 18px 17px; display: flex; flex-direction: column; box-sizing: border-box; }
+.overview-card-head { display: flex; align-items: center; justify-content: space-between; }
+.overview-icon { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 11px; font-size: 20px; }
+.overview-icon--green { color: #22a65a; background: #eaf9ef; }.overview-icon--blue { color: #2377ef; background: #eaf3ff; }.overview-icon--violet { color: #7956df; background: #f0edff; }.overview-icon--orange { color: #ed8515; background: #fff2e2; }.overview-icon--amber { color: #d98a12; background: #fff5df; }.overview-icon--navy { color: #235dcb; background: #eaf2ff; }
+.overview-caption { color: #98a6b9; font-size: 11px; }
+.overview-label { margin-top: 11px; font-size: 14px; font-weight: 700; color: #536783; }
+.overview-value { margin-top: 4px; font-size: 28px; font-weight: 900; line-height: 1.1; color: #0f172a; word-break: break-all; }
 .overview-value small { margin-left: 6px; font-size: 13px; font-weight: 500; color: #64748b; }
 .overview-value.is-primary { color: hsl(var(--primary)); }
 .overview-value.is-success { color: #16a34a; }
@@ -457,13 +461,13 @@ onMounted(() => {
 .overview-value.is-dark { color: hsl(var(--foreground)); }
 
 /* 实时数据看板：环形图区块 */
-.dashboard-section { display: grid; gap: 16px; }
+.dashboard-section { display: grid; gap: 12px; }
 .dashboard-header { margin-top: 10px; justify-content: space-between; }
 .dashboard-header h3 { margin: 6px 0 0; font-size: 28px; font-weight: 900; color: #0f172a; }
-.dashboard-refresh { font-size: 14px; font-weight: 700; color: #2563eb; cursor: pointer; white-space: nowrap; }
-.dashboard-refresh:hover { text-decoration: underline; }
-.dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
-.ring-card { padding: 20px 22px; display: flex; flex-direction: column; }
+.dashboard-refresh { font-weight: 700; white-space: nowrap; }
+.dashboard-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.ring-card, .trend-card { border-color: #e5edf6; border-radius: 10px; }
+.ring-card :deep(.el-card__body) { min-height: 310px; padding: 18px 20px; display: flex; flex-direction: column; }
 .ring-card-title { font-size: 16px; font-weight: 800; color: #0f172a; margin-bottom: 6px; }
 .money-card { justify-content: center; gap: 14px; }
 .money-figure { display: flex; align-items: baseline; gap: 6px; margin-top: 8px; }
@@ -471,35 +475,41 @@ onMounted(() => {
 .money-value { font-size: 42px; font-weight: 900; line-height: 1; color: #16a34a; word-break: break-all; }
 .money-sub { display: flex; align-items: center; gap: 8px; font-size: 14px; color: #536783; }
 .money-foot { margin-top: auto; padding-top: 14px; color: #2563eb; font-size: 14px; font-weight: 700; cursor: pointer; }
-.trend-card { padding: 20px 22px; }
+.trend-card :deep(.el-card__body) { padding: 18px 20px; }
 .trend-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .trend-legend-hint { font-size: 13px; color: #64748b; }
 
-.stat-grid, .todo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
-.stat-card { padding: 26px 24px 22px; min-height: 184px; }
+.stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.stat-card { min-height: 172px; border-color: #e5edf6; border-radius: 10px; cursor: pointer; transition: border-color .2s, box-shadow .2s; }
+.stat-card :deep(.el-card__body) { min-height: 172px; padding: 18px 20px 16px; display: flex; flex-direction: column; box-sizing: border-box; }
 .stat-head, .todo-title, .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.stat-head > span, .todo-title > span { font-size: 22px; font-weight: 900; color: #0f172a; }
-.stat-value { margin-top: 30px; font-size: 48px; font-weight: 900; letter-spacing: 0; line-height: 1; }
-.stat-value small { margin-left: 24px; color: #64748b; font-size: 20px; font-weight: 500; letter-spacing: 0; }
+.stat-title, .todo-label { display: flex; align-items: center; gap: 10px; min-width: 0; color: #0f172a; font-size: 18px; font-weight: 850; }
+.stat-icon, .todo-icon { display: grid; place-items: center; flex: 0 0 auto; border-radius: 10px; }
+.stat-icon { width: 36px; height: 36px; font-size: 18px; }.todo-icon { width: 32px; height: 32px; font-size: 16px; }
+.stat-icon--blue, .todo-icon--blue { color: #2377ef; background: #eaf3ff; }.stat-icon--violet, .todo-icon--violet { color: #7956df; background: #f0edff; }.stat-icon--orange, .todo-icon--orange { color: #ed8515; background: #fff2e2; }.todo-icon--green { color: #22a65a; background: #eaf9ef; }.todo-icon--amber { color: #d98a12; background: #fff5df; }.todo-icon--rose { color: #dd5c66; background: #fff0f2; }
+.stat-value { margin-top: 14px; font-size: 42px; font-weight: 900; letter-spacing: 0; line-height: 1; }
+.stat-value small { margin-left: 10px; color: #64748b; font-size: 16px; font-weight: 500; letter-spacing: 0; }
 .stat-value.is-primary { color: hsl(var(--primary)); }
 .stat-value.is-warning { color: #f97316; }
 .stat-value.is-dark { color: hsl(var(--foreground)); }
-.stat-card p { margin: 8px 0 0; color: #536783; line-height: 1.6; font-size: 14px; }
-.todo-section { display: grid; gap: 16px; }
+.stat-card p { margin: 8px 0 0; color: #536783; line-height: 1.5; font-size: 13px; }
+.stat-footer, .todo-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 11px; border-top: 1px solid #eef3f8; color: #93a0b2; font-size: 12px; }.stat-footer span:last-child, .todo-footer span:last-child { color: #2563eb; font-weight: 700; }
+.todo-section { display: grid; gap: 12px; }
 .section-header { margin-top: 10px; justify-content: flex-start; }
 .section-header h3 { margin: 0; font-size: 28px; font-weight: 900; color: #0f172a; }
-.section-header :deep(.shad-badge) { display: none; }
-.todo-card { padding: 28px 30px; min-height: 150px; }
-.todo-title :deep(.shad-badge) { min-width: 62px; justify-content: center; font-size: 15px; }
-.todo-desc { margin-top: 16px; color: #536783; line-height: 1.6; font-size: 14px; }
-.todo-card::after {
-  content: '进入处理  ->';
-  display: block;
-  margin-top: 22px;
-  color: #2563eb;
-  font-size: 14px;
-  font-weight: 700;
-}
+.todo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.todo-card { min-height: 158px; border-color: #e7edf6; border-radius: 10px; cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.todo-card:hover { transform: translateY(-2px); }
+.todo-card :deep(.el-card__body) { min-height: 158px; padding: 16px 18px 14px; display: flex; flex-direction: column; box-sizing: border-box; }
+.todo-title :deep(.el-tag) { min-width: 62px; justify-content: center; font-size: 13px; }
+.todo-desc { margin-top: 10px; color: #536783; line-height: 1.55; font-size: 13px; }
+
+/* 工作台参考版：信息以横向密度优先，避免大面积留白。 */
+.hero-card { min-height: 192px; border-radius: 8px; }
+.hero-copy { min-height: 192px; margin-left: 40px; }.hero-copy h2 { font-size: 31px; }.hero-copy p { font-size: 18px; }.hero-actions { margin-top: 16px; }.hero-actions :deep(.hero-action) { height: 38px; min-width: 126px; }
+.overview-grid { gap: 10px; }.overview-card { min-height: 132px; border-radius: 8px; }.overview-card :deep(.el-card__body) { position: relative; min-height: 132px; padding: 20px 17px; }.overview-card-head { position: absolute; top: 18px; left: 17px; right: 17px; }.overview-icon { width: 44px; height: 44px; border-radius: 13px; }.overview-caption { display: none; }.overview-label { margin: 6px 0 0 57px; min-height: 20px; font-size: 15px; line-height: 20px; }.overview-value { margin: 4px 0 0 57px; font-size: 27px; }.overview-value small { font-size: 13px; }
+.dashboard-section { gap: 10px; }.dashboard-header { margin-top: 6px; align-items: center; }.dashboard-header h3 { position: relative; margin: 0; padding-left: 12px; font-size: 18px; line-height: 24px; }.dashboard-header h3::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 0; width: 3px; border-radius: 3px; background: #2563eb; }.dashboard-grid { gap: 12px; }.reference-chart-card { min-height: 306px; }.reference-chart-card :deep(.el-card__body) { min-height: 306px; padding: 16px 18px; }.reference-chart-card .ring-card-title { margin-bottom: 0; font-size: 15px; }.reference-chart-card :deep(.ring-chart) { height: 250px; }.money-card { gap: 6px; justify-content: flex-start; }.money-figure { margin-top: 8px; }.money-value { font-size: 35px; }.money-symbol { font-size: 18px; }.money-sub { font-size: 13px; }.money-chart { flex: 1; min-height: 0; margin-top: 2px; }.money-chart :deep(.line-chart) { height: 124px; }.money-chart-empty { flex: 1; display: grid; min-height: 124px; place-items: center; color: #94a3b8; font-size: 13px; }.money-foot { padding-top: 6px; font-size: 13px; }
+.todo-section { margin-top: 4px; gap: 10px; }.section-header { margin-top: 0; }.section-header h3 { position: relative; padding-left: 12px; font-size: 18px; line-height: 24px; }.section-header h3::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 0; width: 3px; border-radius: 3px; background: #2563eb; }.todo-grid { gap: 10px; }.todo-card { min-height: 112px; border-radius: 8px; }.todo-card :deep(.el-card__body) { min-height: 112px; padding: 14px 16px; }.todo-card-inner { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; height: 100%; }.todo-icon { width: 42px; height: 42px; border-radius: 12px; font-size: 19px; }.todo-copy { min-width: 0; display: flex; flex-direction: column; }.todo-title { min-height: 22px; gap: 8px; }.todo-label { overflow: hidden; font-size: 15px; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }.todo-title :deep(.el-tag) { min-width: 42px; height: 21px; padding: 0 7px; font-size: 11px; }.todo-desc { overflow: hidden; margin-top: 2px; color: #63758e; font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }.todo-footer { justify-content: flex-start; margin-top: auto; padding-top: 5px; border: 0; font-size: 12px; }
 @media screen and (max-width: 900px) {
   .hero-card { min-height: 170px; }
   .hero-copy { min-height: 170px; margin: 0; padding: 24px; }

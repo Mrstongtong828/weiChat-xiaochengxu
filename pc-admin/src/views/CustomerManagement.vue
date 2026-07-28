@@ -36,6 +36,41 @@
       <el-button type="primary" @click="reload">查询</el-button>
     </div>
 
+    <section class="warranty-alert-panel" v-loading="warrantyLoading">
+      <div class="warranty-alert-head">
+        <div>
+          <strong>保修待办</strong>
+          <span>优先补齐资料并跟进即将到期设备</span>
+        </div>
+        <div class="warranty-alert-actions">
+          <el-radio-group v-model="warrantyCategory" size="small" @change="loadWarrantyAlerts">
+            <el-radio-button label="">全部 {{ warrantyCounts.all }}</el-radio-button>
+            <el-radio-button label="missing">待补充 {{ warrantyCounts.missing }}</el-radio-button>
+            <el-radio-button label="expiring">30天内到期 {{ warrantyCounts.expiring }}</el-radio-button>
+            <el-radio-button label="expired">已过保 {{ warrantyCounts.expired }}</el-radio-button>
+          </el-radio-group>
+          <el-button size="small" @click="loadWarrantyAlerts">刷新</el-button>
+        </div>
+      </div>
+      <el-table :data="warrantyAlerts" size="small" class="warranty-alert-table" empty-text="当前没有需要处理的保修待办">
+        <el-table-column prop="customer_name" label="客户" min-width="110" show-overflow-tooltip />
+        <el-table-column label="设备" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ [row.product_name, row.model].filter(Boolean).join(' / ') || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="提醒" width="120">
+          <template #default="{ row }"><el-tag size="small" :type="warrantyAlertTag(row.category)">{{ warrantyAlertLabel(row.category) }}</el-tag></template>
+        </el-table-column>
+        <el-table-column label="质保到期" width="130">
+          <template #default="{ row }">{{ row.effective_expire || '待补充' }}</template>
+        </el-table-column>
+        <el-table-column prop="next_action" label="下一步" min-width="190" show-overflow-tooltip />
+        <el-table-column label="操作" width="96" align="right">
+          <template #default="{ row }"><el-button type="primary" link size="small" @click="openWarrantyAlert(row)">去处理</el-button></template>
+        </el-table-column>
+      </el-table>
+      <p v-if="warrantyTruncated" class="warranty-alert-note">当前待办数据较多，结果已按最近更新的设备优先展示；可完成本批处理后再继续查看。</p>
+    </section>
+
     <!-- 批量操作工具条 -->
     <div v-if="selectedRows.length" class="batch-bar">
       已选 <b>{{ selectedRows.length }}</b> 个客户
@@ -340,19 +375,21 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRoute } from 'vue-router'
 import {
   getCustomerPermissionConfig,
   listCustomers, getCustomerDetail, getCustomerPhone, createCustomer, updateCustomer,
   cancelCustomer, listDealers, syncCustomersFromUsers,
-  listCustomerDevices, saveCustomerDevice, deleteCustomerDevice,
+  listCustomerDevices, getWarrantyAlerts, saveCustomerDevice, deleteCustomerDevice,
   listCustomerOrders, getCustomerLogs,
   listTags, saveTag, deleteTag, batchTag, exportCustomers, batchImportCustomers
 } from '../api/customer.js'
 import { downloadCustomerTemplate, exportCustomerWorkbook, parseCustomerExcelFile } from '../utils/customerExcel.js'
 
 const TYPE_LABELS = { clinic: '企业', dealer: '签约代理商（齿科）', individual: '个人' }
+const route = useRoute()
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
 const WARRANTY_LABELS = { in_warranty: '在保', extended: '已延保', expired: '过保', unknown: '待补充' }
 const ORDER_STATUS_LABELS = { pending: '待寄出', sent: '已寄出', received: '已收货', inspecting: '检测中', fixing: '维修中', shipped: '已寄回', completed: '已完成', cancelled: '已取消' }
@@ -365,6 +402,8 @@ const orderStatusLabel = (s) => ORDER_STATUS_LABELS[s] || s
 const logActionLabel = (a) => LOG_ACTION_LABELS[a] || a
 const typeTag = (t) => (t === 'dealer' ? 'warning' : t === 'individual' ? 'info' : 'success')
 const warrantyTag = (s) => (s === 'expired' ? 'danger' : (!s || s === 'unknown') ? 'warning' : 'success')
+const warrantyAlertLabel = (category) => ({ missing: '资料待补充', expiring: '即将到期', expired: '已过保' }[category] || '待处理')
+const warrantyAlertTag = (category) => (category === 'expired' ? 'danger' : category === 'expiring' ? 'warning' : 'info')
 
 const pad = (n) => String(n).padStart(2, '0')
 const fmtDate = (ts) => { if (!ts) return '-'; const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` }
@@ -397,6 +436,11 @@ const dealers = ref([])
 const tags = ref([])
 const selectedRows = ref([])
 const filters = reactive({ keyword: '', customer_type: '', status: 'active', tag: '', page: 1, pageSize: 20 })
+const warrantyAlerts = ref([])
+const warrantyLoading = ref(false)
+const warrantyCounts = ref({ all: 0, missing: 0, expiring: 0, expired: 0 })
+const warrantyTruncated = ref(false)
+const warrantyCategory = ref('')
 
 const TAG_CATEGORY_LABELS = { device: '设备类', ops: '运营类', service: '售后类' }
 const tagCategoryLabel = (c) => TAG_CATEGORY_LABELS[c] || '运营类'
@@ -417,6 +461,20 @@ const load = async () => {
 }
 const reload = () => { filters.page = 1; load() }
 const onPage = (p) => { filters.page = p; load() }
+
+const loadWarrantyAlerts = async () => {
+  warrantyLoading.value = true
+  try {
+    const data = await getWarrantyAlerts({ category: warrantyCategory.value, page: 1, pageSize: 20 })
+    warrantyAlerts.value = data.list || []
+    warrantyCounts.value = { ...warrantyCounts.value, ...(data.counts || {}) }
+    warrantyTruncated.value = Boolean(data.truncated)
+  } catch (e) { /* request interceptor handles errors */ } finally { warrantyLoading.value = false }
+}
+const applyWarrantyRouteFilter = () => {
+  const category = String(route.query.alert || '')
+  warrantyCategory.value = ['missing', 'expiring', 'expired'].includes(category) ? category : ''
+}
 
 const loadPermissionConfig = async () => {
   try { permissionConfig.value = await getCustomerPermissionConfig() } catch (e) { /* keep local role fallback */ }
@@ -546,6 +604,15 @@ const addMonthsToDate = (dateStr, months) => {
   date.setMonth(date.getMonth() + amount)
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
+
+const openWarrantyAlert = async (alert) => {
+  await openDetail({ _id: alert.customer_id })
+  activeTab.value = 'device'
+  await loadDevices()
+  const device = devices.value.find(item => item._id === alert.device_id)
+  if (!device) { ElMessage.warning('未找到该设备，可能已解绑'); return }
+  openDevice(device)
+}
 const deviceWarrantyPreview = computed(() => {
   const expire = deviceForm.warranty_expire || addMonthsToDate(deviceForm.buy_date, deviceForm.warranty_months)
   if (!expire) {
@@ -579,6 +646,7 @@ const saveDevice = async () => {
     ElMessage.success('已保存')
     deviceVisible.value = false
     loadDevices()
+    loadWarrantyAlerts()
   } catch (e) { /* ignore */ } finally { saving.value = false }
 }
 const removeDevice = async (row) => {
@@ -658,7 +726,14 @@ const submitImport = async () => {
   } catch (e) { /* ignore */ } finally { importing.value = false }
 }
 
-onMounted(() => { loadPermissionConfig(); load(); loadDealers(); loadTags() })
+onMounted(() => {
+  applyWarrantyRouteFilter()
+  loadPermissionConfig(); load(); loadDealers(); loadTags(); loadWarrantyAlerts()
+})
+watch(() => route.query.alert, () => {
+  applyWarrantyRouteFilter()
+  loadWarrantyAlerts()
+})
 </script>
 
 <style scoped>
@@ -666,6 +741,13 @@ onMounted(() => { loadPermissionConfig(); load(); loadDealers(); loadTags() })
 .section-title { font-size: 16px; font-weight: 600; color: #1d2129; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
 .title-actions { display: flex; gap: 8px; }
 .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.warranty-alert-panel { margin: 0 0 16px; border: 1px solid #dce9f8; border-radius: 8px; overflow: hidden; }
+.warranty-alert-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; background: #f7fbff; flex-wrap: wrap; }
+.warranty-alert-head strong { color: #1d2129; font-size: 14px; }
+.warranty-alert-head span { margin-left: 10px; color: #86909c; font-size: 12px; }
+.warranty-alert-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.warranty-alert-table { width: 100%; }
+.warranty-alert-note { margin: 0; padding: 8px 12px; color: #e6a23c; background: #fdf6ec; font-size: 12px; }
 .table-responsive { width: 100%; overflow-x: auto; }
 .modern-table { min-width: 980px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }

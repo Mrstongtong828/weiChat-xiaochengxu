@@ -64,6 +64,7 @@
               <span>{{ row.out_company || '物流' }} · {{ row.out_no }}</span>
               <small v-if="row.out_track_status">{{ row.out_track_status }}<template v-if="row.out_last_track_at"> · {{ row.out_last_track_at }}</template></small>
               <small v-else-if="row.out_subscription_status === 'failed'" class="lm-danger">订阅失败</small>
+              <el-button type="primary" link size="small" class="lm-track-action" @click="openLogisticsTrack(row, 'out')">查看轨迹</el-button>
             </div>
             <span v-else class="lm-muted">—</span>
           </template>
@@ -74,6 +75,7 @@
               <span>{{ row.back_company || '物流' }} · {{ row.back_no }}</span>
               <small v-if="row.back_track_status">{{ row.back_track_status }}<template v-if="row.back_last_track_at"> · {{ row.back_last_track_at }}</template></small>
               <small v-else-if="row.back_subscription_status === 'failed'" class="lm-danger">订阅失败</small>
+              <el-button type="primary" link size="small" class="lm-track-action" @click="openLogisticsTrack(row, 'back')">查看轨迹</el-button>
             </div>
             <span v-else class="lm-muted">—</span>
           </template>
@@ -109,18 +111,48 @@
     </el-card>
     </el-tab-pane>
     </el-tabs>
+
+    <el-drawer v-model="trackDrawerVisible" :title="trackDrawerTitle" size="460px" destroy-on-close>
+      <div v-loading="trackLoading" class="lm-trace-drawer">
+        <div class="lm-trace-summary">
+          <span class="lm-trace-label">{{ logisticsTrack.company || '物流公司待补充' }}</span>
+          <strong>{{ logisticsTrack.tracking_no || '暂无运单号' }}</strong>
+          <el-tag v-if="logisticsTrack.cache && logisticsTrack.cache.status" size="small" :type="traceTone(logisticsTrack.cache.tone)">
+            {{ logisticsTrack.cache.status }}
+          </el-tag>
+        </div>
+        <div class="lm-trace-meta">
+          <span>最后更新：{{ traceTime(logisticsTrack.cache && logisticsTrack.cache.lastTrackAt) || '-' }}</span>
+          <span>查询时间：{{ traceTime(logisticsTrack.cache && logisticsTrack.cache.fetchedAt) || '-' }}</span>
+        </div>
+        <div class="lm-trace-toolbar">
+          <span>{{ logisticsTrack.cached ? '当前展示缓存轨迹' : '当前展示最新查询结果' }}</span>
+          <el-button type="primary" size="small" :loading="trackLoading" :disabled="!logisticsTrack.tracking_no" @click="loadLogisticsTrack(true)">刷新轨迹</el-button>
+        </div>
+        <el-alert v-if="logisticsTrack.message" :title="logisticsTrack.message" type="warning" :closable="false" show-icon class="lm-trace-alert" />
+        <el-timeline v-if="traceRows.length" class="lm-trace-timeline">
+          <el-timeline-item v-for="item in traceRows" :key="`${item.time}-${item.desc}`" :timestamp="traceTime(item.time)" :type="traceTone(logisticsTrack.cache && logisticsTrack.cache.tone)">
+            <strong>{{ item.title || '物流更新' }}</strong>
+            <p>{{ item.desc }}</p>
+            <small v-if="item.location">{{ item.location }}</small>
+          </el-timeline-item>
+        </el-timeline>
+        <el-empty v-else :image-size="76" :description="logisticsTrack.available ? '暂未获取到物流轨迹' : '暂时无法查询物流轨迹'" />
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
+import { computed, reactive, ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { confirmInboundArrival, getLogisticsExceptions, getLogisticsLedger } from '../api/order.js'
+import { confirmInboundArrival, getLogisticsExceptions, getLogisticsLedger, getLogisticsTrack } from '../api/order.js'
 import LogisticsImport from './LogisticsImport.vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
 const activeTab = ref(route.query.tab === 'import' ? 'import' : (route.query.tab === 'ledger' ? 'ledger' : 'exception'))
+const applyRouteTab = () => { activeTab.value = route.query.tab === 'import' ? 'import' : (route.query.tab === 'ledger' ? 'ledger' : 'exception') }
 const getToken = () => localStorage.getItem('adminToken')
 
 const STATUS_LABELS = {
@@ -137,6 +169,13 @@ const formatTime = (ts) => {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
+const traceTime = (value) => {
+  if (!value) return ''
+  if (typeof value === 'number' || /^\d+$/.test(String(value))) return formatTime(Number(value))
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? String(value) : formatTime(date.getTime())
+}
+const traceTone = (tone) => ({ ok: 'success', danger: 'danger', warn: 'warning' }[tone] || 'info')
 
 // ===== 异常预警 =====
 const exceptions = ref([])
@@ -162,6 +201,11 @@ const pageSize = ref(20)
 const filters = reactive({ keyword: '', status: '' })
 const exporting = ref(false)
 const confirmingOrderId = ref('')
+const trackDrawerVisible = ref(false)
+const trackLoading = ref(false)
+const logisticsTrack = ref({})
+const traceRows = computed(() => (logisticsTrack.value.cache && logisticsTrack.value.cache.tracks) || [])
+const trackDrawerTitle = computed(() => `${logisticsTrack.value.segment === 'back' ? '回寄' : '寄出'}物流轨迹`)
 
 const confirmArrival = async (row) => {
   try {
@@ -197,6 +241,34 @@ const loadLedger = async () => {
 }
 const reloadLedger = () => { page.value = 1; loadLedger() }
 const onPageChange = (p) => { page.value = p; loadLedger() }
+
+const openLogisticsTrack = async (row, segment) => {
+  logisticsTrack.value = {
+    orderId: row.order_id,
+    segment,
+    company: segment === 'back' ? row.back_company : row.out_company,
+    tracking_no: segment === 'back' ? row.back_no : row.out_no,
+    cache: {},
+    available: false,
+    cached: true,
+    message: ''
+  }
+  trackDrawerVisible.value = true
+  await loadLogisticsTrack(false)
+}
+
+const loadLogisticsTrack = async (refresh = false) => {
+  if (!logisticsTrack.value.orderId) return
+  trackLoading.value = true
+  try {
+    const data = await getLogisticsTrack(getToken(), logisticsTrack.value.orderId, logisticsTrack.value.segment, refresh)
+    logisticsTrack.value = { ...logisticsTrack.value, ...(data || {}) }
+  } catch (e) {
+    logisticsTrack.value = { ...logisticsTrack.value, message: e.message || '加载物流轨迹失败' }
+  } finally {
+    trackLoading.value = false
+  }
+}
 
 // 导出台账：分页拉全量（pageSize=100），避免静默截断
 const exportLedger = async () => {
@@ -251,6 +323,7 @@ const exportLedger = async () => {
 }
 
 onMounted(() => { loadExceptions(); loadLedger() })
+watch(() => route.query.tab, applyRouteTab)
 </script>
 
 <style scoped>
@@ -265,5 +338,16 @@ onMounted(() => { loadExceptions(); loadLedger() })
 .lm-track-cell { display: flex; flex-direction: column; gap: 3px; }
 .lm-track-cell small { color: #909399; }
 .lm-track-cell .lm-danger { color: #f56c6c; }
+.lm-track-action { width: fit-content; height: auto; padding: 0; margin-top: 1px; }
 .lm-confirmed { color: #67c23a; font-size: 12px; }
+.lm-trace-drawer { min-height: 280px; }
+.lm-trace-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 10px; border-bottom: 1px solid #ebeef5; }
+.lm-trace-summary strong { color: #303133; font-size: 16px; word-break: break-all; }
+.lm-trace-label { color: #606266; font-size: 13px; }
+.lm-trace-meta { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; color: #909399; font-size: 12px; }
+.lm-trace-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 16px 0; color: #909399; font-size: 12px; }
+.lm-trace-alert { margin-bottom: 16px; }
+.lm-trace-timeline { margin: 18px 0 0 4px; }
+.lm-trace-timeline p { margin: 4px 0; color: #303133; line-height: 1.55; }
+.lm-trace-timeline small { color: #909399; }
 </style>

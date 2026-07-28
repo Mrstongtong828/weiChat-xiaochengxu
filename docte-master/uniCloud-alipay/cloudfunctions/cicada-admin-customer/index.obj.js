@@ -30,6 +30,7 @@ const PERMISSIONS = {
 const CUSTOMER_TYPES = ['clinic', 'dealer', 'individual']
 const CUSTOMER_SOURCES = ['miniapp', 'offline', 'dealer_referral']
 const MAX_PAGE_SIZE = 100
+const WARRANTY_ALERT_SCAN_LIMIT = 5000
 
 // ============== 通用辅助 ==============
 function pickParam(ctx, params) {
@@ -292,6 +293,115 @@ async function buildCustomerListStats(customers = []) {
   return stats
 }
 
+function buildWarrantyAlert(device, customer, now) {
+  const warranty = computeWarranty(device)
+  const expireTs = toTimestamp(warranty.effective_expire)
+  const expiringAt = now + 30 * 24 * 60 * 60 * 1000
+  let category = ''
+  let nextAction = ''
+  let daysRemaining = null
+
+  if (!expireTs) {
+    category = 'missing'
+    nextAction = '补充采购日期、质保月数或质保到期日'
+  } else if (expireTs < now) {
+    category = 'expired'
+    daysRemaining = Math.floor((expireTs - now) / (24 * 60 * 60 * 1000))
+    nextAction = '核对是否需要登记延保'
+  } else if (expireTs <= expiringAt) {
+    category = 'expiring'
+    daysRemaining = Math.ceil((expireTs - now) / (24 * 60 * 60 * 1000))
+    nextAction = '联系客户确认续保或延保'
+  }
+  if (!category) return null
+
+  return {
+    category,
+    next_action: nextAction,
+    days_remaining: daysRemaining,
+    customer_id: customer._id,
+    customer_name: customer.name || '',
+    customer_type: customer.customer_type || 'clinic',
+    device_id: device._id,
+    product_category: device.product_category || '',
+    product_name: device.product_name || '',
+    model: device.model || '',
+    sn: device.sn || '',
+    buy_date: device.buy_date || '',
+    warranty_months: Number(device.warranty_months || 0) || 0,
+    warranty_expire: device.warranty_expire || '',
+    effective_expire: warranty.effective_expire,
+    warranty_state: warranty.warranty_state,
+    update_time: device.update_time || device.create_time || 0
+  }
+}
+
+async function listWarrantyAlerts({ category, page, pageSize }) {
+  const devices = []
+  const deviceCol = db.collection('cicada_user_devices')
+  const batchSize = 500
+  for (let offset = 0; offset < WARRANTY_ALERT_SCAN_LIMIT; offset += batchSize) {
+    const res = await deviceCol.orderBy('update_time', 'desc').skip(offset).limit(batchSize).get()
+    const batch = res.data || []
+    devices.push(...batch)
+    if (batch.length < batchSize) break
+  }
+
+  const customerIds = uniqueTruthy(devices.map(item => item.customer_id))
+  const userIds = uniqueTruthy(devices.map(item => item.user_id))
+  const [customersById, customersByUser] = await Promise.all([
+    fetchByIn('cicada_customers', '_id', customerIds),
+    fetchByIn('cicada_customers', 'user_id', userIds)
+  ])
+  const customerMap = {}
+  const customerByUserId = {}
+  for (const customer of [...customersById, ...customersByUser]) {
+    if (customer._id) customerMap[customer._id] = customer
+    if (customer.user_id && !customerByUserId[customer.user_id]) customerByUserId[customer.user_id] = customer
+  }
+
+  const now = Date.now()
+  const alerts = []
+  const allAlerts = []
+  const counts = { all: 0, missing: 0, expiring: 0, expired: 0 }
+  const seen = new Set()
+  for (const device of devices) {
+    if (seen.has(device._id)) continue
+    seen.add(device._id)
+    const customer = customerMap[device.customer_id] || customerByUserId[device.user_id]
+    if (!customer || customer.status === 'cancelled') continue
+    const alert = buildWarrantyAlert(device, customer, now)
+    if (!alert) continue
+    counts.all += 1
+    counts[alert.category] += 1
+    allAlerts.push(alert)
+    if (!category || alert.category === category) alerts.push(alert)
+  }
+  const categoryRank = { missing: 0, expired: 1, expiring: 2 }
+  alerts.sort((a, b) => {
+    const rank = categoryRank[a.category] - categoryRank[b.category]
+    if (rank) return rank
+    return Number(b.update_time || 0) - Number(a.update_time || 0)
+  })
+  allAlerts.sort((a, b) => {
+    const rank = categoryRank[a.category] - categoryRank[b.category]
+    if (rank) return rank
+    return Number(b.update_time || 0) - Number(a.update_time || 0)
+  })
+  const samples = { missing: [], expiring: [], expired: [] }
+  for (const alert of allAlerts) {
+    if (samples[alert.category].length < 5) samples[alert.category].push(alert)
+  }
+  const start = (page - 1) * pageSize
+  return {
+    list: alerts.slice(start, start + pageSize),
+    total: alerts.length,
+    counts,
+    samples,
+    truncated: devices.length >= WARRANTY_ALERT_SCAN_LIMIT
+  }
+}
+
 module.exports = {
   _before() {
     const httpInfo = this.getHttpInfo && this.getHttpInfo()
@@ -550,6 +660,22 @@ module.exports = {
         create_time: d.create_time || 0
       }))
       return { code: 0, data: list }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // ============== 保修待办（资料缺失 / 30 天内到期 / 已过保） ==============
+  async getWarrantyAlerts(params) {
+    try {
+      const p = pickParam(this, params)
+      const admin = await verifyAdminToken(p.token)
+      requirePermission(admin, 'view')
+      const category = normalizeText(p.category)
+      if (category && !['missing', 'expiring', 'expired'].includes(category)) return { code: -1, msg: '保修待办分类不正确' }
+      const { page, pageSize } = normalizePage(p.page, p.pageSize)
+      const data = await listWarrantyAlerts({ category, page, pageSize })
+      return { code: 0, data: { ...data, page, pageSize } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

@@ -148,11 +148,30 @@ unpackage/              编译输出
 
 ### 微信支付
 
-报价确认后，小程序维修详情页的主按钮会走 `cicada-client-order.createWechatPayPayment` 创建微信 JSAPI 预支付单，然后通过 `uni.requestPayment` 拉起支付。支付完成后，前端会调用 `syncWechatPayPayment`，服务端再向微信支付查单，只有微信返回 `SUCCESS` 且金额一致时才把工单写成 `payment_status=paid`。
+当前支付方案是“uni-app 客户端接口 + 自建微信支付 API v3 云端流程”，没有接入 `uni-pay`：
+
+| 层级 | 当前实现 | 职责 |
+| --- | --- | --- |
+| 小程序页面 | `uni.requestPayment` | 使用 uni-app 统一接口拉起微信收银台 |
+| 小程序 API 层 | `api/repair.js` | 调用 `createWechatPayPayment` / `syncWechatPayPayment` |
+| 云函数 | `cicada-client-order` | 校验工单和金额、创建 JSAPI 预支付单、生成签名参数、验签解密回调、向微信查单 |
+| 后台云函数 | `cicada-admin-order` | 退款、线下转账核销和财务对账 |
+
+`uni.requestPayment` 只负责拉起支付，不能代替服务端下单、签名、回调验签和查单。`uni-pay` 是另一套可选的云端支付模块，若迁移需要同时改造云函数、环境变量、回调和订单状态闭环，不是替换一个前端方法。本项目当前仅面向微信小程序支付，继续采用现有 API v3 实现。
+
+```text
+小程序请求 createWechatPayPayment
+  -> cicada-client-order 调用微信支付 API v3 创建 JSAPI 预支付单
+  -> 小程序调用 uni.requestPayment 拉起微信收银台
+  -> 微信异步通知，或小程序调用 syncWechatPayPayment 触发服务端查单
+  -> 仅当微信返回 SUCCESS 且商户号、AppID、金额均匹配时写入 payment_status=paid
+```
+
+前端 `uni.requestPayment` 的成功回调只表示收银台流程完成，不能作为到账依据。工单支付状态始终以服务端验签回调或主动查单结果为准。
 
 企业客户仍可走线下对公转账，备用入口会调用 `uploadPaymentProof`，订单会写成 `payment_status=uploaded` 和 `payment_method=offline_transfer`，后台再人工核销。
 
-上线前需要在 uniCloud 的 `cicada-client-order` 云函数环境变量中配置微信支付参数：
+上线前需要在 uniCloud 云函数环境变量中配置以下微信支付参数：下单、查单和支付回调参数配置到 `cicada-client-order`；退款所需参数同步配置到 `cicada-admin-order`。各变量归属见 [`uniCloud-alipay/微信支付与一键开票配置.md`](uniCloud-alipay/微信支付与一键开票配置.md)。
 
 - `WX_PAY_APPID`
 - `WX_PAY_MCH_ID`

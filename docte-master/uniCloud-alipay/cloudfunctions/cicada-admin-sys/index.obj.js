@@ -582,6 +582,40 @@ module.exports = {
     }
   },
 
+  async updateMyProfile(params) {
+    try {
+      let token, name, phone
+      if (params && params.token) {
+        ({ token, name, phone } = params)
+      } else {
+        const httpInfo = this.getHttpInfo && this.getHttpInfo()
+        if (httpInfo && httpInfo.body) {
+          const body = JSON.parse(httpInfo.body)
+          ;({ token, name, phone } = body)
+        }
+      }
+
+      const user = await verifyAdminToken(token, STAFF_ROLES)
+      const normalizedName = String(name || '').trim()
+      const normalizedPhone = String(phone || '').trim()
+      if (!normalizedName) return { code: -1, msg: '请输入真实姓名' }
+      if (normalizedName.length > 50) return { code: -1, msg: '真实姓名不能超过 50 个字符' }
+      if (normalizedPhone && !/^[0-9+()\-\s]{6,32}$/.test(normalizedPhone)) {
+        return { code: -1, msg: '请输入有效的联系电话' }
+      }
+
+      await db.collection('cicada_users').doc(user._id).update({
+        name: normalizedName,
+        phone: normalizedPhone,
+        update_time: Date.now()
+      })
+      await writeAdminLog(user, 'profile_update', { id: user._id, name: user.username || normalizedName }, { fields: ['name', 'phone'] })
+      return { code: 0, data: { name: normalizedName, phone: normalizedPhone } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async resetUserPassword(params) {
     try {
       let token, userId

@@ -55,7 +55,11 @@
 		"navigationBarTextStyle": "black",
 		"navigationBarTitleText": "牙医仪器检修",
 		"navigationBarBackgroundColor": "#E8EEFA",
-		"backgroundColor": "#E8EEFA"
+		"backgroundColor": "#E8EEFA",
+		"usingComponents": {
+			"mp-checkbox": "weui-miniprogram/checkbox/checkbox",
+			"mp-checkbox-group": "weui-miniprogram/checkbox-group/checkbox-group"
+		}
 	},
 	"uniIdRouter": {}
 }

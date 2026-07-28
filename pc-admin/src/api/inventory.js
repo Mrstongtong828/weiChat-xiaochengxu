@@ -15,10 +15,33 @@ export const savePart = (token, part = {}) => {
   })
 }
 
+export const exportParts = (token, params = {}) => {
+  return request.post(`${API_BASE.adminOrder}/exportParts`, {
+    token,
+    ...params
+  })
+}
+
+export const batchImportParts = (token, rows = [], mode = 'upsert') => {
+  return request.post(`${API_BASE.adminOrder}/batchImportParts`, {
+    token,
+    rows,
+    mode
+  })
+}
+
 export const updatePartStatus = (token, partId, enabled) => {
   return request.post(`${API_BASE.adminOrder}/updatePartStatus`, {
     token,
     part_id: partId,
+    enabled
+  })
+}
+
+export const batchUpdatePartStatus = (token, partIds = [], enabled = false) => {
+  return request.post(`${API_BASE.adminOrder}/batchUpdatePartStatus`, {
+    token,
+    part_ids: partIds,
     enabled
   })
 }

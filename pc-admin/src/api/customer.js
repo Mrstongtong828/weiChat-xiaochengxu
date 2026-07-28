@@ -19,6 +19,7 @@ export const syncCustomersFromUsers = () => post('syncCustomersFromUsers')
 
 // 设备
 export const listCustomerDevices = (customer_id) => post('listCustomerDevices', { customer_id })
+export const getWarrantyAlerts = (params = {}) => post('getWarrantyAlerts', params)
 export const saveCustomerDevice = (customer_id, device) => post('saveCustomerDevice', { customer_id, device })
 export const deleteCustomerDevice = (customer_id, device_id) => post('deleteCustomerDevice', { customer_id, device_id })
 

@@ -1,4 +1,22 @@
-export const isCloudFileId = (url = '') => String(url || '').startsWith('cloud://')
+export const isCloudFileId = (url = '') => /^cloud:\/\/\S+$/.test(String(url || '').trim())
+
+export const canUploadPaymentProofForOrder = (order = {}, quoteTotal = 0) => {
+	const paymentStatus = order.paymentStatus || order.payment_status || 'pending'
+	const quoteStatus = order.quoteStatus || order.quote_status || ''
+	const statusKey = order.statusKey || order.status_key || ''
+	return Boolean(
+		order.id &&
+		Number(quoteTotal) > 0 &&
+		!['cancelled', 'completed'].includes(statusKey) &&
+		['issued', 'confirmed'].includes(quoteStatus) &&
+		['pending', 'rejected'].includes(paymentStatus)
+	)
+}
+
+export const getCloudFileId = (item = {}) => {
+	const candidates = [item.fileID, item.fileId, item.cloudUrl, item.url]
+	return candidates.find(isCloudFileId) || ''
+}
 
 export const normalizeUploadUrl = (res = {}, fallbackPath = '') => {
 	const url = res.url || res.fileUrl || res.path || res.fullUrl || res.fileID || res.fileId || ''
@@ -8,7 +26,7 @@ export const normalizeUploadUrl = (res = {}, fallbackPath = '') => {
 export const normalizeUploadFileId = (res = {}) => res.fileID || res.fileId || res.url || res.fileUrl || ''
 
 export const getPreviewUrl = (item = {}) => {
-	const url = item.previewUrl || item.url || item.path || item.fileUrl || item.fileID || item.fileId || item.cloudUrl || ''
+	const url = item.resolvedUrl || item.previewUrl || item.url || item.path || item.fileUrl || item.fileID || item.fileId || item.cloudUrl || ''
 	return isCloudFileId(url) ? (item.path || '') : url
 }
 

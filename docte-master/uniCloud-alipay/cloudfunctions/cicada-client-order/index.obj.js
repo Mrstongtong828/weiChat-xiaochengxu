@@ -4,6 +4,13 @@ const { assertOrderStatusTransition, canTransitionOrderStatus } = loadWorkflowMo
 const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
+const {
+  PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES,
+  PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES,
+  PAYMENT_PROOF_TERMINAL_ORDER_STATUSES,
+  assertPaymentProofAllowed,
+  normalizePaymentProof
+} = loadPaymentProofModule()
 
 function loadWorkflowModule() {
   try {
@@ -95,12 +102,31 @@ function sanitizeOrderItemInput(item = {}) {
   return data
 }
 
+function loadPaymentProofModule() {
+  try {
+    return require('cicada-payment-proof')
+  } catch (packageError) {
+    return require('../common/cicada-payment-proof')
+  }
+}
+
+// The Mini Program exposes four top-level order buckets. Keep this mapping at
+// the API boundary so status transitions in the admin workflow drive the UI.
+function getMiniStatusBucket(status = '') {
+  const key = String(status || '').trim()
+  if (['pending', 'sent', 'received', 'inspecting'].includes(key)) return 'pending'
+  if (key === 'fixing') return 'fixing'
+  if (key === 'shipped') return 'shipped'
+  return ''
+}
+
 function projectClientOrder(order = {}, extras = {}) {
   const quote = exposeQuoteFields(order)
   return {
     _id: order._id,
     order_no: order.order_no || '',
     status: order.status || '',
+    mini_status_bucket: getMiniStatusBucket(order.status),
     customer_type: order.customer_type || '',
     ship_out_info: order.ship_out_info || {},
     ship_back_info: order.ship_back_info || {},
@@ -1702,10 +1728,13 @@ module.exports = {
         pending: 0, sent: 0, received: 0, inspecting: 0,
         fixing: 0, shipped: 0, completed: 0, cancelled: 0
       }
+      const miniStatusBuckets = { pending: 0, fixing: 0, shipped: 0 }
       const todo = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
       ;(res.data || []).forEach(order => {
         const status = String(order.status || '').trim()
         if (Object.prototype.hasOwnProperty.call(byStatus, status)) byStatus[status] += 1
+        const miniStatusBucket = getMiniStatusBucket(status)
+        if (miniStatusBucket) miniStatusBuckets[miniStatusBucket] += 1
         if (!['completed', 'cancelled'].includes(status)) todo.unfinished += 1
         const paymentStatus = normalizeText(order.payment_status || 'pending')
         const hasPayableAmount = Number(order.total_price || 0) > 0
@@ -1720,13 +1749,13 @@ module.exports = {
       })
 
       const total = (res.data || []).length
-      // 前端分桶：待处理（已提交/运输中/已签收/检测中）、维修中、已发货
-      const pending = byStatus.pending + byStatus.sent + byStatus.received + byStatus.inspecting
-      const fixing = byStatus.fixing
-      const shipped = byStatus.shipped
+      // Keep the legacy flat fields while returning the named bucket contract.
+      const pending = miniStatusBuckets.pending
+      const fixing = miniStatusBuckets.fixing
+      const shipped = miniStatusBuckets.shipped
       const completed = byStatus.completed
 
-      return { code: 0, data: { total, pending, fixing, shipped, completed, byStatus, todo } }
+      return { code: 0, data: { total, pending, fixing, shipped, completed, byStatus, miniStatusBuckets, todo } }
     } catch (e) {
       return fail(e)
     }
@@ -2420,24 +2449,10 @@ module.exports = {
       const user = await verifyUserToken(token)
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
-      assertOrderPayable(order)
-      if (!Number(order.total_price || 0)) return { code: -1, msg: '当前工单暂无待支付金额' }
+      assertPaymentProofAllowed(order)
 
       const now = Date.now()
-      const proofFileID = normalizeText(proof.fileID || proof.fileId)
-      const proofPreviewUrl = normalizeText(proof.url || proof.path)
-      const nextProof = {
-        id: normalizeText(proof.id) || `pay-${now}`,
-        url: proofFileID || proofPreviewUrl,
-        fileID: proofFileID,
-        path: normalizeText(proof.path),
-        previewUrl: proofPreviewUrl,
-        time: proof.time || formatTimelineTime(now),
-        create_time: now
-      }
-      if (!nextProof.url && !nextProof.fileID && !nextProof.path) {
-        return { code: -1, msg: '付款凭证不能为空' }
-      }
+      const nextProof = normalizePaymentProof(proof, now)
 
       const proofs = Array.isArray(order.payment_proofs) ? order.payment_proofs : []
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
@@ -2475,7 +2490,17 @@ module.exports = {
         update_time: now
       }
 
-      await db.collection('cicada_orders').doc(order._id).update(updateData)
+      const updateRes = await db.collection('cicada_orders')
+        .where({
+          _id: order._id,
+          status: db.command.nin(PAYMENT_PROOF_TERMINAL_ORDER_STATUSES),
+          quote_status: db.command.in(PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES),
+          payment_status: db.command.in(PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES)
+        })
+        .update(updateData)
+      if (!updateRes || Number(updateRes.updated) !== 1) {
+        throw new Error('该工单报价或支付状态已变化，请刷新后重试')
+      }
       await logOrderEvent({
         order,
         action: 'upload_payment_proof',

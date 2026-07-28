@@ -159,6 +159,107 @@ async function query({ company, trackingNo, phone = '', from = '', to = '' }) {
   return { configured: true, success: true, cache: toCache(result, trackingNo, resolved, 'query'), raw: result }
 }
 
+function getResultCompany(result = {}) {
+  const raw = result.raw || {}
+  return resolveCompany(raw.com || raw.company || raw.companyCode || raw.comCode)
+}
+
+function isDefinitiveWaybillFailure(result = {}) {
+  const raw = result.raw || {}
+  const status = text(raw.status || raw.returnCode || raw.code)
+  const message = text(result.message || raw.message || raw.reason)
+  if (['201', '400'].includes(status)) return true
+  return /(运单|单号).*(错误|无效|不存在|不匹配)|无此运单|查无|找不到.*(运单|单号)|暂无(物流|轨迹|查询结果)|物流公司.*(错误|不符|不存在)/i.test(message)
+}
+
+// 保存物流信息前的实时验单。只有服务商明确否定时才阻断；配置、鉴权、超时等
+// 可用性故障返回 warning，避免第三方故障卡住仓库发货。
+async function verifyWaybill({ company, trackingNo, phone = '' }) {
+  const expectedCompany = resolveCompany(company)
+  if (!expectedCompany) {
+    return {
+      configured: getConfig().queryConfigured,
+      ok: false,
+      verified: false,
+      message: `快递100暂不支持或无法识别物流公司：${text(company) || '未填写'}`
+    }
+  }
+
+  let result
+  try {
+    result = await query({ company: expectedCompany.code, trackingNo, phone })
+  } catch (error) {
+    return {
+      configured: getConfig().queryConfigured,
+      ok: true,
+      verified: false,
+      company: expectedCompany,
+      warning: `快递100实时验单暂不可用：${text(error && error.message) || '请求失败'}`
+    }
+  }
+
+  if (!result.configured) {
+    return {
+      configured: false,
+      ok: true,
+      verified: false,
+      company: expectedCompany,
+      warning: '快递100实时查询未配置，本次仅完成本地格式校验'
+    }
+  }
+
+  const resultCompany = getResultCompany(result)
+  if (resultCompany && resultCompany.code !== expectedCompany.code) {
+    return {
+      configured: true,
+      ok: false,
+      verified: false,
+      company: expectedCompany,
+      detectedCompany: resultCompany,
+      message: `运单实际承运公司为${resultCompany.name}，与录入的${expectedCompany.name}不匹配`
+    }
+  }
+
+  if (result.success) {
+    const tracks = result.cache && Array.isArray(result.cache.tracks) ? result.cache.tracks : []
+    if (!tracks.length) {
+      return {
+        configured: true,
+        ok: false,
+        verified: false,
+        company: expectedCompany,
+        message: '快递100未查询到该运单的物流轨迹，请核对单号和快递公司'
+      }
+    }
+    return {
+      configured: true,
+      ok: true,
+      verified: true,
+      company: expectedCompany,
+      cache: result.cache,
+      message: ''
+    }
+  }
+
+  if (isDefinitiveWaybillFailure(result)) {
+    return {
+      configured: true,
+      ok: false,
+      verified: false,
+      company: expectedCompany,
+      message: result.message || '快递100未查询到该运单，请核对单号和快递公司'
+    }
+  }
+
+  return {
+    configured: true,
+    ok: true,
+    verified: false,
+    company: expectedCompany,
+    warning: `快递100实时验单未完成：${result.message || '服务暂不可用'}`
+  }
+}
+
 async function subscribe({ company, trackingNo, phone = '' }) {
   const config = getConfig()
   if (!config.subscribeConfigured) return { configured: false, success: false }
@@ -230,5 +331,6 @@ module.exports = {
   resolveCompany,
   stateLabel,
   stateTone,
-  subscribe
+  subscribe,
+  verifyWaybill
 }

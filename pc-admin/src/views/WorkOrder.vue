@@ -69,10 +69,10 @@
     <div class="attention-strip">
       <span class="attention-label">需要关注</span>
       <div class="sla-board">
-      <button
+      <el-button
         v-for="item in slaCards"
         :key="item.key"
-        type="button"
+        text
         class="sla-card"
         :class="[`sla-card--${item.tone}`, { active: slaFilter === item.filter }]"
         @click="applySlaFilter(item.filter)"
@@ -80,7 +80,7 @@
         <span>{{ item.label }}</span>
         <strong>{{ item.count }}</strong>
         <small>{{ item.desc }}</small>
-      </button>
+      </el-button>
       </div>
     </div>
 
@@ -256,144 +256,277 @@
     </div>
   </div>
 
-  <el-dialog
+  <el-drawer
     v-model="drawerVisible"
     title="工单处理"
-    :width="isMobile ? '100%' : 'min(1180px, 94vw)'"
-    :fullscreen="isMobile"
-    top="3vh"
+    direction="rtl"
+    :size="isMobile ? '100%' : 'min(920px, 72vw)'"
     append-to-body
-    class="work-order-dialog"
+    destroy-on-close
+    class="work-order-drawer"
   >
     <template v-if="currentOrder">
       <div class="drawer-body">
-        <div class="drawer-order-head">
-          <div class="drawer-order-identity">
-            <span class="drawer-order-kicker">维修工单</span>
-            <strong class="drawer-order-id">{{ currentOrder.id }}</strong>
-            <span class="drawer-order-customer">{{ currentOrder.customerName || '未填写客户' }} · {{ currentOrder.clinicName || '未填写单位' }}</span>
+        <div class="drawer-sticky-head">
+          <div class="drawer-order-head">
+            <div class="drawer-order-identity">
+              <span class="drawer-order-kicker">维修工单</span>
+              <strong class="drawer-order-id">{{ currentOrder.id }}</strong>
+              <span class="drawer-order-customer">{{ currentOrder.customerName || '未填写客户' }} · {{ currentOrder.clinicName || '未填写单位' }}</span>
+            </div>
+            <div class="drawer-order-status">
+              <el-tag :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light" size="small">{{currentOrder.status}}</el-tag>
+              <span class="inline-muted">{{ getStatusDwell(currentOrder).text }}</span>
+            </div>
           </div>
-          <div class="drawer-order-status">
-            <el-tag :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light">{{currentOrder.status}}</el-tag>
-            <span class="inline-muted">{{ getStatusDwell(currentOrder).text }}</span>
+          <div class="drawer-next-step" :class="`is-${getNextAction(currentOrder).type || 'info'}`">
+            <div class="drawer-next-step-copy">
+              <span class="drawer-next-step-eyebrow">当前下一步</span>
+              <strong>{{ getNextAction(currentOrder).label }}</strong>
+              <span>{{ getNextAction(currentOrder).desc }}</span>
+            </div>
+            <el-button
+              v-if="getRecommendedDrawerTab(currentOrder) !== 'base'"
+              class="drawer-next-step-button"
+              size="small"
+              plain
+              @click="focusNextDrawerStep"
+            >{{ getNextStepButtonText(currentOrder) }}</el-button>
           </div>
-        </div>
-        <div class="drawer-next-step" :class="`is-${getNextAction(currentOrder).type || 'info'}`">
-          <div class="drawer-next-step-copy">
-            <span class="drawer-next-step-eyebrow">当前下一步</span>
-            <strong>{{ getNextAction(currentOrder).label }}</strong>
-            <span>{{ getNextAction(currentOrder).desc }}</span>
-          </div>
-          <el-button
-            v-if="getRecommendedDrawerTab(currentOrder) !== 'base'"
-            class="drawer-next-step-button"
-            size="small"
-            plain
-            @click="focusNextDrawerStep"
-          >{{ getNextStepButtonText(currentOrder) }}</el-button>
-        </div>
-        <div class="drawer-workflow" aria-label="工单处理阶段">
-          <div
-            v-for="(stage, index) in drawerWorkflowStages"
-            :key="stage.key"
-            class="drawer-workflow-stage"
-            :class="{ 'is-done': index < getDrawerStageIndex(currentOrder), 'is-current': index === getDrawerStageIndex(currentOrder) }"
-          >
-            <span class="drawer-workflow-dot">{{ index + 1 }}</span>
-            <span>{{ stage.label }}</span>
+          <div class="drawer-workflow" aria-label="工单处理阶段">
+            <div
+              v-for="(stage, index) in drawerWorkflowStages"
+              :key="stage.key"
+              class="drawer-workflow-stage"
+              :class="{ 'is-done': index < getDrawerStageIndex(currentOrder), 'is-current': index === getDrawerStageIndex(currentOrder) }"
+            >
+              <span class="drawer-workflow-dot">{{ index + 1 }}</span>
+              <span>{{ stage.label }}</span>
+            </div>
           </div>
         </div>
         <el-tabs v-model="activeDrawerTab" class="drawer-tabs">
           <el-tab-pane label="概览" name="base">
-            <div class="drawer-section customer-section">
-              <p class="drawer-section-title">客户信息</p>
-              <div class="drawer-info-grid">
-                <div class="drawer-info-item">
-                  <span>客户姓名</span>
-                  <strong>{{currentOrder.customerName || '-'}}</strong>
+            <div class="drawer-scroll-pane">
+              <div class="drawer-section customer-section">
+                <p class="drawer-section-title">客户信息</p>
+                <div class="drawer-info-grid drawer-info-grid--dense">
+                  <div class="drawer-info-item">
+                    <span>客户姓名</span>
+                    <strong>{{currentOrder.customerName || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>联系电话</span>
+                    <strong class="mono-text">{{currentOrder.phone || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>用户类型</span>
+                    <strong>
+                      <el-tag
+                        v-if="customerTypeMeta(currentOrder.customerType)"
+                        size="small"
+                        effect="light"
+                        :type="customerTypeMeta(currentOrder.customerType).type"
+                      >{{ customerTypeMeta(currentOrder.customerType).label }}</el-tag>
+                      <span v-else>-</span>
+                    </strong>
+                  </div>
+                  <div class="drawer-info-item is-wide">
+                    <span>单位/诊所</span>
+                    <strong>{{currentOrder.clinicName || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item is-wide">
+                    <span>回寄地址</span>
+                    <strong>{{currentOrder.address || '-'}}</strong>
+                  </div>
                 </div>
-                <div class="drawer-info-item">
-                  <span>联系电话</span>
-                  <strong class="mono-text">{{currentOrder.phone || '-'}}</strong>
-                </div>
-                <div class="drawer-info-item is-wide">
-                  <span>单位/诊所</span>
-                  <strong>{{currentOrder.clinicName || '-'}}</strong>
-                </div>
-                <div class="drawer-info-item">
-                  <span>用户类型</span>
-                  <strong>
-                    <el-tag
-                      v-if="customerTypeMeta(currentOrder.customerType)"
-                      size="small"
-                      effect="light"
-                      :type="customerTypeMeta(currentOrder.customerType).type"
-                    >{{ customerTypeMeta(currentOrder.customerType).label }}</el-tag>
-                    <span v-else>-</span>
-                  </strong>
-                </div>
-                <div class="drawer-info-item is-wide">
-                  <span>回寄地址</span>
-                  <strong>{{currentOrder.address || '-'}}</strong>
-                </div>
-                <div class="drawer-info-item is-wide">
-                  <span>关联用户ID</span>
-                  <strong class="mono-text">{{currentOrder.userId || '-'}}</strong>
+                <details class="drawer-meta-disclosure">
+                  <summary>关联用户ID等次要信息</summary>
+                  <div class="drawer-info-item is-plain">
+                    <span>关联用户ID</span>
+                    <strong class="mono-text">{{currentOrder.userId || '-'}}</strong>
+                  </div>
+                </details>
+              </div>
+              <div class="drawer-section">
+                <p class="drawer-section-title">工单信息</p>
+                <div class="drawer-info-grid drawer-info-grid--dense">
+                  <div class="drawer-info-item">
+                    <span>提交时间</span>
+                    <strong>{{currentOrder.submitTime || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>更新时间</span>
+                    <strong>{{currentOrder.updateTime || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>当前状态</span>
+                    <strong class="drawer-status-inline">
+                      <el-tag :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light" size="small">{{currentOrder.status}}</el-tag>
+                      <span class="inline-muted">{{ getStatusDwell(currentOrder).text }}</span>
+                    </strong>
+                  </div>
+                  <div class="drawer-info-item is-wide">
+                    <span>负责工程师</span>
+                    <div class="assign-engineer-row">
+                      <template v-if="canPerformOrderAction('manage_staff')">
+                        <el-select
+                          v-model="assignEngineerId"
+                          :placeholder="engineerOptions.length ? '选择工程师' : '暂无工程师账号'"
+                          :disabled="!engineerOptions.length"
+                          size="small"
+                          style="width: 180px;"
+                        >
+                          <el-option v-for="item in engineerOptions" :key="item._id" :label="item.name || item.username" :value="item._id" />
+                        </el-select>
+                        <el-button
+                          type="primary"
+                          size="small"
+                          :loading="assigningEngineer"
+                          :disabled="!assignEngineerId || assignEngineerId === currentOrder.engineerId"
+                          @click="submitAssignEngineer"
+                        >指派</el-button>
+                        <span v-if="!engineerOptions.length" class="inline-muted">请先在员工管理添加工程师角色账号</span>
+                      </template>
+                      <strong v-else>{{ engineerDisplayName(currentOrder.engineerId) }}</strong>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-            <div class="drawer-section">
-              <p class="drawer-section-title">工单信息</p>
-              <p>工单编号：{{currentOrder.id}}</p>
-              <p>提交时间：{{currentOrder.submitTime || '-'}}</p>
-              <p>更新时间：{{currentOrder.updateTime || '-'}}</p>
-              <p>当前状态：<el-tag :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light" size="small">{{currentOrder.status}}</el-tag> <span class="inline-muted">{{ getStatusDwell(currentOrder).text }}</span></p>
-              <div class="assign-engineer-row">
-                <span>负责工程师：</span>
-                <template v-if="canPerformOrderAction('manage_staff')">
-                  <el-select
-                    v-model="assignEngineerId"
-                    :placeholder="engineerOptions.length ? '选择工程师' : '暂无工程师账号'"
-                    :disabled="!engineerOptions.length"
-                    size="small"
-                    style="width: 180px;"
-                  >
-                    <el-option v-for="item in engineerOptions" :key="item._id" :label="item.name || item.username" :value="item._id" />
-                  </el-select>
+              <div class="drawer-section">
+                <p class="drawer-section-title">寄入物流</p>
+                <div class="drawer-info-grid drawer-info-grid--dense">
+                  <div class="drawer-info-item">
+                    <span>寄件人</span>
+                    <strong>{{currentOrder.senderName || currentOrder.customerName || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>寄件电话</span>
+                    <strong class="mono-text">{{currentOrder.senderPhone || currentOrder.phone || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>物流公司</span>
+                    <strong>{{currentOrder.logisticsCompany || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item">
+                    <span>物流单号</span>
+                    <strong class="mono-text">{{currentOrder.logisticsNo || '-'}}</strong>
+                  </div>
+                  <div class="drawer-info-item is-wide">
+                    <span>寄出地址</span>
+                    <strong>{{currentOrder.senderAddress || '-'}}</strong>
+                  </div>
+                </div>
+              </div>
+              <div class="drawer-section product-overview-section">
+                <div class="drawer-section-head">
+                  <p class="drawer-section-title">设备与故障</p>
                   <el-button
+                    v-if="currentOrder.itemsList && currentOrder.itemsList.length"
                     type="primary"
+                    link
                     size="small"
-                    :loading="assigningEngineer"
-                    :disabled="!assignEngineerId || assignEngineerId === currentOrder.engineerId"
-                    @click="submitAssignEngineer"
-                  >指派</el-button>
-                  <span v-if="!engineerOptions.length" class="inline-muted">请先在员工管理添加工程师角色账号</span>
-                </template>
-                <strong v-else>{{ engineerDisplayName(currentOrder.engineerId) }}</strong>
-              </div>
-            </div>
-            <div class="drawer-section">
-              <p class="drawer-section-title">寄入物流</p>
-              <div class="drawer-info-grid">
-                <div class="drawer-info-item">
-                  <span>寄件人</span>
-                  <strong>{{currentOrder.senderName || currentOrder.customerName || '-'}}</strong>
+                    @click="activeDrawerTab = 'quote'"
+                  >去检测与报价 ›</el-button>
                 </div>
-                <div class="drawer-info-item">
-                  <span>寄件电话</span>
-                  <strong class="mono-text">{{currentOrder.senderPhone || currentOrder.phone || '-'}}</strong>
+                <div v-if="currentOrder.itemsList && currentOrder.itemsList.length" class="overview-product-list">
+                  <div
+                    v-for="(item, itemIndex) in currentOrder.itemsList"
+                    :key="item._id || `overview-${itemIndex}`"
+                    class="overview-product-card"
+                  >
+                    <div class="overview-product-head">
+                      <strong>产品 {{ itemIndex + 1 }}：{{ item.product_name || '未命名产品' }}</strong>
+                      <el-tag
+                        v-if="warrantyTagMeta(snItemWarranty(itemIndex))"
+                        :type="warrantyTagMeta(snItemWarranty(itemIndex)).type"
+                        size="small"
+                        effect="light"
+                        round
+                      >{{ warrantyTagMeta(snItemWarranty(itemIndex)).label }}</el-tag>
+                    </div>
+                    <div class="drawer-info-grid drawer-info-grid--dense">
+                      <div class="drawer-info-item">
+                        <span>SN</span>
+                        <strong class="mono-text">{{ item.sn || '-' }}</strong>
+                      </div>
+                      <div class="drawer-info-item">
+                        <span>分类</span>
+                        <strong>{{ item.product_category || '-' }}</strong>
+                      </div>
+                      <div class="drawer-info-item">
+                        <span>型号</span>
+                        <strong>{{ item.product_model || '-' }}</strong>
+                      </div>
+                      <div class="drawer-info-item is-wide">
+                        <span>故障描述</span>
+                        <strong class="overview-fault-text">{{ item.fault_desc || currentOrder.fault || '-' }}</strong>
+                      </div>
+                    </div>
+                    <div
+                      v-if="(item.image_urls && item.image_urls.length) || (item.voucher_urls && item.voucher_urls.length) || (item.video_urls && item.video_urls.length) || (item.media_urls && item.media_urls.length)"
+                      class="overview-attachment-block"
+                    >
+                      <template v-if="item.image_urls && item.image_urls.length">
+                        <span class="attachment-title">故障图片</span>
+                        <div class="attachment-list">
+                          <el-image
+                            v-for="(img, index) in item.image_urls"
+                            :key="`overview-image-${itemIndex}-${index}`"
+                            :src="img"
+                            :preview-src-list="item.image_urls"
+                            class="attachment-thumb"
+                            fit="cover"
+                          ></el-image>
+                        </div>
+                      </template>
+                      <template v-if="item.voucher_urls && item.voucher_urls.length">
+                        <span class="attachment-title">购买凭证</span>
+                        <div class="attachment-list">
+                          <el-image
+                            v-for="(img, index) in item.voucher_urls"
+                            :key="`overview-voucher-${itemIndex}-${index}`"
+                            :src="img"
+                            :preview-src-list="item.voucher_urls"
+                            class="attachment-thumb"
+                            fit="cover"
+                          ></el-image>
+                        </div>
+                      </template>
+                      <template v-if="item.video_urls && item.video_urls.length">
+                        <span class="attachment-title">故障视频</span>
+                        <div class="attachment-list">
+                          <a
+                            v-for="(video, index) in item.video_urls"
+                            :key="`overview-video-${itemIndex}-${index}`"
+                            :href="video"
+                            target="_blank"
+                            rel="noreferrer"
+                            class="video-link"
+                          >视频 {{ index + 1 }}</a>
+                        </div>
+                      </template>
+                      <template v-if="item.media_urls && item.media_urls.length">
+                        <span class="attachment-title">其他附件</span>
+                        <div class="attachment-list">
+                          <a
+                            v-for="(url, index) in item.media_urls"
+                            :key="`overview-media-${itemIndex}-${index}`"
+                            :href="url"
+                            target="_blank"
+                            rel="noreferrer"
+                            class="video-link"
+                          >附件 {{ index + 1 }}</a>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
                 </div>
-                <div class="drawer-info-item">
-                  <span>物流公司</span>
-                  <strong>{{currentOrder.logisticsCompany || '-'}}</strong>
-                </div>
-                <div class="drawer-info-item">
-                  <span>物流单号</span>
-                  <strong class="mono-text">{{currentOrder.logisticsNo || '-'}}</strong>
-                </div>
-                <div class="drawer-info-item is-wide">
-                  <span>寄出地址</span>
-                  <strong>{{currentOrder.senderAddress || '-'}}</strong>
+                <div v-else class="overview-fault-fallback">
+                  <div class="drawer-info-item is-wide is-plain">
+                    <span>故障描述</span>
+                    <strong class="overview-fault-text">{{ currentOrder.fault || '暂无产品明细' }}</strong>
+                  </div>
                 </div>
               </div>
             </div>
@@ -405,26 +538,26 @@
                 <div v-for="(item, itemIndex) in currentOrder.itemsList" :key="item._id || itemIndex" class="product-detail-card">
                   <div class="product-card-title">产品 {{ itemIndex + 1 }}：{{ item.product_name || '未命名产品' }}</div>
                   <div class="sn-edit-row">
-                    <span class="sn-edit-label">SN：</span>
-                    <el-input v-model="item.sn" placeholder="输入 SN 序列号" size="small" class="sn-edit-input" @blur="lookupOrderItemSn(itemIndex)" @keyup.enter="lookupOrderItemSn(itemIndex, true)" />
-                    <el-button size="small" type="primary" :loading="snLookupLoading[itemIndex]" @click="lookupOrderItemSn(itemIndex, true)">查询</el-button>
-                    <el-tag v-if="warrantyTagMeta(snItemWarranty(itemIndex))" :type="warrantyTagMeta(snItemWarranty(itemIndex)).type" size="small" effect="light" round>
+                    <span class="sn-edit-label">SN</span>
+                    <el-input v-model="item.sn" placeholder="输入 SN 序列号" class="sn-edit-input" @blur="lookupOrderItemSn(itemIndex)" @keyup.enter="lookupOrderItemSn(itemIndex, true)" />
+                    <el-button type="primary" :loading="snLookupLoading[itemIndex]" @click="lookupOrderItemSn(itemIndex, true)">查询</el-button>
+                    <el-tag v-if="warrantyTagMeta(snItemWarranty(itemIndex))" :type="warrantyTagMeta(snItemWarranty(itemIndex)).type" effect="light" round>
                       {{ warrantyTagMeta(snItemWarranty(itemIndex)).label }}
                     </el-tag>
                   </div>
                   <div class="sn-fields-grid">
-                    <el-input v-model="item.product_category" placeholder="设备分类" size="small" />
-                    <el-input v-model="item.product_model" placeholder="设备型号" size="small" />
-                    <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="采购日期" size="small" style="width:100%;" />
+                    <el-input v-model="item.product_category" placeholder="设备分类" />
+                    <el-input v-model="item.product_model" placeholder="设备型号" />
+                    <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="采购日期" style="width:100%;" />
                   </div>
                   <div class="warranty-entry-row">
                     <div>
                       <span>质保月数（可选）</span>
-                      <el-input-number v-model="item.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" size="small" />
+                      <el-input-number v-model="item.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" />
                     </div>
                     <div>
                       <span>质保截止（可选）</span>
-                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="以此日期为准" clearable size="small" style="width:100%;" />
+                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="以此日期为准" clearable style="width:100%;" />
                     </div>
                     <p>{{ itemWarrantyPreview(item).detail }}</p>
                   </div>
@@ -434,10 +567,10 @@
                       <span>设备是否在保与本次是否免费分开判断</span>
                     </div>
                     <div class="coverage-fields-grid">
-                      <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择本次结论" size="small" clearable>
+                      <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择本次结论" clearable>
                         <el-option v-for="option in coverageResultOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
                       </el-select>
-                      <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择判断原因" size="small" clearable>
+                      <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择判断原因" clearable>
                         <el-option v-for="option in coverageReasonOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
                       </el-select>
                     </div>
@@ -445,42 +578,41 @@
                       v-model="item.coverage_note"
                       :disabled="!canPerformOrderAction('issue_quote')"
                       placeholder="可补充核验依据，例如凭证、故障原因或不保原因"
-                      size="small"
                       maxlength="200"
                       show-word-limit
                     ></el-input>
                   </div>
-                  <el-button v-if="snLookupResults[itemIndex] && snLookupResults[itemIndex].history && snLookupResults[itemIndex].history.length" type="primary" link size="small" @click="openSnHistory(itemIndex)">
+                  <el-button v-if="snLookupResults[itemIndex] && snLookupResults[itemIndex].history && snLookupResults[itemIndex].history.length" type="primary" link @click="openSnHistory(itemIndex)">
                     查看该设备历史工单（{{ snLookupResults[itemIndex].history.length }}）›
                   </el-button>
-                  <p>故障描述：{{item.fault_desc || '-'}}</p>
+                  <p class="product-fault-line"><span>故障描述</span>{{ item.fault_desc || '-' }}</p>
                   <template v-if="item.voucher_urls && item.voucher_urls.length">
-                    <p class="attachment-title">购买凭证：</p>
+                    <p class="attachment-title">购买凭证</p>
                     <div class="attachment-list">
                       <el-image v-for="(img, index) in item.voucher_urls" :key="`voucher-${itemIndex}-${index}`" :src="img" :preview-src-list="item.voucher_urls" class="attachment-thumb" fit="cover"></el-image>
                     </div>
                   </template>
                   <template v-if="item.image_urls && item.image_urls.length">
-                    <p class="attachment-title">故障图片：</p>
+                    <p class="attachment-title">故障图片</p>
                     <div class="attachment-list">
                       <el-image v-for="(img, index) in item.image_urls" :key="`image-${itemIndex}-${index}`" :src="img" :preview-src-list="item.image_urls" class="attachment-thumb" fit="cover"></el-image>
                     </div>
                   </template>
                   <template v-if="item.video_urls && item.video_urls.length">
-                    <p class="attachment-title">故障视频：</p>
+                    <p class="attachment-title">故障视频</p>
                     <div class="attachment-list">
                       <a v-for="(video, index) in item.video_urls" :key="`video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" class="video-link">视频 {{ index + 1 }}</a>
                     </div>
                   </template>
                   <template v-if="item.media_urls && item.media_urls.length">
-                    <p class="attachment-title">历史附件：</p>
+                    <p class="attachment-title">历史附件</p>
                     <div class="attachment-list">
                       <a v-for="(url, index) in item.media_urls" :key="`media-${itemIndex}-${index}`" :href="url" target="_blank" rel="noreferrer" class="video-link">附件 {{ index + 1 }}</a>
                     </div>
                   </template>
                 </div>
                 <div class="product-detail-actions">
-                  <el-button size="small" type="primary" :loading="savingOrderItems" @click="saveOrderItemsInfo">保存设备信息</el-button>
+                  <el-button type="primary" :loading="savingOrderItems" @click="saveOrderItemsInfo">保存设备信息</el-button>
                   <span class="product-detail-tip">零元质保方案需要每台设备都明确选择“质保免费”；仅在保但未核验不会自动免收费。</span>
                 </div>
               </div>
@@ -1011,7 +1143,7 @@
         </div>
       </div>
     </template>
-  </el-dialog>
+  </el-drawer>
 
   <el-dialog v-model="quickShipDialogVisible" title="快捷发货" width="400px" align-center @closed="resetQuickShipDialog">
     <el-form label-width="86px">
@@ -1229,7 +1361,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onMounted, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
@@ -1244,6 +1376,9 @@ import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExc
 
 const route = useRoute()
 const isMobile = ref(window.innerWidth <= 768)
+const updateIsMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+}
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminActionStatusOptions = ['已签收', '处理中', '已回寄', '已完成', '已取消']
 
@@ -1805,6 +1940,8 @@ const pagedOrders = computed(() => orders.value)
 const applyRouteFilters = () => {
   const routeTodo = String(route.query.todo || '')
   activeTodoType.value = todoTypeMap[routeTodo] ? routeTodo : ''
+  const routeSla = String(route.query.sla || '')
+  slaFilter.value = ['overdue', 'critical', 'warning'].includes(routeSla) ? routeSla : ''
   wo.filter = String(route.query.filter || '')
   wo.search = String(route.query.keyword || route.query.search || wo.search || '')
 }
@@ -1814,6 +1951,8 @@ const clearTodoFilter = () => {
 }
 
 onMounted(async () => {
+  updateIsMobile()
+  window.addEventListener('resize', updateIsMobile)
   applyRouteFilters()
   loadPrintConfig()
   try {
@@ -1824,6 +1963,10 @@ onMounted(async () => {
   // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
   if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
   loadOrders()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', updateIsMobile)
 })
 
 const reloadFromFilter = () => {
@@ -1851,7 +1994,7 @@ watch(
 )
 
 watch(
-  () => [route.query.filter, route.query.todo, route.query.keyword, route.query.search],
+  () => [route.query.filter, route.query.todo, route.query.sla, route.query.keyword, route.query.search],
   () => {
     applyRouteFilters()
     if (wo.page === 1) loadOrders()
@@ -3343,7 +3486,7 @@ const confirmExportExcel = async () => {
 .attention-strip { display: flex; align-items: center; gap: 14px; min-height: 48px; margin-bottom: 16px; padding: 7px 10px; border: 1px solid #edf1f7; border-radius: 8px; background: #fff; }
 .attention-label { flex: none; color: #667085; font-size: 12px; font-weight: 700; }
 .sla-board { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); flex: 1; gap: 8px; }
-.sla-card { appearance: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; gap: 0 8px; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.sla-card { appearance: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; gap: 0 8px; height: auto; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 .sla-card:hover, .sla-card.active { border-color: #8bbcf2; background: #f7fbff; }
 .sla-card span { grid-row: 1 / span 2; color: #4e5969; font-size: 12px; }
 .sla-card strong { color: #1d2129; font-size: 16px; line-height: 1; text-align: right; }
@@ -3406,74 +3549,120 @@ const confirmExportExcel = async () => {
 
 .product-model { font-weight: 600; color: #1890ff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
 .fault-desc { font-size: 12px; color: #86909c; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
-.work-order-dialog :deep(.el-dialog__header) { margin-right: 0; padding: 22px 28px 16px; border-bottom: 1px solid #e7edf5; }
-.work-order-dialog :deep(.el-dialog__title) { color: #17212f; font-size: 22px; font-weight: 700; }
-.work-order-dialog :deep(.el-dialog__body) { max-height: calc(100vh - 178px); padding: 22px 28px; overflow-y: auto; }
-.work-order-dialog :deep(.el-dialog__footer) { padding: 14px 28px 18px; border-top: 1px solid #e7edf5; }
-.drawer-body { padding: 0 2px 12px; color: #4e5969; font-size: 15px; line-height: 1.7; }
-.drawer-order-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin-bottom: 18px; }
-.drawer-order-identity { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 2px 10px; }
-.drawer-order-kicker { grid-row: 1 / span 2; align-self: stretch; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 6px; background: #102a43; color: #fff; font-size: 12px; font-weight: 600; }
-.drawer-order-id { min-width: 0; color: #17212f; font-family: 'Consolas', 'Menlo', monospace; font-size: 19px; line-height: 1.35; overflow-wrap: anywhere; }
-.drawer-order-customer { color: #52637a; font-size: 14px; line-height: 1.45; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 抽屉壳层样式见下方 unscoped 块（append-to-body 后 scoped 选不中） */
+.drawer-body {
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0;
+  color: #4e5969;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow: hidden;
+}
+.drawer-sticky-head { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.drawer-order-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 0; }
+.drawer-order-identity { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 1px 8px; }
+.drawer-order-kicker { grid-row: 1 / span 2; align-self: stretch; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #102a43; color: #fff; font-size: 12px; font-weight: 600; }
+.drawer-order-id { min-width: 0; color: #17212f; font-family: 'Consolas', 'Menlo', monospace; font-size: 16px; line-height: 1.3; overflow-wrap: anywhere; }
+.drawer-order-customer { color: #52637a; font-size: 13px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-order-status { flex: none; display: flex; align-items: center; gap: 6px; }
-.drawer-next-step { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; padding: 14px 16px; border: 1px solid #b9d8fa; border-radius: 8px; background: #eef6ff; }
+.drawer-next-step { min-height: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 0; padding: 8px 10px; border: 1px solid #b9d8fa; border-radius: 8px; background: #eef6ff; }
 .drawer-next-step.is-warning { border-color: #f5d7a5; background: #fffaf0; }
 .drawer-next-step.is-success { border-color: #b7dfc9; background: #f2fbf6; }
 .drawer-next-step.is-danger { border-color: #f1c0c0; background: #fff6f6; }
 .drawer-next-step.is-info { border-color: #dfe3e8; background: #f7f8fa; }
-.drawer-next-step-copy { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 2px 10px; line-height: 1.45; }
+.drawer-next-step-copy { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 1px 8px; line-height: 1.35; }
 .drawer-next-step-eyebrow { grid-row: 1 / span 2; align-self: center; color: #52637a; font-size: 13px; font-weight: 600; }
-.drawer-next-step-copy strong { color: #17212f; font-size: 17px; }
-.drawer-next-step-copy > span:last-child { color: #52637a; font-size: 14px; }
+.drawer-next-step-copy strong { color: #17212f; font-size: 16px; }
+.drawer-next-step-copy > span:last-child { color: #52637a; font-size: 13px; }
 .drawer-next-step-button { flex: none; }
-.drawer-workflow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0 6px 18px; }
-.drawer-workflow-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 5px; color: #98a2b3; font-size: 11px; line-height: 1.2; }
-.drawer-workflow-stage::before { content: ''; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: #e5e9ef; }
+.drawer-workflow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0 2px; }
+.drawer-workflow-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #98a2b3; font-size: 12px; line-height: 1.2; }
+.drawer-workflow-stage::before { content: ''; position: absolute; top: 9px; left: -50%; width: 100%; height: 2px; background: #e5e9ef; }
 .drawer-workflow-stage:first-child::before { display: none; }
-.drawer-workflow-dot { position: relative; z-index: 1; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #d8dee7; border-radius: 50%; background: #fff; color: #98a2b3; font-family: 'Consolas', 'Menlo', monospace; font-size: 10px; font-weight: 700; }
+.drawer-workflow-dot { position: relative; z-index: 1; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #d8dee7; border-radius: 50%; background: #fff; color: #98a2b3; font-family: 'Consolas', 'Menlo', monospace; font-size: 10px; font-weight: 700; }
 .drawer-workflow-stage.is-done::before, .drawer-workflow-stage.is-current::before { background: #75b798; }
 .drawer-workflow-stage.is-done { color: #14804a; }
 .drawer-workflow-stage.is-done .drawer-workflow-dot { border-color: #14804a; background: #14804a; color: #fff; }
 .drawer-workflow-stage.is-current { color: #17212f; font-weight: 600; }
-.drawer-workflow-stage.is-current .drawer-workflow-dot { border-color: #1890ff; color: #0b6fc2; box-shadow: 0 0 0 4px #e8f3ff; }
-.drawer-tabs :deep(.el-tabs__header) { margin-bottom: 20px; }
-.drawer-tabs :deep(.el-tabs__item) { height: 44px; padding: 0 18px; color: #52637a; font-size: 15px; }
+.drawer-workflow-stage.is-current .drawer-workflow-dot { border-color: #1890ff; color: #0b6fc2; box-shadow: 0 0 0 3px #e8f3ff; }
+.drawer-tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.drawer-tabs :deep(.el-tabs__header) { flex: none; margin: 0 0 6px; }
+.drawer-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; }
+.drawer-tabs :deep(.el-tabs__item) { height: 36px; padding: 0 12px; color: #52637a; font-size: 14px; }
 .drawer-tabs :deep(.el-tabs__item.is-active) { color: #17212f; font-weight: 700; }
-.drawer-tabs :deep(.el-tabs__active-bar) { height: 3px; border-radius: 3px; }
-.drawer-section { background: #f7f8fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+.drawer-tabs :deep(.el-tabs__active-bar) { height: 2px; border-radius: 2px; }
+.drawer-tabs :deep(.el-tabs__content) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.drawer-tabs :deep(.el-tab-pane) { padding-right: 2px; }
+.drawer-scroll-pane { display: flex; flex-direction: column; gap: 8px; padding-bottom: 4px; }
+.drawer-section { background: #f7f8fa; padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; }
+.drawer-scroll-pane > .drawer-section { margin-bottom: 0; }
+.drawer-tabs :deep(.el-tab-pane > .drawer-section:last-child) { margin-bottom: 0; }
 .drawer-section p { margin: 0; }
-.drawer-section-title { font-weight: 700; color: #1d2129; font-size: 18px; margin: 0 0 10px !important; }
-.drawer-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
-.assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.drawer-section-title { font-weight: 700; color: #1d2129; font-size: 15px; margin: 0 0 6px !important; }
+.drawer-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+.assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .customer-section { background: #eef6ff; }
-.drawer-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; }
-.drawer-info-item { min-width: 0; padding: 12px 14px; border-radius: 8px; background: rgba(255, 255, 255, 0.72); }
+.product-overview-section { background: #fff8f0; }
+.drawer-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
+.drawer-info-grid--dense { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.drawer-info-item { min-width: 0; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.86); }
 .drawer-info-item.is-wide { grid-column: 1 / -1; }
-.drawer-info-item span { display: block; margin-bottom: 5px; color: #697a91; font-size: 13px; line-height: 1.3; }
-.drawer-info-item strong { display: block; color: #1d2129; font-size: 15px; font-weight: 600; line-height: 1.5; word-break: break-all; }
+.drawer-info-item.is-plain { padding: 4px 0 0; background: transparent; }
+.drawer-info-item span { display: block; margin-bottom: 2px; color: #697a91; font-size: 12px; line-height: 1.25; }
+.drawer-info-item strong { display: block; color: #1d2129; font-size: 14px; font-weight: 600; line-height: 1.4; word-break: break-all; }
+.drawer-status-inline { display: flex !important; align-items: center; flex-wrap: wrap; gap: 4px; }
+.drawer-meta-disclosure { margin-top: 4px; color: #697a91; font-size: 13px; }
+.overview-product-list { display: flex; flex-direction: column; gap: 8px; }
+.overview-product-card { padding: 8px 10px; border: 1px solid #f0e2d0; border-radius: 8px; background: #fff; }
+.overview-product-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.overview-product-head strong { min-width: 0; color: #17212f; font-size: 15px; line-height: 1.35; }
+.overview-fault-text { white-space: pre-wrap; word-break: break-word; font-size: 14px !important; line-height: 1.55 !important; }
+.overview-attachment-block { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.overview-fault-fallback { padding-top: 2px; }
+.drawer-meta-disclosure > summary { cursor: pointer; user-select: none; list-style: none; color: #52637a; font-weight: 600; }
+.drawer-meta-disclosure > summary::-webkit-details-marker { display: none; }
+.drawer-meta-disclosure > summary::before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); vertical-align: 1px; transition: transform 140ms ease; }
+.drawer-meta-disclosure[open] > summary::before { transform: rotate(45deg); }
 .mono-text { font-family: 'Consolas', 'Menlo', monospace; }
 .quote-editor-section, .payment-section, .invoice-section { background: #fff; border: 1px solid #e2e8f0; box-shadow: 0 8px 24px rgba(28, 45, 68, 0.05); }
 .quote-staircase { display: flex; flex-direction: column; gap: 0; }
-.quote-stage { position: relative; padding: 0 0 22px 52px; }
-.quote-stage:not(:last-child)::before { content: ''; position: absolute; top: 34px; bottom: 0; left: 17px; width: 2px; background: #dbe7f4; }
-.quote-stage-head { display: flex; align-items: flex-start; gap: 12px; min-height: 42px; margin-left: -52px; margin-bottom: 12px; }
-.quote-stage-index { position: relative; z-index: 1; width: 36px; height: 36px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #eaf3ff; color: #1769aa; font-size: 15px; font-weight: 700; }
-.quote-stage-head > div { display: grid; gap: 2px; min-width: 0; }
-.quote-stage-head strong { color: #17212f; font-size: 16px; line-height: 1.4; }
-.quote-stage-head span { color: #64748b; font-size: 14px; line-height: 1.45; }
+.quote-stage { position: relative; padding: 0 0 14px 44px; }
+.quote-stage:not(:last-child)::before { content: ''; position: absolute; top: 30px; bottom: 0; left: 15px; width: 2px; background: #dbe7f4; }
+.quote-stage-head { display: flex; align-items: flex-start; gap: 10px; min-height: 36px; margin-left: -44px; margin-bottom: 8px; }
+.quote-stage-index { position: relative; z-index: 1; width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #eaf3ff; color: #1769aa; font-size: 14px; font-weight: 700; }
+.quote-stage-head > div { display: grid; gap: 1px; min-width: 0; }
+.quote-stage-head strong { color: #17212f; font-size: 15px; line-height: 1.35; }
+.quote-stage-head span { color: #64748b; font-size: 13px; line-height: 1.4; }
 .quote-stage--publish { padding-bottom: 0; }
 .quote-stage--publish .quote-stage-index { background: #1769aa; color: #fff; }
-.quote-quick-panel { display: grid; grid-template-columns: minmax(0, 1fr) 260px; align-items: center; gap: 18px; padding: 16px 18px; margin-bottom: 4px; border-radius: 8px; background: #f4f8ff; border: 1px solid #d1e5ff; }
-.quote-quick-panel strong { display: block; margin-bottom: 4px; color: #10264a; font-size: 17px; line-height: 1.4; }
-.quote-quick-panel span { display: block; color: #52637a; font-size: 14px; line-height: 1.5; }
+.quote-quick-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 4px; border-radius: 8px; background: #f4f8ff; border: 1px solid #d1e5ff; }
+.quote-quick-panel strong { display: block; margin-bottom: 4px; color: #10264a; font-size: 15px; line-height: 1.4; }
+.quote-quick-panel span { display: block; color: #52637a; font-size: 13px; line-height: 1.45; }
 .quote-quick-panel :deep(.el-input-number) { width: 100%; }
-.quote-summary-bar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-.quote-summary-bar div, .payment-status-grid div { padding: 12px 14px; border-radius: 8px; background: #f7fbff; border: 1px solid #e6f4ff; }
-.quote-summary-bar span, .payment-status-grid span { display: block; color: #697a91; font-size: 13px; line-height: 1.3; margin-bottom: 5px; }
-.quote-summary-bar strong, .payment-status-grid strong { display: block; color: #1d2129; font-size: 16px; line-height: 1.4; }
-.quote-summary-bar .quote-total { color: #1677ff; font-size: 21px; }
+.quote-summary-bar { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.quote-summary-bar div, .payment-status-grid div { padding: 10px 12px; border-radius: 8px; background: #f7fbff; border: 1px solid #e6f4ff; }
+.quote-summary-bar span, .payment-status-grid span { display: block; color: #697a91; font-size: 12px; line-height: 1.3; margin-bottom: 4px; }
+.quote-summary-bar strong, .payment-status-grid strong { display: block; color: #1d2129; font-size: 14px; line-height: 1.35; }
+.quote-summary-bar .quote-total { color: #1677ff; font-size: 18px; }
 .quote-detail-disclosure { margin-bottom: 12px; border-radius: 8px; border: 1px solid #eef0f3; background: #fbfcfe; }
 .quote-detail-disclosure > summary { min-height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: #1d2129; font-size: 15px; font-weight: 700; list-style: none; }
 .quote-detail-disclosure > summary::-webkit-details-marker { display: none; }
@@ -3490,9 +3679,10 @@ const confirmExportExcel = async () => {
 .quote-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #1d2129; font-size: 14px; font-weight: 600; }
 .quote-section-head em { margin-left: 4px; color: #8a97aa; font-size: 12px; font-style: normal; font-weight: 400; }
 .quote-row-grid { display: grid; align-items: center; gap: 8px; }
-.quote-row-grid--parts { grid-template-columns: 120px minmax(120px, 1fr) 120px 130px 110px 96px auto; }
-.quote-row-grid--services { grid-template-columns: minmax(140px, 1.2fr) 120px 130px 110px 96px auto; }
-.quote-row-grid--others { grid-template-columns: minmax(160px, 1fr) 130px 110px 96px auto; }
+.quote-row-grid--parts { grid-template-columns: 100px minmax(100px, 1fr) 96px 110px 96px 88px auto; }
+.quote-row-grid--services { grid-template-columns: minmax(120px, 1.2fr) 96px 110px 96px 88px auto; }
+.quote-row-grid--others { grid-template-columns: minmax(140px, 1fr) 110px 96px 88px auto; }
+.quote-item-list, .quote-section { overflow-x: auto; }
 .quote-row-grid :deep(.el-input-number) { width: 100%; }
 .quote-row-grid strong { color: #1d2129; font-size: 13px; white-space: nowrap; }
 .quote-terms-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
@@ -3500,7 +3690,7 @@ const confirmExportExcel = async () => {
 .quote-final-row :deep(.el-input-number) { width: 100%; }
 .quote-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 .quote-actions :deep(.el-button) { min-width: 112px; min-height: 40px; font-size: 15px; font-weight: 600; }
-.payment-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.payment-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .payment-guide { min-height: 78px; display: flex; flex-direction: column; justify-content: center; gap: 4px; margin-top: 12px; padding: 14px 16px; border-radius: 8px; border: 1px dashed #cfd7e3; background: #fafbfc; }
 .payment-guide strong { color: #17212f; font-size: 14px; }
 .payment-guide span { color: #6b778c; font-size: 12px; line-height: 1.55; }
@@ -3518,7 +3708,7 @@ const confirmExportExcel = async () => {
 .payment-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .payment-paid-tip { color: #52c41a; font-size: 13px; }
 .payment-rejected-tip { color: #f56c6c; font-size: 13px; }
-.invoice-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.invoice-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .invoice-summary-grid > div { padding: 11px 12px; border-radius: 8px; border: 1px solid #e8ebef; background: #fafbfc; }
 .invoice-summary-grid span { display: block; margin-bottom: 4px; color: #7a8699; font-size: 12px; line-height: 1.3; }
 .invoice-summary-grid strong { display: block; color: #17212f; font-size: 14px; line-height: 1.4; }
@@ -3547,32 +3737,63 @@ const confirmExportExcel = async () => {
 .drawer-status-title { display: block; font-weight: 600; color: #1d2129; margin-bottom: 8px; }
 .drawer-footer-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .empty-text { margin: 0; color: #86909c; }
-.product-detail-list { display: flex; flex-direction: column; gap: 12px; }
-.product-detail-card { background: #fff; border: 1px solid #e5e6eb; border-radius: 8px; padding: 12px; }
+.product-detail-list { display: flex; flex-direction: column; gap: 8px; }
+.product-detail-card { background: #fff; border: 1px solid #e5e6eb; border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
 .product-detail-card p { margin: 0; }
-.product-card-title { font-weight: 600; color: #1d2129; margin-bottom: 6px; }
-.sn-edit-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.sn-edit-label { font-size: 13px; color: #4e5969; flex: none; }
-.sn-edit-input { width: 200px; }
-.sn-fields-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.sn-warranty-expire { font-size: 12px; color: #86909c; margin: 2px 0 4px; }
-.warranty-entry-row { display: grid; grid-template-columns: 180px 210px minmax(220px, 1fr); align-items: end; gap: 10px; margin: 8px 0 10px; padding: 10px 12px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
-.warranty-entry-row > div > span { display: block; margin-bottom: 5px; color: #4e5969; font-size: 12px; }
+.product-card-title { font-weight: 700; color: #1d2129; font-size: 16px; line-height: 1.35; margin-bottom: 0; }
+.sn-edit-row { display: flex; align-items: center; gap: 8px; margin-bottom: 0; }
+.sn-edit-label { font-size: 14px; font-weight: 600; color: #4e5969; flex: none; }
+.sn-edit-input { flex: 1 1 auto; min-width: 0; width: auto; }
+.sn-fields-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 0; }
+.sn-warranty-expire { font-size: 13px; color: #86909c; margin: 2px 0 4px; }
+.warranty-entry-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1fr) minmax(160px, 1.4fr); align-items: end; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
+.warranty-entry-row > div > span { display: block; margin-bottom: 4px; color: #4e5969; font-size: 13px; font-weight: 600; }
 .warranty-entry-row :deep(.el-input-number) { width: 100%; }
-.warranty-entry-row > p { margin: 0 0 6px; color: #7a5200; font-size: 12px; line-height: 1.5; }
-.coverage-review-row { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 10px; padding: 10px 12px; border: 1px solid #d8e7f7; border-radius: 8px; background: #f7fbff; }
-.coverage-review-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.coverage-review-head strong { color: #17212f; font-size: 13px; }
-.coverage-review-head span { color: #7a8699; font-size: 12px; text-align: right; }
-.coverage-fields-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.product-detail-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-.product-detail-tip { font-size: 12px; color: #86909c; }
+.warranty-entry-row > p { margin: 0; color: #7a5200; font-size: 13px; line-height: 1.45; align-self: center; }
+.coverage-review-row { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 10px; border: 1px solid #d8e7f7; border-radius: 8px; background: #f7fbff; }
+.coverage-review-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.coverage-review-head strong { color: #17212f; font-size: 15px; }
+.coverage-review-head span { color: #7a8699; font-size: 13px; text-align: right; }
+.coverage-fields-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.product-fault-line { display: flex; gap: 8px; align-items: flex-start; color: #1d2129; font-size: 14px; line-height: 1.5; }
+.product-fault-line span { flex: none; color: #697a91; font-weight: 600; }
+.product-detail-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.product-detail-tip { font-size: 13px; color: #86909c; line-height: 1.4; }
 .warranty-tag { margin: 2px 0; }
-.quote-warranty-alert { margin-bottom: 12px; }
-.attachment-title { margin: 8px 0 6px; color: #86909c; }
-.attachment-list { display: flex; gap: 8px; flex-wrap: wrap; }
-.attachment-thumb { width: 72px; height: 72px; border-radius: 8px; }
-.video-link { display: inline-flex; align-items: center; min-height: 28px; padding: 0 10px; border-radius: 6px; background: #e6f4ff; color: #1890ff; font-size: 12px; text-decoration: none; }
+.quote-warranty-alert { margin-bottom: 8px; }
+.attachment-title { margin: 2px 0 0; color: #697a91; font-size: 13px; font-weight: 600; }
+.attachment-list { display: flex; gap: 6px; flex-wrap: wrap; }
+.attachment-thumb { width: 72px; height: 72px; border-radius: 6px; }
+.video-link { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 6px; background: #e6f4ff; color: #1890ff; font-size: 13px; text-decoration: none; }
+/* 检测与报价：默认中号控件，字更大、框更高 */
+.product-detail-card :deep(.el-input__wrapper),
+.product-detail-card :deep(.el-select__wrapper),
+.product-detail-card :deep(.el-input-number),
+.product-detail-card :deep(.el-date-editor.el-input__wrapper) {
+  min-height: 36px;
+  font-size: 14px;
+}
+.product-detail-card :deep(.el-input__inner),
+.product-detail-card :deep(.el-select__selected-item),
+.product-detail-card :deep(.el-select__placeholder),
+.product-detail-card :deep(.el-input-number .el-input__inner) {
+  font-size: 14px;
+}
+.product-detail-card :deep(.el-button) {
+  min-height: 36px;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+.product-detail-card :deep(.el-button.is-link) {
+  min-height: auto;
+  padding: 0;
+  font-size: 14px;
+}
+.product-detail-actions :deep(.el-button) {
+  min-height: 36px;
+  padding: 8px 16px;
+  font-size: 14px;
+}
 
 .logistics-info { font-size: 12px; color: #4e5969; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
 .logistics-label { color: #86909c; font-weight: 500; }
@@ -3614,10 +3835,6 @@ const confirmExportExcel = async () => {
 .invoice-已发票 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 
 @media screen and (max-width: 768px) {
-  .work-order-dialog :deep(.el-dialog__header) { padding: 18px 18px 14px; }
-  .work-order-dialog :deep(.el-dialog__title) { font-size: 19px; }
-  .work-order-dialog :deep(.el-dialog__body) { max-height: calc(100vh - 146px); padding: 16px 18px; }
-  .work-order-dialog :deep(.el-dialog__footer) { padding: 12px 18px 16px; }
   .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
   .workorder-toolbar { padding: 10px; }
   .search-strip { grid-template-columns: 1fr; }
@@ -3627,7 +3844,7 @@ const confirmExportExcel = async () => {
   .sla-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .table-section-head > div { align-items: flex-start; flex-direction: column; gap: 2px; }
-  .drawer-body { padding: 0 2px 16px; }
+  .drawer-body { gap: 8px; }
   .drawer-order-head { align-items: flex-start; gap: 10px; }
   .drawer-order-identity { grid-template-columns: minmax(0, 1fr); }
   .drawer-order-kicker { display: none; }
@@ -3636,8 +3853,9 @@ const confirmExportExcel = async () => {
   .drawer-next-step { align-items: flex-start; }
   .drawer-next-step-copy { grid-template-columns: 1fr; }
   .drawer-next-step-eyebrow { grid-row: auto; }
-  .drawer-workflow { margin-inline: 0; grid-template-columns: repeat(6, minmax(52px, 1fr)); padding: 4px 2px 8px; }
-  .drawer-tabs :deep(.el-tabs__item) { padding: 0 12px; }
+  .drawer-workflow { margin-inline: 0; grid-template-columns: repeat(6, minmax(52px, 1fr)); padding: 2px 0 4px; overflow-x: auto; }
+  .drawer-tabs :deep(.el-tabs__item) { padding: 0 10px; }
+  .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
   .quote-stage { padding-left: 0; }
   .quote-stage:not(:last-child)::before { display: none; }
@@ -3663,5 +3881,52 @@ const confirmExportExcel = async () => {
   #print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
   .print-page { page-break-after: always; padding: 20px; min-height: 100vh; box-sizing: border-box; }
   .print-page:last-child { page-break-after: auto; }
+}
+</style>
+
+<!-- append-to-body 的抽屉挂在 body 下，需要非 scoped 才能命中壳层 -->
+<style>
+.work-order-drawer.el-drawer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-shadow: -12px 0 36px rgba(23, 33, 47, 0.12);
+}
+.work-order-drawer .el-drawer__header {
+  margin-bottom: 0;
+  flex: none;
+  padding: 12px 18px 10px;
+  border-bottom: 1px solid #e7edf5;
+}
+.work-order-drawer .el-drawer__title {
+  color: #17212f;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.work-order-drawer .el-drawer__body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: auto;
+  padding: 10px 18px 6px;
+  overflow: hidden;
+}
+.work-order-drawer .el-drawer__footer {
+  flex: none;
+  padding: 8px 18px 12px;
+  border-top: 1px solid #e7edf5;
+}
+.work-order-drawer .drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+@media screen and (max-width: 768px) {
+  .work-order-drawer .el-drawer__header { padding: 12px 14px 10px; }
+  .work-order-drawer .el-drawer__title { font-size: 16px; }
+  .work-order-drawer .el-drawer__body { padding: 10px 14px 8px; }
+  .work-order-drawer .el-drawer__footer { padding: 8px 14px 12px; }
 }
 </style>

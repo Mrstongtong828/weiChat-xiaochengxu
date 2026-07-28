@@ -29,14 +29,16 @@ defineEmits(['select'])
 	right: 0;
 	bottom: 0;
 	z-index: 70;
-	/* 固定内容区 96rpx，底部再叠加安全区；无 Home Indicator 的设备（安卓/旧机型
-	   safe-area-inset-bottom=0）用 max() 兜底 16rpx，避免图标文字贴死屏幕最底边显得偏低 */
-	height: calc(96rpx + constant(safe-area-inset-bottom));
-	height: calc(96rpx + max(env(safe-area-inset-bottom), 16rpx));
+	/* Use a plain-height fallback first. Some Mini Program base libraries do not
+	   reliably evaluate max(env(...), rpx), which can collapse this fixed bar. */
+	height: 120rpx;
+	height: calc(120rpx + constant(safe-area-inset-bottom));
+	height: calc(120rpx + env(safe-area-inset-bottom));
 	padding-left: 34rpx;
 	padding-right: 34rpx;
+	padding-bottom: 0;
 	padding-bottom: constant(safe-area-inset-bottom);
-	padding-bottom: max(env(safe-area-inset-bottom), 16rpx);
+	padding-bottom: env(safe-area-inset-bottom);
 	display: flex;
 	align-items: center;
 	justify-content: space-around;

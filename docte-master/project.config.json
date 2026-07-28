@@ -3,56 +3,56 @@
   "packOptions": {
     "ignore": [
       {
-        "type": "folder",
-        "value": "node_modules"
+        "value": "node_modules",
+        "type": "folder"
       },
       {
-        "type": "folder",
-        "value": ".npm-cache"
+        "value": ".npm-cache",
+        "type": "folder"
       },
       {
-        "type": "folder",
-        "value": "unpackage"
+        "value": "unpackage",
+        "type": "folder"
       },
       {
-        "type": "folder",
-        "value": "cdn-assets"
+        "value": "cdn-assets",
+        "type": "folder"
       },
       {
-        "type": "file",
-        "value": "package-lock.json"
+        "value": "package-lock.json",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "package.json"
+        "value": "package.json",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "README.md"
+        "value": "README.md",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "CLAUDE.md"
+        "value": "CLAUDE.md",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "INDEX_TASK.md"
+        "value": "INDEX_TASK.md",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "logo-替换说明.md"
+        "value": "logo-替换说明.md",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "上线配置清单.md"
+        "value": "上线配置清单.md",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "原型说明.md"
+        "value": "原型说明.md",
+        "type": "file"
       },
       {
-        "type": "file",
-        "value": "后端对接任务清单.md"
+        "value": "后端对接任务清单.md",
+        "type": "file"
       }
     ],
     "include": []
