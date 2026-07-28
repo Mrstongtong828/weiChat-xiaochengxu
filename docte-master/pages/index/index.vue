@@ -2043,7 +2043,7 @@ const requestStatusSubscription = (_scene) => {
 		const templates = await loadSubscriptionTemplates()
 		const tmplIds = [...new Set(templates
 			.filter(item => item.templateId)
-			.map(item => item.templateId))].slice(0, 5)
+			.map(item => item.templateId))].slice(0, 3)
 		if (!tmplIds.length) return null
 
 		// 无论同意、拒绝还是关闭，后续都不再请求，避免打断业务操作。

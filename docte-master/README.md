@@ -199,9 +199,9 @@ unpackage/              编译输出
 2. 在 uniCloud 控制台配置 `WX_APPID`、`WX_SECRET` 和模板 ID 环境变量，并重新部署 `cicada-client-public`、`cicada-client-order`、`cicada-admin-order`。
 3. 在 `pc-admin` 中配置 `.env.local` 指向当前云空间，运行 `npm run check:urls`，确认后台 URL 化已命中最新部署的 `cicada-admin-order`。
 4. 运行 `npm run check:subscription`，确认所有订阅场景模板 ID 均已配置；任一场景显示 `missing` 时，订阅消息真机验收不能视为通过。
-4. 用微信开发者工具或真机打开小程序，提交报修或进入进度页，确认出现订阅授权弹窗；拒绝授权时主流程应继续。
-5. 在后台发布报价、核销付款、导入签收/回寄物流或修改工单状态，确认用户端能收到对应订阅消息。
-6. 查询 `cicada_subscription_logs`，确认成功记录为 `sent`；未配置模板、缺少 openid、发送失败时分别记录 `skipped` 或 `failed`，且后台主流程不失败。
+5. 用真机首次提交报修，确认只出现一次订阅授权弹窗；同意、拒绝或关闭后主流程均应继续，随后进入进度页和再次操作均不再弹出。
+6. 在后台发布报价、核销付款、导入签收/回寄物流或修改工单状态，确认用户端能收到对应订阅消息。
+7. 查询 `cicada_subscription_logs`，确认成功记录为 `sent`；未配置模板、缺少 openid、发送失败时分别记录 `skipped` 或 `failed`，且后台主流程不失败。
 
 ### Goal 验收清单
 
