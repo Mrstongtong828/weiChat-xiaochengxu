@@ -298,11 +298,10 @@ const chooseMapLocation = () => {
 				return
 			}
 			form.value.detail = selectedAddress
-			uni.showToast({ title: '地址已带入，请核对', icon: 'none' })
 		},
 		fail: (error) => {
 			if (!String(error && error.errMsg || '').includes('cancel')) {
-				uni.showToast({ title: '地图选址失败，请手动填写', icon: 'none' })
+				uni.showToast({ title: '选址失败，可手动填写', icon: 'none' })
 			}
 		}
 	})
@@ -359,7 +358,7 @@ const recognizeAddress = () => {
 	if (unitLine) recognized.push('单位')
 	if (detailLine) recognized.push('详细地址')
 	if (recognized.length) {
-		uni.showToast({ title: `已识别${recognized.join('、')}，请核对`, icon: 'none' })
+		uni.showToast({ title: '已识别，请核对', icon: 'none' })
 	} else {
 		uni.showToast({ title: '未识别到信息，请手动填写', icon: 'none' })
 	}
@@ -427,7 +426,7 @@ const saveAddress = async () => {
 			await addAddress(toRemotePayload(payload))
 		}
 		uni.hideLoading()
-		uni.showToast({ title: '地址已保存', icon: 'success' })
+		uni.showToast({ title: '已保存', icon: 'success' })
 		await loadAddresses()
 		setTimeout(() => {
 			showForm.value = false
@@ -436,7 +435,7 @@ const saveAddress = async () => {
 	} catch (error) {
 		uni.hideLoading()
 		console.warn('save address to cloud failed:', error)
-		uni.showToast({ title: toCustomerErrorMessage(error, '暂时无法同步，已先保存在本机'), icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '已保存在本机'), icon: 'none' })
 		setTimeout(() => {
 			showForm.value = false
 			form.value = emptyForm()
@@ -467,7 +466,7 @@ const setDefault = async (id) => {
 const deleteAddress = (id) => {
 	uni.showModal({
 		title: '删除地址',
-		content: '删除后将无法恢复，确定删除这个地址吗？',
+		content: '删除后无法恢复。',
 		confirmText: '删除',
 		confirmColor: '#EF4444',
 		success: async (res) => {

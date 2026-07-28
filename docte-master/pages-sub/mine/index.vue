@@ -243,7 +243,7 @@ const saveProfile = async () => {
 		editVisible.value = false
 	} catch (error) {
 		uni.hideLoading()
-		uni.showToast({ title: toCustomerErrorMessage(error, '保存失败，请稍后重试'), icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '保存失败'), icon: 'none' })
 	} finally {
 		saving.value = false
 	}
@@ -333,8 +333,9 @@ const routes = {
 const toggleLogin = () => {
 	if (logged.value) {
 		uni.showModal({
-			title: '提示',
-			content: '确定要退出登录吗？',
+			title: '退出登录',
+			content: '确定退出当前账号？',
+			confirmText: '退出',
 			success: async (res) => {
 				if (!res.confirm) return
 				try {
@@ -364,20 +365,20 @@ const go = (id) => {
 	if (id === 'home' || id === 'company') {
 		uni.redirectTo({
 			url,
-			fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
+			fail: () => uni.showToast({ title: '打开失败', icon: 'none' })
 		})
 		return
 	}
 	uni.navigateTo({
 		url,
-		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
+		fail: () => uni.showToast({ title: '打开失败', icon: 'none' })
 	})
 }
 
 const goOrder = (type) => {
 	uni.redirectTo({
 		url: `/pages/index/index?type=${type}`,
-		fail: () => uni.showToast({ title: '页面建设中', icon: 'none' })
+		fail: () => uni.showToast({ title: '打开失败', icon: 'none' })
 	})
 }
 </script>

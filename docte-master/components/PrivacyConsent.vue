@@ -87,7 +87,7 @@ const reject = () => {
 		privacyResolve = null
 	}
 	show.value = false
-	uni.showToast({ title: '未完成授权，暂时无法使用登录能力', icon: 'none' })
+	uni.showToast({ title: '需要隐私授权', icon: 'none' })
 }
 </script>
 

@@ -277,7 +277,7 @@
 			<view v-else-if="activeModule === 'repair-success'" class="module-content success-module">
 				<view class="success-icon"><view class="mini-icon mini-check mini-check-white"></view></view>
 				<text class="success-title">报修已提交</text>
-				<text class="success-desc">工程师将于 30 分钟内联系您，请保持手机畅通</text>
+				<text class="success-desc">报修已提交，工作人员将尽快联系您</text>
 				<view class="success-card">
 					<view class="success-row"><text>工单号</text><text class="copy-link tap" @click="copyOne(submittedOrderId, '工单号')">复制</text></view>
 					<text class="success-no">{{ submittedOrderId || '工单号生成中' }}</text>
@@ -706,14 +706,14 @@
 								<view class="payment-method-radio"></view>
 								<view>
 									<text>微信支付</text>
-									<text>立即拉起微信收银台，支付成功后自动确认到账</text>
+									<text>微信收银台支付</text>
 								</view>
 							</view>
 							<view class="payment-method-option tap" :class="{ active: selectedPaymentMethod === 'transfer' }" @click="selectPaymentMethod('transfer')">
 								<view class="payment-method-radio"></view>
 								<view>
 									<text>对公支付</text>
-									<text>转账到公司对公账户后，上传付款凭证等待财务核销</text>
+									<text>转账后上传付款凭证</text>
 								</view>
 							</view>
 						</view>
@@ -2392,11 +2392,10 @@ const chooseRepairLocation = (target) => {
 			}
 			if (target === 'receiver') repairForm.value.receiverAddress = selectedAddress
 			else repairForm.value.senderAddress = selectedAddress
-			uni.showToast({ title: '地址已带入，请核对', icon: 'none' })
 		},
 		fail: (error) => {
 			if (!String(error && error.errMsg || '').includes('cancel')) {
-				uni.showToast({ title: '地图选址失败，请手动填写', icon: 'none' })
+				uni.showToast({ title: '选址失败，可手动填写', icon: 'none' })
 			}
 		}
 	})
@@ -3027,7 +3026,7 @@ const openGuideFile = async (doc = {}) => {
 	} catch (error) {
 		console.warn('open guide file failed:', error)
 		uni.hideLoading()
-		uni.showToast({ title: '文档打开失败，请稍后重试', icon: 'none' })
+		uni.showToast({ title: '文档打开失败', icon: 'none' })
 	}
 }
 
@@ -3143,7 +3142,7 @@ const openMaintenanceVideo = async (item = {}) => {
 	} catch (error) {
 		console.warn('open maintenance video failed:', error)
 		uni.hideLoading()
-		uni.showToast({ title: '视频打开失败，请稍后重试', icon: 'none' })
+		uni.showToast({ title: '视频打开失败', icon: 'none' })
 	}
 }
 // 打开教程媒体：图片内联预览，视频用 previewMedia，文档走文件打开
@@ -3168,7 +3167,7 @@ const openGuideMedia = async (item = {}) => {
 		await openGuideFile({ fileUrl: item.url, fileName: item.name, fileType: item.fileType })
 	} catch (error) {
 		uni.hideLoading()
-		uni.showToast({ title: '媒体打开失败，请稍后重试', icon: 'none' })
+		uni.showToast({ title: '媒体打开失败', icon: 'none' })
 	}
 }
 
@@ -3597,7 +3596,7 @@ const payRepairQuote = (order = {}) => {
 				const paymentOrder = await createRepairWechatPay(order.recordId || order.id)
 				const paymentParams = paymentOrder.payment || {}
 				if (!paymentParams.timeStamp || !paymentParams.nonceStr || !paymentParams.package || !paymentParams.paySign) {
-					throw new Error('微信支付参数不完整，请稍后重试')
+					throw new Error('支付参数异常')
 				}
 
 				uni.hideLoading()
@@ -3619,14 +3618,6 @@ const payRepairQuote = (order = {}) => {
 				uni.hideLoading()
 				loadingShown = false
 				uni.showToast({ title: '支付成功', icon: 'success' })
-				setTimeout(() => {
-					uni.showModal({
-						title: '支付成功',
-						content: '下一步预计：工程师将在 1 个工作日内开始维修，进度会在“维修进度”中实时更新。',
-						showCancel: false,
-						confirmText: '知道了'
-					})
-				}, 600)
 			} catch (error) {
 				console.warn('wechat pay failed:', error)
 				const message = toCustomerErrorMessage(error, '支付失败')
@@ -3747,7 +3738,7 @@ const submitOutboundTracking = async (order = {}) => {
 		uni.showToast({ title: '运单号已提交', icon: 'success' })
 	} catch (error) {
 		uni.hideLoading()
-		uni.showToast({ title: toCustomerErrorMessage(error, '提交失败，请稍后重试'), icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '提交失败'), icon: 'none' })
 	} finally {
 		outboundSubmitting.value = false
 	}
@@ -3783,7 +3774,7 @@ const confirmRepairReceiptAction = (order = {}) => {
 const reviewOrder = (order = {}) => {
 	if (!order.id) return
 	if (order.review) {
-		uni.showToast({ title: '该工单已评价，感谢反馈', icon: 'none' })
+		uni.showToast({ title: '已评价', icon: 'none' })
 		return
 	}
 	const options = [
@@ -3809,8 +3800,8 @@ const reviewOrder = (order = {}) => {
 					feedbackType.value = '投诉'
 					feedbackOrderId.value = order.id || order.recordId || ''
 					uni.showModal({
-						title: '已记录',
-						content: '已为您生成投诉工单，可补充具体问题，售后会尽快跟进。',
+						title: '已转投诉',
+						content: '请补充问题详情。',
 						showCancel: false,
 						confirmText: '去补充',
 						success: () => openModule('feedback')
@@ -3845,7 +3836,7 @@ const complainAboutOrder = (order = {}) => {
 const showMaintenanceTip = () => {
 	uni.showModal({
 		title: '保养提醒',
-		content: '建议每 6 个月对设备做一次保养维护：清洁、润滑并检查易损件，可有效延长设备寿命、降低故障率。如需上门或寄修保养，可直接发起报修。',
+		content: '建议每 6 个月清洁、润滑并检查一次易损件。',
 		showCancel: false,
 		confirmText: '知道了'
 	})
@@ -4059,14 +4050,7 @@ const submitInvoiceApply = async () => {
 		await refreshOrderFromServer(order)
 		activeInvoiceOrderId.value = ''
 		activeInvoiceTab.value = '待开票'
-		uni.showModal({
-			title: '提交成功',
-			content: invoiceForm.value.invoiceType === '纸质专用发票'
-				? '专票申请已提交，财务审核开具后将邮寄到收票地址，可在发票列表查看邮寄进度。'
-				: '开票申请已提交，后续会在发票与开票中同步审核、开票和电子发票链接。',
-			showCancel: false,
-			confirmText: '知道了'
-		})
+		uni.showToast({ title: '开票申请已提交', icon: 'success' })
 	} catch (error) {
 		console.warn('submit invoice failed:', error)
 		uni.showToast({ title: toCustomerErrorMessage(error, '开票申请提交失败'), icon: 'none' })
@@ -4257,19 +4241,11 @@ const submitSurveyForm = async () => {
 	try {
 		const res = await submitAfterSalesSurvey(record)
 		saveLocalSurveyRecord({ ...record, cloudId: res && res.id, status: 'submitted' })
-		uni.showModal({
-			title: (res && res.successTitle) || surveyConfig.value.successTitle || '提交成功',
-			content: (res && res.successMessage) || surveyConfig.value.successMessage || '感谢参与售后调研。',
-			showCancel: false
-		})
+		uni.showToast({ title: '调研已提交', icon: 'success' })
 		resetSurveyForm(true)
 	} catch (error) {
 		saveLocalSurveyRecord({ ...record, status: 'local_fallback' })
-		uni.showModal({
-			title: '已本地保存',
-			content: '当前云端暂不可用，调研内容已先保存在本机。请稍后重新提交或联系工作人员。',
-			showCancel: false
-		})
+		uni.showToast({ title: '已保存在本机', icon: 'none' })
 	} finally {
 		surveySubmitting.value = false
 	}
@@ -4379,7 +4355,6 @@ const prefillRepairAddress = async () => {
 			receiverAddress: current.receiverAddress || fullAddress,
 			receiverUnit: current.receiverUnit || target.unit || ''
 		}
-		if (fullAddress || target.receiver) uni.showToast({ title: '已带入默认地址', icon: 'none' })
 	} catch (error) {
 		console.warn('prefill repair address failed:', error)
 	}
@@ -4407,7 +4382,7 @@ const openSavedAddressPicker = async (target) => {
 		}
 		showSavedAddressPicker.value = true
 	} catch (error) {
-		uni.showToast({ title: toCustomerErrorMessage(error, '地址加载失败，请稍后重试'), icon: 'none' })
+		uni.showToast({ title: toCustomerErrorMessage(error, '地址加载失败'), icon: 'none' })
 	}
 }
 
@@ -4426,7 +4401,6 @@ const selectSavedAddress = (item = {}) => {
 		repairForm.value.senderAddress = address
 	}
 	showSavedAddressPicker.value = false
-	uni.showToast({ title: '地址已带入', icon: 'none' })
 }
 
 const addSavedAddress = () => {
@@ -4497,7 +4471,7 @@ const saveRepairDraft = () => {
 		showRepairTools.value = false
 		uni.showToast({ title: '草稿已保存', icon: 'success' })
 	} else {
-		uni.showToast({ title: '保存失败，请稍后重试', icon: 'none' })
+		uni.showToast({ title: '保存失败', icon: 'none' })
 	}
 }
 
@@ -4551,7 +4525,7 @@ const clearRepairForm = (notify = true) => {
 	repairMediaSeed = 1
 	uni.removeStorageSync(repairDraftKey)
 	showRepairTools.value = false
-	if (notify) uni.showToast({ title: '已清空，可重新填写', icon: 'none' })
+	if (notify) uni.showToast({ title: '已清空', icon: 'none' })
 }
 
 const startNewRepair = () => {
@@ -4646,8 +4620,6 @@ const chooseFeedbackImages = async () => {
 			uni.showToast({ title: '部分图片上传失败', icon: 'none' })
 		} else if (failedCount) {
 			uni.showToast({ title: '图片上传失败', icon: 'none' })
-		} else {
-			uni.showToast({ title: '上传成功', icon: 'success' })
 		}
 	} catch (error) {
 		if (!isPickerCancel(error)) {
@@ -4731,8 +4703,6 @@ const uploadRepairImage = async (index) => {
 			uni.showToast({ title: '图片上传失败', icon: 'none' })
 		} else if (failedCount) {
 			uni.showToast({ title: '部分图片上传失败', icon: 'none' })
-		} else {
-			uni.showToast({ title: '上传成功', icon: 'success' })
 		}
 	} catch (error) {
 		if (isPickerCancel(error)) return
@@ -4775,7 +4745,6 @@ const uploadRepairVideo = async (index) => {
 		})
 		uni.hideLoading()
 		loadingShown = false
-		uni.showToast({ title: '上传成功', icon: 'success' })
 	} catch (error) {
 		if (isPickerCancel(error)) return
 		console.warn('upload video fallback:', error)
@@ -5029,7 +4998,7 @@ const scanSn = (index) => {
 		success: (res) => {
 			const code = cleanSn(res && res.result)
 			if (!code) {
-				uni.showModal({ title: '扫码失败', content: '未识别到有效设备 SN 码，请对准条码或手动输入序列号', showCancel: false })
+				uni.showToast({ title: '未识别到 SN', icon: 'none' })
 				return
 			}
 			const product = repairProducts.value[index]
@@ -5038,8 +5007,10 @@ const scanSn = (index) => {
 			logSnAction('sn_scan', code) // 埋点：扫码
 			recognizeSn(index, true) // 扫码成功自动查询，无需二次点击
 		},
-		fail: () => {
-			uni.showModal({ title: '扫码失败', content: '未识别到有效设备 SN 码，请对准条码或手动输入序列号', showCancel: false })
+		fail: (error) => {
+			if (!String(error && error.errMsg || '').includes('cancel')) {
+				uni.showToast({ title: '扫码失败', icon: 'none' })
+			}
 		}
 	})
 }
@@ -5317,8 +5288,6 @@ const openVoucherPicker = async (productIndex) => {
 				uni.showToast({ title: '凭证上传失败', icon: 'none' })
 			} else if (failedCount) {
 				uni.showToast({ title: '部分凭证上传失败', icon: 'none' })
-			} else {
-				uni.showToast({ title: '上传成功', icon: 'success' })
 			}
 		} catch (error) {
 			console.warn('voucher upload fallback:', error)
@@ -5415,8 +5384,8 @@ const resetAddressForm = () => {
 
 const handleDeleteAddress = async () => {
 	uni.showModal({
-		title: '确认删除',
-		content: '删除后将无法恢复，确定要删除这个地址吗？',
+		title: '删除地址',
+		content: '删除后无法恢复。',
 		confirmText: '删除',
 		confirmColor: '#EF4444',
 		success: async (res) => {
@@ -5424,13 +5393,13 @@ const handleDeleteAddress = async () => {
 				try {
 					await deleteAddress(addressForm.value.addressId)
 					resetAddressForm()
-					uni.showToast({ title: '删除成功', icon: 'success' })
+					uni.showToast({ title: '已删除', icon: 'success' })
 					setTimeout(() => {
 						closeModule()
 					}, 1500)
 				} catch (error) {
 					console.warn('delete address fallback:', error)
-					uni.showToast({ title: '地址功能暂不可用，请稍后再试', icon: 'none' })
+					uni.showToast({ title: '删除失败', icon: 'none' })
 				}
 			}
 		}
@@ -5460,8 +5429,8 @@ const submitFeedback = async () => {
 		})
 		const record = addLocalFeedbackRecord('submitted', result || {})
 		uni.showModal({
-			title: '提交成功',
-			content: `反馈单号：${record.ticketNo}。客服回复和处理状态会在“我的反馈单”中展示。`,
+			title: '反馈已提交',
+			content: `反馈单号：${record.ticketNo}`,
 			showCancel: false,
 			confirmText: '知道了'
 		})
@@ -5474,7 +5443,7 @@ const submitFeedback = async () => {
 			openModule('login')
 			uni.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
 		} else {
-			uni.showToast({ title: toCustomerErrorMessage(error, '提交失败，请稍后重试'), icon: 'none' })
+			uni.showToast({ title: toCustomerErrorMessage(error, '提交失败'), icon: 'none' })
 		}
 	} finally {
 		feedbackSubmitting.value = false
@@ -5688,7 +5657,7 @@ const onCancelAccount = () => {
 				uni.showToast({ title: '账号已注销', icon: 'success' })
 			} catch (error) {
 				uni.hideLoading()
-				uni.showToast({ title: toCustomerErrorMessage(error, '注销失败，请稍后重试'), icon: 'none' })
+				uni.showToast({ title: toCustomerErrorMessage(error, '注销失败'), icon: 'none' })
 			}
 		}
 	})
@@ -5727,8 +5696,8 @@ const openCustomerService = () => {
 	if (customerService.value.wechat) {
 		uni.setClipboardData({
 			data: customerService.value.wechat,
-			success: () => uni.showToast({ title: '客服微信已复制，请前往添加', icon: 'success' }),
-			fail: () => uni.showToast({ title: '复制失败，请稍后重试', icon: 'none' })
+			success: () => uni.showToast({ title: '客服微信已复制', icon: 'success' }),
+			fail: () => uni.showToast({ title: '复制失败', icon: 'none' })
 		})
 		return
 	}
