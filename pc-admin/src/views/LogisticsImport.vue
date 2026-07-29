@@ -1,7 +1,7 @@
 <template>
   <div class="logistics-import">
     <el-alert
-      title="签收单用于客户寄入（导入后更新为已签收）；回寄单用于后台发货（导入后更新为已回寄）。均按工单编号匹配。"
+      title="签收单用于客户寄入（导入后更新为已签收）；回寄单用于后台发货（导入后更新为已回寄）。均按工单编号匹配，单次最多 50 条。"
       type="info" show-icon :closable="false" class="li-alert"
     />
     <div class="li-form">
@@ -27,6 +27,20 @@
         <div class="li-stat ok"><span>成功</span><strong>{{ result.success }}</strong></div>
         <div class="li-stat fail"><span>失败</span><strong>{{ result.fail }}</strong></div>
       </div>
+      <el-alert
+        v-if="result.warnings && result.warnings.length"
+        :title="`${result.warnings.length} 条记录已导入，但实时验单未完成`"
+        type="warning"
+        :closable="false"
+        show-icon
+        class="li-warning"
+      >
+        <template #default>
+          <p v-for="item in result.warnings" :key="`${item.orderNo}-${item.warning}`">
+            {{ item.orderNo }}：{{ item.warning }}
+          </p>
+        </template>
+      </el-alert>
       <el-table v-if="result.errors && result.errors.length" :data="result.errors" max-height="320" size="small" style="width:100%">
         <el-table-column prop="orderNo" label="失败工单号" min-width="160" show-overflow-tooltip />
         <el-table-column prop="reason" label="失败原因" min-width="240" show-overflow-tooltip />
@@ -76,6 +90,8 @@ const handleFile = async (uploadFile) => {
 .li-label { font-size: 13px; color: #606266; }
 .li-actions { display: flex; align-items: center; gap: 12px; }
 .li-result { margin-top: 4px; }
+.li-warning { margin-bottom: 14px; }
+.li-warning p { margin: 2px 0; line-height: 1.5; }
 .li-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; max-width: 480px; }
 .li-stat { border-radius: 12px; padding: 14px; background: #f7f8fa; text-align: center; }
 .li-stat span { display: block; color: #86909c; font-size: 13px; margin-bottom: 6px; }

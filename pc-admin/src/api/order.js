@@ -188,6 +188,11 @@ export const getLogisticsExceptions = (token) => {
   return request.post(`${API_BASE.adminOrder}/getLogisticsExceptions`, { token })
 }
 
+// 物流服务配置自检（只返回状态与缺失项，不返回凭证）
+export const getLogisticsReadiness = (token) => {
+  return request.post(`${API_BASE.adminOrder}/getLogisticsReadiness`, { token })
+}
+
 // 物流台账（两段物流汇总，分页拉全量用于导出）
 export const getLogisticsLedger = (token, filters = {}) => {
   return request.post(`${API_BASE.adminOrder}/getLogisticsLedger`, {

@@ -1,7 +1,20 @@
 <template>
   <div class="logistics-monitor">
+    <el-alert
+      v-if="readinessLoaded"
+      :title="readinessTitle"
+      :type="readiness.ready ? 'success' : 'warning'"
+      :closable="false"
+      show-icon
+      class="lm-readiness"
+    >
+      <template #default>
+        <span>{{ readinessDescription }}</span>
+        <el-button link type="primary" :loading="loadingReadiness" @click="loadReadiness">重新检查</el-button>
+      </template>
+    </el-alert>
     <el-tabs v-model="activeTab" class="lm-tabs">
-    <el-tab-pane label="批量导入" name="import" lazy>
+    <el-tab-pane v-if="canImportLogistics" label="批量导入" name="import" lazy>
       <LogisticsImport />
     </el-tab-pane>
     <el-tab-pane label="异常预警" name="exception">
@@ -146,14 +159,47 @@
 <script setup>
 import { computed, reactive, ref, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { confirmInboundArrival, getLogisticsExceptions, getLogisticsLedger, getLogisticsTrack } from '../api/order.js'
+import { confirmInboundArrival, getLogisticsExceptions, getLogisticsLedger, getLogisticsReadiness, getLogisticsTrack } from '../api/order.js'
 import LogisticsImport from './LogisticsImport.vue'
 import { useRoute } from 'vue-router'
 
 const route = useRoute()
-const activeTab = ref(route.query.tab === 'import' ? 'import' : (route.query.tab === 'ledger' ? 'ledger' : 'exception'))
-const applyRouteTab = () => { activeTab.value = route.query.tab === 'import' ? 'import' : (route.query.tab === 'ledger' ? 'ledger' : 'exception') }
+const workflowConfig = ref(null)
+const canImportLogistics = computed(() => Boolean(workflowConfig.value && workflowConfig.value.permissions && workflowConfig.value.permissions.import_logistics))
+const resolveRouteTab = () => route.query.tab === 'import' && canImportLogistics.value
+  ? 'import'
+  : (route.query.tab === 'ledger' ? 'ledger' : 'exception')
+const activeTab = ref(resolveRouteTab())
+const applyRouteTab = () => { activeTab.value = resolveRouteTab() }
 const getToken = () => localStorage.getItem('adminToken')
+const readiness = ref({ ready: false, mode: 'fallback', missing: [] })
+const readinessLoaded = ref(false)
+const loadingReadiness = ref(false)
+const loadWorkflow = async () => {
+  try {
+    workflowConfig.value = await getWorkflowConfig(getToken())
+  } catch (e) {
+    workflowConfig.value = null
+  }
+}
+const readinessTitle = computed(() => readiness.value.ready ? '快递100实时查询与订阅推送均已就绪' : '物流服务正在降级运行')
+const readinessDescription = computed(() => {
+  if (readiness.value.ready) return '运单实时校验、轨迹查询、订阅推送和回调更新均可用。'
+  if (readiness.value.mode === 'query_only') return `实时查询可用，但订阅推送未就绪。缺少：${(readiness.value.missing || []).join('、') || '回调配置'}`
+  return `当前仅使用本地格式校验和工单时间估算。缺少：${(readiness.value.missing || []).join('、') || '快递100配置'}`
+})
+const loadReadiness = async () => {
+  loadingReadiness.value = true
+  try {
+    readiness.value = await getLogisticsReadiness(getToken())
+    readinessLoaded.value = true
+  } catch (e) {
+    readiness.value = { ready: false, mode: 'fallback', missing: [] }
+    readinessLoaded.value = true
+  } finally {
+    loadingReadiness.value = false
+  }
+}
 
 const STATUS_LABELS = {
   pending: '已提交', sent: '运输中', received: '已签收', inspecting: '检测中',
@@ -322,12 +368,19 @@ const exportLedger = async () => {
   }
 }
 
-onMounted(() => { loadExceptions(); loadLedger() })
+onMounted(async () => {
+  await loadWorkflow()
+  applyRouteTab()
+  loadReadiness()
+  loadExceptions()
+  loadLedger()
+})
 watch(() => route.query.tab, applyRouteTab)
 </script>
 
 <style scoped>
 .logistics-monitor { display: flex; flex-direction: column; gap: 16px; }
+.lm-readiness { border-radius: 10px; }
 .lm-card { border-radius: 12px; }
 .lm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .lm-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; color: #1f2d3d; }

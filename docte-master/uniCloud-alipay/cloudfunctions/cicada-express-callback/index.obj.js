@@ -9,6 +9,7 @@ function loadExpressProvider() {
 }
 
 const expressProvider = loadExpressProvider()
+const { buildInboundLifecycleUpdate, findTrackingMatches, reconcileTrackCache } = require('./logistics-lifecycle')
 
 function parseFormBody(rawBody = '') {
   return String(rawBody).split('&').reduce((result, pair) => {
@@ -39,44 +40,13 @@ async function findOrder(trackingNo) {
     { field: 'ship_back_info.return_no', segment: 'back' },
     { field: 'ship_back_info.returnNo', segment: 'back' }
   ]
-  for (const item of fields) {
-    const result = await db.collection('cicada_orders').where({ [item.field]: trackingNo }).limit(1).get()
-    if (result.data && result.data[0]) return { order: result.data[0], segment: item.segment }
-  }
-  return null
-}
-
-function appendTimeline(timeline = [], node) {
-  const rows = Array.isArray(timeline) ? timeline : []
-  if (rows.some(item => item && item.title === node.title && item.desc === node.desc)) return rows
-  return [...rows, node]
-}
-
-function buildInboundLifecycleUpdate(order, cache, now) {
-  const state = String(cache.state || '')
-  const update = {}
-  if (order.status === 'pending' && ['0', '1', '3', '5', '7'].includes(state)) {
-    update.status = 'sent'
-    update.timeline = appendTimeline(order.timeline, {
-      title: '快递已揽收',
-      desc: '设备正在寄往维修中心',
-      time: now,
-      done: true
-    })
-  }
-  if (state === '3') {
-    const shipOut = order.ship_out_info || {}
-    update.ship_out_info = { ...shipOut, delivered_at: cache.lastTrackAt || now }
-    update.arrival_confirm_status = order.arrival_confirm_status === 'confirmed' ? 'confirmed' : 'pending'
-    update.arrival_detected_at = order.arrival_detected_at || now
-    update.timeline = appendTimeline(update.timeline || order.timeline, {
-      title: '物流已签收，待确认入库',
-      desc: '包裹已到达维修中心，工作人员正在核对设备',
-      time: cache.lastTrackAt || now,
-      done: true
-    })
-  }
-  return update
+  const result = await db.collection('cicada_orders').where(db.command.or(
+    fields.map(item => ({ [item.field]: trackingNo }))
+  )).limit(20).get()
+  const matches = findTrackingMatches(result.data, trackingNo)
+  if (!matches.length) return null
+  if (matches.length > 1) throw new Error('同一运单号匹配到多个工单或物流段，已拒绝自动更新')
+  return matches[0]
 }
 
 module.exports = {
@@ -88,9 +58,14 @@ module.exports = {
       const found = await findOrder(callback.trackingNo)
       if (!found) return { result: true, returnCode: '200', message: '成功' }
       const now = Date.now()
-      const trackCache = { ...(found.order.track_cache || {}), [found.segment]: callback.cache }
+      const existingCache = ((found.order.track_cache || {})[found.segment]) || {}
+      const reconciled = reconcileTrackCache(existingCache, callback.cache)
+      if (!reconciled.accepted) {
+        return { result: true, returnCode: '200', message: reconciled.reason === 'stale' ? '忽略过期推送' : '重复推送' }
+      }
+      const trackCache = { ...(found.order.track_cache || {}), [found.segment]: reconciled.cache }
       const lifecycleUpdate = found.segment === 'out'
-        ? buildInboundLifecycleUpdate(found.order, callback.cache, now)
+        ? buildInboundLifecycleUpdate(found.order, reconciled.cache, now)
         : {}
       const updateData = {
         track_cache: trackCache,

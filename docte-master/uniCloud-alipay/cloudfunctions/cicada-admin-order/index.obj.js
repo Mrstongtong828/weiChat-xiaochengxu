@@ -3,6 +3,16 @@ const dbCmd = db.command
 const crypto = require('crypto')
 const { createAdminAuthError, toAdminErrorResponse, isAdminTokenExpired } = loadAdminAuthModule()
 const expressProvider = loadExpressProvider()
+const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
+const { buildLogisticsReadiness } = require('./logistics-readiness')
+let reconcileTrackCache
+try {
+  ({ reconcileTrackCache } = require('cicada-express-lifecycle'))
+} catch (packageError) {
+  ({ reconcileTrackCache } = require('../common/cicada-express-lifecycle'))
+}
+// Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
+const LOGISTICS_IMPORT_MAX_ROWS = 50
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 const {
   SUBSCRIPTION_CONFIG_SCENES,
@@ -796,6 +806,25 @@ function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
 async function validateTrackingNoBeforeSave(order, rawNo, company, segment = 'back') {
   const localCheck = validateTrackingNo(rawNo, company)
   if (!localCheck.ok) return localCheck
+  const conflictFields = [
+    { field: 'ship_out_info.logistics_no', segment: 'out' },
+    { field: 'ship_out_info.logisticsNo', segment: 'out' },
+    { field: 'ship_back_info.logistics_no', segment: 'back' },
+    { field: 'ship_back_info.logisticsNo', segment: 'back' },
+    { field: 'ship_back_info.return_no', segment: 'back' },
+    { field: 'ship_back_info.returnNo', segment: 'back' }
+  ]
+  const conflictRes = await db.collection('cicada_orders').where(dbCmd.or(
+    conflictFields.map(item => ({ [item.field]: localCheck.value }))
+  )).limit(20).get()
+  const conflict = findTrackingConflict(conflictRes.data, localCheck.value, order._id, segment)
+  if (conflict) {
+    return {
+      ok: false,
+      value: localCheck.value,
+      reason: '该运单号已绑定工单 ' + (conflict.order_no || conflict._id || '-') + '，请勿重复使用'
+    }
+  }
 
   const phone = getOrderShipInfo(order, segment).phone
   const validation = await expressProvider.verifyWaybill({
@@ -840,13 +869,7 @@ function attachVerifiedTrackCache(updateData, order, segment, trackCheck) {
 // 回寄发货前置校验：需付费工单（有金额且非免费/在保）必须已确认到账才能录入发货。
 // 免费/在保（total_price=0 或 charge_type='free'）无需付款，放行。返回拦截原因或 ''。
 function blockShipUnpaidReason(order = {}) {
-  const totalPrice = Number(order.total_price || 0)
-  // 质保未知/待补充时，即使当前金额还是 0，也不能直接当作免费放行。
-  const isFree = order.charge_type === 'free'
-    || (totalPrice <= 0 && order.charge_type !== 'pending' && order.warranty_status !== 'unknown')
-  if (isFree) return ''
-  if (order.payment_status !== 'paid') return '该工单尚未确认到账（payment_status≠paid），未支付不可录入发货物流'
-  return ''
+  return getReturnShipmentBlockReason(order)
 }
 
 // ============ 一键开票适配层（对接微信电子发票 / 开票服务商）============
@@ -2331,6 +2354,16 @@ module.exports = {
     }
   },
 
+  // 物流上线自检：只暴露配置状态和缺失项，不返回任何第三方凭证。
+  async getLogisticsReadiness(params) {
+    try {
+      requireAdminPermission(this, 'view_order')
+      return { code: 0, data: buildLogisticsReadiness(expressProvider.getConfig()) }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async exportParts(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'manage_inventory')
@@ -2756,6 +2789,9 @@ module.exports = {
       if (!normalizedList.length) {
         return { code: -1, msg: '导入数据不能为空' }
       }
+      if (normalizedList.length > LOGISTICS_IMPORT_MAX_ROWS) {
+        return { code: -1, msg: `单次最多导入 ${LOGISTICS_IMPORT_MAX_ROWS} 条，请拆分 Excel 后重试` }
+      }
 
       const summary = {
         type: importType,
@@ -2809,6 +2845,14 @@ module.exports = {
           summary.errors.push({ orderNo: item.orderNo, reason: '工单已回寄或已完成，不能回退为已签收' })
           continue
         }
+        if (importType === 'return') {
+          const unpaidReason = getReturnShipmentBlockReason(order)
+          if (unpaidReason) {
+            summary.fail += 1
+            summary.errors.push({ orderNo: item.orderNo, reason: unpaidReason })
+            continue
+          }
+        }
 
         const segment = importType === 'inbound' ? 'out' : 'back'
         const trackCheck = await validateTrackingNoBeforeSave(
@@ -2828,6 +2872,13 @@ module.exports = {
         }
 
         let updateData = buildLogisticsImportUpdate(order, item, importType, now, importDate)
+        if (importType === 'inbound') {
+          updateData.arrival_confirm_status = 'confirmed'
+          updateData.arrival_detected_at = order.arrival_detected_at || now
+          updateData.arrival_confirmed_at = now
+          updateData.arrival_confirmed_by = normalizeText(currentAdmin._id || currentAdmin.id)
+          updateData.arrival_confirmed_name = normalizeText(currentAdmin.name || currentAdmin.username || currentAdmin.nickname) || '后台人员'
+        }
         updateData = attachVerifiedTrackCache(updateData, order, segment, trackCheck)
         const targetStatus = importType === 'inbound' ? 'received' : 'shipped'
         try {
@@ -2880,6 +2931,9 @@ module.exports = {
       const normalizedRows = normalizeImportRows(rows)
       if (!normalizedRows.length) {
         return { code: -1, msg: '导入数据不能为空' }
+      }
+      if (normalizedRows.length > LOGISTICS_IMPORT_MAX_ROWS) {
+        return { code: -1, msg: `单次最多导入 ${LOGISTICS_IMPORT_MAX_ROWS} 条，请拆分 Excel 后重试` }
       }
 
       const results = []
@@ -3022,6 +3076,9 @@ module.exports = {
       const normalizedList = normalizeShippingList(shippingList)
       if (!normalizedList.length) {
         return { code: -1, msg: '导入数据不能为空' }
+      }
+      if (normalizedList.length > LOGISTICS_IMPORT_MAX_ROWS) {
+        return { code: -1, msg: `单次最多导入 ${LOGISTICS_IMPORT_MAX_ROWS} 条，请拆分 Excel 后重试` }
       }
 
       const summary = {
@@ -4264,8 +4321,21 @@ module.exports = {
         return { code: 0, data: { ...base, available: Boolean(existingCache && existingCache.tracks), cached: Boolean(existingCache && existingCache.tracks), message: result.message || '暂无物流轨迹' } }
       }
 
+      const reconciled = reconcileTrackCache(existingCache, result.cache)
+      if (!reconciled.accepted) {
+        return {
+          code: 0,
+          data: {
+            ...base,
+            available: Boolean(existingCache && existingCache.tracks),
+            cached: true,
+            cache: existingCache,
+            message: reconciled.reason === 'stale' ? '查询结果较旧，已保留最新轨迹' : '轨迹未发生变化'
+          }
+        }
+      }
       const now = Date.now()
-      const nextCache = { ...existingCache, ...result.cache }
+      const nextCache = reconciled.cache
       await db.collection('cicada_orders').doc(order._id).update({
         track_cache: { ...(order.track_cache || {}), [segment]: nextCache },
         logistics_track_update_time: now

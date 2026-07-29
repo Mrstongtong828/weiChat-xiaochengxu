@@ -444,6 +444,18 @@ const handleAdminOrder = (method, body) => {
     order.update_time = Date.now()
     return ok(order)
   }
+  if (method === 'getLogisticsReadiness') {
+    return ok({
+      provider: 'kuaidi100',
+      queryConfigured: false,
+      subscribeConfigured: false,
+      callbackConfigured: false,
+      ready: false,
+      mode: 'fallback',
+      missing: ['KUAIDI100_KEY', 'KUAIDI100_CUSTOMER', 'KUAIDI100_CALLBACK_URL', 'KUAIDI100_CALLBACK_SALT']
+    })
+  }
+
   if (method === 'batchUpdateShipping' || method === 'batchImportReturnLogistics' || method === 'batchImportLogistics') {
     return ok({ success: true, total: Array.isArray(body.rows) ? body.rows.length : 0, failed: [] })
   }

@@ -13,7 +13,8 @@
     "check:subscription": "node scripts/check-subscription-config.mjs",
     "check:errors": "node scripts/check-request-error-parser.mjs",
     "check:security": "node scripts/check-admin-security.mjs",
-    "check:warranty": "node scripts/check-warranty-free-flow.mjs"
+    "check:warranty": "node scripts/check-warranty-free-flow.mjs",
+    "check:logistics": "node scripts/check-logistics-readiness.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
