@@ -5,12 +5,7 @@ const { createAdminAuthError, toAdminErrorResponse, isAdminTokenExpired } = load
 const expressProvider = loadExpressProvider()
 const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
 const { buildLogisticsReadiness } = require('./logistics-readiness')
-let reconcileTrackCache
-try {
-  ({ reconcileTrackCache } = require('cicada-express-lifecycle'))
-} catch (packageError) {
-  ({ reconcileTrackCache } = require('../common/cicada-express-lifecycle'))
-}
+const { reconcileTrackCache } = require('./logistics-policy')
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()

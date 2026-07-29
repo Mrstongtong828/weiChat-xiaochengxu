@@ -4,7 +4,6 @@
   "dependencies": {
     "cicada-admin-auth": "file:../common/cicada-admin-auth",
     "cicada-express-provider": "file:../common/cicada-express-provider",
-    "cicada-express-lifecycle": "file:../common/cicada-express-lifecycle",
     "cicada-order-workflow": "file:../common/cicada-order-workflow",
     "cicada-subscription-message": "file:../common/cicada-subscription-message",
     "cicada-wechat-pay-crypto": "file:../common/cicada-wechat-pay-crypto"
