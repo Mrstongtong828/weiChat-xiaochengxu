@@ -23,8 +23,18 @@ export const updateMyProfile = (token, profile = {}) => {
   return request.post(`${API_BASE.adminSys}/updateMyProfile`, {
     token,
     name: profile.name,
-    phone: profile.phone
+    phone: profile.phone,
+    avatar: profile.avatar
   })
+}
+
+export const uploadMyAvatar = (token, fileContent, fileName, fileType) => {
+  return request.post(`${API_BASE.adminSys}/uploadMyAvatar`, {
+    token,
+    fileContent,
+    fileName,
+    fileType
+  }, { timeout: 30000 })
 }
 
 // 获取员工列表

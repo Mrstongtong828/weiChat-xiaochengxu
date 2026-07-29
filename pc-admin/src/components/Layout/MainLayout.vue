@@ -77,12 +77,12 @@
           </el-popover>
           <el-button type="primary" plain round size="small" class="visit-miniapp-btn" @click="openMiniappDialog"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
           <el-dropdown>
-            <el-avatar :size="40" class="admin-avatar"><el-icon :size="20"><User /></el-icon></el-avatar>
+            <el-avatar :size="40" :src="profileAvatarUrl" class="admin-avatar" :aria-label="profileEntryLabel" :title="profileEntryLabel"><el-icon :size="20"><User /></el-icon></el-avatar>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item v-if="canAccessMenu('users')" @click="handleMenuSelect('users')"><el-icon><Setting /></el-icon>用户管理</el-dropdown-item>
                 <el-dropdown-item v-if="canAccessMenu('audit')" @click="handleMenuSelect('audit')"><el-icon><Files /></el-icon>操作审计日志</el-dropdown-item>
-                <el-dropdown-item :divided="canAccessMenu('users') || canAccessMenu('audit')" @click="profileDrawerVisible = true"><el-icon><User /></el-icon>个人信息</el-dropdown-item>
+                <el-dropdown-item :divided="canAccessMenu('users') || canAccessMenu('audit')" @click="openProfileDrawer"><el-icon><User /></el-icon>个人信息</el-dropdown-item>
                 <el-dropdown-item @click="openPwdDialog"><el-icon><Lock /></el-icon>修改密码</el-dropdown-item>
                 <el-dropdown-item @click="handleLogout" style="color:#F56C6C;"><el-icon><SwitchButton /></el-icon>退出登录</el-dropdown-item>
               </el-dropdown-menu>
@@ -98,19 +98,36 @@
       </div>
     </div>
 
-    <el-drawer v-model="profileDrawerVisible" title="个人信息" direction="rtl" :size="isMobile ? '100%' : '400px'">
-      <div class="profile-avatar">
-        <el-avatar :size="80" class="admin-avatar"><el-icon :size="40"><User /></el-icon></el-avatar>
+    <el-drawer v-model="profileDrawerVisible" title="个人信息" direction="rtl" :size="isMobile ? '100%' : '400px'" class="profile-drawer" @closed="resetProfileDraft">
+      <div class="profile-content">
+        <div class="profile-avatar">
+          <div class="profile-avatar-picker">
+            <el-avatar :size="88" :src="profileAvatarDisplay" class="admin-avatar"><el-icon :size="40"><User /></el-icon></el-avatar>
+            <el-upload accept="image/jpeg,image/png,image/webp" :auto-upload="false" :show-file-list="false" :on-change="handleAvatarSelect" class="avatar-upload">
+              <el-tooltip content="更换头像" placement="top">
+                <el-button circle type="primary" class="avatar-edit-button" aria-label="更换头像"><el-icon><Camera /></el-icon></el-button>
+              </el-tooltip>
+            </el-upload>
+            <el-tooltip v-if="profileAvatarDisplay || profileForm.avatar" content="恢复默认头像" placement="top">
+              <el-button circle class="avatar-remove-button" aria-label="恢复默认头像" @click="removeAvatar"><el-icon><Delete /></el-icon></el-button>
+            </el-tooltip>
+          </div>
+          <strong>{{ profileForm.realName || profileForm.username || '管理员' }}</strong>
+          <span>{{ profileForm.role || '后台账号' }}</span>
+          <small>支持 JPG、PNG、WebP，文件不超过 2MB</small>
+        </div>
+        <el-form :model="profileForm" label-position="top" class="profile-form" @submit.prevent="saveProfile">
+          <el-form-item label="登录账号"><el-input v-model="profileForm.username" disabled></el-input></el-form-item>
+          <el-form-item label="真实姓名" required><el-input v-model="profileForm.realName" maxlength="50" show-word-limit placeholder="请输入真实姓名"></el-input></el-form-item>
+          <el-form-item label="联系电话"><el-input v-model="profileForm.phone" maxlength="32" placeholder="手机号或座机号"></el-input></el-form-item>
+          <el-form-item label="系统角色"><el-input v-model="profileForm.role" disabled></el-input></el-form-item>
+        </el-form>
       </div>
-      <el-form :model="profileForm" label-width="90px">
-        <el-form-item label="登录账号"><el-input v-model="profileForm.username" disabled></el-input></el-form-item>
-        <el-form-item label="真实姓名"><el-input v-model="profileForm.realName" placeholder="请输入真实姓名"></el-input></el-form-item>
-        <el-form-item label="联系电话"><el-input v-model="profileForm.phone" placeholder="请输入联系电话"></el-input></el-form-item>
-        <el-form-item label="系统角色"><el-input v-model="profileForm.role" disabled></el-input></el-form-item>
-      </el-form>
       <template #footer>
-        <el-button @click="profileDrawerVisible = false">取消</el-button>
-        <el-button type="primary" :loading="profileSaving" @click="saveProfile">保存修改</el-button>
+        <div class="profile-actions">
+          <el-button :disabled="profileSaving" @click="profileDrawerVisible = false">取消</el-button>
+          <el-button type="primary" :loading="profileSaving" :disabled="profileSaving" @click="saveProfile">保存修改</el-button>
+        </div>
       </template>
     </el-drawer>
 
@@ -152,6 +169,7 @@ import { changeMyPassword, getSettings, getTempFileURL, updateMyProfile } from '
 import { getNotificationSummary } from '../../api/order.js'
 import { getWarrantyAlerts } from '../../api/customer.js'
 import { canAccessMenu, getCurrentAdminRole } from '../../config/menuAccess.js'
+import { uploadAvatarToCloud } from '../../utils/upload.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -163,6 +181,7 @@ const notificationGroups = ref([])
 const notificationUnavailable = ref([])
 const notificationTotal = computed(() => notificationGroups.value.reduce((sum, group) => sum + Number(group.count || 0), 0))
 let notificationLoadedAt = 0
+let notificationRefreshTimer = null
 
 const menuTitles = {
   home: '工作台首页',
@@ -202,8 +221,14 @@ const getMenuFromPath = () => route.path.replace(/^\//, '') || 'home'
 const activeMenu = ref(getMenuFromPath())
 
 const profileDrawerVisible = ref(false)
-const profileForm = reactive({ username: '', realName: '', phone: '', role: '' })
+const profileForm = reactive({ username: '', realName: '', phone: '', role: '', avatar: '' })
 const profileSaving = ref(false)
+const profileAvatarUrl = ref('')
+const pendingAvatarPreview = ref('')
+const avatarRemovalPending = ref(false)
+let pendingAvatarFile = null
+const profileAvatarDisplay = computed(() => pendingAvatarPreview.value || (avatarRemovalPending.value ? '' : profileAvatarUrl.value))
+const profileEntryLabel = computed(() => `当前账号：${profileForm.realName || profileForm.username || '管理员'}`)
 const pwdDialogVisible = ref(false)
 const forcedPasswordChange = ref(localStorage.getItem('adminMustChangePassword') === '1')
 const pwdSaving = ref(false)
@@ -258,9 +283,66 @@ const syncProfileFromStorage = () => {
     profileForm.realName = user.name || ''
     profileForm.phone = user.phone || ''
     profileForm.role = user.roleDisplay || roleMap[user.role] || ''
+    profileForm.avatar = user.avatar || ''
+    profileAvatarUrl.value = user.avatarPreview || (/^https?:\/\//i.test(user.avatar || '') ? user.avatar : '')
   } catch (error) {
     localStorage.removeItem('adminUser')
   }
+}
+
+const resolveProfileAvatar = async () => {
+  const avatar = profileForm.avatar
+  if (!avatar) {
+    profileAvatarUrl.value = ''
+    return
+  }
+  if (/^https?:\/\//i.test(avatar)) {
+    profileAvatarUrl.value = avatar
+    return
+  }
+  if (!avatar.startsWith('cloud://')) return
+  try {
+    const map = await getTempFileURL(localStorage.getItem('adminToken'), [avatar])
+    if (profileForm.avatar === avatar) profileAvatarUrl.value = map?.[avatar] || ''
+  } catch (error) {
+    profileAvatarUrl.value = ''
+  }
+}
+
+const revokePendingAvatar = () => {
+  if (pendingAvatarPreview.value.startsWith('blob:')) URL.revokeObjectURL(pendingAvatarPreview.value)
+  pendingAvatarPreview.value = ''
+  pendingAvatarFile = null
+}
+
+const handleAvatarSelect = (uploadFile) => {
+  const raw = uploadFile?.raw
+  if (!raw) return
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
+  if (!allowedTypes.includes(raw.type) || !/\.(jpe?g|png|webp)$/i.test(raw.name || '')) {
+    ElMessage.warning('头像仅支持 JPG、PNG 或 WebP 图片')
+    return
+  }
+  if (raw.size > 2 * 1024 * 1024) {
+    ElMessage.warning('头像图片不能超过 2MB')
+    return
+  }
+  revokePendingAvatar()
+  avatarRemovalPending.value = false
+  pendingAvatarFile = raw
+  pendingAvatarPreview.value = URL.createObjectURL(raw)
+}
+
+const removeAvatar = () => {
+  revokePendingAvatar()
+  profileForm.avatar = ''
+  avatarRemovalPending.value = true
+}
+
+const resetProfileDraft = () => {
+  revokePendingAvatar()
+  avatarRemovalPending.value = false
+  syncProfileFromStorage()
 }
 
 const handleMenuSelect = (index) => {
@@ -277,6 +359,7 @@ const handleLogout = () => {
 }
 
 const saveProfile = async () => {
+  if (profileSaving.value) return
   const name = profileForm.realName.trim()
   const phone = profileForm.phone.trim()
   if (!name) {
@@ -287,24 +370,40 @@ const saveProfile = async () => {
     ElMessage.warning('真实姓名不能超过 50 个字符')
     return
   }
-  if (phone && !/^[0-9+()\-\s]{6,32}$/.test(phone)) {
-    ElMessage.warning('请输入有效的联系电话')
+  const isMobilePhone = /^1[3-9]\d{9}$/.test(phone)
+  const isLandlinePhone = /^(?:0\d{2,3}[- ]?)?\d{7,8}(?:[- ]?\d{1,6})?$/.test(phone)
+  if (phone && !isMobilePhone && !isLandlinePhone) {
+    ElMessage.warning('请输入有效的手机号或座机号')
     return
   }
 
   profileSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const res = await updateMyProfile(token, { name, phone })
-    const profile = res?.data || { name, phone }
+    let avatar = profileForm.avatar
+    let avatarPreview = profileAvatarUrl.value
+    if (pendingAvatarFile) {
+      const uploaded = await uploadAvatarToCloud(pendingAvatarFile)
+      avatar = uploaded.fileUrl
+      avatarPreview = uploaded.tempUrl || pendingAvatarPreview.value
+    }
+    const res = await updateMyProfile(token, { name, phone, avatar })
+    const profile = res?.data || res || { name, phone, avatar }
     const user = JSON.parse(localStorage.getItem('adminUser') || '{}')
     localStorage.setItem('adminUser', JSON.stringify({
       ...user,
       name: profile.name || name,
-      phone: profile.phone ?? phone
+      phone: profile.phone ?? phone,
+      avatar: profile.avatar ?? avatar,
+      avatarPreview: profile.avatar || avatar ? avatarPreview : ''
     }))
     profileForm.realName = profile.name || name
     profileForm.phone = profile.phone ?? phone
+    profileForm.avatar = profile.avatar ?? avatar
+    profileAvatarUrl.value = profileForm.avatar ? avatarPreview : ''
+    avatarRemovalPending.value = false
+    revokePendingAvatar()
+    if (profileForm.avatar && !profileAvatarUrl.value) await resolveProfileAvatar()
     profileDrawerVisible.value = false
     ElMessage.success('个人资料已保存')
   } catch (error) {
@@ -312,6 +411,12 @@ const saveProfile = async () => {
   } finally {
     profileSaving.value = false
   }
+}
+
+const openProfileDrawer = () => {
+  syncProfileFromStorage()
+  resolveProfileAvatar()
+  profileDrawerVisible.value = true
 }
 
 const loadNotifications = async (force = false) => {
@@ -375,6 +480,10 @@ const goNotification = (key) => {
   router.push(target)
 }
 
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') loadNotifications(true)
+}
+
 const openPwdDialog = () => {
   pwdForm.oldPassword = ''
   pwdForm.newPassword = ''
@@ -423,14 +532,22 @@ watch(() => route.fullPath, () => { loadNotifications() })
 onMounted(() => {
   checkMobile()
   syncProfileFromStorage()
+  resolveProfileAvatar()
   loadNotifications()
+  notificationRefreshTimer = window.setInterval(() => loadNotifications(true), 60000)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   if (forcedPasswordChange.value) {
     ElMessage.warning('当前使用临时密码，请先修改登录密码')
     openPwdDialog()
   }
   window.addEventListener('resize', checkMobile)
 })
-onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
+onUnmounted(() => {
+  revokePendingAvatar()
+  if (notificationRefreshTimer) window.clearInterval(notificationRefreshTimer)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('resize', checkMobile)
+})
 </script>
 
 <style scoped>
@@ -649,10 +766,58 @@ onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
 .miniapp-qr-img { width: 220px; height: 220px; object-fit: contain; border: 1px solid #eef2f7; border-radius: 8px; padding: 8px; background: #fff; }
 .miniapp-qr-tip { margin: 14px 0 4px; font-size: 14px; color: #1f2937; }
 .miniapp-qr-note { margin: 4px 0 0; font-size: 12px; color: #94a3b8; line-height: 1.6; }
+.notification-trigger {
+  width: 38px;
+  height: 38px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  color: #334155;
+}
+.notification-trigger:hover, .notification-trigger:focus-visible { border-color: #93c5fd; background: #eff6ff; color: #2563eb; }
+.notification-badge :deep(.el-badge__content) { top: 2px; right: 4px; border: 2px solid #ffffff; }
+.notification-panel { max-height: min(620px, calc(100vh - 112px)); overflow: hidden; }
+.notification-panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid #e2e8f0; }
+.notification-panel-head strong, .notification-panel-head span { display: block; }
+.notification-panel-head strong { color: #0f172a; font-size: 16px; }
+.notification-panel-head span { margin-top: 3px; color: #64748b; font-size: 12px; }
+.notification-alert { margin-top: 12px; }
+.notification-groups { max-height: min(516px, calc(100vh - 220px)); padding-top: 12px; overflow-y: auto; overscroll-behavior: contain; }
+.notification-group { padding: 10px 0; border-bottom: 1px solid #eef2f7; }
+.notification-group:last-child { border-bottom: 0; }
+.notification-group-head { width: 100%; display: grid; grid-template-columns: 8px minmax(0, 1fr) auto 18px; align-items: center; gap: 9px; padding: 0; border: 0; background: transparent; color: #0f172a; text-align: left; cursor: pointer; }
+.notification-group-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notification-severity { width: 8px; height: 8px; border-radius: 50%; background: #3b82f6; }
+.notification-group--critical .notification-severity { background: #ef4444; }
+.notification-group--warning .notification-severity { background: #f59e0b; }
+.notification-go { color: #94a3b8; }
+.notification-sample { width: calc(100% - 17px); display: block; margin: 8px 0 0 17px; padding: 8px 10px; border: 0; border-radius: 6px; background: #f8fafc; color: #334155; text-align: left; cursor: pointer; }
+.notification-sample:hover { background: #eff6ff; }
+.notification-sample strong, .notification-sample span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notification-sample strong { font-size: 13px; font-weight: 600; }
+.notification-sample span { margin-top: 3px; color: #64748b; font-size: 12px; }
+.notification-more { margin: 6px 0 0 13px; }
 .admin-avatar { cursor: pointer; border: 1px solid #bfdbfe; background: #eff6ff; }
 .content-area { flex: 1; overflow-y: auto; padding: 30px 28px 44px; }
 .content-wrapper { width: 100%; max-width: none; margin: 0; }
-.profile-avatar { display:flex; flex-direction:column; align-items:center; padding: 8px 0 24px; }
+.profile-content { min-height: 100%; }
+.profile-avatar { display:flex; flex-direction:column; align-items:center; padding: 6px 0 26px; }
+.profile-avatar-picker { position: relative; width: 88px; height: 88px; }
+.profile-avatar-picker > .admin-avatar { width: 88px !important; height: 88px !important; cursor: default; }
+.avatar-upload { position: absolute; right: -4px; bottom: -4px; }
+.avatar-edit-button, .avatar-remove-button { width: 30px; height: 30px; padding: 0; box-shadow: 0 0 0 3px #ffffff; }
+.avatar-remove-button { position: absolute; left: -4px; bottom: -4px; color: #64748b; }
+.profile-avatar strong { margin-top: 12px; color: #172033; font-size: 18px; }
+.profile-avatar span { margin-top: 4px; color: #64748b; font-size: 13px; }
+.profile-avatar small { margin-top: 8px; color: #94a3b8; font-size: 12px; }
+.profile-form :deep(.el-form-item) { margin-bottom: 20px; }
+.profile-form :deep(.el-form-item__label) { padding-bottom: 7px; color: #475569; font-weight: 600; }
+.profile-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 12px; width: 100%; }
+.profile-actions .el-button { width: 100%; height: 40px; margin: 0; }
+:global(.profile-drawer.el-drawer) { display: flex; flex-direction: column; max-width: 100vw; }
+:global(.profile-drawer .el-drawer__header) { flex: 0 0 auto; margin-bottom: 0; padding: 22px 24px 18px; border-bottom: 1px solid #e2e8f0; }
+:global(.profile-drawer .el-drawer__title) { color: #172033; font-size: 20px; font-weight: 700; }
+:global(.profile-drawer .el-drawer__body) { flex: 1 1 auto; min-height: 0; padding: 24px; overflow-y: auto; }
+:global(.profile-drawer .el-drawer__footer) { flex: 0 0 auto; padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); border-top: 1px solid #e2e8f0; background: #ffffff; }
 @media screen and (max-width: 768px) {
   .main-layout { height: 100dvh; overflow: hidden; }
   .mobile-mask { backdrop-filter: blur(2px); }
@@ -695,6 +860,7 @@ onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
   }
   .visit-miniapp-btn { display: none; }
   .notification-trigger { width: 34px; height: 34px; }
+  .notification-badge :deep(.el-badge__content) { top: 0; right: 2px; }
   .admin-avatar { width: 34px !important; height: 34px !important; }
   .content-area {
     overflow-x: hidden;
@@ -702,6 +868,11 @@ onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
     overscroll-behavior: contain;
   }
   .content-wrapper { min-width: 0; }
+  :global(.profile-drawer .el-drawer__header) { padding: 17px 18px 15px; }
+  :global(.profile-drawer .el-drawer__body) { padding: 20px 18px; }
+  :global(.profile-drawer .el-drawer__footer) { padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); }
+  .profile-avatar { padding-bottom: 20px; }
+  .profile-actions { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); }
   :deep(.el-dialog) { width: calc(100vw - 24px) !important; max-width: 400px; }
 }
 </style>

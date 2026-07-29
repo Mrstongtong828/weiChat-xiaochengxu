@@ -1310,9 +1310,9 @@ async function ensureCustomerForUser(user = {}, orderPhone = '', customerType = 
   const phone = accountPhone || contactPhone
   const openid = normalizeText(user.openid)
   const now = Date.now()
-	const normalizedCustomerType = ['individual', 'clinic'].includes(customerType) ? customerType : 'clinic'
+  const normalizedCustomerType = ['individual', 'clinic', 'dealer'].includes(customerType) ? customerType : 'clinic'
 
-  // 普通客户可通过本次报修修正历史默认成 clinic 的类型；已核验的代理商身份仍由后台维护。
+  // 本次报修可修正历史默认的客户类型；已有代理商档案不因后续选择而降级。
   const existing = linkedCustomer || await findCustomerForUser(user)
   if (existing) {
     const updateData = { update_time: now }
@@ -1563,10 +1563,6 @@ module.exports = {
       }
 
       const linkedCustomer = await findCustomerForUser(user)
-      if (customerType === 'dealer' && (!linkedCustomer || normalizeText(linkedCustomer.customer_type) !== 'dealer')) {
-        return { code: -1, msg: '当前账号尚未绑定签约代理商身份，请联系售后核验后再提交' }
-      }
-
       const now = Date.now()
       const duplicateOrder = await findRecentDuplicateOrder(user._id, items, now)
       if (duplicateOrder) {

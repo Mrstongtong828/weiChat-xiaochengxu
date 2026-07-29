@@ -1,4 +1,4 @@
-import { uploadFile } from '../api/admin.js'
+import { uploadFile, uploadMyAvatar } from '../api/admin.js'
 
 // 将浏览器 File 读成 base64（去掉 dataURL 前缀）
 export const fileToBase64 = (file) => new Promise((resolve, reject) => {
@@ -25,5 +25,16 @@ export const uploadFileToCloud = async (file, dir = 'guides/', maxSize = 10 * 10
   const data = await uploadFile(token, fileContent, file.name, file.type, dir)
   const fileUrl = data && (data.fileUrl || data.fileID)
   if (!fileUrl) throw new Error('上传失败：未返回文件地址')
+  return { fileUrl, tempUrl: (data && data.tempUrl) || '' }
+}
+
+export const uploadAvatarToCloud = async (file) => {
+  if (!file) throw new Error('请选择头像图片')
+  if (file.size > 2 * 1024 * 1024) throw new Error('头像图片不能超过 2MB')
+  const token = localStorage.getItem('adminToken')
+  const fileContent = await fileToBase64(file)
+  const data = await uploadMyAvatar(token, fileContent, file.name, file.type)
+  const fileUrl = data && (data.fileUrl || data.fileID)
+  if (!fileUrl) throw new Error('头像上传失败：未返回文件地址')
   return { fileUrl, tempUrl: (data && data.tempUrl) || '' }
 }

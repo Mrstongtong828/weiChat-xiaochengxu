@@ -1197,32 +1197,6 @@
 					<image src="/static/logo-banner.jpg" mode="widthFix" style="width: 100%; display: block;"></image>
 				</view>
 
-				<!-- 最近未完成工单：登录后有单显示下一步动作，无单引导报修 -->
-				<view v-if="logged && latestUnfinishedOrder" class="section home-recent-section">
-					<view class="home-recent-card tap" @click="openOrderDetail(latestUnfinishedOrder)">
-						<view class="home-recent-top">
-							<view class="home-recent-copy">
-								<text class="home-recent-title">{{ latestUnfinishedOrder.cardTitle }}</text>
-								<text class="home-recent-no">{{ latestUnfinishedOrder.id }}</text>
-							</view>
-							<text :class="['tag', 'tag-' + getOrderStatusTone(latestUnfinishedOrder)]">{{ latestUnfinishedOrder.status }}</text>
-						</view>
-						<view class="home-recent-bottom">
-							<text class="home-recent-time">{{ latestUnfinishedOrder.time || latestUnfinishedOrder.date }}</text>
-							<view class="home-recent-action">
-								<text>{{ latestUnfinishedOrderAction }}</text>
-								<view class="chevron"></view>
-							</view>
-						</view>
-					</view>
-				</view>
-				<view v-else-if="logged && orderListLoaded" class="section home-recent-section">
-					<view class="home-recent-card home-recent-empty">
-						<text class="home-recent-empty-text">暂无进行中的维修工单，设备遇到问题可一键报修。</text>
-						<view class="home-recent-empty-btn tap" @click="go('repair')">立即报修</view>
-					</view>
-				</view>
-
 				<view class="section section-basic">
 					<text class="section-title">基础服务</text>
 					<view class="three-grid">
@@ -1838,8 +1812,6 @@ const orderMatchesTrackTab = (item = {}, tab = '全部') => {
 	return false
 }
 const activeOrdersTab = ref('全部')
-// 工单列表是否已加载过：首页空状态卡在列表未返回前不显示，避免误报"暂无工单"
-const orderListLoaded = ref(false)
 const trackSearchKeyword = ref('')
 const activeInvoiceTab = ref('待开票')
 const activeInvoiceOrderId = ref('')
@@ -2706,25 +2678,6 @@ const statusItems = computed(() => {
 		...item,
 		count: counts[item.id] !== undefined && counts[item.id] !== null ? counts[item.id] : item.count
 	}))
-})
-
-// 首页最近未完成工单：非终态的最新一条（orderList 已按创建时间倒序）
-const latestUnfinishedOrder = computed(() => (
-	orderList.value.find((item) => !['completed', 'cancelled'].includes(item.statusKey)) || null
-))
-
-// 卡片"下一步动作"文案：由细分显示状态派生
-const nextActionByStatus = {
-	'已提交': '去补运单号',
-	'待确认报价': '去确认报价',
-	'待付款': '去付款',
-	'待核款': '查看核款进度',
-	'已回寄': '确认收货'
-}
-const latestUnfinishedOrderAction = computed(() => {
-	const order = latestUnfinishedOrder.value || {}
-	if (order.status === '已提交' && order.trackingNo) return '查看进度'
-	return nextActionByStatus[order.status] || '查看进度'
 })
 
 const countOrdersByStatus = (status) => orderList.value.filter((item) => item.statusGroup === status).length
@@ -5750,7 +5703,6 @@ const loadRemoteContent = async () => {
 				orderList.value = normalized
 				trackOrders.value = normalized
 				resolvePaymentProofUrls(normalized)
-				orderListLoaded.value = true
 				hydrateOrderDetails(normalized).catch((error) => console.warn('repair detail hydrate failed:', error))
 			})
 			.catch((error) => console.warn('repair list failed:', error))
@@ -6752,98 +6704,6 @@ onUnmounted(() => {
 
 .section-basic {
 	padding-top: 48rpx;
-}
-
-.home-recent-section {
-	padding-top: 20rpx;
-}
-
-.home-recent-card {
-	padding: 28rpx 30rpx;
-	border-radius: 28rpx;
-	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
-	box-sizing: border-box;
-}
-
-.home-recent-top {
-	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 20rpx;
-}
-
-.home-recent-copy {
-	min-width: 0;
-	flex: 1;
-	display: flex;
-	flex-direction: column;
-	gap: 6rpx;
-}
-
-.home-recent-title {
-	font-size: 28rpx;
-	font-weight: 700;
-	line-height: 1.3;
-	color: #0F1F3A;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.home-recent-no {
-	font-size: 22rpx;
-	color: #94A3B8;
-	word-break: break-all;
-}
-
-.home-recent-bottom {
-	margin-top: 20rpx;
-	padding-top: 20rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	border-top: 2rpx solid #F1F5FB;
-}
-
-.home-recent-time {
-	font-size: 22rpx;
-	color: #94A3B8;
-}
-
-.home-recent-action {
-	display: flex;
-	align-items: center;
-	gap: 8rpx;
-	font-size: 25rpx;
-	font-weight: 700;
-	color: #1E6FE0;
-}
-
-.home-recent-empty {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 20rpx;
-}
-
-.home-recent-empty-text {
-	min-width: 0;
-	flex: 1;
-	font-size: 24rpx;
-	line-height: 1.55;
-	color: #6B7C97;
-}
-
-.home-recent-empty-btn {
-	flex-shrink: 0;
-	padding: 14rpx 30rpx;
-	border-radius: 999rpx;
-	background: #1E6FE0;
-	color: #FFFFFF;
-	font-size: 24rpx;
-	font-weight: 600;
-	box-shadow: 0 6rpx 16rpx -6rpx rgba(30, 111, 224, 0.55);
 }
 
 .section-query,

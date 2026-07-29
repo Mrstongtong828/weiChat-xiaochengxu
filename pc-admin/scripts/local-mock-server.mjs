@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 const PORT = Number(process.env.MOCK_PORT || 8787)
 const TOKEN = 'local-admin-token'
+const mockFileUrls = new Map()
 
 const now = Date.now()
 
@@ -291,7 +292,10 @@ const handleAdminSys = (method, body) => {
           _id: 'admin001',
           username: 'admin',
           name: 'System Admin',
-          role: 'admin'
+          phone: staff[0].phone,
+          avatar: staff[0].avatar || '',
+          role: 'admin',
+          roleDisplay: '管理员'
         }
       })
     }
@@ -302,6 +306,25 @@ const handleAdminSys = (method, body) => {
   if (authError) return authError
 
   if (method === 'changeMyPassword') return ok()
+  if (method === 'updateMyProfile') {
+    const user = staff.find(item => item._id === 'admin001')
+    user.name = String(body.name || '').trim()
+    user.phone = String(body.phone || '').trim()
+    user.avatar = String(body.avatar || '')
+    return ok({ name: user.name, phone: user.phone, avatar: user.avatar })
+  }
+  if (method === 'uploadMyAvatar') {
+    const extension = body.fileType === 'image/png' ? 'png' : body.fileType === 'image/webp' ? 'webp' : 'jpg'
+    const fileUrl = `cloud://local.mock/admin-avatars/admin001/${Date.now()}.${extension}`
+    const tempUrl = `data:${body.fileType || 'image/jpeg'};base64,${body.fileContent || ''}`
+    mockFileUrls.set(fileUrl, tempUrl)
+    return ok({ fileUrl, tempUrl })
+  }
+  if (method === 'getTempFileURL') {
+    const map = {}
+    for (const fileUrl of body.fileList || []) map[fileUrl] = mockFileUrls.get(fileUrl) || ''
+    return ok(map)
+  }
   if (method === 'getFeedbackStats') {
     return ok({ unreadCount: feedbacks.filter(item => item.status === 'pending').length })
   }
@@ -376,6 +399,27 @@ const handleAdminOrder = (method, body) => {
         { key: 'quote', title: 'Quote pending', desc: 'Orders waiting for quote', count: metrics.quotePendingOrders },
         { key: 'invoice', title: 'Invoice pending', desc: 'Orders waiting for invoice handling', count: metrics.invoicePendingOrders }
       ]
+    })
+  }
+  if (method === 'getNotificationSummary') {
+    return ok({
+      groups: [
+        {
+          key: 'quote',
+          title: '维修报价待发布',
+          severity: 'warning',
+          count: 2,
+          samples: [{ id: 'order001', title: 'WX20260609001', desc: '已完成检测，等待发布报价' }]
+        },
+        {
+          key: 'sla_critical',
+          title: '工单即将超时',
+          severity: 'critical',
+          count: 1,
+          samples: [{ id: 'order002', title: 'WX20260609002', desc: '距离处理时限不足 2 小时' }]
+        }
+      ],
+      unavailable: []
     })
   }
   if (method === 'getDashboardSummary') {
@@ -508,6 +552,24 @@ const handleAdminKb = (method, body) => {
   return fail(`Unknown local admin-kb method: ${method}`)
 }
 
+const handleAdminCustomer = (method, body) => {
+  const authError = requireToken(body)
+  if (authError) return authError
+
+  if (method === 'getWarrantyAlerts') {
+    return ok({
+      counts: { missing: 1, expiring: 1, expired: 0 },
+      samples: {
+        missing: [{ device_id: 'device001', customer_name: '示例口腔门诊', product_name: '牙科手机' }],
+        expiring: [{ device_id: 'device002', customer_name: '演示齿科中心', product_name: '影像设备', effective_expire: '2026-08-15' }],
+        expired: []
+      }
+    })
+  }
+
+  return fail(`Unknown local admin-customer method: ${method}`)
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === 'OPTIONS') {
     sendJson(res, ok())
@@ -529,6 +591,7 @@ const server = http.createServer(async (req, res) => {
   if (service === 'cicada-admin-sys') payload = handleAdminSys(method, body)
   else if (service === 'cicada-admin-order') payload = handleAdminOrder(method, body)
   else if (service === 'cicada-admin-kb') payload = handleAdminKb(method, body)
+  else if (service === 'cicada-admin-customer') payload = handleAdminCustomer(method, body)
   else payload = fail(`Unknown local service: ${service}`)
 
   sendJson(res, payload)

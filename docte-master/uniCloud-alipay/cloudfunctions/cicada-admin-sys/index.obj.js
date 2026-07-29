@@ -443,6 +443,40 @@ async function uploadAdminFile(ctx, params, defaultDir = 'guides/', allowedRoles
   return { code: 0, data: { fileUrl: res.fileID, tempUrl } }
 }
 
+async function uploadAdminAvatar(ctx, params) {
+  const data = getRequestData(ctx, params)
+  const { token, fileContent, fileName, fileType } = data
+  const user = await verifyAdminToken(token, STAFF_ROLES)
+  if (!fileContent || !fileName) return { code: -1, msg: '请选择头像图片' }
+
+  const type = String(fileType || '').toLowerCase()
+  const allowedTypes = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+  const extension = String(fileName).split('.').pop().toLowerCase()
+  if (!allowedTypes[type] || !['jpg', 'jpeg', 'png', 'webp'].includes(extension)) {
+    return { code: -1, msg: '头像仅支持 JPG、PNG 或 WebP 图片' }
+  }
+
+  const buffer = Buffer.from(fileContent, 'base64')
+  if (!buffer.length || buffer.length > 2 * 1024 * 1024) return { code: -1, msg: '头像图片不能超过 2MB' }
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  const isWebp = buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP'
+  if ((type === 'image/jpeg' && !isJpeg) || (type === 'image/png' && !isPng) || (type === 'image/webp' && !isWebp)) {
+    return { code: -1, msg: '头像文件内容与图片格式不一致' }
+  }
+
+  const cloudPath = `admin-avatars/${user._id}/${Date.now()}.${allowedTypes[type]}`
+  const res = await uniCloud.uploadFile({ cloudPath, fileContent: buffer, fileType: type })
+  let tempUrl = ''
+  try {
+    const t = await uniCloud.getTempFileURL({ fileList: [res.fileID] })
+    tempUrl = (t.fileList && t.fileList[0] && t.fileList[0].tempFileURL) || ''
+  } catch (err) {
+    tempUrl = ''
+  }
+  return { code: 0, data: { fileUrl: res.fileID, tempUrl } }
+}
+
 module.exports = {
   _before() {
     // 处理 HTTP 请求参数
@@ -538,6 +572,7 @@ module.exports = {
           username: user.username,
           name: user.name || user.nickname || '',
           phone: user.phone || '',
+          avatar: user.avatar || '',
           role: user.role,
           roleDisplay: ROLE_LABELS[user.role] || user.role,
           mustChangePassword: Boolean(user.must_change_password)
@@ -584,14 +619,14 @@ module.exports = {
 
   async updateMyProfile(params) {
     try {
-      let token, name, phone
+      let token, name, phone, avatar
       if (params && params.token) {
-        ({ token, name, phone } = params)
+        ({ token, name, phone, avatar } = params)
       } else {
         const httpInfo = this.getHttpInfo && this.getHttpInfo()
         if (httpInfo && httpInfo.body) {
           const body = JSON.parse(httpInfo.body)
-          ;({ token, name, phone } = body)
+          ;({ token, name, phone, avatar } = body)
         }
       }
 
@@ -600,17 +635,29 @@ module.exports = {
       const normalizedPhone = String(phone || '').trim()
       if (!normalizedName) return { code: -1, msg: '请输入真实姓名' }
       if (normalizedName.length > 50) return { code: -1, msg: '真实姓名不能超过 50 个字符' }
-      if (normalizedPhone && !/^[0-9+()\-\s]{6,32}$/.test(normalizedPhone)) {
-        return { code: -1, msg: '请输入有效的联系电话' }
+      const isMobilePhone = /^1[3-9]\d{9}$/.test(normalizedPhone)
+      const isLandlinePhone = /^(?:0\d{2,3}[- ]?)?\d{7,8}(?:[- ]?\d{1,6})?$/.test(normalizedPhone)
+      if (normalizedPhone && !isMobilePhone && !isLandlinePhone) {
+        return { code: -1, msg: '请输入有效的手机号或座机号' }
+      }
+
+      const normalizedAvatar = avatar === undefined ? String(user.avatar || '') : String(avatar || '').trim()
+      const avatarPathPrefix = `/admin-avatars/${user._id}/`
+      if (normalizedAvatar && (!normalizedAvatar.startsWith('cloud://') || !normalizedAvatar.includes(avatarPathPrefix))) {
+        return { code: -1, msg: '头像文件地址无效，请重新上传' }
       }
 
       await db.collection('cicada_users').doc(user._id).update({
         name: normalizedName,
         phone: normalizedPhone,
+        avatar: normalizedAvatar,
         update_time: Date.now()
       })
-      await writeAdminLog(user, 'profile_update', { id: user._id, name: user.username || normalizedName }, { fields: ['name', 'phone'] })
-      return { code: 0, data: { name: normalizedName, phone: normalizedPhone } }
+      if (user.avatar && user.avatar !== normalizedAvatar && String(user.avatar).startsWith('cloud://') && String(user.avatar).includes(avatarPathPrefix)) {
+        try { await uniCloud.deleteFile({ fileList: [user.avatar] }) } catch (err) { console.warn('清理旧头像失败:', err.message) }
+      }
+      await writeAdminLog(user, 'profile_update', { id: user._id, name: user.username || normalizedName }, { fields: ['name', 'phone', 'avatar'] })
+      return { code: 0, data: { name: normalizedName, phone: normalizedPhone, avatar: normalizedAvatar } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -1237,6 +1284,14 @@ module.exports = {
     }
   },
 
+  async uploadMyAvatar(params) {
+    try {
+      return await uploadAdminAvatar(this, params)
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // Issue Aliyun OSS browser upload policy for large admin files.
   async getOssUploadPolicy(params) {
     try {
@@ -1259,7 +1314,7 @@ module.exports = {
       } else if (this.params) {
         ({ token, fileList } = this.params)
       }
-      await verifyAdminToken(token, ['admin', 'engineer'])
+      await verifyAdminToken(token, STAFF_ROLES)
 
       const list = Array.isArray(fileList) ? fileList.filter(Boolean) : []
       if (!list.length) return { code: 0, data: {} }
