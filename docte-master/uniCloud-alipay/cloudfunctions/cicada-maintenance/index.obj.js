@@ -14,7 +14,7 @@ async function verifyAdminToken(token) {
   if (!token) throw new Error('鉴权失败')
   const res = await db.collection('cicada_users').where({ token }).limit(1).get()
   const user = res.data[0]
-  if (!user || user.disabled || user.role !== 'admin') throw new Error('无权限')
+  if (!user || user.disabled || !['admin', 'superadmin'].includes(user.role)) throw new Error('无权限')
   if (!user.token_expire || Date.now() > user.token_expire) throw new Error('Token已过期')
   return user
 }

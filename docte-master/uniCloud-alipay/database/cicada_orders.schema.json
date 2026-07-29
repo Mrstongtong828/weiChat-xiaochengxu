@@ -80,6 +80,18 @@
       "bsonType": "string",
       "description": "库存处理状态，如 outbound"
     },
+    "inventory_processing_at": {
+      "bsonType": "timestamp",
+      "description": "库存出库锁开始处理时间"
+    },
+    "status_enter_time": {
+      "bsonType": "timestamp",
+      "description": "当前工单状态进入时间，用于 SLA 计时"
+    },
+    "status_update_time": {
+      "bsonType": "timestamp",
+      "description": "最近一次工单状态更新时间"
+    },
     "refund_status": {
       "bsonType": "string",
       "description": "退款状态：processing / refunded / failed"
@@ -101,6 +113,14 @@
     },
     "refund_time": {
       "bsonType": "timestamp"
+    },
+    "refund_query_time": {
+      "bsonType": "timestamp",
+      "description": "最近一次主动查询微信退款状态时间"
+    },
+    "refund_failure_reason": {
+      "bsonType": "string",
+      "description": "微信退款失败原因"
     },
     "payment_method": {
       "bsonType": "string"

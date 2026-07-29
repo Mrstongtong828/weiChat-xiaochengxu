@@ -170,6 +170,14 @@ export const getTodoSummary = (token) => {
   return request.post(`${API_BASE.adminOrder}/getTodoSummary`, { token })
 }
 
+// 主动查询微信退款结果，处理异步退款长期处于 processing 的订单
+export const syncRefundStatus = (token, orderId) => {
+  return request.post(`${API_BASE.adminOrder}/syncRefundStatus`, {
+    token,
+    order_id: orderId
+  })
+}
+
 // 站内提醒中心：角色过滤后的工单、物流和 SLA 待办汇总
 export const getNotificationSummary = (token) => {
   return request.post(`${API_BASE.adminOrder}/getNotificationSummary`, { token })

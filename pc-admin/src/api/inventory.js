@@ -59,3 +59,13 @@ export const useOrderParts = (token, orderId) => {
     order_id: orderId
   })
 }
+
+// 恢复卡在 outbound_processing/outbound_failed 的工单库存状态。
+export const recoverOrderInventory = (token, orderId, action = 'inspect', confirm = false) => {
+  return request.post(`${API_BASE.adminOrder}/recoverOrderInventory`, {
+    token,
+    order_id: orderId,
+    action,
+    confirm
+  })
+}

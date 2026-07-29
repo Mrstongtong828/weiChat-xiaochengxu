@@ -15,7 +15,7 @@ async function verifyAdminToken(token, allowedRoles = ['admin']) {
   const user = res.data[0]
   if (!user || user.disabled) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
   if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
-  if (!allowedRoles.includes(user.role)) throw new Error('无权限执行该操作')
+  if (user.role !== 'superadmin' && !allowedRoles.includes(user.role)) throw new Error('无权限执行该操作')
   return user
 }
 
@@ -39,7 +39,7 @@ module.exports = {
       const params = this.getParams()[0] || {}
       token = params.token
     }
-    await verifyAdminToken(token, ['admin', 'engineer'])
+    await verifyAdminToken(token, ['admin', 'engineer', 'superadmin'])
   },
 
   _after(error, result) {

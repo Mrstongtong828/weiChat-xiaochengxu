@@ -850,7 +850,7 @@
                 <span v-if="resolvePaymentStatus(currentOrder) === 'rejected'" class="payment-rejected-tip">已驳回：{{ currentOrder.paymentRejectReason || '请客户重新上传凭证' }}</span>
                 <span v-if="resolvePaymentStatus(currentOrder) === 'paid'" class="payment-paid-tip">财务已确认到账，可继续处理发票。</span>
                 <el-tooltip
-                  v-if="resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.paymentMethod === 'wechat_pay' && currentOrder.refundStatus !== 'refunded' && canPerformOrderAction('confirm_payment')"
+                  v-if="resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.paymentMethod === 'wechat_pay' && !['refunded', 'processing'].includes(currentOrder.refundStatus) && canPerformOrderAction('confirm_payment')"
                   content="对微信支付订单发起退款（全额/部分），到账以微信结果为准"
                   placement="top"
                 >
@@ -866,6 +866,30 @@
                 </el-tooltip>
                 <span v-if="currentOrder.refundStatus === 'refunded'" class="payment-paid-tip">已退款 ¥{{ ((currentOrder.refundAmountFen || 0) / 100).toFixed(2) }}。</span>
                 <span v-else-if="currentOrder.refundStatus === 'processing'" class="payment-paid-tip">退款处理中…</span>
+                <el-button
+                  v-if="currentOrder.refundStatus === 'processing' && canPerformOrderAction('confirm_payment')"
+                  type="warning"
+                  size="small"
+                  plain
+                  :loading="refundSyncing"
+                  @click="syncCurrentRefundStatus"
+                >
+                  刷新退款状态
+                </el-button>
+                <span v-else-if="currentOrder.refundStatus === 'failed'" class="payment-rejected-tip">退款失败，请核对微信退款单后重试。</span>
+                <span v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus)" class="payment-rejected-tip">
+                  配件出库：{{ currentOrder.inventoryStatus === 'outbound_processing' ? '处理中' : '失败' }}
+                </span>
+                <el-button
+                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('manage_inventory')"
+                  type="warning"
+                  size="small"
+                  plain
+                  :loading="inventoryRecovering"
+                  @click="handleRecoverInventory"
+                >
+                  恢复库存出库
+                </el-button>
               </div>
             </div>
           </el-tab-pane>
@@ -1364,8 +1388,8 @@
 import { ref, reactive, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
-import { getPartList } from '../api/inventory.js'
+import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
@@ -2052,6 +2076,8 @@ const remarkSaving = ref(false)
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
 const refunding = ref(false)
+const refundSyncing = ref(false)
+const inventoryRecovering = ref(false)
 const partPickerVisible = ref(false)
 const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
@@ -3228,6 +3254,59 @@ const handleRefund = async () => {
     ElMessage.error(error.message || '退款失败')
   } finally {
     refunding.value = false
+  }
+}
+
+const syncCurrentRefundStatus = async () => {
+  if (!currentOrder.value || currentOrder.value.refundStatus !== 'processing') return
+  refundSyncing.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const orderId = currentOrder.value._id
+    const result = await syncRefundStatus(token, orderId)
+    ElMessage.success((result && result.msg) || '退款状态已刷新')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === orderId)
+    if (fresh) currentOrder.value = fresh
+  } catch (error) {
+    ElMessage.error(error.message || '刷新退款状态失败')
+  } finally {
+    refundSyncing.value = false
+  }
+}
+
+const handleRecoverInventory = async () => {
+  if (!currentOrder.value || !canPerformOrderAction('manage_inventory')) return
+  inventoryRecovering.value = true
+  const orderId = currentOrder.value._id
+  try {
+    const token = localStorage.getItem('adminToken')
+    const action = currentOrder.value.inventoryStatus === 'outbound_failed' ? 'retry' : 'inspect'
+    const result = await recoverOrderInventory(token, orderId, action)
+    ElMessage.success((result && result.message) || '库存出库状态已恢复')
+  } catch (error) {
+    if (currentOrder.value.inventoryStatus === 'outbound_processing' && /未发现出库流水/.test(error.message || '')) {
+      try {
+        await ElMessageBox.confirm(
+          '未发现该工单的出库流水。请先确认库存没有实际扣减，再重置并重试。',
+          '确认库存未扣减',
+          { confirmButtonText: '确认重置并重试', cancelButtonText: '取消', type: 'warning' }
+        )
+        const token = localStorage.getItem('adminToken')
+        await recoverOrderInventory(token, orderId, 'reset', true)
+        await recoverOrderInventory(token, orderId, 'retry')
+        ElMessage.success('库存出库已重试')
+      } catch (resetError) {
+        if (!isUserCancel(resetError)) ElMessage.error(resetError.message || '库存恢复失败')
+      }
+    } else {
+      ElMessage.error(error.message || '库存恢复失败')
+    }
+  } finally {
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === orderId)
+    if (fresh) currentOrder.value = fresh
+    inventoryRecovering.value = false
   }
 }
 

@@ -615,7 +615,9 @@ async function logSubscriptionMessage(payload = {}) {
   await db.collection('cicada_subscription_logs').add({
     ...payload,
     create_time: Date.now()
-  }).catch(() => {})
+  }).catch(error => {
+    console.error('写工单审计日志失败:', error && error.message)
+  })
 }
 
 async function sendOrderSubscription(order = {}, scene = '', remark = '') {
@@ -763,6 +765,32 @@ function validateTrackingNo(rawNo, company = '') {
     return { ok: false, value, reason: '顺丰运单号应以 SF 开头，请核对单号与快递公司是否匹配' }
   }
   return { ok: true, value, reason: '' }
+}
+
+function buildStatusTimestampUpdate(order = {}, nextStatus = '', now = Date.now()) {
+  const currentStatus = normalizeText(order.status)
+  const next = normalizeText(nextStatus)
+  const update = { status_update_time: now }
+  if (currentStatus !== next) update.status_enter_time = now
+  return update
+}
+
+function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
+  const currentStatus = normalizeText(order.status)
+  const next = normalizeText(nextStatus)
+  if (next === 'received' && ['pending', 'sent'].includes(currentStatus)) {
+    const inbound = getOrderShipInfo(order, 'out')
+    const arrivalState = normalizeText(order.arrival_confirm_status)
+    if (!inbound.trackingNo) return '请先录入寄入物流单号，再确认设备入库'
+    if (arrivalState === 'pending') return '请先完成设备入库确认，不能直接修改为已签收'
+  }
+  if (next === 'shipped' && ['inspecting', 'fixing'].includes(currentStatus)) {
+    const returned = getOrderShipInfo(order, 'back')
+    if (!returned.trackingNo) return '请先录入回寄物流单号，再标记为已回寄'
+    const unpaidReason = blockShipUnpaidReason(order)
+    if (unpaidReason) return unpaidReason
+  }
+  return ''
 }
 
 async function validateTrackingNoBeforeSave(order, rawNo, company, segment = 'back') {
@@ -1112,6 +1140,7 @@ function buildLogisticsImportUpdate(order, item, type, now, importDate = '') {
 
   const updateData = {
     status: nextStatus,
+    ...buildStatusTimestampUpdate(order, nextStatus, now),
     update_time: now
   }
 
@@ -1548,6 +1577,7 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
     })
     .update({
       inventory_status: 'outbound_processing',
+      inventory_processing_at: now,
       update_time: now
     })
   if (!orderLockRes.updated) {
@@ -1602,6 +1632,7 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
       inventory_deducted: true,
       inventory_deduct_time: now,
       inventory_status: 'outbound',
+      inventory_processing_at: 0,
       update_time: now
     })
   } catch (error) {
@@ -1617,6 +1648,7 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
     await db.collection('cicada_orders').doc(order._id).update({
       inventory_deducted: false,
       inventory_status: 'outbound_failed',
+      inventory_processing_at: 0,
       update_time: Date.now()
     })
     throw error
@@ -2634,9 +2666,13 @@ module.exports = {
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
       assertOrderStatusTransition(order.status, status)
+      const prerequisiteError = getStatusTransitionPrerequisiteError(order, status)
+      if (prerequisiteError) return { code: -1, msg: prerequisiteError }
+      const now = Date.now()
       const res = await db.collection('cicada_orders').doc(order_id).update({
         status,
-        update_time: Date.now()
+        ...buildStatusTimestampUpdate(order, status, now),
+        update_time: now
       })
       if (!res.updated) return { code: -1, msg: '工单不存在' }
       await logOrderEvent({
@@ -2682,6 +2718,7 @@ module.exports = {
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
       const updateData = {
         status: 'received',
+        ...buildStatusTimestampUpdate(order, 'received', now),
         arrival_confirm_status: 'confirmed',
         arrival_confirmed_at: now,
         arrival_confirmed_by: normalizeText(currentAdmin._id || currentAdmin.id),
@@ -2911,6 +2948,7 @@ module.exports = {
         let updateData = {
           ship_back_info: shipBackInfo,
           status: 'shipped',
+          ...buildStatusTimestampUpdate(order, 'shipped', now),
           timeline: [
             ...timeline,
             {
@@ -3058,6 +3096,7 @@ module.exports = {
         const timeline = Array.isArray(order.timeline) ? order.timeline : []
         let updateData = {
           status: 'shipped',
+          ...buildStatusTimestampUpdate(order, 'shipped', now),
           ship_back_info: buildReturnShippingInfo(order, item, now),
           timeline: [
             ...timeline,
@@ -3530,6 +3569,9 @@ module.exports = {
       let inventoryResult = null
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
         inventoryResult = await outboundOrderInventory(order, currentAdmin, now)
+        if (inventoryResult && inventoryResult.skipped && /正在进行/.test(inventoryResult.reason || '')) {
+          throw new Error('配件出库仍在处理中，请先完成库存恢复或重试后再确认付款')
+        }
       }
 
       const updateData = {
@@ -3588,6 +3630,75 @@ module.exports = {
       // 库存未自动扣减的告警（报价含配件但未绑定库存）随响应返回，供前端提示运营核对
       const msg = inventoryResult && inventoryResult.warning ? inventoryResult.reason : ''
       return { code: 0, msg, data: { ...updateData, inventoryResult } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 恢复异常的配件出库锁。先核对流水，只有流水与报价完全匹配时才自动补齐订单状态；
+  // 没有任何流水的卡单可在人工确认后 reset，再使用 retry 重新扣减库存。
+  async recoverOrderInventory(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const { order_id, action = 'inspect', confirm = false } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      const found = await db.collection('cicada_orders').doc(order_id).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      if (order.inventory_deducted) return { code: 0, data: { status: 'outbound', recovered: false, message: '该工单已完成配件出库' } }
+      if (!['outbound_processing', 'outbound_failed'].includes(order.inventory_status)) {
+        return { code: -1, msg: `当前库存状态为 ${order.inventory_status || '未处理'}，无需恢复` }
+      }
+
+      if (order.inventory_status === 'outbound_failed' && action === 'retry') {
+        const result = await outboundOrderInventory(order, currentAdmin, Date.now(), { required: true })
+        return { code: 0, data: { status: 'outbound', recovered: true, retry: true, result } }
+      }
+
+      const flowRes = await db.collection('cicada_inventory_flows')
+        .where({ order_id, flow_type: 'outbound' })
+        .limit(200)
+        .get()
+      const flows = flowRes.data || []
+      const lines = getQuoteInventoryLines(order)
+      const expected = new Map()
+      for (const line of lines) {
+        const part = await findInventoryPart(line)
+        const key = part ? String(part._id) : (line.part_id || `code:${line.part_code}`)
+        expected.set(key, (expected.get(key) || 0) + line.quantity)
+      }
+      const actual = new Map()
+      for (const flow of flows) {
+        const key = String(flow.part_id || (flow.part_code ? `code:${flow.part_code}` : ''))
+        if (key) actual.set(key, (actual.get(key) || 0) + Math.max(Number(flow.quantity || 0), 0))
+      }
+      const matches = expected.size > 0 && expected.size === actual.size && [...expected.entries()].every(([key, quantity]) => actual.get(key) === quantity)
+
+      if (matches) {
+        const now = Date.now()
+        await db.collection('cicada_orders').doc(order_id).update({
+          inventory_deducted: true,
+          inventory_deduct_time: order.inventory_deduct_time || now,
+          inventory_status: 'outbound',
+          inventory_processing_at: 0,
+          update_time: now
+        })
+        await logOrderEvent({ order, action: 'inventory_recovery_finalize', actor: currentAdmin, before: { inventory_status: order.inventory_status }, after: { inventory_status: 'outbound', flow_count: flows.length } })
+        return { code: 0, data: { status: 'outbound', recovered: true, mode: 'finalize', flowCount: flows.length } }
+      }
+
+      if (action === 'reset' && confirm === true && flows.length === 0) {
+        const now = Date.now()
+        await db.collection('cicada_orders').doc(order_id).update({ inventory_status: 'outbound_failed', inventory_processing_at: 0, update_time: now })
+        await logOrderEvent({ order, action: 'inventory_recovery_reset', actor: currentAdmin, before: { inventory_status: order.inventory_status }, after: { inventory_status: 'outbound_failed' } })
+        return { code: 0, data: { status: 'outbound_failed', recovered: true, mode: 'reset' } }
+      }
+
+      return {
+        code: -1,
+        msg: flows.length ? '库存流水与报价配件数量不一致，请人工核对后处理' : '未发现出库流水；请确认库存未扣减后使用 confirm=true reset，再执行 retry',
+        data: { status: order.inventory_status, flowCount: flows.length, expected: [...expected.entries()], actual: [...actual.entries()] }
+      }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -3702,6 +3813,48 @@ module.exports = {
       })
 
       return { code: 0, msg: isDone ? '退款成功' : '退款已受理，到账以微信结果为准', data: { ...updateData, wx_status: wxStatus } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 主动查询微信退款单，作为异步退款通知不可用时的兜底对账入口。
+  async syncRefundStatus(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'confirm_payment')
+      const { order_id } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      const found = await db.collection('cicada_orders').doc(order_id).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      if (order.refund_status === 'refunded') return { code: 0, data: { refund_status: 'refunded', unchanged: true } }
+      const outRefundNo = normalizeText(order.refund_out_no)
+      if (!outRefundNo) return { code: -1, msg: '缺少微信退款单号，无法查询' }
+
+      const config = getWechatPayConfig()
+      const result = await requestWechatPay('GET', `/v3/refund/domestic/refunds/${encodeURIComponent(outRefundNo)}`, undefined, config)
+      const wxStatus = normalizeText(result && result.status).toUpperCase()
+      const isSuccess = wxStatus === 'SUCCESS'
+      const isFailed = ['CLOSED', 'ABNORMAL', 'FAILED', 'REFUND_CLOSED'].includes(wxStatus)
+      const nextStatus = isSuccess ? 'refunded' : (isFailed ? 'failed' : 'processing')
+      const refundFen = Number(order.refund_amount_fen || 0) || 0
+      const totalFen = getOrderPaidAmountFen(order)
+      const now = Date.now()
+      const updateData = {
+        refund_status: nextStatus,
+        wechat_refund_id: normalizeText(result && result.refund_id) || order.wechat_refund_id || '',
+        refund_query_time: now,
+        refund_time: isSuccess ? (order.refund_time || now) : (order.refund_time || 0),
+        update_time: now
+      }
+      if (isSuccess && refundFen >= totalFen) updateData.payment_status = 'refunded'
+      if (isFailed) updateData.refund_failure_reason = normalizeText(result && (result.reason || result.message))
+      const oldTimeline = Array.isArray(order.timeline) ? order.timeline : []
+      const title = isSuccess ? '退款已完成' : (isFailed ? '退款失败' : '退款仍在处理中')
+      updateData.timeline = [...oldTimeline, { title, desc: `微信退款状态：${wxStatus || '未知'}`, time: now, done: isSuccess || isFailed }]
+      await db.collection('cicada_orders').doc(order_id).update(updateData)
+      await logOrderEvent({ order, action: 'sync_refund_status', actor: currentAdmin, before: { refund_status: order.refund_status || '' }, after: { refund_status: nextStatus, wx_status: wxStatus } })
+      return { code: 0, msg: isSuccess ? '退款已完成' : (isFailed ? '微信退款失败' : '退款仍在处理中'), data: { ...updateData, wx_status: wxStatus } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
