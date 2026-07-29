@@ -123,11 +123,11 @@
 
 <script setup>
 import { computed, ref, onMounted } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onHide, onShow, onUnload } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import { getMyDevices, getRepairList, getRepairStats } from '@/api/repair'
-import { countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
+import { countStatusBreakdown, countStatusBuckets } from '@/pages/index/composables/statusMeta.js'
 import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { uploadToCloud } from '@/api/cloudHelpers.js'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
@@ -138,6 +138,8 @@ const currentUser = ref({})
 const repairCounts = ref({ all: 0, pending: 0, fixing: 0, shipped: 0 })
 const statsTodo = ref({ unfinished: 0, payment: 0, receipt: 0, invoice: 0 })
 const productCount = ref(0)
+const REPAIR_STATS_REFRESH_MS = 30000
+let repairStatsRefreshTimer = null
 
 // 头像展示：库里存 cloud:// fileID，需转临时链接才能渲染
 const avatarDisplayUrl = ref('')
@@ -164,8 +166,26 @@ const syncLoginState = () => {
 	}
 }
 
+const stopRepairStatsRefresh = () => {
+	if (!repairStatsRefreshTimer) return
+	clearInterval(repairStatsRefreshTimer)
+	repairStatsRefreshTimer = null
+}
+
+const startRepairStatsRefresh = () => {
+	stopRepairStatsRefresh()
+	repairStatsRefreshTimer = setInterval(() => {
+		if (logged.value) loadRepairCounts()
+	}, REPAIR_STATS_REFRESH_MS)
+}
+
 onMounted(syncLoginState)
-onShow(syncLoginState)
+onShow(() => {
+	syncLoginState()
+	startRepairStatsRefresh()
+})
+onHide(stopRepairStatsRefresh)
+onUnload(stopRepairStatsRefresh)
 
 // 把 cloud:// fileID 转成可显示的临时链接；已是 http(s) 直链则原样用
 const resolveAvatar = async (raw) => {
@@ -250,10 +270,11 @@ const saveProfile = async () => {
 }
 
 const statusItems = computed(() => [
-	{ id: 'all', title: '全部', count: repairCounts.value.all, color: '#1E6FE0', bg: 'rgba(30, 111, 224, 0.09)', icon: 'invoice', type: 0 },
+	// “全部”入口保留所有历史工单，角标只显示尚未结束的工单数量。
+	{ id: 'all', title: '全部', count: repairCounts.value.pending + repairCounts.value.fixing + repairCounts.value.shipped, color: '#1E6FE0', bg: 'rgba(30, 111, 224, 0.09)', icon: 'invoice', type: 0 },
 	{ id: 'pending', title: '待处理', count: repairCounts.value.pending, color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.09)', icon: 'track', type: 1 },
-	{ id: 'fixing', title: '维修中', count: repairCounts.value.fixing, color: '#0EA5E9', bg: 'rgba(14, 165, 233, 0.09)', icon: 'repair', type: 2 },
-	{ id: 'shipped', title: '已发货', count: repairCounts.value.shipped, color: '#10B981', bg: 'rgba(16, 185, 129, 0.09)', icon: 'truck', type: 3 }
+	{ id: 'fixing', title: '处理中', count: repairCounts.value.fixing, color: '#0EA5E9', bg: 'rgba(14, 165, 233, 0.09)', icon: 'repair', type: 2 },
+	{ id: 'shipped', title: '已回寄', count: repairCounts.value.shipped, color: '#10B981', bg: 'rgba(16, 185, 129, 0.09)', icon: 'truck', type: 3 }
 ])
 
 // 高频待办行：type 为 index.vue openModule typeMap 的数字索引（4=未开票，6=待付款，3=已回寄）
@@ -268,7 +289,10 @@ const loadRepairCounts = async () => {
 	try {
 		const stats = await getRepairStats()
 		if (stats && typeof stats === 'object' && (stats.total !== undefined || stats.byStatus)) {
-			repairCounts.value = {
+			const breakdown = stats.byStatus && typeof stats.byStatus === 'object'
+				? countStatusBreakdown(stats.byStatus)
+				: null
+			repairCounts.value = breakdown || {
 				all: Number(stats.total || 0),
 				pending: Number(stats.pending || 0),
 				fixing: Number(stats.fixing || 0),

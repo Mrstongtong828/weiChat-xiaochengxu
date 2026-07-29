@@ -117,19 +117,20 @@ export const deriveDisplayStatus = (order = {}) => {
 	return '维修中'
 }
 
-// 四个角标桶，口径与后端 getOrderStats 完全一致（pending=已提交/运输中/已签收/检测中）
+// 四个角标桶，口径与后端 getOrderStats 完全一致。
+// 检测代表售后已经开始处理，因此与维修中统一进入 fixing 提醒。
 export const STATUS_BUCKETS = [
 	{ id: 'all', title: '全部', keys: CANONICAL_STATUS_KEYS },
-	{ id: 'pending', title: '待处理', keys: ['pending', 'sent', 'received', 'inspecting'] },
-	{ id: 'fixing', title: '维修中', keys: ['fixing'] },
-	{ id: 'shipped', title: '已发货', keys: ['shipped'] }
+	{ id: 'pending', title: '待处理', keys: ['pending', 'sent', 'received'] },
+	{ id: 'fixing', title: '处理中', keys: ['inspecting', 'fixing'] },
+	{ id: 'shipped', title: '已回寄', keys: ['shipped'] }
 ]
 
 // 返回订单所属角标桶 id（completed/cancelled 仅计入 all）
 export const getStatusBucket = (order = {}) => {
 	const key = resolveStatusKey(order)
-	if (['pending', 'sent', 'received', 'inspecting'].includes(key)) return 'pending'
-	if (key === 'fixing') return 'fixing'
+	if (['pending', 'sent', 'received'].includes(key)) return 'pending'
+	if (['inspecting', 'fixing'].includes(key)) return 'fixing'
 	if (key === 'shipped') return 'shipped'
 	return ''
 }
@@ -143,6 +144,17 @@ export const countStatusBuckets = (list = []) => {
 		if (bucket && counts[bucket] !== undefined) counts[bucket] += 1
 	})
 	return counts
+}
+
+// 根据后端原始八态统计生成角标。前端优先使用它，避免新旧云函数的汇总口径不同步。
+export const countStatusBreakdown = (byStatus = {}) => {
+	const count = (key) => Math.max(0, Number(byStatus[key]) || 0)
+	return {
+		all: CANONICAL_STATUS_KEYS.reduce((sum, key) => sum + count(key), 0),
+		pending: count('pending') + count('sent') + count('received'),
+		fixing: count('inspecting') + count('fixing'),
+		shipped: count('shipped')
+	}
 }
 
 export const packageStatusMeta = {

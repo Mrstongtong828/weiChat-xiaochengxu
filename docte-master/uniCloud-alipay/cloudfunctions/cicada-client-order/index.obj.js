@@ -4,6 +4,7 @@ const { assertOrderStatusTransition, canTransitionOrderStatus } = loadWorkflowMo
 const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
+const { getMiniStatusBucket } = require('./order-status')
 const {
   PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES,
   PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES,
@@ -108,16 +109,6 @@ function loadPaymentProofModule() {
   } catch (packageError) {
     return require('../common/cicada-payment-proof')
   }
-}
-
-// The Mini Program exposes four top-level order buckets. Keep this mapping at
-// the API boundary so status transitions in the admin workflow drive the UI.
-function getMiniStatusBucket(status = '') {
-  const key = String(status || '').trim()
-  if (['pending', 'sent', 'received', 'inspecting'].includes(key)) return 'pending'
-  if (key === 'fixing') return 'fixing'
-  if (key === 'shipped') return 'shipped'
-  return ''
 }
 
 function projectClientOrder(order = {}, extras = {}) {
