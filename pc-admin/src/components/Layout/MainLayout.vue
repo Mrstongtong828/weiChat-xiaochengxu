@@ -41,7 +41,7 @@
           <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
         </div>
         <div class="header-actions">
-          <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="440" trigger="click" @show="loadNotifications()">
+          <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="isMobile ? 296 : 440" trigger="click" @show="loadNotifications()">
             <template #reference>
               <el-badge :value="notificationTotal" :max="99" :hidden="!notificationTotal" class="notification-badge">
                 <el-button circle text class="notification-trigger" aria-label="打开提醒中心">
@@ -654,10 +654,54 @@ onUnmounted(() => { window.removeEventListener('resize', checkMobile) })
 .content-wrapper { width: 100%; max-width: none; margin: 0; }
 .profile-avatar { display:flex; flex-direction:column; align-items:center; padding: 8px 0 24px; }
 @media screen and (max-width: 768px) {
-  .sidebar { position: fixed; top: 0; bottom: 0; left: 0; transform: translateX(-100%); }
+  .main-layout { height: 100dvh; overflow: hidden; }
+  .mobile-mask { backdrop-filter: blur(2px); }
+  .sidebar {
+    width: min(86vw, 320px);
+    min-height: 100dvh;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    box-shadow: 18px 0 40px rgba(15, 23, 42, 0.18);
+  }
   .sidebar.open { transform: translateX(0); }
-  .top-header { padding: 0 16px; }
-  .breadcrumb-title { font-size: 20px; }
-  .content-area { padding: 16px; }
+  .sidebar-logo { padding: 16px 18px 12px; }
+  .logo-card { height: 60px; border-radius: 8px; }
+  .logo-card img { width: 176px; max-height: 36px; }
+  .nav-label { padding: 12px 26px 7px; }
+  .el-menu-vertical { padding: 0 16px 10px; gap: 5px; }
+  :deep(.el-menu-item) { height: 50px; padding: 0 14px !important; font-size: 15px; }
+  :deep(.el-menu-item .el-icon) { width: 30px; height: 30px; margin-right: 10px; }
+  .sidebar-footer { padding: 12px 16px 16px; }
+  .status-card { padding: 14px; border-radius: 8px; }
+  .top-header {
+    height: 62px;
+    padding: 0 12px;
+    gap: 10px;
+  }
+  .header-left { min-width: 0; gap: 10px; }
+  .header-actions { flex-shrink: 0; gap: 8px; }
+  .hamburger { flex: 0 0 auto; font-size: 22px; }
+  .breadcrumb-title {
+    min-width: 0;
+    overflow: hidden;
+    color: #172033;
+    font-size: 17px;
+    line-height: 1.25;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .visit-miniapp-btn { display: none; }
+  .notification-trigger { width: 34px; height: 34px; }
+  .admin-avatar { width: 34px !important; height: 34px !important; }
+  .content-area {
+    overflow-x: hidden;
+    padding: 12px 12px 28px;
+    overscroll-behavior: contain;
+  }
+  .content-wrapper { min-width: 0; }
+  :deep(.el-dialog) { width: calc(100vw - 24px) !important; max-width: 400px; }
 }
 </style>

@@ -520,4 +520,91 @@ onMounted(() => {
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-header { flex-direction: column; align-items: flex-start; gap: 6px; }
 }
+
+@media screen and (max-width: 600px) {
+  .home-page { gap: 14px; }
+  .hero-card {
+    min-height: 0;
+    border-radius: 8px;
+    background-position: 42% center;
+  }
+  .hero-card::after {
+    background: linear-gradient(90deg, rgba(13, 43, 102, .42), rgba(37, 99, 235, .46));
+  }
+  .hero-copy {
+    min-height: 0;
+    max-width: none;
+    padding: 52px 18px 18px;
+  }
+  .hero-copy h2 { margin-bottom: 6px; font-size: 24px; line-height: 1.2; }
+  .hero-copy p { font-size: 14px; line-height: 1.4; }
+  .hero-actions { width: 100%; gap: 8px; margin-top: 16px; }
+  .hero-actions :deep(.hero-action) { flex: 1 1 0; min-width: 0; height: 38px; margin: 0; }
+  .hero-clock {
+    top: 17px;
+    right: auto;
+    left: 18px;
+    transform: none;
+    text-align: left;
+  }
+  .clock-date { font-size: 12px; font-weight: 600; opacity: .92; }
+
+  .overview-section { gap: 9px; }
+  .overview-title { width: 100%; align-items: flex-start; gap: 8px; }
+  .overview-title :deep(.el-tag) { flex: 0 0 auto; }
+  .overview-hint { min-width: 0; font-size: 12px; line-height: 1.5; }
+  .overview-grid { gap: 8px; }
+  .overview-card { min-height: 132px; }
+  .overview-card :deep(.el-card__body) { min-height: 132px; padding: 12px; }
+  .overview-card-head { position: static; }
+  .overview-icon { width: 34px; height: 34px; border-radius: 8px; font-size: 17px; }
+  .overview-label {
+    min-height: 36px;
+    margin: 8px 0 0;
+    font-size: 13px;
+    line-height: 18px;
+  }
+  .overview-value {
+    margin: 2px 0 0;
+    font-size: 23px;
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+  .overview-value small { margin-left: 4px; font-size: 11px; }
+
+  .dashboard-section, .todo-section { gap: 8px; }
+  .dashboard-header { margin-top: 2px; align-items: center; }
+  .dashboard-header > div { min-width: 0; }
+  .dashboard-header h3, .section-header h3 { font-size: 17px; line-height: 22px; }
+  .dashboard-refresh { padding: 0; }
+  .dashboard-grid { gap: 10px; }
+  .reference-chart-card, .reference-chart-card :deep(.el-card__body) { min-height: 278px; }
+  .reference-chart-card :deep(.el-card__body) { padding: 14px; }
+  .reference-chart-card :deep(.ring-chart) { height: 226px; }
+  .reference-chart-card .ring-card-title { font-size: 14px; }
+  .money-card { min-height: 292px; }
+  .money-value { font-size: 32px; }
+  .money-sub { flex-wrap: wrap; gap: 5px; font-size: 12px; }
+  .money-chart :deep(.line-chart) { height: 146px; }
+  .money-foot { min-height: 30px; display: flex; align-items: flex-end; }
+
+  .section-header { align-items: center; }
+  .todo-grid { gap: 8px; }
+  .todo-card, .todo-card :deep(.el-card__body) { min-height: 108px; }
+  .todo-card :deep(.el-card__body) { padding: 12px; }
+  .todo-card-inner { grid-template-columns: 38px minmax(0, 1fr); gap: 10px; }
+  .todo-icon { width: 38px; height: 38px; border-radius: 9px; font-size: 17px; }
+  .todo-title :deep(.el-tag) { min-width: 40px; }
+}
+
+@media screen and (max-width: 340px) {
+  .overview-grid { grid-template-columns: 1fr; }
+  .overview-card, .overview-card :deep(.el-card__body) { min-height: 112px; }
+  .overview-label { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overview-card, .todo-card { transition: none; }
+  .overview-card:hover, .todo-card:hover { transform: none; }
+}
 </style>
