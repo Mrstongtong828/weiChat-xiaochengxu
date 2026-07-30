@@ -39,31 +39,32 @@ export const defaultReceiver = [
 ]
 
 export const companyStats = [
-	{ value: '20', label: '年品牌积累', desc: '品牌发展经验' },
-	{ value: '27', label: '产品线', desc: '覆盖诊疗场景' },
-	{ value: '195', label: '出口国家', desc: '服务全球市场' },
-	{ value: '150', label: '专利成果', desc: '持续研发创新' }
+	{ value: '20+', label: '年品牌积累', desc: '品牌发展经验' },
+	{ value: '20+', label: '产品线', desc: '覆盖专业医疗领域' },
+	{ value: '100+', label: '出口国家', desc: '服务全球市场' },
+	{ value: '150+', label: '专利成果', desc: '持续研发创新' }
 ]
 
 export const companyIntro = [
-	'CICADA Dental（思科达 / 登煌医疗）是扎根佛山的口腔医疗设备研发制造品牌。',
-	'公司从光固化设备制造起步，逐步发展为覆盖根管治疗设备、牙科手机、电动微马达、牙齿美白仪及临床辅助器械的综合口腔解决方案提供商。',
-	'我们坚持以安全与质量为核心，通过研发、制造、售后和培训协同，为牙科专业人士提供稳定、高效、易用的设备支持。'
+	'佛山市登煌医疗器械有限公司',
+	'佛山市登煌医疗器械有限公司（旗下品牌CICADA 思科达）自2005年成立以来，专注口腔医疗器械的研发、制造与销售。公司拥有37项商标与150余项国家专利，产品涵盖根管治疗、牙科手机、种植设备、光固化机及辅助设备等五大产品线，提供口腔临床系统化解决方案。',
+	'公司全面通过ISO 13485质量管理体系认证，核心产品获CE、FDA等国际认证，依托自主研发、制造、检测一体化产业链，实行严格质量管控。产品已销往全球百余个国家，与超1000家企业建立长期合作。',
+	'登煌医疗坚持以“品质为先、创新致远、客户至上”为准则，持续提升产品与服务水平，致力于成为全球领先的牙科设备制造商，助力全球口腔医疗事业发展。'
 ]
 
 export const companyAdvantages = [
-	{ icon: 'lightning', title: '研发制造', desc: '高标准研发中心，配套来自德国、日本、韩国等地的精密设备，支撑产品快速迭代。' },
-	{ icon: 'microscope', title: '质量合规', desc: '围绕医疗器械安全标准建立质量体系，产品满足国内外相关行业标准与注册要求。' }
+	{ icon: 'lightning', title: '研发制造', desc: '高标准研发中心，配备德国进口精密生产设备，持续驱动产品迭代升级。' },
+	{ icon: 'microscope', title: '质量合规', desc: '依据医疗器械安全规范搭建完善质量管理体系，产品符合国内外行业标准与注册准入要求。' }
 ]
 
 export const companyProductLines = [
-	{ title: '根管治疗设备', desc: '覆盖根管马达、根管测量、热牙胶充填、冲洗等临床根管治疗场景。', gradient: 'linear-gradient(135deg, #2C5985 0%, #6BB0CC 100%)' },
-	{ title: '牙科手机与电动微马达', desc: '牙科光固化机、高速气涡轮手机、低速气动马达手机、牙科低压电动马达满足各类牙体美学修复需求。', gradient: 'linear-gradient(135deg, #3D6F9E 0%, #6BB0CC 100%)' },
-	{ title: '光固化与美白设备', desc: '以光固化灯为起点，延伸到牙齿美白仪以及修复、美学相关设备。', gradient: 'linear-gradient(135deg, #0A4FB8 0%, #6BB0CC 100%)' },
-	{ title: '洁牙抛光与辅助器械', desc: '覆盖喷砂抛光、临床器械及耗材配套，满足诊所日常诊疗效率需求。', gradient: 'linear-gradient(135deg, #1D8A96 0%, #7BC9C7 100%)' }
+	{ title: '根管系列', desc: '覆盖根管马达、根管锉、根尖定位、热牙胶充填、根管冲洗等整套根管诊疗方案。', image: '/static/product-root-canal.png', gradient: 'linear-gradient(135deg, #2C5985 0%, #6BB0CC 100%)' },
+	{ title: '修复系列', desc: '牙科光固化机、高速气涡轮手机、低速气动马达手机、牙科低压电动马达满足各类牙体美学修复需求。', image: '/static/product-restoration.png', gradient: 'linear-gradient(135deg, #3D6F9E 0%, #6BB0CC 100%)' },
+	{ title: '种植系列', desc: '种植机、种植手机、清水仪、种植扭力扳手，适配各类种植外科修复手术。', image: '/static/product-implant.png', gradient: 'linear-gradient(135deg, #0A4FB8 0%, #6BB0CC 100%)' },
+	{ title: '预防辅助系列', desc: '洁牙抛光设备，助力门诊基础预防诊疗。', image: '/static/product-prevention.png', gradient: 'linear-gradient(135deg, #1D8A96 0%, #7BC9C7 100%)' }
 ]
 
-export const companyServiceTags = ['及时售后', '临床培训', '全球服务网络']
+export const companyServiceTags = ['售后快速响应', '临床技术支持', '全球服务布局']
 
 export const defaultStatusItems = [
 	{ id: 'all', title: '全部', count: 0, color: '#1E6FE0', bg: 'rgba(30, 111, 224, 0.09)', icon: 'invoice', type: 0 },

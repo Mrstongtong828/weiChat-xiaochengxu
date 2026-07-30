@@ -6,7 +6,7 @@
 
 		<view class="page-body">
 			<view class="company-hero">
-				<image class="hero-image" src="/static/company-intro-header.jpg" mode="aspectFill"></image>
+				<image class="hero-image" src="/static/company-intro-header-v2.jpg" mode="aspectFill"></image>
 			</view>
 
 			<view class="stats-grid">
@@ -19,7 +19,11 @@
 
 			<view class="intro-card">
 				<text class="intro-label">公司简介</text>
-				<text v-for="item in introParagraphs" :key="item" class="intro-text">{{ item }}</text>
+				<text
+					v-for="(item, index) in introParagraphs"
+					:key="item"
+					:class="['intro-text', { 'intro-text-title': index === 0 }]"
+				>{{ item }}</text>
 			</view>
 
 			<view class="section">
@@ -29,8 +33,16 @@
 				</view>
 				<view class="business-list">
 					<view v-for="(item, index) in productLines" :key="item.title" class="business-card">
-						<view class="business-visual" :style="{ background: item.gradient }">
-							<view :class="['device-shape', 'device-' + (index % 3)]"></view>
+						<view class="business-visual" :style="{ background: item.image ? '#FFFFFF' : item.gradient }">
+							<image
+								v-if="item.image"
+								class="business-image tap"
+								:src="item.image"
+								mode="aspectFill"
+								show-menu-by-longpress
+								@click.stop="previewProductImage(item)"
+							></image>
+							<view v-else :class="['device-shape', 'device-' + (index % 3)]"></view>
 						</view>
 						<view class="business-copy">
 							<text class="business-title">{{ item.title }}</text>
@@ -67,9 +79,9 @@
 				<view class="auth-card">
 					<view class="auth-title-row">
 						<view class="icon-cert"><view></view></view>
-						<text>医疗器械质量体系背书</text>
+						<text>医疗器械质量体系保障</text>
 					</view>
-					<text class="auth-desc">CICADA 始终坚持医疗器械质量体系标准，覆盖口腔医疗设备研发、生产与合规交付关键环节。具体资质证照以下方公示为准。</text>
+					<text class="auth-desc">CICADA 产品拥有 ISO13485、CE、FDA 及国内医疗器械注册资质，覆盖口腔设备研发、生产、合规交付全流程。</text>
 					<view v-if="qualifications.length" class="qual-list">
 						<view v-for="(item, index) in qualifications" :key="index" class="qual-item">
 							<text class="qual-name">{{ item.name }}</text>
@@ -93,8 +105,10 @@
 					<text>服务理念</text>
 				</view>
 				<view class="service-card">
-					<text class="service-title">Serve Global Dental Specialist</text>
-					<text class="service-desc">我们服务全球牙科专业人士，不只提供设备，也重视售后支持、客户体验与临床技术交流，帮助诊所提升诊疗效率与设备使用体验。</text>
+					<text class="service-title">追求极致稳定性</text>
+					<text class="service-slogan">Make it Worth it</text>
+					<text class="service-desc">立足极致可靠的产品，面向全球牙科医师与合作伙伴。</text>
+					<text class="service-desc">CICADA 思科达不止提供稳定优质的口腔设备，依托快速售后响应、临床技术支持与全球服务布局，持续为客户创造长期价值，让每一份选择皆有所值。</text>
 					<view class="service-tags">
 						<text v-for="item in serviceTags" :key="item">{{ item }}</text>
 					</view>
@@ -237,47 +251,58 @@ const openPolicy = (type) => {
 }
 
 const stats = [
-	{ value: '20', label: '年品牌积累', desc: '品牌发展经验' },
-	{ value: '27', label: '产品线', desc: '覆盖诊疗场景' },
-	{ value: '195', label: '出口国家', desc: '服务全球市场' },
-	{ value: '150', label: '专利成果', desc: '持续研发创新' }
+	{ value: '20+', label: '年品牌积累', desc: '品牌发展经验' },
+	{ value: '20+', label: '产品线', desc: '覆盖专业医疗领域' },
+	{ value: '100+', label: '出口国家', desc: '服务全球市场' },
+	{ value: '150+', label: '专利成果', desc: '持续研发创新' }
 ]
 
 const introParagraphs = [
-	'CICADA Dental（思科达 / 登煌医疗）是扎根佛山的口腔医疗设备研发制造品牌。',
-	'公司从光固化设备制造起步，逐步发展为覆盖根管治疗设备、牙科手机、电动微马达、牙齿美白仪及临床辅助器械的综合口腔解决方案提供商。',
-	'我们坚持以安全与质量为核心，通过研发、制造、售后和培训协同，为牙科专业人士提供稳定、高效、易用的设备支持。'
+	'佛山市登煌医疗器械有限公司',
+	'佛山市登煌医疗器械有限公司（旗下品牌CICADA 思科达）自2005年成立以来，专注口腔医疗器械的研发、制造与销售。公司拥有37项商标与150余项国家专利，产品涵盖根管治疗、牙科手机、种植设备、光固化机及辅助设备等五大产品线，提供口腔临床系统化解决方案。',
+	'公司全面通过ISO 13485质量管理体系认证，核心产品获CE、FDA等国际认证，依托自主研发、制造、检测一体化产业链，实行严格质量管控。产品已销往全球百余个国家，与超1000家企业建立长期合作。',
+	'登煌医疗坚持以“品质为先、创新致远、客户至上”为准则，持续提升产品与服务水平，致力于成为全球领先的牙科设备制造商，助力全球口腔医疗事业发展。'
 ]
 
 const advantages = [
-	{ icon: 'lightning', title: '研发制造', desc: '高标准研发中心，配套来自德国、日本、韩国等地的精密设备，支撑产品快速迭代。' },
-	{ icon: 'microscope', title: '质量合规', desc: '围绕医疗器械安全标准建立质量体系，产品满足国内外相关行业标准与注册要求。' }
+	{ icon: 'lightning', title: '研发制造', desc: '高标准研发中心，配备德国进口精密生产设备，持续驱动产品迭代升级。' },
+	{ icon: 'microscope', title: '质量合规', desc: '依据医疗器械安全规范搭建完善质量管理体系，产品符合国内外行业标准与注册准入要求。' }
 ]
 
 const productLines = [
 	{
-		title: '根管治疗设备',
-		desc: '覆盖根管马达、根管测量、热牙胶充填、冲洗等临床根管治疗场景。',
+		title: '根管系列',
+		desc: '覆盖根管马达、根管锉、根尖定位、热牙胶充填、根管冲洗等整套根管诊疗方案。',
+		image: '/static/product-root-canal.png',
 		gradient: 'linear-gradient(135deg, #2C5985 0%, #6BB0CC 100%)'
 	},
 	{
-		title: '牙科手机与电动微马达',
+		title: '修复系列',
 		desc: '牙科光固化机、高速气涡轮手机、低速气动马达手机、牙科低压电动马达满足各类牙体美学修复需求。',
+		image: '/static/product-restoration.png',
 		gradient: 'linear-gradient(135deg, #3D6F9E 0%, #6BB0CC 100%)'
 	},
 	{
-		title: '光固化与美白设备',
-		desc: '以光固化灯为起点，延伸到牙齿美白仪及修复、美学相关设备。',
+		title: '种植系列',
+		desc: '种植机、种植手机、清水仪、种植扭力扳手，适配各类种植外科修复手术。',
+		image: '/static/product-implant.png',
 		gradient: 'linear-gradient(135deg, #0A4FB8 0%, #6BB0CC 100%)'
 	},
 	{
-		title: '洁牙抛光与辅助器械',
-		desc: '覆盖喷砂抛光、临床器械及耗材配套，满足诊所日常诊疗效率需求。',
+		title: '预防辅助系列',
+		desc: '洁牙抛光设备，助力门诊基础预防诊疗。',
+		image: '/static/product-prevention.png',
 		gradient: 'linear-gradient(135deg, #1D8A96 0%, #7BC9C7 100%)'
 	}
 ]
 
-const serviceTags = ['及时售后', '临床培训', '全球服务网络']
+const previewProductImage = (item = {}) => {
+	const urls = productLines.map(product => product.image).filter(Boolean)
+	if (!item.image || !urls.length) return
+	uni.previewImage({ current: item.image, urls })
+}
+
+const serviceTags = ['售后快速响应', '临床技术支持', '全球服务布局']
 
 const tabs = [
 	{ id: 'home', label: '首页', icon: 'home' },
@@ -374,7 +399,8 @@ const copyEmail = () => {
 .company-hero {
 	position: relative;
 	margin-top: 12rpx;
-	height: 480rpx;
+	width: 100%;
+	aspect-ratio: 1051 / 645;
 	overflow: hidden;
 	border-radius: 28rpx;
 	background: linear-gradient(135deg, #1A3C5C 0%, #2C5985 50%, #4A7BA6 100%);
@@ -386,6 +412,8 @@ const copyEmail = () => {
 	inset: 0;
 	width: 100%;
 	height: 100%;
+	transform: scale(1.012);
+	transform-origin: 50% 50%;
 }
 
 .stats-grid {
@@ -454,6 +482,14 @@ const copyEmail = () => {
 	line-height: 1.7;
 	color: #324563;
 	letter-spacing: 0.4rpx;
+}
+
+.intro-text-title {
+	margin-top: 0;
+	font-size: 30rpx;
+	font-weight: 800;
+	line-height: 1.35;
+	color: #0F1F3A;
 }
 
 .section {
@@ -679,6 +715,16 @@ const copyEmail = () => {
 	color: #FFFFFF;
 }
 
+.service-slogan {
+	display: block;
+	margin-top: 8rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	line-height: 1.3;
+	letter-spacing: 0.8rpx;
+	color: rgba(255, 255, 255, 0.92);
+}
+
 .service-desc {
 	display: block;
 	margin-top: 16rpx;
@@ -713,6 +759,12 @@ const copyEmail = () => {
 	flex-shrink: 0;
 	overflow: hidden;
 	border-radius: 16rpx;
+}
+
+.business-image {
+	display: block;
+	width: 100%;
+	height: 100%;
 }
 
 .device-shape {

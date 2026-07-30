@@ -1347,15 +1347,7 @@
 				</view>
 
 				<view class="company-hero">
-					<image class="company-hero-image" src="/static/company-intro-header.jpg" mode="aspectFill"></image>
-					<!-- 新图片已自带文字和Logo，注释掉原有叠加组件以防重叠 -->
-					<!-- <view class="company-hero-mask"></view> -->
-					<!-- <image class="company-hero-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image> -->
-					<!-- <view class="company-hero-title-wrap">
-						<text class="company-hero-kicker">CICADA Dental · 登煌医疗</text>
-						<text class="company-hero-title">20年专注口腔设备研发制造</text>
-						<text class="company-hero-subtitle">从光固化设备起步，持续拓展根管治疗、电动微马达、牙科手机与牙齿美白等专业产品。</text>
-					</view> -->
+					<image class="company-hero-image" src="/static/company-intro-header-v2.jpg" mode="aspectFill"></image>
 				</view>
 
 				<view class="company-stats-grid">
@@ -1368,7 +1360,11 @@
 
 				<view class="company-intro-card">
 					<text class="company-intro-label">公司简介</text>
-					<text v-for="item in companyIntro" :key="item" class="company-intro-text">{{ item }}</text>
+					<text
+						v-for="(item, index) in companyIntro"
+						:key="item"
+						:class="['company-intro-text', { 'company-intro-text-title': index === 0 }]"
+					>{{ item }}</text>
 				</view>
 
 				<view class="company-section">
@@ -1378,8 +1374,16 @@
 					</view>
 					<view class="business-list">
 						<view v-for="(item, index) in companyProductLines" :key="item.title" class="business-card">
-							<view class="business-visual" :style="{ background: item.gradient }">
-								<view :class="['device-shape', 'device-' + (index % 3)]"></view>
+							<view class="business-visual" :style="{ background: item.image ? '#FFFFFF' : item.gradient }">
+								<image
+									v-if="item.image"
+									class="business-image tap"
+									:src="item.image"
+									mode="aspectFill"
+									show-menu-by-longpress
+									@click.stop="previewCompanyProductImage(item)"
+								></image>
+								<view v-else :class="['device-shape', 'device-' + (index % 3)]"></view>
 							</view>
 							<view class="business-copy">
 								<text class="business-title">{{ item.title }}</text>
@@ -1397,9 +1401,9 @@
 					<view class="auth-card">
 						<view class="auth-head">
 							<view class="cert-icon"></view>
-							<text>医疗器械质量体系背书</text>
+							<text>医疗器械质量体系保障</text>
 						</view>
-						<text class="auth-desc">CICADA 产品已取得 ISO13485、CE、FDA 及国内产品注册等资质，覆盖口腔医疗设备研发、生产与合规交付关键环节。</text>
+						<text class="auth-desc">CICADA 产品拥有 ISO13485、CE、FDA 及国内医疗器械注册资质，覆盖口腔设备研发、生产、合规交付全流程。</text>
 					</view>
 					<view class="adv-grid">
 						<view v-for="item in companyAdvantages" :key="item.title" class="adv-card">
@@ -1416,8 +1420,10 @@
 						<text>服务理念</text>
 					</view>
 					<view class="company-service-card">
-						<text class="company-service-title">Serve Global Dental Specialist</text>
-						<text class="company-service-desc">我们服务全球牙科专业人士，不只提供设备，也重视售后支持、客户体验与临床技术交流，帮助诊所提升诊疗效率与设备使用体验。</text>
+						<text class="company-service-title">追求极致稳定性</text>
+						<text class="company-service-slogan">Make it Worth it</text>
+						<text class="company-service-desc">立足极致可靠的产品，面向全球牙科医师与合作伙伴。</text>
+						<text class="company-service-desc">CICADA 思科达不止提供稳定优质的口腔设备，依托快速售后响应、临床技术支持与全球服务布局，持续为客户创造长期价值，让每一份选择皆有所值。</text>
 						<view class="company-service-tags">
 							<text v-for="item in companyServiceTags" :key="item">{{ item }}</text>
 						</view>
@@ -1425,11 +1431,8 @@
 				</view>
 
 				<view class="follow-card">
-					<view class="qr-image-wrap company-qr">
-						<image class="qr-image" :src="wechatInfo.qrcodeUrl" mode="aspectFill" show-menu-by-longpress></image>
-					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
+					<text class="follow-desc">关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
 					<official-account class="official-account-btn"></official-account>
 				</view>
 			</view>
@@ -5554,6 +5557,12 @@ const onCancelAccount = () => {
 	})
 }
 
+const previewCompanyProductImage = (item = {}) => {
+	const urls = companyProductLines.map(product => product.image).filter(Boolean)
+	if (!item.image || !urls.length) return
+	uni.previewImage({ current: item.image, urls })
+}
+
 const go = (id, type) => {
 	if (tabRoutes[id]) {
 		activeTab.value = id
@@ -7163,7 +7172,8 @@ onUnmounted(() => {
 
 .company-hero {
 	position: relative;
-	height: 480rpx;
+	width: 100%;
+	aspect-ratio: 1051 / 645;
 	overflow: hidden;
 	border-radius: 28rpx;
 	background: linear-gradient(135deg, #1A3C5C 0%, #2C5985 50%, #4A7BA6 100%);
@@ -7175,58 +7185,8 @@ onUnmounted(() => {
 	inset: 0;
 	width: 100%;
 	height: 100%;
-}
-
-.company-hero-mask {
-	position: absolute;
-	inset: 0;
-	background: linear-gradient(180deg, rgba(15, 46, 102, 0.35) 0%, rgba(15, 31, 58, 0.65) 100%);
-}
-
-.company-hero-logo {
-	position: absolute;
-	top: 28rpx;
-	right: 28rpx;
-	width: 320rpx;
-	height: 96rpx;
-}
-
-.company-hero-title-wrap {
-	position: absolute;
-	left: 0;
-	right: 0;
-	bottom: 0;
-	padding: 72rpx 36rpx 36rpx;
-	display: flex;
-	flex-direction: column;
-	gap: 14rpx;
-	background: linear-gradient(180deg, transparent 0%, rgba(15, 31, 58, 0.55) 100%);
-}
-
-.company-hero-kicker {
-	align-self: flex-start;
-	padding: 8rpx 16rpx;
-	border: 1rpx solid rgba(255, 255, 255, 0.42);
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.14);
-	font-size: 22rpx;
-	line-height: 1.2;
-	color: #FFFFFF;
-}
-
-.company-hero-title {
-	font-size: 36rpx;
-	font-weight: 700;
-	line-height: 1.3;
-	color: #FFFFFF;
-	letter-spacing: 1.2rpx;
-}
-
-.company-hero-subtitle {
-	width: 92%;
-	font-size: 24rpx;
-	line-height: 1.58;
-	color: rgba(255, 255, 255, 0.86);
+	transform: scale(1.012);
+	transform-origin: 50% 50%;
 }
 
 .company-stats-grid {
@@ -7295,6 +7255,14 @@ onUnmounted(() => {
 	line-height: 1.7;
 	color: #324563;
 	letter-spacing: 0.4rpx;
+}
+
+.company-intro-text-title {
+	margin-top: 0;
+	font-size: 30rpx;
+	font-weight: 800;
+	line-height: 1.35;
+	color: #0F1F3A;
 }
 
 .company-section {
@@ -7487,6 +7455,12 @@ onUnmounted(() => {
 	border-radius: 16rpx;
 }
 
+.business-image {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
 .device-shape {
 	position: relative;
 	width: 96rpx;
@@ -7591,6 +7565,16 @@ onUnmounted(() => {
 	font-weight: 800;
 	line-height: 1.3;
 	color: #FFFFFF;
+}
+
+.company-service-slogan {
+	display: block;
+	margin-top: 8rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	line-height: 1.3;
+	letter-spacing: 0.8rpx;
+	color: rgba(255, 255, 255, 0.92);
 }
 
 .company-service-desc {
