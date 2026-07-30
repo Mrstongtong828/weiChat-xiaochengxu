@@ -12,6 +12,7 @@
     "check:staff": "node scripts/check-admin-staff.mjs",
     "check:subscription": "node scripts/check-subscription-config.mjs",
     "check:errors": "node scripts/check-request-error-parser.mjs",
+    "check:print": "node scripts/check-print-templates.mjs",
     "check:security": "node scripts/check-admin-security.mjs",
     "check:warranty": "node scripts/check-warranty-free-flow.mjs",
     "check:logistics": "node scripts/check-logistics-readiness.mjs"
