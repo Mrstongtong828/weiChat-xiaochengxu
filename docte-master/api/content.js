@@ -122,6 +122,18 @@ const displayName = (value) => {
 	return text && !isGeneratedId(text) ? text : ''
 }
 
+const normalizeFaultTextList = (value) => {
+	if (Array.isArray(value)) return value.map(item => String(item || '').trim()).filter(Boolean)
+	return String(value || '')
+		.split(/\n|\uFF1B|;/)
+		.map(item => item.trim())
+		.filter(Boolean)
+}
+
+const normalizeRecommendRepair = (value) => value === true
+	|| value === 1
+	|| ['1', 'true', 'yes', '建议', '建议报修'].includes(String(value || '').trim().toLowerCase())
+
 export const wechatLogin = (data = {}) => {
 	const cloudObject = getUserCloudObject()
 	if (!cloudObject || typeof cloudObject.login !== 'function') {
@@ -252,10 +264,11 @@ export const getSubscriptionConfig = () => getPublicCloudObject()
 	.getSubscriptionConfig({})
 	.then(unwrapCloudResult)
 
-export const getFaultTypes = async () => {
+export const getFaultTypes = async (options = {}) => {
+	const forceRefresh = options.forceRefresh === true
 	const [list, categories] = await Promise.all([
-		getPublicCloudObject().getFaultKb({}).then(unwrapCloudResult),
-		getPublicCloudObject().getCategories({}).then(unwrapCloudResult).catch(() => [])
+		getPublicCloudObject().getFaultKb({ forceRefresh }).then(unwrapCloudResult),
+		getPublicCloudObject().getCategories({ forceRefresh }).then(unwrapCloudResult).catch(() => [])
 	])
 	const categoryMap = Array.isArray(categories)
 		? categories.reduce((map, item) => {
@@ -272,6 +285,7 @@ export const getFaultTypes = async () => {
 			|| displayName(item.productName)
 
 		if (!categoryName) return null
+		const fixSolutions = normalizeFaultTextList(item.fix_solutions || item.fixSolutions || item.solutions || item.solution)
 
 		return {
 			id: item._id,
@@ -279,18 +293,18 @@ export const getFaultTypes = async () => {
 			productTypeId: item.category_id,
 			productType: categoryName,
 			faultName: item.fault_name,
-			relatedQuestions: item.related_questions || [],
-			checkSteps: item.check_steps || [],
-			fixSolutions: item.fix_solutions || [],
-			solutions: item.fix_solutions || [],
-			solution: item.fix_solutions || [],
-			isRecommendRepair: item.is_recommend_repair
+			relatedQuestions: normalizeFaultTextList(item.related_questions || item.relatedQuestions),
+			checkSteps: normalizeFaultTextList(item.check_steps || item.checkSteps),
+			fixSolutions,
+			solutions: fixSolutions,
+			solution: fixSolutions,
+			isRecommendRepair: normalizeRecommendRepair(item.is_recommend_repair || item.isRecommendRepair)
 		}
 	}).filter(Boolean) : []
 }
 
 export const searchFault = async (data = {}) => {
-	const list = await getFaultTypes()
+	const list = await getFaultTypes({ forceRefresh: data.forceRefresh === true })
 	const targetFaultId = data.faultTypeId || data.id
 	const targetFaultName = data.faultName
 	const targetProductType = data.productType || data.productTypeId

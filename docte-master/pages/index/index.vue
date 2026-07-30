@@ -913,16 +913,22 @@
 				</view>
 				<view v-if="diagConfirmVisible" class="diag-result">
 					<view class="module-section-head single"><text>自查结果</text></view>
+					<view v-if="diagLoading" class="diag-sync-tip">正在同步后台最新故障知识库...</view>
+					<view v-if="diagErrorText" class="diag-sync-tip warning">{{ diagErrorText }}</view>
+					<view v-if="diagResult" class="diag-advice-card" :class="{ recommend: diagRecommendRepair }">
+						<text>{{ diagRecommendRepair ? '建议报修' : '可先自查' }}</text>
+						<text>{{ diagRecommendRepair ? '后台知识库建议提交报修，由工程师进一步确认。' : '可先按排查步骤处理，未恢复时再提交报修。' }}</text>
+					</view>
 					<view v-for="section in diagConfirmSections" :key="section.title" class="diag-check-card">
 						<view class="diag-check-head"><view :style="{ backgroundColor: section.color }"></view><text>{{ section.title }}</text></view>
-						<view v-for="(item, index) in section.items" :key="item" class="diag-check-row">
+						<view v-for="(item, index) in section.items" :key="section.title + index" class="diag-check-row">
 							<text>{{ section.numbered ? index + 1 : '·' }}</text>
 							<text>{{ item }}</text>
 						</view>
 					</view>
 					<view class="dual-actions">
 						<view class="ghost-button tap" @click="resetDiag">重新选择</view>
-						<view class="primary-button tap" @click="go('repair')">仍未解决 · 立即报修</view>
+						<view class="primary-button tap" @click="startRepairFromDiag">{{ diagRepairActionText }}</view>
 					</view>
 				</view>
 				<view v-else class="empty-hint">{{ diagEmptyText }}</view>
@@ -2038,6 +2044,8 @@ const diagFaultMap = ref({})
 
 const faultRecords = ref([])
 const diagResult = ref(null)
+const diagLoading = ref(false)
+const diagErrorText = ref('')
 
 const defaultDiagConfirmSections = [
 	{
@@ -2633,7 +2641,7 @@ const pastePackageCode = () => {
 }
 
 const applyFaultTypes = (list = []) => {
-	if (!Array.isArray(list) || !list.length) return
+	if (!Array.isArray(list)) return
 	const productMap = {}
 	const faultMap = {}
 
@@ -2644,14 +2652,55 @@ const applyFaultTypes = (list = []) => {
 
 		if (!faultName) return
 		productMap[productId] = { id: productId, title: productName }
-		if (!faultMap[productId]) faultMap[productId] = []
-		faultMap[productId].push(faultName)
+		if (!faultMap[productId]) faultMap[productId] = new Set()
+		faultMap[productId].add(faultName)
 	})
 
-	if (Object.keys(productMap).length) {
-		diagProducts.value = Object.values(productMap)
-		diagFaultMap.value = faultMap
-		faultRecords.value = list
+	diagProducts.value = Object.values(productMap)
+	diagFaultMap.value = Object.entries(faultMap).reduce((map, [productId, names]) => {
+		map[productId] = Array.from(names)
+		return map
+	}, {})
+	faultRecords.value = list
+
+	if (diagProduct.value && !productMap[diagProduct.value]) {
+		diagProduct.value = ''
+		diagFault.value = ''
+		diagResult.value = null
+		return
+	}
+
+	if (diagProduct.value && diagFault.value) {
+		const currentFaults = diagFaultMap.value[diagProduct.value] || []
+		if (!currentFaults.includes(diagFault.value)) {
+			diagFault.value = ''
+			diagResult.value = null
+			return
+		}
+		diagResult.value = list.find(
+			(item) => (item.productTypeId || item.productType || item.productName) === diagProduct.value
+				&& item.faultName === diagFault.value
+		) || null
+	}
+}
+
+const refreshFaultTypes = async ({ forceRefresh = false, silent = false } = {}) => {
+	if (diagLoading.value) return faultRecords.value
+	if (!silent) diagLoading.value = true
+	diagErrorText.value = ''
+
+	try {
+		const list = await getFaultTypes({ forceRefresh })
+		applyFaultTypes(list)
+		return list
+	} catch (error) {
+		console.warn('fault types fallback:', error)
+		diagErrorText.value = faultRecords.value.length
+			? '最新知识库同步失败，当前显示上一次数据。'
+			: '故障知识库加载失败，请稍后重试。'
+		return faultRecords.value
+	} finally {
+		if (!silent) diagLoading.value = false
 	}
 }
 
@@ -2728,6 +2777,11 @@ const diagFaultOptions = computed(() => {
 	return Array.from(new Set(Object.values(diagFaultMap.value).flat()))
 })
 const diagConfirmVisible = computed(() => Boolean(diagProduct.value && diagFault.value))
+const diagRecommendRepair = computed(() => {
+	const value = diagResult.value?.isRecommendRepair ?? diagResult.value?.is_recommend_repair
+	return value === true || value === 1 || ['1', 'true', 'yes', '建议', '建议报修'].includes(String(value || '').trim().toLowerCase())
+})
+const diagRepairActionText = computed(() => (diagRecommendRepair.value ? '建议报修 · 填写报修单' : '仍未解决 · 立即报修'))
 const diagConfirmSections = computed(() => {
 	if (!diagResult.value) return defaultDiagConfirmSections
 
@@ -4205,6 +4259,10 @@ const openModule = (id, type) => {
 		prefillSurveyContact()
 	}
 
+	if (id === 'diag') {
+		refreshFaultTypes({ forceRefresh: true })
+	}
+
 	if (id === 'repair') {
 		repairStep.value = 1
 		prefillRepairAddress()
@@ -5076,20 +5134,31 @@ const loadFaultResult = async () => {
 		(item) => (item.productTypeId || item.productType || item.productName) === diagProduct.value && item.faultName === diagFault.value
 	)
 	diagResult.value = localRecord || null
+	diagErrorText.value = ''
+	if (diagLoading.value && localRecord) return
+	diagLoading.value = true
 
 	try {
 		const result = await searchFault({
 			productType: diagProduct.value,
 			faultTypeId: localRecord ? (localRecord.faultTypeId || localRecord.id || '') : '',
-			faultName: diagFault.value
+			faultName: diagFault.value,
+			forceRefresh: true
 		})
 		diagResult.value = result || localRecord || null
+		if (!diagResult.value) diagErrorText.value = '暂未找到对应自查方案，请联系售后协助判断。'
 	} catch (error) {
 		console.warn('fault search fallback:', error)
+		diagErrorText.value = localRecord
+			? '最新方案同步失败，当前显示上一次数据。'
+			: '故障方案加载失败，请稍后重试。'
+	} finally {
+		diagLoading.value = false
 	}
 }
 
 const selectDiagOption = (item) => {
+	diagErrorText.value = ''
 	if (diagOpen.value === 'product') {
 		diagProduct.value = item.id
 		if (diagFault.value && !(diagFaultMap.value[item.id] || []).includes(diagFault.value)) {
@@ -5108,6 +5177,33 @@ const resetDiag = () => {
 	diagFault.value = ''
 	diagOpen.value = ''
 	diagResult.value = null
+	diagErrorText.value = ''
+}
+
+const startRepairFromDiag = () => {
+	const productLabel = diagProductLabel.value
+	const faultLabel = diagFault.value
+	const recommendText = diagRecommendRepair.value ? '（知识库建议报修）' : ''
+	const faultSummary = '故障自查：' + productLabel + ' / ' + faultLabel + recommendText
+	let product = repairProducts.value.find(item => !String(item.faultDesc || '').trim())
+
+	if (!product) {
+		repairProductSeed += 1
+		product = defaultRepairProduct(repairProductSeed)
+		repairProducts.value.push(product)
+	}
+
+	if (!String(product.category || '').trim()) product.category = productLabel
+	const currentFaultDesc = String(product.faultDesc || '').trim()
+	if (!currentFaultDesc) {
+		product.faultDesc = faultSummary
+	} else if (!currentFaultDesc.includes(faultLabel)) {
+		product.faultDesc = currentFaultDesc + '\n' + faultSummary
+	}
+
+	repairSectionOpen.value.products = true
+	openModule('repair')
+	uni.showToast({ title: '已带入故障自查信息', icon: 'none' })
 }
 
 const removeVoucher = (productIndex, voucherIndex) => {
@@ -5665,7 +5761,7 @@ onShow(() => {
 onPullDownRefresh(async () => {
 	logBoot('onPullDownRefresh triggered')
 	try {
-		await loadRemoteContent()
+		await loadRemoteContent({ forceFaultRefresh: true })
 	} finally {
 		uni.stopPullDownRefresh()
 	}
@@ -5676,7 +5772,7 @@ onBackPress(() => {
 	return returnFromModule()
 })
 
-const loadRemoteContent = async () => {
+const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 	const tasks = [
 		getWarrantyPolicy()
 			.then((doc) => updateDoc('warranty', doc))
@@ -5713,9 +5809,7 @@ const loadRemoteContent = async () => {
 				}
 			})
 			.catch((error) => console.warn('wechat fallback:', error)),
-		getFaultTypes()
-			.then((list) => applyFaultTypes(list))
-			.catch((error) => console.warn('fault types fallback:', error))
+		refreshFaultTypes({ forceRefresh: forceFaultRefresh, silent: true })
 	]
 
 	if (hasLoginToken()) {
@@ -12192,6 +12286,50 @@ onUnmounted(() => {
 
 .select-row.disabled {
 	opacity: 0.55;
+}
+
+.diag-sync-tip {
+	margin-bottom: 20rpx;
+	padding: 18rpx 22rpx;
+	border-radius: 16rpx;
+	background: #EFF6FF;
+	font-size: 24rpx;
+	line-height: 1.5;
+	color: #1E6FE0;
+}
+
+.diag-sync-tip.warning {
+	background: #FFF7E6;
+	color: #B45309;
+}
+
+.diag-advice-card {
+	margin-bottom: 20rpx;
+	padding: 24rpx 28rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+	border-left: 8rpx solid #10B981;
+	border-radius: 16rpx;
+	background: #ECFDF5;
+	box-sizing: border-box;
+}
+
+.diag-advice-card.recommend {
+	border-left-color: #F59E0B;
+	background: #FFF7E6;
+}
+
+.diag-advice-card > text:first-child {
+	font-size: 27rpx;
+	font-weight: 700;
+	color: #0F1F3A;
+}
+
+.diag-advice-card > text:last-child {
+	font-size: 24rpx;
+	line-height: 1.55;
+	color: #52647F;
 }
 
 .diag-check-card {
