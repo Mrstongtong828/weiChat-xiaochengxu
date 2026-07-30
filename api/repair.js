@@ -47,6 +47,10 @@ const normalizeUrlArray = (...values) => {
   }, []).filter(Boolean)
 }
 
+const normalizeCustomerType = (type = '') => {
+  return ['clinic', 'dealer'].includes(type) ? type : 'clinic'
+}
+
 const normalizeSubmitRepairPayload = (data = {}) => {
   if (data.ship_out_info && data.ship_back_info && Array.isArray(data.items)) {
     return data
@@ -67,6 +71,7 @@ const normalizeSubmitRepairPayload = (data = {}) => {
       logistics_no: data.trackingNo || '',
       send_method: data.sendMethod || ''
     },
+    customer_type: normalizeCustomerType(data.customerType || data.customer_type),
     ship_back_info: {
       name: data.receiverName || data.senderName || '',
       phone: data.receiverPhone || data.senderPhone || '',
@@ -75,6 +80,7 @@ const normalizeSubmitRepairPayload = (data = {}) => {
       unit: data.receiverUnit || ''
     },
     items: products.map((item = {}) => ({
+      product_id: item.productId || item.product_id || '',
       product_name: item.productName || item.name || data.productName || '维修产品',
       product_model: item.productModel || item.model || data.productModel || '',
       sn: item.productSerial || item.serial || data.productSerial || '',

@@ -15,7 +15,7 @@ export const logisticsList = [
 
 export const basics = [
 	{ id: 'repair', title: '立即报修', icon: 'repair', color: '#1E6FE0', bg: '#DCE6FA' },
-	{ id: 'track', title: '维修进度', icon: 'track', color: '#C97A6B', bg: '#F8E2DA' },
+	{ id: 'track', title: '服务进度', icon: 'track', color: '#C97A6B', bg: '#F8E2DA' },
 	{ id: 'package-query', title: '包裹查询', icon: 'box', color: '#10B981', bg: '#DCFCE7' }
 ]
 
@@ -90,7 +90,7 @@ export const tabs = [
 export const moduleMap = {
 	repair: { title: '立即报修', subtitle: '填写寄出信息、产品信息与寄回信息' },
 	'repair-success': { title: '提交成功', subtitle: '工程师已收到您的报修申请' },
-	track: { title: '维修进度', subtitle: '查看提交、物流、处理与回寄状态' },
+	track: { title: '服务进度', subtitle: '查看提交、物流、处理与回寄状态' },
 	'package-query': { title: '包裹查询', subtitle: '按快递单号查询是否签收和当前处理状态' },
 	'order-detail': { title: '工单详情', subtitle: '维修时间线与费用发票' },
 	survey: { title: '调研有礼', subtitle: '扫码参与调研，领取专属维保福利' },
@@ -103,11 +103,11 @@ export const moduleMap = {
 	'guide-invoice': { title: '开票指南', subtitle: '了解发票申请、抬头和寄送说明' },
 	invoices: { title: '发票与开票', subtitle: '申请开票、查看进度与复制电子发票' },
 	contact: { title: '联系我们', subtitle: '客服热线、工作时间和寄修地址' },
-	orders: { title: '维修订单', subtitle: '查看全部维修记录与处理状态' },
+	orders: { title: '服务订单', subtitle: '查看全部服务记录与处理状态' },
 	products: { title: '我的产品', subtitle: '已登记设备与保修状态' },
 	address: { title: '收货地址', subtitle: '管理默认回寄地址与单位信息' },
 	feedback: { title: '投诉和建议', subtitle: '提交问题反馈或服务建议' },
-	login: { title: '登录', subtitle: '登录后查看您的维修订单' }
+	login: { title: '登录', subtitle: '登录后查看您的服务订单' }
 }
 
 export const repairStatusFlow = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成']
@@ -115,6 +115,11 @@ export const pendingRepairStatuses = ['已提交', '运输中', '已签收']
 export const progressTabs = ['全部', ...repairStatusFlow]
 export const repairFlow = ['提交', '运输', '签收', '处理', '回寄', '完成']
 export const packageFlow = ['待签收', '已签收', '已登记', '处理中', '已关联']
+
+export const customerTypeOptions = [
+	{ value: 'clinic', label: '门诊/医院' },
+	{ value: 'dealer', label: '代理商/经销商' }
+]
 
 export const invoiceTitleTypes = [
 	{ value: 'company', label: '企业单位', desc: '适合诊所 / 医院' },

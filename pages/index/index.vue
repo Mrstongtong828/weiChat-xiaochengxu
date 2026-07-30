@@ -15,6 +15,14 @@
 					<text>为了给您提供更快更好的服务，请务必在快递里面留纸条写明：寄回原因或故障描述，联系方式和收件地址。</text>
 				</view>
 
+				<view class="repair-form-card repair-user-card">
+					<view class="repair-field select-row tap last" @click="showCustomerTypePicker = true">
+						<text><text class="required-star">*</text>用户类型</text>
+						<text class="select-value">{{ customerTypeLabel }}</text>
+						<view class="field-arrow"></view>
+					</view>
+				</view>
+
 				<view class="module-section-head">
 					<text>产品信息</text>
 					<text>共 {{ repairProducts.length }} 件 · 可增加</text>
@@ -28,9 +36,10 @@
 						<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
 					</view>
 					<view class="repair-form-card">
-						<view class="repair-field">
-							<text>产品名称</text>
-							<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
+						<view class="repair-field select-row tap" @click="openProductPicker(index)">
+							<text><text class="required-star">*</text>产品名称</text>
+							<text class="select-value" :class="{ placeholder: !product.name }">{{ product.name || '请选择产品名称' }}</text>
+							<view class="field-arrow"></view>
 						</view>
 						<view class="repair-field">
 							<text><text class="required-star">*</text>产品序列号</text>
@@ -208,6 +217,43 @@
 							<text>{{ item.label }}</text>
 							<view v-if="repairForm.logisticsCompany === item.value" class="mini-icon mini-check"></view>
 						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showCustomerTypePicker" class="sheet-mask" @click="showCustomerTypePicker = false"></view>
+				<view v-if="showCustomerTypePicker" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="showCustomerTypePicker = false">取消</text>
+						<text>选择用户类型</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y>
+						<view v-for="item in customerTypeOptions" :key="item.value" class="choice-row tap" @click="selectCustomerType(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="repairForm.customerType === item.value" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showProductPicker" class="sheet-mask" @click="closeProductPicker"></view>
+				<view v-if="showProductPicker" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="closeProductPicker">取消</text>
+						<text>选择产品名称</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y>
+						<view v-if="repairProductLoading" class="choice-empty">产品名称加载中...</view>
+						<view v-else-if="repairProductOptions.length">
+							<view v-for="item in repairProductOptions" :key="item.value" class="choice-row choice-row-product tap" @click="selectRepairProduct(item)">
+								<view>
+									<text>{{ item.label }}</text>
+									<text v-if="item.model">{{ item.model }}</text>
+								</view>
+								<view v-if="isActiveRepairProduct(item)" class="mini-icon mini-check"></view>
+							</view>
+						</view>
+						<view v-else class="choice-empty">暂无产品名称，请联系后台导入产品名单</view>
 					</scroll-view>
 				</view>
 			</view>
@@ -906,7 +952,7 @@
 			<view v-if="activeTab === 'home'" class="home-body">
 				<view class="brand-bar">
 					<view class="brand-left">
-						<text class="home-brand-subtitle">思科达服务</text>
+						<text class="home-brand-subtitle">服务中心</text>
 					</view>
 				</view>
 
@@ -1170,7 +1216,7 @@
 								<text class="logout-btn tap" @click="logoutLocal">退出</text>
 							</view>
 							<view v-else class="profile-meta">
-								<text>登录后查看您的维修订单</text>
+								<text>登录后查看您的服务订单</text>
 								<text class="logout-btn tap" @click="go('login')">注册/登录</text>
 							</view>
 						</view>
@@ -1228,7 +1274,7 @@
 		<view v-else class="boot-screen">
 			<view class="boot-card">
 				<image class="boot-logo" :src="cicadaAssets.logoMark" mode="aspectFit"></image>
-				<text class="boot-title">CICADA 维修服务</text>
+				<text class="boot-title">CICADA 服务中心</text>
 				<text class="boot-desc">正在为您加载首页、报修与查询功能</text>
 			</view>
 		</view>
@@ -1259,7 +1305,7 @@
 				<text class="modal-close tap" @click="showQr = false">×</text>
 				<image class="qr-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
 				<text class="qr-title">关注官方服务号</text>
-				<text class="qr-subtitle">获取最新维修指南 / 售后政策</text>
+				<text class="qr-subtitle">获取最新服务指南 / 售后政策</text>
 				<view class="qr-image-wrap">
 					<image
 						class="qr-image"
@@ -1346,6 +1392,7 @@ import {
 	companyProductLines,
 	companyServiceTags,
 	companyStats,
+	customerTypeOptions,
 	defaultReceiver,
 	defaultStatusItems,
 	guides,
@@ -1374,6 +1421,7 @@ import {
 	toTextLines
 } from './composables/orderFormatters'
 import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import { getRepairProductOptions } from '@/api/product'
 
 const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
@@ -1450,6 +1498,10 @@ const requestStatusSubscription = async (scene) => {
 	}
 }
 const showLogisticsPicker = ref(false)
+const showCustomerTypePicker = ref(false)
+const showProductPicker = ref(false)
+const activeProductPickerIndex = ref(-1)
+const repairProductLoading = ref(false)
 const feedbackContactValue = ref('')
 const feedbackOrderId = ref('')
 const feedbackRecords = ref([])
@@ -1501,6 +1553,10 @@ const moduleInfo = computed(() => moduleMap[activeModule.value] || {})
 const moduleHeadStyle = computed(() => ({
 	paddingTop: `${moduleHeadPaddingTop.value}rpx`
 }))
+const customerTypeLabel = computed(() => {
+	const option = customerTypeOptions.find((item) => item.value === repairForm.value.customerType)
+	return option ? option.label : '请选择用户类型'
+})
 const showBottomTabbar = computed(() => pageBootReady.value && !diagOpen.value && activeModule.value !== 'survey' && activeModule.value !== 'repair')
 
 const trackOrders = ref([])
@@ -1508,6 +1564,7 @@ const trackOrders = ref([])
 const orderList = ref([])
 
 const productList = ref([])
+const repairProductOptions = ref([])
 
 const diagProducts = ref([])
 const diagFaultMap = ref({})
@@ -1682,7 +1739,7 @@ const customerService = ref({
 const wechatInfo = ref({
 	qrcodeUrl: cicadaAssets.qrWechat,
 	name: '思科达售后',
-	description: '获取最新维修指南 / 售后政策'
+	description: '获取最新服务指南 / 售后政策'
 })
 
 const contactHotlines = ref([
@@ -1759,6 +1816,49 @@ const splitWorkTimes = (workTime = '') => {
 const selectLogistics = (item) => {
 	repairForm.value.logisticsCompany = item.value
 	showLogisticsPicker.value = false
+}
+
+const selectCustomerType = (item) => {
+	repairForm.value.customerType = item.value
+	showCustomerTypePicker.value = false
+}
+
+const loadRepairProductOptions = async () => {
+	if (repairProductLoading.value) return
+	repairProductLoading.value = true
+	try {
+		repairProductOptions.value = await getRepairProductOptions({ scene: 'repair' })
+	} catch (error) {
+		console.warn('repair product options failed:', error)
+		repairProductOptions.value = []
+	} finally {
+		repairProductLoading.value = false
+	}
+}
+
+const openProductPicker = (index) => {
+	activeProductPickerIndex.value = index
+	showProductPicker.value = true
+	if (!repairProductOptions.value.length) loadRepairProductOptions()
+}
+
+const closeProductPicker = () => {
+	showProductPicker.value = false
+	activeProductPickerIndex.value = -1
+}
+
+const isActiveRepairProduct = (item = {}) => {
+	const product = repairProducts.value[activeProductPickerIndex.value] || {}
+	return Boolean(product.productId && product.productId === item.value) || Boolean(product.name && product.name === item.label)
+}
+
+const selectRepairProduct = (item = {}) => {
+	const product = repairProducts.value[activeProductPickerIndex.value]
+	if (!product) return
+	product.productId = item.value || ''
+	product.name = item.label || item.name || ''
+	product.model = item.model || product.model || ''
+	closeProductPicker()
 }
 
 const scanTrackingNo = () => {
@@ -2890,6 +2990,7 @@ const normalizeRepairProducts = (products = []) => {
 
 	return products.map((item, index) => ({
 		id: Number(item.id) || index + 1,
+		productId: item.productId || item.product_id || '',
 		name: item.name || '',
 		model: item.model || '',
 		serial: item.serial || '',
@@ -3178,6 +3279,9 @@ const buildRepairPayload = () => {
 	return {
 		status: 'submitted',
 		statusText: '已提交',
+		customerType: repairForm.value.customerType,
+		customer_type: repairForm.value.customerType,
+		productId: product.productId || '',
 		productName: (product.name || product.model || '维修产品').trim(),
 		productModel: String(product.model || '').trim(),
 		productSerial: String(product.serial || '').trim(),
@@ -3199,6 +3303,8 @@ const buildRepairPayload = () => {
 			const media = splitRepairMedia(item.media)
 			const voucherUrls = (item.voucherList || []).map(getUploadedUrl).filter(Boolean)
 			return {
+				productId: item.productId || '',
+				product_id: item.productId || '',
 				productName: (item.name || item.model || '维修产品').trim(),
 				productModel: String(item.model || '').trim(),
 				productSerial: String(item.serial || '').trim(),
@@ -3214,9 +3320,18 @@ const buildRepairPayload = () => {
 }
 
 const validateRepairForm = () => {
+	if (!customerTypeOptions.some((item) => item.value === repairForm.value.customerType)) {
+		uni.showToast({ title: '请选择用户类型', icon: 'none' })
+		return false
+	}
+
 	for (let index = 0; index < repairProducts.value.length; index += 1) {
 		const product = repairProducts.value[index] || {}
 		const label = `第 ${index + 1} 个产品`
+		if (!String(product.name || '').trim()) {
+			uni.showToast({ title: `${label}请选择产品名称`, icon: 'none' })
+			return false
+		}
 		if (!String(product.serial || '').trim()) {
 			uni.showToast({ title: `${label}请填写序列号`, icon: 'none' })
 			return false
@@ -6419,6 +6534,10 @@ onMounted(() => {
 	padding-bottom: 168rpx;
 }
 
+.repair-user-card {
+	margin-top: 20rpx;
+}
+
 .repair-product {
 	margin-bottom: 20rpx;
 }
@@ -9046,6 +9165,31 @@ onMounted(() => {
 	font-size: 28rpx;
 	color: #0F1F3A;
 	box-sizing: border-box;
+}
+
+.choice-row-product > view:first-child {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.choice-row-product > view:first-child text:first-child {
+	font-size: 28rpx;
+	color: #0F1F3A;
+}
+
+.choice-row-product > view:first-child text + text {
+	font-size: 23rpx;
+	color: #94A3B8;
+}
+
+.choice-empty {
+	padding: 56rpx 32rpx;
+	text-align: center;
+	font-size: 26rpx;
+	line-height: 1.5;
+	color: #94A3B8;
 }
 
 .warranty-hero,
