@@ -1153,9 +1153,9 @@
             <el-button plain><el-icon><Printer /></el-icon> 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="repair_order">报修 / 回寄单</el-dropdown-item>
-                <el-dropdown-item command="quote" :disabled="!hasQuoteData">维修报价单</el-dropdown-item>
-                <el-dropdown-item command="settlement" :disabled="!hasQuoteData">竣工结算单</el-dropdown-item>
+                <el-dropdown-item command="repair_order">维修单</el-dropdown-item>
+                <el-dropdown-item command="quote" :disabled="!hasQuoteData">报价单</el-dropdown-item>
+                <el-dropdown-item command="settlement" :disabled="!hasQuoteData">结算单</el-dropdown-item>
                 <el-dropdown-item command="parts_outbound" :disabled="!hasPartsData">配件出库单</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -1330,62 +1330,10 @@
     </template>
   </el-dialog>
 
-  <div id="print-area" class="print-area" v-show="isPrinting">
-    <div v-for="order in selectedOrders" :key="order._id || order.id" class="print-page">
-      <h1 class="print-title">设备维修回寄单</h1>
-
-      <div class="print-section-block">
-        <h2>工单信息</h2>
-        <div class="print-info-grid">
-          <div>工单编号：{{ order.id || '-' }}</div>
-          <div>当前状态：{{ order.status || '-' }}</div>
-          <div>提交时间：{{ order.submitTime || '-' }}</div>
-          <div>打印时间：{{ printTime || '-' }}</div>
-        </div>
-      </div>
-
-      <div class="print-section-block">
-        <h2>收件人信息</h2>
-        <div class="print-info-grid">
-          <div>收件人姓名：{{ order.customerName || '-' }}</div>
-          <div>电话：{{ order.phone || '-' }}</div>
-          <div>单位名称：{{ order.clinicName || '-' }}</div>
-          <div>详细地址：{{ order.address || '-' }}</div>
-        </div>
-      </div>
-
-      <div class="print-section-block">
-        <h2>产品故障明细</h2>
-        <table class="print-product-table">
-          <thead>
-            <tr>
-              <th>产品名称</th>
-              <th>型号</th>
-              <th>SN码</th>
-              <th>故障描述</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, index) in order.itemsList || []" :key="item._id || index">
-              <td>{{ item.product_name || '-' }}</td>
-              <td>{{ item.product_model || '-' }}</td>
-              <td>{{ item.sn || '-' }}</td>
-              <td>{{ item.fault_desc || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="order.printRemark" class="print-remark">
-        维修寄语：{{ order.printRemark }}
-      </div>
-      <p class="print-footer-text">感谢您的信任！为了您的设备健康，建议定期维护保养。</p>
-    </div>
-  </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
@@ -1395,7 +1343,7 @@ import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
-import { openPrintWindow, parsePrintConfig, pickPrintTemplate } from '../utils/orderPrint.js'
+import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
 
 const route = useRoute()
@@ -1777,9 +1725,7 @@ const totalOrders = ref(0)
 const deviceModelOptions = ref([])
 const selectedOrders = ref([])
 const workflowConfig = ref(null)
-const isPrinting = ref(false)
-const printTime = ref('')
-const printConfig = ref(parsePrintConfig())
+const printConfig = ref(parsePrintTemplates().repair_order)
 const printSettingsRaw = ref({})
 const exportDialogVisible = ref(false)
 const selectedExportFields = ref(exportableFields.map(field => field.key))
@@ -3361,42 +3307,6 @@ const confirmSaveRemark = async () => {
   }
 }
 
-const printOrder = () => {
-  if (!currentOrder.value) return
-  if (!openPrintWindow([currentOrder.value])) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
-}
-
-const printSelectedOrders = () => {
-  if (!selectedOrders.value.length) {
-    ElMessage.warning('请先勾选要打印的工单')
-    return
-  }
-  if (!openPrintWindow(selectedOrders.value)) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
-}
-
-const handleBatchPrint = async () => {
-  if (!selectedOrders.value.length) {
-    ElMessage.warning('请先勾选要打印的工单')
-    return
-  }
-
-  printTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
-  isPrinting.value = true
-  await nextTick()
-
-  const resetPrinting = () => {
-    isPrinting.value = false
-    window.removeEventListener('afterprint', resetPrinting)
-  }
-  window.addEventListener('afterprint', resetPrinting, { once: true })
-  window.print()
-  setTimeout(resetPrinting, 1000)
-}
-
 // logo 存的是云存储 fileID，打印窗口无法直接加载，需解析成临时 http 地址（按 fileID 缓存）
 const printLogoCache = reactive({})
 const resolvePrintLogo = async (template) => {
@@ -3423,13 +3333,15 @@ const loadPrintConfig = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
-    printSettingsRaw.value = data || {}
-    const template = pickPrintTemplate(data && data.print_templates, data && data.print_config, 'repair_order')
-    await resolvePrintLogo(template)
-    printConfig.value = template
+    const templates = parsePrintTemplates(data && data.print_templates, data && data.print_config)
+    await Promise.all(Object.values(templates).map(template => resolvePrintLogo(template)))
+    printSettingsRaw.value = { ...(data || {}), print_templates: templates }
+    printConfig.value = templates.repair_order
     feeTiers.value = parseSettingsArray(data && data.fee_tier_templates)
   } catch (error) {
-    printConfig.value = parsePrintConfig()
+    const templates = parsePrintTemplates()
+    printSettingsRaw.value = { print_templates: templates }
+    printConfig.value = templates.repair_order
   }
 }
 
@@ -3448,11 +3360,10 @@ const hasPartsData = computed(() => {
   const o = currentOrder.value
   return !!(o && o.quoteDetail && (o.quoteDetail.parts || []).length > 0)
 })
-const printDoc = async (docType) => {
+const printDoc = (docType) => {
   if (!currentOrder.value) return
   const raw = printSettingsRaw.value || {}
   const template = pickPrintTemplate(raw.print_templates, raw.print_config, docType)
-  await resolvePrintLogo(template)
   if (!openPrintWindow([currentOrder.value], template, docType)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
@@ -3464,8 +3375,7 @@ const handlePrintCommand = (command) => {
 
 const printConfiguredOrder = () => {
   if (!currentOrder.value) return
-  const config = { ...printConfig.value, fields: { ...(printConfig.value.fields || {}), showCost: true } }
-  if (!openPrintWindow([currentOrder.value], config)) {
+  if (!openPrintWindow([currentOrder.value], printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
 }
@@ -3475,8 +3385,7 @@ const handleConfiguredBatchPrint = () => {
     ElMessage.warning('请先勾选要打印的工单')
     return
   }
-  const config = { ...printConfig.value, fields: { ...(printConfig.value.fields || {}), showCost: true } }
-  if (!openPrintWindow(selectedOrders.value, config)) {
+  if (!openPrintWindow(selectedOrders.value, printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
 }
@@ -3596,18 +3505,6 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
-.print-area { display: none; }
-.print-page { background: #fff; color: #1d2129; font-family: "Microsoft YaHei", Arial, sans-serif; }
-.print-title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 24px; }
-.print-meta { display: flex; justify-content: space-between; margin-bottom: 18px; font-size: 14px; }
-.print-section-block { margin-bottom: 22px; }
-.print-section-block h2 { font-size: 16px; margin: 0 0 10px; border-left: 4px solid #1890ff; padding-left: 8px; }
-.print-info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 24px; font-size: 14px; }
-.print-product-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.print-product-table th, .print-product-table td { border: 1px solid #dcdfe6; padding: 8px 10px; text-align: left; vertical-align: top; }
-.print-product-table th { background: #f5f7fa; font-weight: 700; }
-.print-remark { margin-top: 18px; padding: 12px 14px; border: 1px dashed #1890ff; border-radius: 8px; background: #f0f8ff; color: #1d2129; font-size: 14px; }
-.print-footer-text { margin-top: 28px; text-align: center; color: #606266; font-size: 14px; }
 .table-responsive { width: 100%; overflow-x: auto; margin-top: 4px; }
 .modern-table { min-width: 900px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
@@ -3954,13 +3851,6 @@ const confirmExportExcel = async () => {
   .warranty-entry-row { grid-template-columns: 1fr; align-items: stretch; }
 }
 
-@media print {
-  :global(body *) { visibility: hidden; }
-  #print-area, #print-area * { visibility: visible; }
-  #print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
-  .print-page { page-break-after: always; padding: 20px; min-height: 100vh; box-sizing: border-box; }
-  .print-page:last-child { page-break-after: auto; }
-}
 </style>
 
 <!-- append-to-body 的抽屉挂在 body 下，需要非 scoped 才能命中壳层 -->
