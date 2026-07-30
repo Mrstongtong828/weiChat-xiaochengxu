@@ -18,6 +18,7 @@ const normalizeOrderItems = (order) => {
     : [{
         product_name: order.product_name,
         product_model: order.product_model,
+        product_code: order.product_code || order.productCode || order.code,
         sn: order.sn,
         buy_date: order.buy_date,
         fault_desc: order.fault_desc,
@@ -29,6 +30,7 @@ const normalizeOrderItems = (order) => {
     product_name: item.product_name || '',
     product_category: item.product_category || '',
     product_model: item.product_model || '',
+    product_code: item.product_code || item.productCode || item.code || '',
     sn: item.sn || '',
     buy_date: item.buy_date || '',
     warranty_months: Number(item.warranty_months || 0) || 0,
@@ -135,6 +137,7 @@ export const transformOrder = (order) => {
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
     productName: firstItem.product_name || order.product_name || '',
+    productCode: firstItem.product_code || firstItem.productCode || firstItem.code || order.product_code || order.productCode || order.code || '',
     fault: firstItem.fault_desc || order.fault_desc || '',
     images,
     itemsList,

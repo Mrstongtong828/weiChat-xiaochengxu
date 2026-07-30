@@ -63,6 +63,22 @@
         <el-tooltip content="按当前筛选条件导出工单表格" placement="top">
           <el-button type="primary" class="top-btn-text" @click="openExportDialog"><el-icon><Download /></el-icon> 导出</el-button>
         </el-tooltip>
+        <el-popover placement="bottom-end" trigger="click" width="360" :teleported="false">
+          <template #reference>
+            <el-button plain class="top-btn-text"><el-icon><Setting /></el-icon> 显示列</el-button>
+          </template>
+          <div class="column-config-panel">
+            <div class="column-config-head">
+              <strong>列表显示</strong>
+              <el-button link type="primary" @click="resetTableColumns">恢复默认</el-button>
+            </div>
+            <el-checkbox-group v-model="visibleTableColumnKeys" class="column-config-grid">
+              <el-checkbox v-for="column in tableColumnOptions" :key="column.key" :label="column.key">
+                {{ column.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </el-popover>
       </div>
     </div>
 
@@ -102,7 +118,7 @@
         <el-table-column type="selection" width="42"></el-table-column>
         <el-table-column prop="id" label="工单编号" width="150" show-overflow-tooltip></el-table-column>
 
-        <el-table-column label="报修方信息" width="200">
+        <el-table-column v-if="isTableColumnVisible('reporter')" label="报修方信息" width="200">
           <template #default="{row}">
             <div class="clinic-name">{{ row.clinicName }}</div>
             <div class="customer-name">
@@ -120,17 +136,34 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="设备与故障" width="200">
+        <el-table-column v-if="isTableColumnVisible('productName')" label="产品名称" width="140" show-overflow-tooltip>
           <template #default="{row}">
-            <div class="product-model">{{ row.itemsSummary || row.productModel }}</div>
-            <el-tag v-if="warrantyTagMeta(row.warrantyStatus)" :type="warrantyTagMeta(row.warrantyStatus).type" effect="light" round size="small" class="warranty-tag">
-              {{ warrantyTagMeta(row.warrantyStatus).label }}
-            </el-tag>
-            <div class="fault-desc">{{ row.fault }}</div>
+            <div class="device-main-cell">{{ row.productName || '-' }}</div>
           </template>
         </el-table-column>
 
-        <el-table-column label="物流信息" width="220">
+        <el-table-column v-if="isTableColumnVisible('productModel')" label="型号" width="140" show-overflow-tooltip>
+          <template #default="{row}">
+            <div class="device-main-cell device-main-cell--muted">{{ row.productModel || '-' }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('productCode')" label="编码/SN" width="160" show-overflow-tooltip>
+          <template #default="{row}">
+            <div class="device-code-cell">{{ getOrderProductCode(row) }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('fault')" label="故障" min-width="200">
+          <template #default="{row}">
+            <el-tag v-if="warrantyTagMeta(row.warrantyStatus)" :type="warrantyTagMeta(row.warrantyStatus).type" effect="light" round size="small" class="warranty-tag">
+              {{ warrantyTagMeta(row.warrantyStatus).label }}
+            </el-tag>
+            <div class="fault-desc">{{ row.fault || '-' }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('logistics')" label="物流信息" width="220">
           <template #default="{row}">
             <div class="logistics-info">
               <span class="logistics-label">寄出：</span>{{ row.senderAddress || '-' }}
@@ -141,7 +174,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="126">
+        <el-table-column v-if="isTableColumnVisible('nextAction')" width="126">
           <template #header>
             <el-tooltip content="按当前状态、报价、付款和物流自动判断后台下一步要做什么" placement="top">
               <span class="table-header-help">下一步动作</span>
@@ -157,7 +190,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="130">
+        <el-table-column v-if="isTableColumnVisible('status')" width="130">
           <template #header>
             <el-tooltip content="可点击状态标签快速推进工单进度" placement="top">
               <span class="table-header-help">处理状态</span>
@@ -187,7 +220,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="110">
+        <el-table-column v-if="isTableColumnVisible('invoice')" width="110">
           <template #header>
             <el-tooltip content="仅展示财务开票状态，开票登记在处理抽屉内完成" placement="top">
               <span class="table-header-help">发票状态</span>
@@ -205,7 +238,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="126">
+        <el-table-column v-if="isTableColumnVisible('sla')" width="126">
           <template #header>
             <el-tooltip content="按当前状态停留时间和 SLA 阈值标记超时程度" placement="top">
               <span class="table-header-help">SLA</span>
@@ -447,8 +480,12 @@
                     </div>
                     <div class="drawer-info-grid drawer-info-grid--dense">
                       <div class="drawer-info-item">
-                        <span>SN</span>
-                        <strong class="mono-text">{{ item.sn || '-' }}</strong>
+                        <span>产品名称</span>
+                        <strong>{{ item.product_name || '-' }}</strong>
+                      </div>
+                      <div class="drawer-info-item">
+                        <span>编码/SN</span>
+                        <strong class="mono-text">{{ getItemProductCode(item) }}</strong>
                       </div>
                       <div class="drawer-info-item">
                         <span>分类</span>
@@ -1720,6 +1757,33 @@ const exportableFields = [
   { label: '总金额', key: 'totalPrice', getter: order => formatMoney(order.totalPrice) }
 ]
 
+const tableColumnStorageKey = 'pc-admin:work-order-visible-columns'
+const tableColumnOptions = [
+  { key: 'reporter', label: '报修方信息' },
+  { key: 'productName', label: '产品名称' },
+  { key: 'productModel', label: '型号' },
+  { key: 'productCode', label: '编码/SN' },
+  { key: 'fault', label: '故障' },
+  { key: 'logistics', label: '物流信息' },
+  { key: 'nextAction', label: '下一步动作' },
+  { key: 'status', label: '处理状态' },
+  { key: 'invoice', label: '发票状态' },
+  { key: 'sla', label: 'SLA' }
+]
+const defaultTableColumnKeys = tableColumnOptions.map(column => column.key)
+
+const readTableColumnKeys = () => {
+  try {
+    const raw = localStorage.getItem(tableColumnStorageKey)
+    if (!raw) return [...defaultTableColumnKeys]
+    const parsed = JSON.parse(raw)
+    const allowed = new Set(defaultTableColumnKeys)
+    return Array.isArray(parsed) ? parsed.filter(key => allowed.has(key)) : [...defaultTableColumnKeys]
+  } catch (error) {
+    return [...defaultTableColumnKeys]
+  }
+}
+
 const orders = ref([])
 const totalOrders = ref(0)
 const deviceModelOptions = ref([])
@@ -1731,6 +1795,7 @@ const exportDialogVisible = ref(false)
 const selectedExportFields = ref(exportableFields.map(field => field.key))
 const checkAll = ref(true)
 const isIndeterminate = ref(false)
+const visibleTableColumnKeys = ref(readTableColumnKeys())
 const importDialogVisible = ref(false)
 const importResultVisible = ref(false)
 const importResult = ref(null)
@@ -1979,6 +2044,14 @@ watch(
   }
 )
 
+watch(
+  visibleTableColumnKeys,
+  (keys) => {
+    localStorage.setItem(tableColumnStorageKey, JSON.stringify(keys))
+  },
+  { deep: true }
+)
+
 const drawerVisible = ref(false)
 const currentOrder = ref(null)
 const activeDrawerTab = ref('base')
@@ -2114,10 +2187,15 @@ const currentOrderProductKeywords = computed(() => {
   const items = Array.isArray(order.itemsList) ? order.itemsList : []
   return [
     order.productModel,
+    order.productCode,
     order.itemsSummary,
     ...items.flatMap(item => [
       item.product_name,
       item.product_model,
+      item.product_code,
+      item.productCode,
+      item.code,
+      item.sn,
       item.product_category,
       item.category
     ])
@@ -2316,6 +2394,24 @@ const buildQuotePayload = (status) => {
 
 const handleSelectionChange = (selection) => {
   selectedOrders.value = selection
+}
+
+const isTableColumnVisible = (key) => visibleTableColumnKeys.value.includes(key)
+
+const resetTableColumns = () => {
+  visibleTableColumnKeys.value = [...defaultTableColumnKeys]
+}
+
+const getItemProductCode = (item = {}) => {
+  const code = item.product_code || item.productCode || item.code || ''
+  const sn = item.sn || ''
+  if (code && sn && code !== sn) return `${code} / ${sn}`
+  return code || sn || '-'
+}
+
+const getOrderProductCode = (order = {}) => {
+  const firstItem = Array.isArray(order.itemsList) ? order.itemsList[0] : null
+  return order.productCode || getItemProductCode(firstItem || {})
 }
 
 const syncExportCheckState = () => {
@@ -3505,8 +3601,12 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.column-config-panel { padding: 4px 2px; }
+.column-config-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.column-config-head strong { color: #1d2129; font-size: 14px; }
+.column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
 .table-responsive { width: 100%; overflow-x: auto; margin-top: 4px; }
-.modern-table { min-width: 900px; }
+.modern-table { min-width: 1280px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
 .modern-table :deep(th.el-table__cell) { background-color: #f7f8fa !important; color: #4e5969; font-weight: 600; border-bottom: none; font-size: 13px; }
 .modern-table :deep(td.el-table__cell) { border-bottom: 1px solid #f0f2f5; padding: 16px 0; }
@@ -3524,6 +3624,9 @@ const confirmExportExcel = async () => {
 .phone-number { color: #86909c; font-size: 12px; font-family: 'Consolas', monospace; }
 
 .product-model { font-weight: 600; color: #1890ff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+.device-main-cell { font-weight: 600; color: #1d2129; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.device-main-cell--muted { color: #4e5969; font-weight: 500; }
+.device-code-cell { font-family: 'Consolas', monospace; font-size: 12px; color: #1769aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fault-desc { font-size: 12px; color: #86909c; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
 /* 抽屉壳层样式见下方 unscoped 块（append-to-body 后 scoped 选不中） */
 .drawer-body {
