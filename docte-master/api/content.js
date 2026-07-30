@@ -275,9 +275,13 @@ export const getFaultTypes = async () => {
 
 		return {
 			id: item._id,
+			faultTypeId: item._id,
 			productTypeId: item.category_id,
 			productType: categoryName,
 			faultName: item.fault_name,
+			relatedQuestions: item.related_questions || [],
+			checkSteps: item.check_steps || [],
+			fixSolutions: item.fix_solutions || [],
 			solutions: item.fix_solutions || [],
 			solution: item.fix_solutions || [],
 			isRecommendRepair: item.is_recommend_repair
@@ -287,11 +291,19 @@ export const getFaultTypes = async () => {
 
 export const searchFault = async (data = {}) => {
 	const list = await getFaultTypes()
-	return list.find(item =>
-		item.id === data.faultTypeId ||
-		item.faultName === data.faultName ||
-		item.productTypeId === data.productType
-	) || null
+	const targetFaultId = data.faultTypeId || data.id
+	const targetFaultName = data.faultName
+	const targetProductType = data.productType || data.productTypeId
+
+	return list.find(item => {
+		if (targetFaultId && item.id === targetFaultId) return true
+		if (targetFaultName && item.faultName === targetFaultName) {
+			return !targetProductType || item.productTypeId === targetProductType || item.productType === targetProductType
+		}
+		return !targetFaultId && !targetFaultName && targetProductType && (
+			item.productTypeId === targetProductType || item.productType === targetProductType
+		)
+	}) || null
 }
 
 export const queryPackageStatus = (params = {}) => getOrderCloudObject()
