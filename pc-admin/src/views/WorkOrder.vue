@@ -63,6 +63,22 @@
         <el-tooltip content="按当前筛选条件导出工单表格" placement="top">
           <el-button type="primary" class="top-btn-text" @click="openExportDialog"><el-icon><Download /></el-icon> 导出</el-button>
         </el-tooltip>
+        <el-popover placement="bottom-end" trigger="click" width="360" :teleported="false">
+          <template #reference>
+            <el-button plain class="top-btn-text"><el-icon><Setting /></el-icon> 显示列</el-button>
+          </template>
+          <div class="column-config-panel">
+            <div class="column-config-head">
+              <strong>列表显示</strong>
+              <el-button link type="primary" @click="resetTableColumns">恢复默认</el-button>
+            </div>
+            <el-checkbox-group v-model="visibleTableColumnKeys" class="column-config-grid">
+              <el-checkbox v-for="column in tableColumnOptions" :key="column.key" :label="column.key">
+                {{ column.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </el-popover>
       </div>
     </div>
 
@@ -102,7 +118,7 @@
         <el-table-column type="selection" width="42"></el-table-column>
         <el-table-column prop="id" label="工单编号" width="150" show-overflow-tooltip></el-table-column>
 
-        <el-table-column label="报修方信息" width="200">
+        <el-table-column v-if="isTableColumnVisible('reporter')" label="报修方信息" width="200">
           <template #default="{row}">
             <div class="clinic-name">{{ row.clinicName }}</div>
             <div class="customer-name">
@@ -120,17 +136,34 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="设备与故障" width="200">
+        <el-table-column v-if="isTableColumnVisible('productName')" label="产品名称" width="140" show-overflow-tooltip>
           <template #default="{row}">
-            <div class="product-model">{{ row.itemsSummary || row.productModel }}</div>
-            <el-tag v-if="warrantyTagMeta(row.warrantyStatus)" :type="warrantyTagMeta(row.warrantyStatus).type" effect="light" round size="small" class="warranty-tag">
-              {{ warrantyTagMeta(row.warrantyStatus).label }}
-            </el-tag>
-            <div class="fault-desc">{{ row.fault }}</div>
+            <div class="device-main-cell">{{ row.productName || '-' }}</div>
           </template>
         </el-table-column>
 
-        <el-table-column label="物流信息" width="220">
+        <el-table-column v-if="isTableColumnVisible('productModel')" label="型号" width="140" show-overflow-tooltip>
+          <template #default="{row}">
+            <div class="device-main-cell device-main-cell--muted">{{ row.productModel || '-' }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('productCode')" label="编码/SN" width="160" show-overflow-tooltip>
+          <template #default="{row}">
+            <div class="device-code-cell">{{ getOrderProductCode(row) }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('fault')" label="故障" min-width="200">
+          <template #default="{row}">
+            <el-tag v-if="warrantyTagMeta(row.warrantyStatus)" :type="warrantyTagMeta(row.warrantyStatus).type" effect="light" round size="small" class="warranty-tag">
+              {{ warrantyTagMeta(row.warrantyStatus).label }}
+            </el-tag>
+            <div class="fault-desc">{{ row.fault || '-' }}</div>
+          </template>
+        </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('logistics')" label="物流信息" width="220">
           <template #default="{row}">
             <div class="logistics-info">
               <span class="logistics-label">寄出：</span>{{ row.senderAddress || '-' }}
@@ -141,7 +174,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="126">
+        <el-table-column v-if="isTableColumnVisible('nextAction')" width="126">
           <template #header>
             <el-tooltip content="按当前状态、报价、付款和物流自动判断后台下一步要做什么" placement="top">
               <span class="table-header-help">下一步动作</span>
@@ -157,7 +190,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="130">
+        <el-table-column v-if="isTableColumnVisible('status')" width="130">
           <template #header>
             <el-tooltip content="可点击状态标签快速推进工单进度" placement="top">
               <span class="table-header-help">处理状态</span>
@@ -187,7 +220,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="110">
+        <el-table-column v-if="isTableColumnVisible('invoice')" width="110">
           <template #header>
             <el-tooltip content="仅展示财务开票状态，开票登记在处理抽屉内完成" placement="top">
               <span class="table-header-help">发票状态</span>
@@ -205,7 +238,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column width="126">
+        <el-table-column v-if="isTableColumnVisible('sla')" width="126">
           <template #header>
             <el-tooltip content="按当前状态停留时间和 SLA 阈值标记超时程度" placement="top">
               <span class="table-header-help">SLA</span>
@@ -447,8 +480,12 @@
                     </div>
                     <div class="drawer-info-grid drawer-info-grid--dense">
                       <div class="drawer-info-item">
-                        <span>SN</span>
-                        <strong class="mono-text">{{ item.sn || '-' }}</strong>
+                        <span>产品名称</span>
+                        <strong>{{ item.product_name || '-' }}</strong>
+                      </div>
+                      <div class="drawer-info-item">
+                        <span>编码/SN</span>
+                        <strong class="mono-text">{{ getItemProductCode(item) }}</strong>
                       </div>
                       <div class="drawer-info-item">
                         <span>分类</span>
@@ -1153,9 +1190,9 @@
             <el-button plain><el-icon><Printer /></el-icon> 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="repair_order">报修 / 回寄单</el-dropdown-item>
-                <el-dropdown-item command="quote" :disabled="!hasQuoteData">维修报价单</el-dropdown-item>
-                <el-dropdown-item command="settlement" :disabled="!hasQuoteData">竣工结算单</el-dropdown-item>
+                <el-dropdown-item command="repair_order">维修单</el-dropdown-item>
+                <el-dropdown-item command="quote" :disabled="!hasQuoteData">报价单</el-dropdown-item>
+                <el-dropdown-item command="settlement" :disabled="!hasQuoteData">结算单</el-dropdown-item>
                 <el-dropdown-item command="parts_outbound" :disabled="!hasPartsData">配件出库单</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -1330,62 +1367,10 @@
     </template>
   </el-dialog>
 
-  <div id="print-area" class="print-area" v-show="isPrinting">
-    <div v-for="order in selectedOrders" :key="order._id || order.id" class="print-page">
-      <h1 class="print-title">设备维修回寄单</h1>
-
-      <div class="print-section-block">
-        <h2>工单信息</h2>
-        <div class="print-info-grid">
-          <div>工单编号：{{ order.id || '-' }}</div>
-          <div>当前状态：{{ order.status || '-' }}</div>
-          <div>提交时间：{{ order.submitTime || '-' }}</div>
-          <div>打印时间：{{ printTime || '-' }}</div>
-        </div>
-      </div>
-
-      <div class="print-section-block">
-        <h2>收件人信息</h2>
-        <div class="print-info-grid">
-          <div>收件人姓名：{{ order.customerName || '-' }}</div>
-          <div>电话：{{ order.phone || '-' }}</div>
-          <div>单位名称：{{ order.clinicName || '-' }}</div>
-          <div>详细地址：{{ order.address || '-' }}</div>
-        </div>
-      </div>
-
-      <div class="print-section-block">
-        <h2>产品故障明细</h2>
-        <table class="print-product-table">
-          <thead>
-            <tr>
-              <th>产品名称</th>
-              <th>型号</th>
-              <th>SN码</th>
-              <th>故障描述</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, index) in order.itemsList || []" :key="item._id || index">
-              <td>{{ item.product_name || '-' }}</td>
-              <td>{{ item.product_model || '-' }}</td>
-              <td>{{ item.sn || '-' }}</td>
-              <td>{{ item.fault_desc || '-' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="order.printRemark" class="print-remark">
-        维修寄语：{{ order.printRemark }}
-      </div>
-      <p class="print-footer-text">感谢您的信任！为了您的设备健康，建议定期维护保养。</p>
-    </div>
-  </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onBeforeUnmount, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
@@ -1395,7 +1380,7 @@ import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
-import { openPrintWindow, parsePrintConfig, pickPrintTemplate } from '../utils/orderPrint.js'
+import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
 
 const route = useRoute()
@@ -1772,19 +1757,45 @@ const exportableFields = [
   { label: '总金额', key: 'totalPrice', getter: order => formatMoney(order.totalPrice) }
 ]
 
+const tableColumnStorageKey = 'pc-admin:work-order-visible-columns'
+const tableColumnOptions = [
+  { key: 'reporter', label: '报修方信息' },
+  { key: 'productName', label: '产品名称' },
+  { key: 'productModel', label: '型号' },
+  { key: 'productCode', label: '编码/SN' },
+  { key: 'fault', label: '故障' },
+  { key: 'logistics', label: '物流信息' },
+  { key: 'nextAction', label: '下一步动作' },
+  { key: 'status', label: '处理状态' },
+  { key: 'invoice', label: '发票状态' },
+  { key: 'sla', label: 'SLA' }
+]
+const defaultTableColumnKeys = tableColumnOptions.map(column => column.key)
+
+const readTableColumnKeys = () => {
+  try {
+    const raw = localStorage.getItem(tableColumnStorageKey)
+    if (!raw) return [...defaultTableColumnKeys]
+    const parsed = JSON.parse(raw)
+    const allowed = new Set(defaultTableColumnKeys)
+    return Array.isArray(parsed) ? parsed.filter(key => allowed.has(key)) : [...defaultTableColumnKeys]
+  } catch (error) {
+    return [...defaultTableColumnKeys]
+  }
+}
+
 const orders = ref([])
 const totalOrders = ref(0)
 const deviceModelOptions = ref([])
 const selectedOrders = ref([])
 const workflowConfig = ref(null)
-const isPrinting = ref(false)
-const printTime = ref('')
-const printConfig = ref(parsePrintConfig())
+const printConfig = ref(parsePrintTemplates().repair_order)
 const printSettingsRaw = ref({})
 const exportDialogVisible = ref(false)
 const selectedExportFields = ref(exportableFields.map(field => field.key))
 const checkAll = ref(true)
 const isIndeterminate = ref(false)
+const visibleTableColumnKeys = ref(readTableColumnKeys())
 const importDialogVisible = ref(false)
 const importResultVisible = ref(false)
 const importResult = ref(null)
@@ -2033,6 +2044,14 @@ watch(
   }
 )
 
+watch(
+  visibleTableColumnKeys,
+  (keys) => {
+    localStorage.setItem(tableColumnStorageKey, JSON.stringify(keys))
+  },
+  { deep: true }
+)
+
 const drawerVisible = ref(false)
 const currentOrder = ref(null)
 const activeDrawerTab = ref('base')
@@ -2168,10 +2187,15 @@ const currentOrderProductKeywords = computed(() => {
   const items = Array.isArray(order.itemsList) ? order.itemsList : []
   return [
     order.productModel,
+    order.productCode,
     order.itemsSummary,
     ...items.flatMap(item => [
       item.product_name,
       item.product_model,
+      item.product_code,
+      item.productCode,
+      item.code,
+      item.sn,
       item.product_category,
       item.category
     ])
@@ -2370,6 +2394,24 @@ const buildQuotePayload = (status) => {
 
 const handleSelectionChange = (selection) => {
   selectedOrders.value = selection
+}
+
+const isTableColumnVisible = (key) => visibleTableColumnKeys.value.includes(key)
+
+const resetTableColumns = () => {
+  visibleTableColumnKeys.value = [...defaultTableColumnKeys]
+}
+
+const getItemProductCode = (item = {}) => {
+  const code = item.product_code || item.productCode || item.code || ''
+  const sn = item.sn || ''
+  if (code && sn && code !== sn) return `${code} / ${sn}`
+  return code || sn || '-'
+}
+
+const getOrderProductCode = (order = {}) => {
+  const firstItem = Array.isArray(order.itemsList) ? order.itemsList[0] : null
+  return order.productCode || getItemProductCode(firstItem || {})
 }
 
 const syncExportCheckState = () => {
@@ -3361,42 +3403,6 @@ const confirmSaveRemark = async () => {
   }
 }
 
-const printOrder = () => {
-  if (!currentOrder.value) return
-  if (!openPrintWindow([currentOrder.value])) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
-}
-
-const printSelectedOrders = () => {
-  if (!selectedOrders.value.length) {
-    ElMessage.warning('请先勾选要打印的工单')
-    return
-  }
-  if (!openPrintWindow(selectedOrders.value)) {
-    ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
-  }
-}
-
-const handleBatchPrint = async () => {
-  if (!selectedOrders.value.length) {
-    ElMessage.warning('请先勾选要打印的工单')
-    return
-  }
-
-  printTime.value = new Date().toLocaleString('zh-CN', { hour12: false })
-  isPrinting.value = true
-  await nextTick()
-
-  const resetPrinting = () => {
-    isPrinting.value = false
-    window.removeEventListener('afterprint', resetPrinting)
-  }
-  window.addEventListener('afterprint', resetPrinting, { once: true })
-  window.print()
-  setTimeout(resetPrinting, 1000)
-}
-
 // logo 存的是云存储 fileID，打印窗口无法直接加载，需解析成临时 http 地址（按 fileID 缓存）
 const printLogoCache = reactive({})
 const resolvePrintLogo = async (template) => {
@@ -3423,13 +3429,15 @@ const loadPrintConfig = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
-    printSettingsRaw.value = data || {}
-    const template = pickPrintTemplate(data && data.print_templates, data && data.print_config, 'repair_order')
-    await resolvePrintLogo(template)
-    printConfig.value = template
+    const templates = parsePrintTemplates(data && data.print_templates, data && data.print_config)
+    await Promise.all(Object.values(templates).map(template => resolvePrintLogo(template)))
+    printSettingsRaw.value = { ...(data || {}), print_templates: templates }
+    printConfig.value = templates.repair_order
     feeTiers.value = parseSettingsArray(data && data.fee_tier_templates)
   } catch (error) {
-    printConfig.value = parsePrintConfig()
+    const templates = parsePrintTemplates()
+    printSettingsRaw.value = { print_templates: templates }
+    printConfig.value = templates.repair_order
   }
 }
 
@@ -3448,11 +3456,10 @@ const hasPartsData = computed(() => {
   const o = currentOrder.value
   return !!(o && o.quoteDetail && (o.quoteDetail.parts || []).length > 0)
 })
-const printDoc = async (docType) => {
+const printDoc = (docType) => {
   if (!currentOrder.value) return
   const raw = printSettingsRaw.value || {}
   const template = pickPrintTemplate(raw.print_templates, raw.print_config, docType)
-  await resolvePrintLogo(template)
   if (!openPrintWindow([currentOrder.value], template, docType)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
@@ -3464,8 +3471,7 @@ const handlePrintCommand = (command) => {
 
 const printConfiguredOrder = () => {
   if (!currentOrder.value) return
-  const config = { ...printConfig.value, fields: { ...(printConfig.value.fields || {}), showCost: true } }
-  if (!openPrintWindow([currentOrder.value], config)) {
+  if (!openPrintWindow([currentOrder.value], printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
 }
@@ -3475,8 +3481,7 @@ const handleConfiguredBatchPrint = () => {
     ElMessage.warning('请先勾选要打印的工单')
     return
   }
-  const config = { ...printConfig.value, fields: { ...(printConfig.value.fields || {}), showCost: true } }
-  if (!openPrintWindow(selectedOrders.value, config)) {
+  if (!openPrintWindow(selectedOrders.value, printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
 }
@@ -3596,20 +3601,12 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
-.print-area { display: none; }
-.print-page { background: #fff; color: #1d2129; font-family: "Microsoft YaHei", Arial, sans-serif; }
-.print-title { text-align: center; font-size: 24px; font-weight: 700; margin: 0 0 24px; }
-.print-meta { display: flex; justify-content: space-between; margin-bottom: 18px; font-size: 14px; }
-.print-section-block { margin-bottom: 22px; }
-.print-section-block h2 { font-size: 16px; margin: 0 0 10px; border-left: 4px solid #1890ff; padding-left: 8px; }
-.print-info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 24px; font-size: 14px; }
-.print-product-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.print-product-table th, .print-product-table td { border: 1px solid #dcdfe6; padding: 8px 10px; text-align: left; vertical-align: top; }
-.print-product-table th { background: #f5f7fa; font-weight: 700; }
-.print-remark { margin-top: 18px; padding: 12px 14px; border: 1px dashed #1890ff; border-radius: 8px; background: #f0f8ff; color: #1d2129; font-size: 14px; }
-.print-footer-text { margin-top: 28px; text-align: center; color: #606266; font-size: 14px; }
+.column-config-panel { padding: 4px 2px; }
+.column-config-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.column-config-head strong { color: #1d2129; font-size: 14px; }
+.column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
 .table-responsive { width: 100%; overflow-x: auto; margin-top: 4px; }
-.modern-table { min-width: 900px; }
+.modern-table { min-width: 1280px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
 .modern-table :deep(th.el-table__cell) { background-color: #f7f8fa !important; color: #4e5969; font-weight: 600; border-bottom: none; font-size: 13px; }
 .modern-table :deep(td.el-table__cell) { border-bottom: 1px solid #f0f2f5; padding: 16px 0; }
@@ -3627,6 +3624,9 @@ const confirmExportExcel = async () => {
 .phone-number { color: #86909c; font-size: 12px; font-family: 'Consolas', monospace; }
 
 .product-model { font-weight: 600; color: #1890ff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+.device-main-cell { font-weight: 600; color: #1d2129; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.device-main-cell--muted { color: #4e5969; font-weight: 500; }
+.device-code-cell { font-family: 'Consolas', monospace; font-size: 12px; color: #1769aa; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fault-desc { font-size: 12px; color: #86909c; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.4; }
 /* 抽屉壳层样式见下方 unscoped 块（append-to-body 后 scoped 选不中） */
 .drawer-body {
@@ -3954,13 +3954,6 @@ const confirmExportExcel = async () => {
   .warranty-entry-row { grid-template-columns: 1fr; align-items: stretch; }
 }
 
-@media print {
-  :global(body *) { visibility: hidden; }
-  #print-area, #print-area * { visibility: visible; }
-  #print-area { display: block !important; position: absolute; left: 0; top: 0; width: 100%; }
-  .print-page { page-break-after: always; padding: 20px; min-height: 100vh; box-sizing: border-box; }
-  .print-page:last-child { page-break-after: auto; }
-}
 </style>
 
 <!-- append-to-body 的抽屉挂在 body 下，需要非 scoped 才能命中壳层 -->

@@ -29,6 +29,13 @@ export default defineConfig({
   },
   server: {
     allowedHosts: ['.trycloudflare.com'],
+    proxy: {
+      '/api': {
+        target: 'https://env-00jy6g4qwi94.dev-hz.cloudbasefunction.cn',
+        changeOrigin: true,
+        rewrite: path => path.replace(/^\/api/, '')
+      }
+    }
   },
   preview: {
     allowedHosts: ['.trycloudflare.com'],

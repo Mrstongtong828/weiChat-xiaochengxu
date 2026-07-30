@@ -268,6 +268,14 @@
         <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与公众号配置</el-button></div>
       </el-tab-pane>
 
+      <el-tab-pane label="打印模板" name="print">
+        <PrintTemplateEditor
+          v-model="printTemplates"
+          :saving="savingPrintTemplates"
+          @save="savePrintTemplates"
+        />
+      </el-tab-pane>
+
       <el-tab-pane label="调研有礼" name="survey">
         <el-alert
           title="这里维护小程序「调研有礼」页面。保存后小程序会动态读取最新标题、说明、选项和提交成功提示；客户后续修改内容无需重新发布小程序。"
@@ -412,14 +420,18 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
+import PrintTemplateEditor from '../components/PrintTemplateEditor.vue'
 import RichEditor from '../components/RichEditor.vue'
 import { normalizePolicyHtml } from '../utils/policyHtml.js'
+import { parsePrintTemplates } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { uploadToOss } from '../utils/ossUpload.js'
 
 const activeContentTab = ref('policy')
 const config = reactive({ warranty: '', feePolicy: '' })
 const isWebUrl = (url = '') => /^https?:\/\//i.test(url)
+const printTemplates = ref(parsePrintTemplates())
+const savingPrintTemplates = ref(false)
 
 // ===== 保修与收费 =====
 const savingPolicy = ref(false)
@@ -931,11 +943,29 @@ const loadSettings = async () => {
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
     warrantySections.value = parseJsonArray(data.warranty_policy_sections)
       .map(item => ({ title: String(item.title || ''), content: normalizePolicyHtml(item.content || '') }))
+    printTemplates.value = parsePrintTemplates(data.print_templates, data.print_config)
     applyCompliance(data)
     applyContactInfo(data)
     applySurveyConfig(data.survey_config)
   } catch (error) {
     console.error('加载配置失败:', error)
+  }
+}
+
+const savePrintTemplates = async () => {
+  try {
+    savingPrintTemplates.value = true
+    const token = localStorage.getItem('adminToken')
+    await saveSettings(token, {
+      print_templates: JSON.stringify(printTemplates.value),
+      // 同步保留旧字段，避免尚未升级的页面读取不到维修单模板。
+      print_config: JSON.stringify(printTemplates.value.repair_order)
+    })
+    ElMessage.success('打印模板已保存')
+  } catch (error) {
+    ElMessage.error(error.message || '打印模板保存失败')
+  } finally {
+    savingPrintTemplates.value = false
   }
 }
 

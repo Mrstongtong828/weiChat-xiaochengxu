@@ -18,6 +18,7 @@ const normalizeOrderItems = (order) => {
     : [{
         product_name: order.product_name,
         product_model: order.product_model,
+        product_code: order.product_code || order.productCode || order.code,
         sn: order.sn,
         buy_date: order.buy_date,
         fault_desc: order.fault_desc,
@@ -29,6 +30,7 @@ const normalizeOrderItems = (order) => {
     product_name: item.product_name || '',
     product_category: item.product_category || '',
     product_model: item.product_model || '',
+    product_code: item.product_code || item.productCode || item.code || '',
     sn: item.sn || '',
     buy_date: item.buy_date || '',
     warranty_months: Number(item.warranty_months || 0) || 0,
@@ -39,6 +41,14 @@ const normalizeOrderItems = (order) => {
     coverage_note: item.coverage_note || item.coverageNote || '',
     fault_desc: item.fault_desc || '',
     quantity: item.quantity || 1,
+    unit: item.unit || '',
+    batch_no: item.batch_no || item.batchNo || '',
+    fault_reason: item.fault_reason || item.faultReason || '',
+    fix_solution: item.fix_solution || item.fixSolution || '',
+    repair_action: item.repair_action || item.repairAction || '',
+    warranty_scope: item.warranty_scope || item.warrantyScope || '',
+    charge_amount: Number(item.charge_amount ?? item.chargeAmount ?? 0) || 0,
+    repair_remark: item.repair_remark || item.repairRemark || item.remark || '',
     voucher_urls: normalizeUrlArray(item.voucher_urls, item.voucherUrls),
     image_urls: normalizeUrlArray(item.image_urls, item.imageUrls),
     video_urls: normalizeUrlArray(item.video_urls, item.videoUrls),
@@ -127,6 +137,7 @@ export const transformOrder = (order) => {
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
     productName: firstItem.product_name || order.product_name || '',
+    productCode: firstItem.product_code || firstItem.productCode || firstItem.code || order.product_code || order.productCode || order.code || '',
     fault: firstItem.fault_desc || order.fault_desc || '',
     images,
     itemsList,
@@ -155,6 +166,9 @@ export const transformOrder = (order) => {
     quoteItems,
     quoteStatus: order.quote_status || order.quoteStatus || 'pending',
     quoteRemark: order.quote_remark || order.quoteRemark || '',
+    quoteNo: order.quote_no || order.quoteNo || '',
+    quoteTime: order.quote_time || order.quoteTime || '',
+    paymentDeadline: order.payment_deadline || order.paymentDeadline || '',
     partsFee,
     laborFee,
     totalPrice,
@@ -198,6 +212,10 @@ export const transformOrder = (order) => {
     // 时间
     submitTime: order.create_time ? new Date(order.create_time).toLocaleString('zh-CN', { hour12: false }) : '',
     updateTime: order.update_time ? new Date(order.update_time).toLocaleString('zh-CN', { hour12: false }) : '',
+    receivedTime: order.received_time || order.receivedTime || '',
+    completedTime: order.completed_time || order.complete_time || order.completedTime || '',
+    complaintCode: order.complaint_code || order.complaintCode || '',
+    settlementNo: order.settlement_no || order.settlementNo || '',
 
     // 用户ID
     userId: order.user_id || ''
