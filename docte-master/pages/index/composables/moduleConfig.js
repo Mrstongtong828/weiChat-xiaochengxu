@@ -58,7 +58,7 @@ export const companyAdvantages = [
 
 export const companyProductLines = [
 	{ title: '根管治疗设备', desc: '覆盖根管马达、根管测量、热牙胶充填、冲洗等临床根管治疗场景。', gradient: 'linear-gradient(135deg, #2C5985 0%, #6BB0CC 100%)' },
-	{ title: '牙科手机与电动微马达', desc: '提供高速手机、增速弯机、电动微马达等高效、低噪、稳定的动力设备。', gradient: 'linear-gradient(135deg, #3D6F9E 0%, #6BB0CC 100%)' },
+	{ title: '牙科手机与电动微马达', desc: '牙科光固化机、高速气涡轮手机、低速气动马达手机、牙科低压电动马达满足各类牙体美学修复需求。', gradient: 'linear-gradient(135deg, #3D6F9E 0%, #6BB0CC 100%)' },
 	{ title: '光固化与美白设备', desc: '以光固化灯为起点，延伸到牙齿美白仪以及修复、美学相关设备。', gradient: 'linear-gradient(135deg, #0A4FB8 0%, #6BB0CC 100%)' },
 	{ title: '洁牙抛光与辅助器械', desc: '覆盖喷砂抛光、临床器械及耗材配套，满足诊所日常诊疗效率需求。', gradient: 'linear-gradient(135deg, #1D8A96 0%, #7BC9C7 100%)' }
 ]
