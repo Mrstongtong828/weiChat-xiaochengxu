@@ -895,7 +895,7 @@
 					<view class="diag-icon"><view class="glyph glyph-diag"><view class="glyph-extra"></view></view></view>
 					<view>
 						<text>2 步快速定位故障</text>
-						<text>选择产品类型与故障现象，即查看解决方法</text>
+						<text>选择产品类型与故障现象，即查看排查方法和处理建议</text>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>请选择</text></view>
@@ -912,7 +912,7 @@
 					</view>
 				</view>
 				<view v-if="diagConfirmVisible" class="diag-result">
-					<view class="module-section-head single"><text>解决方法</text></view>
+					<view class="module-section-head single"><text>自查结果</text></view>
 					<view v-for="section in diagConfirmSections" :key="section.title" class="diag-check-card">
 						<view class="diag-check-head"><view :style="{ backgroundColor: section.color }"></view><text>{{ section.title }}</text></view>
 						<view v-for="(item, index) in section.items" :key="item" class="diag-check-row">
@@ -2038,7 +2038,7 @@ const diagResult = ref(null)
 
 const defaultDiagConfirmSections = [
 	{
-		title: '解决方法',
+		title: '处理方式',
 		color: '#10B981',
 		numbered: true,
 		items: ['暂未提供对应处理建议']
@@ -2716,7 +2716,7 @@ const diagProductLabel = computed(() => {
 })
 const diagEmptyText = computed(() => (
 	diagProducts.value.length
-		? '选择产品类型与故障现象，系统将自动展示解决方法。'
+		? '选择产品类型与故障现象，系统将自动展示自查建议。'
 		: '暂未提供故障自查方案，可联系售后协助判断。'
 ))
 const diagFaultPlaceholder = computed(() => (diagProduct.value ? '请选择故障现象' : '请先选择产品类型'))
@@ -2728,16 +2728,37 @@ const diagConfirmVisible = computed(() => Boolean(diagProduct.value && diagFault
 const diagConfirmSections = computed(() => {
 	if (!diagResult.value) return defaultDiagConfirmSections
 
-	const solutionItems = toTextLines(diagResult.value.solutions || diagResult.value.solution)
+	const relatedItems = toTextLines(diagResult.value.relatedQuestions || diagResult.value.related_questions)
+	const checkItems = toTextLines(diagResult.value.checkSteps || diagResult.value.check_steps)
+	const solutionItems = toTextLines(
+		diagResult.value.fixSolutions ||
+		diagResult.value.fix_solutions ||
+		diagResult.value.solutions ||
+		diagResult.value.solution
+	)
 
-	return [
+	const sections = [
 		{
-			title: '解决方法',
+			title: '相关问题',
+			color: '#1E6FE0',
+			numbered: false,
+			items: relatedItems
+		},
+		{
+			title: '排查确认',
+			color: '#F59E0B',
+			numbered: true,
+			items: checkItems
+		},
+		{
+			title: '处理方式',
 			color: '#10B981',
 			numbered: true,
 			items: solutionItems.length ? solutionItems : defaultDiagConfirmSections[0].items
 		}
-	]
+	].filter((section) => section.items.length)
+
+	return sections.length ? sections : defaultDiagConfirmSections
 })
 const diagSheetOptions = computed(() => {
 	if (diagOpen.value === 'product') {
@@ -5056,7 +5077,8 @@ const loadFaultResult = async () => {
 	try {
 		const result = await searchFault({
 			productType: diagProduct.value,
-			faultTypeId: localRecord ? (localRecord.faultTypeId || localRecord.id || '') : ''
+			faultTypeId: localRecord ? (localRecord.faultTypeId || localRecord.id || '') : '',
+			faultName: diagFault.value
 		})
 		diagResult.value = result || localRecord || null
 	} catch (error) {

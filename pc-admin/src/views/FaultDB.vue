@@ -31,7 +31,7 @@
         <div class="section-title">
           <div>
             <span>「{{ currentCategory.name }}」故障库</span>
-            <p class="section-desc">维护常见故障现象和对应解决方法，便于客户在小程序内自助查看。</p>
+            <p class="section-desc">维护常见故障、排查确认和处理方式，便于客户在小程序内自助查看。</p>
           </div>
           <div class="title-actions">
             <el-button type="primary" @click="openFaultDialog(null)" size="small"><el-icon><Plus /></el-icon> 录入</el-button>
@@ -48,7 +48,20 @@
             <el-table-column prop="name" label="故障现象" min-width="180">
               <template #default="{ row }"><span class="cell-primary">{{ row.name || '-' }}</span></template>
             </el-table-column>
-            <el-table-column prop="solution" label="解决方法" min-width="320" show-overflow-tooltip></el-table-column>
+            <el-table-column label="相关问题" min-width="220" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatListPreview(row.relatedQuestions) }}</template>
+            </el-table-column>
+            <el-table-column label="排查确认" min-width="260" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatListPreview(row.checkSteps) }}</template>
+            </el-table-column>
+            <el-table-column label="处理方式" min-width="280" show-overflow-tooltip>
+              <template #default="{ row }">{{ formatListPreview(row.fixSolutions) }}</template>
+            </el-table-column>
+            <el-table-column label="引导报修" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.isRecommendRepair ? 'warning' : 'info'" effect="plain">{{ row.isRecommendRepair ? '建议' : '否' }}</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="160"></el-table-column>
             <el-table-column label="操作" width="130" align="right" fixed="right">
               <template #default="{row}">
@@ -72,10 +85,15 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="faultDialogVisible" :title="isEdit ? '编辑故障' : '新增故障'" width="560px" align-center>
-    <el-form :model="faultForm" label-width="90px">
+  <el-dialog v-model="faultDialogVisible" :title="isEdit ? '编辑故障' : '新增故障'" width="720px" align-center>
+    <el-form :model="faultForm" label-width="100px">
       <el-form-item label="故障现象"><el-input v-model.trim="faultForm.name" placeholder="请输入故障现象"></el-input></el-form-item>
-      <el-form-item label="解决方法"><el-input v-model="faultForm.solution" type="textarea" :rows="6" placeholder="请输入解决方法，多个方法可用分号或换行分隔"></el-input></el-form-item>
+      <el-form-item label="相关问题"><el-input v-model="faultForm.relatedQuestions" type="textarea" :rows="3" placeholder="每行一个客户可能描述的问题"></el-input></el-form-item>
+      <el-form-item label="排查确认"><el-input v-model="faultForm.checkSteps" type="textarea" :rows="5" placeholder="每行一个排查步骤"></el-input></el-form-item>
+      <el-form-item label="处理方式"><el-input v-model="faultForm.fixSolutions" type="textarea" :rows="5" placeholder="每行一个处理建议"></el-input></el-form-item>
+      <el-form-item label="引导报修">
+        <el-switch v-model="faultForm.isRecommendRepair" active-text="建议报修" inactive-text="可先自查" />
+      </el-form-item>
     </el-form>
     <template #footer>
       <el-button @click="faultDialogVisible = false">取消</el-button>
@@ -96,14 +114,26 @@ const currentCategory = ref(null)
 const isEdit = ref(false)
 const catDialogVisible = ref(false)
 const faultDialogVisible = ref(false)
-const catForm = reactive({ _id: null, name: '' })
-const faultForm = reactive({ _id: null, name: '', solution: '' })
+const catForm = reactive({ _id: null, name: '', sort: 0 })
+const faultForm = reactive({
+  _id: null,
+  name: '',
+  relatedQuestions: '',
+  checkSteps: '',
+  fixSolutions: '',
+  isRecommendRepair: false
+})
 
 const currentFaultItems = computed(() =>
   currentCategory.value ? allFaultItems.value.filter(f => f.catId === currentCategory.value._id) : []
 )
 
 const splitTextList = (value) => String(value || '').split(/\n|\uFF1B|;/).map(item => item.trim()).filter(Boolean)
+const joinTextList = (value) => Array.isArray(value) ? value.join('\n') : String(value || '')
+const formatListPreview = (value) => {
+  const list = Array.isArray(value) ? value : splitTextList(value)
+  return list.length ? list.join('；') : '-'
+}
 
 const loadCategories = async () => {
   loading.value = true
@@ -128,7 +158,10 @@ const loadFaults = async () => {
       _id: f._id,
       catId: f.category_id,
       name: f.fault_name,
-      solution: f.fix_solutions?.join('；') || '',
+      relatedQuestions: Array.isArray(f.related_questions) ? f.related_questions : [],
+      checkSteps: Array.isArray(f.check_steps) ? f.check_steps : [],
+      fixSolutions: Array.isArray(f.fix_solutions) ? f.fix_solutions : [],
+      isRecommendRepair: f.is_recommend_repair === true,
       createdAt: f.create_time ? new Date(f.create_time).toLocaleString() : ''
     }))
   } catch (error) {
@@ -142,6 +175,7 @@ const openCatDialog = (cat) => {
   isEdit.value = Boolean(cat)
   catForm._id = cat ? cat._id : null
   catForm.name = cat ? cat.name : ''
+  catForm.sort = cat ? (cat.sort || 0) : categories.value.length + 1
   catDialogVisible.value = true
 }
 
@@ -150,7 +184,7 @@ const saveCategory = async () => {
   loading.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const data = { category_name: catForm.name, status: '上架', sort: 0 }
+    const data = { category_name: catForm.name, status: '上架', sort: Number(catForm.sort) || categories.value.length + 1 }
     if (isEdit.value) {
       await editCategory(token, catForm._id, data)
       ElMessage.success('分类编辑成功')
@@ -193,25 +227,28 @@ const openFaultDialog = (fault) => {
   isEdit.value = Boolean(fault)
   faultForm._id = fault ? fault._id : null
   faultForm.name = fault ? fault.name : ''
-  faultForm.solution = fault ? fault.solution : ''
+  faultForm.relatedQuestions = fault ? joinTextList(fault.relatedQuestions) : ''
+  faultForm.checkSteps = fault ? joinTextList(fault.checkSteps) : ''
+  faultForm.fixSolutions = fault ? joinTextList(fault.fixSolutions) : ''
+  faultForm.isRecommendRepair = fault ? fault.isRecommendRepair : false
   faultDialogVisible.value = true
 }
 
 const saveFault = async () => {
   if (!currentCategory.value) { ElMessage.warning('请先选择产品分类'); return }
   if (!faultForm.name) { ElMessage.warning('请输入故障现象'); return }
-  const solutionList = splitTextList(faultForm.solution)
-  if (!solutionList.length) { ElMessage.warning('请输入解决方法'); return }
+  const solutionList = splitTextList(faultForm.fixSolutions)
+  if (!solutionList.length) { ElMessage.warning('请输入处理方式'); return }
   loading.value = true
   try {
     const token = localStorage.getItem('adminToken')
     const data = {
       category_id: currentCategory.value._id,
       fault_name: faultForm.name,
-      related_questions: [],
-      check_steps: [],
+      related_questions: splitTextList(faultForm.relatedQuestions),
+      check_steps: splitTextList(faultForm.checkSteps),
       fix_solutions: solutionList,
-      is_recommend_repair: false
+      is_recommend_repair: faultForm.isRecommendRepair === true
     }
     if (isEdit.value) {
       await editFault(token, faultForm._id, data)

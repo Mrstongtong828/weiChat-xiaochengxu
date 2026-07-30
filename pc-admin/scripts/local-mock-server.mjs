@@ -1,11 +1,23 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 
 const PORT = Number(process.env.MOCK_PORT || 8787)
 const TOKEN = 'local-admin-token'
 const mockFileUrls = new Map()
 
 const now = Date.now()
+
+const loadSeedJson = (url, fallback) => {
+  try {
+    return JSON.parse(readFileSync(url, 'utf8'))
+  } catch {
+    return fallback
+  }
+}
+
+const seedData = loadSeedJson(new URL('../../docte-master/uniCloud-alipay/database/-data.json', import.meta.url), {})
+const seedFaults = loadSeedJson(new URL('../../docte-master/uniCloud-alipay/database/cicada_fault_kb.init_data.json', import.meta.url), [])
 
 const staff = [
   {
@@ -28,31 +40,15 @@ const staff = [
   }
 ]
 
-const categories = [
-  { _id: 'cat001', category_name: 'Dental handpiece', status: 'active', sort: 1 },
-  { _id: 'cat002', category_name: 'Imaging device', status: 'active', sort: 2 }
-]
+const categories = (seedData.cicada_product_categories || []).map((item, index) => ({
+  sort: index + 1,
+  ...item
+}))
 
-const faults = [
-  {
-    _id: 'fault001',
-    category_id: 'cat001',
-    fault_name: 'No rotation',
-    related_questions: ['Motor does not start', 'Abnormal noise'],
-    check_steps: ['Check power supply', 'Check bearing'],
-    fix_solutions: ['Replace bearing', 'Clean internal dust'],
-    create_time: now - 7200000
-  },
-  {
-    _id: 'fault002',
-    category_id: 'cat002',
-    fault_name: 'Image blur',
-    related_questions: ['Focus error', 'Calibration needed'],
-    check_steps: ['Run calibration', 'Check lens'],
-    fix_solutions: ['Adjust calibration', 'Replace lens module'],
-    create_time: now - 3600000
-  }
-]
+const faults = (Array.isArray(seedFaults) ? seedFaults : []).map((item, index) => ({
+  ...item,
+  create_time: item.create_time || now - (index + 1) * 3600000
+}))
 
 const orders = [
   {
