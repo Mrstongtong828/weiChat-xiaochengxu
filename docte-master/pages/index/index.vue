@@ -67,6 +67,7 @@
 							</view>
 							<!-- SN 识别结果 -->
 							<view v-if="product.snLoading" class="sn-result loading"><text>正在识别设备…</text></view>
+							<view v-else-if="getSnValidationMessage(product)" class="sn-result error"><text>{{ getSnValidationMessage(product) }}</text></view>
 							<view v-else-if="product.snInfo && product.snInfo.found" class="sn-result">
 								<view class="sn-result-row">
 									<text class="sn-result-label">已识别</text>
@@ -334,8 +335,8 @@
 					<view class="success-row"><text>工单号</text><text class="copy-link tap" @click="copyOne(submittedOrderId, '工单号')">复制</text></view>
 					<text class="success-no">{{ submittedOrderId || '工单号生成中' }}</text>
 					<view class="success-grid">
-						<view><text>预计响应</text><text>30 分钟内</text></view>
-						<view><text>物流方式</text><text>顺丰到付</text></view>
+						<view><text>响应状态</text><text>等待客服受理</text></view>
+						<view><text>寄出物流</text><text>{{ submittedLogisticsText }}</text></view>
 					</view>
 					<text class="success-archive-tip">本次报修的设备已记入「我的设备」档案，维修完成后保修状态与历史工单会自动更新。</text>
 				</view>
@@ -647,6 +648,64 @@
 						<view><text>预计完成</text><text>{{ detailOrder.doneTime }}</text></view>
 					</view>
 				</view>
+				<view class="module-section-head single"><text>报修信息</text></view>
+				<view v-if="detailView.items.length" class="detail-repair-list">
+					<view v-for="(item, itemIndex) in detailView.items" :key="item.id" class="detail-repair-card">
+						<view class="detail-repair-head">
+							<text>报修产品 {{ itemIndex + 1 }}</text>
+							<text>{{ item.name }}</text>
+						</view>
+						<view class="detail-field-grid">
+							<view><text>产品分类</text><text>{{ item.category }}</text></view>
+							<view><text>产品型号</text><text>{{ item.model }}</text></view>
+							<view><text>产品序列号</text><text selectable user-select>{{ item.sn }}</text></view>
+							<view><text>购买日期</text><text>{{ item.buyDate }}</text></view>
+						</view>
+						<view class="detail-fault-block">
+							<text>故障描述</text>
+							<text selectable user-select>{{ item.faultDesc }}</text>
+						</view>
+						<view v-if="item.vouchers.length || item.images.length || item.videos.length" class="detail-attachment-block">
+							<text>凭证与附件</text>
+							<view class="detail-attachment-grid">
+								<view v-for="(attachment, index) in item.vouchers" :key="attachment.id" class="detail-attachment tap" @click="previewDetailImages(item.vouchers, index)">
+									<image v-if="getDetailAttachmentUrl(attachment)" :src="getDetailAttachmentUrl(attachment)" mode="aspectFill"></image>
+									<view v-else class="detail-attachment-placeholder">凭证</view>
+									<text>购买凭证</text>
+								</view>
+								<view v-for="(attachment, index) in item.images" :key="attachment.id" class="detail-attachment tap" @click="previewDetailImages(item.images, index)">
+									<image v-if="getDetailAttachmentUrl(attachment)" :src="getDetailAttachmentUrl(attachment)" mode="aspectFill"></image>
+									<view v-else class="detail-attachment-placeholder">图片</view>
+									<text>故障图片</text>
+								</view>
+								<view v-for="attachment in item.videos" :key="attachment.id" class="detail-attachment tap" @click="previewDetailVideo(attachment)">
+									<view class="detail-video-placeholder"><text>▶</text></view>
+									<text>故障视频</text>
+								</view>
+							</view>
+						</view>
+					</view>
+				</view>
+				<view v-else class="empty-hint compact">设备信息待同步，请稍后刷新或联系客服。</view>
+				<view class="detail-shipping-card">
+					<view class="detail-shipping-group">
+						<text>寄出信息</text>
+						<view><text>寄件人</text><text>{{ detailView.shipOut.name }}</text></view>
+						<view><text>联系电话</text><text selectable user-select>{{ detailView.shipOut.phone }}</text></view>
+						<view><text>寄出地址</text><text selectable user-select>{{ detailView.shipOut.address }}</text></view>
+						<view><text>物流公司</text><text>{{ detailView.shipOut.logisticsCompany }}</text></view>
+						<view><text>寄出单号</text><text selectable user-select>{{ detailView.shipOut.logisticsNo }}</text></view>
+					</view>
+					<view class="detail-shipping-group">
+						<text>回寄信息</text>
+						<view><text>收件单位</text><text>{{ detailView.shipBack.unit }}</text></view>
+						<view><text>收货人</text><text>{{ detailView.shipBack.name }}</text></view>
+						<view><text>手机号码</text><text selectable user-select>{{ detailView.shipBack.phone }}</text></view>
+						<view><text>回寄地址</text><text selectable user-select>{{ detailView.shipBack.address }}</text></view>
+						<view><text>回寄物流</text><text>{{ detailView.shipBack.logisticsCompany }}</text></view>
+						<view><text>回寄单号</text><text selectable user-select>{{ detailView.shipBack.logisticsNo }}</text></view>
+					</view>
+				</view>
 				<view class="module-section-head single"><text>维修进度</text></view>
 				<view class="progress-node-card">
 					<view v-for="(node, index) in repairProgressNodes" :key="node.label" class="progress-node-row" :class="node.state">
@@ -659,6 +718,22 @@
 							<text v-if="node.state === 'current'" class="progress-node-now">进行中</text>
 						</view>
 					</view>
+				</view>
+				<view class="detail-timeline-card">
+					<view class="detail-timeline-heading"><text>处理记录</text><text>共 {{ detailView.timeline.length }} 条</text></view>
+					<view v-if="detailView.timeline.length">
+						<view v-for="(item, index) in detailView.timeline" :key="item.id" class="detail-timeline-row">
+							<view class="detail-timeline-pin" :class="{ pending: item.pending }">
+								<view></view>
+								<view v-if="index < detailView.timeline.length - 1"></view>
+							</view>
+							<view class="detail-timeline-copy">
+								<view><text>{{ item.title }}</text><text>{{ item.time }}</text></view>
+								<text>{{ item.desc }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-else class="empty-hint compact">暂无处理记录。</view>
 				</view>
 				<view class="module-section-head single"><text>维修报价</text></view>
 				<view class="billing-card quote-sheet-card quote-payment-panel">
@@ -1841,6 +1916,7 @@ import {
 	toTextLines
 } from './composables/orderFormatters'
 import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
+import { createOrderDetailView } from './composables/orderDetail'
 import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 import {
@@ -1929,6 +2005,7 @@ const paymentSubmitting = ref(false)
 const actionSubmitting = ref(false)
 const paymentProofUploading = ref(false)
 const paymentProofTempUrls = ref({})
+const detailAttachmentTempUrls = ref({})
 const selectedPaymentMethod = ref('wechat')
 const subscriptionTemplates = ref(null)
 const feedbackSubmitting = ref(false)
@@ -2094,6 +2171,7 @@ const surveyRecordKey = 'afterSalesSurveyRecords'
 const repairForm = ref(defaultRepairForm())
 const trackingLater = ref(false)
 const submittedOrderId = ref('')
+const submittedRepairSummary = ref({ logisticsCompany: '', trackingNo: '', trackingPending: false })
 const repairProducts = ref([defaultRepairProduct()])
 const repairSectionOpen = ref({ user: true, products: true, sender: true, receiver: true })
 const customerTypePickerIndex = computed(() => Math.max(0, customerTypeOptions.findIndex((item) => item.value === repairForm.value.customerType)))
@@ -2649,6 +2727,8 @@ const normalizeOrder = (item = {}) => {
 		id: orderId,
 		recordId: merged._id || merged.id || '',
 		items: orderItems,
+		shipOutInfo,
+		shipBackInfo,
 		productName,
 		product_name: productName,
 		productModel,
@@ -2703,7 +2783,8 @@ const normalizeOrder = (item = {}) => {
 		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
 		returnLogisticsCompany,
 		returnLogisticsNo,
-		timeline: Array.isArray(merged.timeline) ? merged.timeline : []
+		timeline: Array.isArray(merged.timeline) ? merged.timeline : [],
+		review: merged.review || null
 	}
 }
 
@@ -3457,6 +3538,63 @@ const detailOrder = computed(() => {
 		{}
 	)
 })
+const detailView = computed(() => createOrderDetailView(detailOrder.value))
+const submittedLogisticsText = computed(() => {
+	const summary = submittedRepairSummary.value
+	const company = summary.logisticsCompany || '物流公司待同步'
+	if (summary.trackingPending || !summary.trackingNo) return `${company} · 单号待补`
+	return `${company} · ${summary.trackingNo}`
+})
+
+const getDetailAttachmentUrl = (attachment = {}) => {
+	const fileID = getCloudFileId(attachment)
+	if (fileID && detailAttachmentTempUrls.value[fileID]) return detailAttachmentTempUrls.value[fileID]
+	return getPreviewUrl(attachment)
+}
+
+const resolveDetailAttachmentUrls = async (attachments = []) => {
+	const fileIDs = [...new Set((Array.isArray(attachments) ? attachments : [])
+		.map(getCloudFileId)
+		.filter((fileID) => fileID && isCloudFileId(fileID) && !detailAttachmentTempUrls.value[fileID]))]
+	if (!fileIDs.length) return
+	try {
+		const result = await getCloudTempFileURL(fileIDs)
+		const nextUrls = { ...detailAttachmentTempUrls.value }
+		const fileList = result && Array.isArray(result.fileList) ? result.fileList : []
+		for (const item of fileList) {
+			const fileID = item.fileID || item.fileId || ''
+			const tempFileURL = item.tempFileURL || item.url || ''
+			if (fileID && tempFileURL && !isCloudFileId(tempFileURL)) nextUrls[fileID] = tempFileURL
+		}
+		detailAttachmentTempUrls.value = nextUrls
+	} catch (error) {
+		console.warn('resolve detail attachment urls failed:', error)
+	}
+}
+
+const previewDetailImages = async (attachments = [], index = 0) => {
+	await resolveDetailAttachmentUrls(attachments)
+	const urls = attachments.map(getDetailAttachmentUrl).filter(Boolean)
+	if (!urls.length) {
+		uni.showToast({ title: '附件暂不可预览', icon: 'none' })
+		return
+	}
+	uni.previewImage({ urls, current: urls[Math.min(Math.max(Number(index) || 0, 0), urls.length - 1)] })
+}
+
+const previewDetailVideo = async (attachment = {}) => {
+	await resolveDetailAttachmentUrls([attachment])
+	const url = getDetailAttachmentUrl(attachment)
+	if (!url) {
+		uni.showToast({ title: '视频暂不可预览', icon: 'none' })
+		return
+	}
+	if (uni.previewMedia) {
+		uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+		return
+	}
+	uni.showToast({ title: '当前微信版本暂不支持视频预览', icon: 'none' })
+}
 // 面向用户只保留四个关键维修阶段，报价和付款状态分别在对应卡片展示。
 const repairProgressNodes = computed(() => getRepairProgressNodes(detailOrder.value))
 
@@ -3649,6 +3787,15 @@ watch(
 			return
 		}
 		selectedPaymentMethod.value = 'wechat'
+	},
+	{ immediate: true }
+)
+
+watch(
+	() => detailView.value.items.flatMap((item) => [...item.vouchers, ...item.images, ...item.videos]).map((item) => item.url).join('|'),
+	() => {
+		const attachments = detailView.value.items.flatMap((item) => [...item.vouchers, ...item.images, ...item.videos])
+		resolveDetailAttachmentUrls(attachments)
 	},
 	{ immediate: true }
 )
@@ -4600,13 +4747,16 @@ const returnFromModule = () => {
 }
 
 const openTrackDetail = (order) => {
+	orderDetailOrder.value = ''
 	trackDetailOrder.value = order.id
 	openModule('order-detail')
 }
 
 const openOrderDetail = (order) => {
+	trackDetailOrder.value = ''
 	orderDetailOrder.value = order.id
 	openModule('order-detail')
+	if (hasLoginToken()) refreshOrderFromServer(order).catch((error) => console.warn('refresh detail on open failed:', error))
 	// 打开详情时刷新该工单的投诉/反馈状态与客服回复
 	if (hasLoginToken()) syncFeedbackRecords().catch((error) => console.warn('sync feedback on detail failed:', error))
 }
@@ -4824,6 +4974,7 @@ const clearRepairForm = (notify = true) => {
 const startNewRepair = () => {
 	clearRepairForm(false)
 	submittedOrderId.value = ''
+	submittedRepairSummary.value = { logisticsCompany: '', trackingNo: '', trackingPending: false }
 	openModule('repair')
 }
 
@@ -5145,6 +5296,10 @@ const validateRepairStep = (step) => {
 				uni.showToast({ title: `第 ${i + 1} 个产品请填写序列号`, icon: 'none' })
 				return false
 			}
+			if (cleanSn(products[i].serial).length > 80) {
+				uni.showToast({ title: `第 ${i + 1} 个产品序列号不能超过80个字符`, icon: 'none' })
+				return false
+			}
 		}
 		return true
 	}
@@ -5188,6 +5343,7 @@ const snWarrantyLabel = (info = {}) => {
 
 // SN 清洗：去除空格/换行/制表符与首尾空白，保留横杠/字母数字（后端再做规范化匹配）
 const cleanSn = (raw) => String(raw == null ? '' : raw).replace(/[\s　]+/g, '').trim()
+const getSnValidationMessage = (product = {}) => cleanSn(product.serial).length > 80 ? '产品序列号不能超过80个字符' : ''
 
 // 防抖定时器（按产品下标）与最近一次扫码时间戳（节流）
 const snQueryTimers = {}
@@ -5202,6 +5358,7 @@ const recognizeSn = (index, force = false) => {
 	if (sn !== product.serial) product.serial = sn
 	if (snQueryTimers[index]) { clearTimeout(snQueryTimers[index]); snQueryTimers[index] = null }
 	if (!sn) { product.snInfo = null; return }
+	if (sn.length > 80) { product.snInfo = null; return }
 	const run = () => doRecognizeSn(index, sn)
 	if (force) run()
 	else snQueryTimers[index] = setTimeout(run, 500)
@@ -5342,6 +5499,11 @@ const validateRepairForm = () => {
 			uni.showToast({ title: `${label}请填写序列号`, icon: 'none' })
 			return false
 		}
+		if (cleanSn(product.serial).length > 80) {
+			openRepairSection('products')
+			uni.showToast({ title: `${label}序列号不能超过80个字符`, icon: 'none' })
+			return false
+		}
 		if (!String(product.faultDesc || '').trim()) {
 			openRepairSection('products')
 			uni.showToast({ title: `${label}请填写故障描述`, icon: 'none' })
@@ -5424,12 +5586,18 @@ const submitRepair = async () => {
 	}
 	if (!validateRepairForm()) return
 
-	await requestStatusSubscription('repair_submit')
 	repairSubmitting.value = true
 	try {
-		const res = await submitRepairOrder(buildRepairPayload())
+		await requestStatusSubscription('repair_submit')
+		const payload = buildRepairPayload()
+		const res = await submitRepairOrder(payload)
 		const resData = (res && res.data) ? res.data : (res || {})
 		submittedOrderId.value = resData.order_no || resData.orderNo || resData.orderId || resData.id || ''
+		submittedRepairSummary.value = {
+			logisticsCompany: payload.logisticsCompany,
+			trackingNo: payload.trackingNo,
+			trackingPending: payload.trackingPending
+		}
 		uni.removeStorageSync(repairDraftKey)
 		openModule('repair-success')
 		loadRemoteContent()
@@ -10133,6 +10301,7 @@ onUnmounted(() => {
 
 .sn-result.muted { background: #F7F8FA; border-color: #ECEEF2; }
 .sn-result.loading { background: #F7F8FA; border-color: #ECEEF2; color: #8597B2; }
+.sn-result.error { background: #FFF4F2; border-color: #F3C7C1; color: #B23A3A; }
 .sn-result-row { display: flex; align-items: center; justify-content: space-between; }
 .sn-result-label { font-size: 24rpx; color: #0A4FB8; font-weight: 600; }
 .sn-result-line { font-size: 24rpx; color: #324563; }
@@ -11458,6 +11627,166 @@ onUnmounted(() => {
 .detail-hero-grid text:last-child {
 	font-size: 26rpx;
 	font-weight: 700;
+}
+
+.detail-repair-list {
+	display: flex;
+	flex-direction: column;
+	gap: 20rpx;
+}
+
+.detail-repair-card,
+.detail-shipping-card,
+.detail-timeline-card {
+	padding: 28rpx;
+	border: 2rpx solid #E4ECF7;
+	border-radius: 16rpx;
+	background: #FFFFFF;
+	box-sizing: border-box;
+}
+
+.detail-repair-head,
+.detail-timeline-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.detail-repair-head text:first-child,
+.detail-timeline-heading text:first-child {
+	font-size: 28rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.detail-repair-head text:last-child,
+.detail-timeline-heading text:last-child {
+	min-width: 0;
+	font-size: 23rpx;
+	color: #64748B;
+	text-align: right;
+	word-break: break-all;
+}
+
+.detail-field-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20rpx 24rpx;
+	margin-top: 24rpx;
+	padding-top: 24rpx;
+	border-top: 2rpx solid #EEF3FA;
+}
+
+.detail-field-grid > view,
+.detail-shipping-group > view {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+}
+
+.detail-field-grid > view > text:first-child,
+.detail-shipping-group > view > text:first-child,
+.detail-fault-block > text:first-child,
+.detail-attachment-block > text:first-child {
+	font-size: 22rpx;
+	color: #94A3B8;
+}
+
+.detail-field-grid > view > text:last-child,
+.detail-shipping-group > view > text:last-child {
+	font-size: 25rpx;
+	line-height: 1.5;
+	color: #263952;
+	word-break: break-all;
+}
+
+.detail-fault-block,
+.detail-attachment-block {
+	display: flex;
+	flex-direction: column;
+	gap: 10rpx;
+	margin-top: 24rpx;
+}
+
+.detail-fault-block > text:last-child {
+	font-size: 25rpx;
+	line-height: 1.65;
+	color: #263952;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.detail-attachment-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 14rpx;
+}
+
+.detail-attachment {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.detail-attachment image,
+.detail-attachment-placeholder,
+.detail-video-placeholder {
+	width: 100%;
+	aspect-ratio: 1;
+	border-radius: 12rpx;
+	background: #F2F6FC;
+	overflow: hidden;
+}
+
+.detail-attachment-placeholder,
+.detail-video-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 23rpx;
+	color: #64748B;
+}
+
+.detail-video-placeholder text {
+	font-size: 38rpx;
+	color: #1E6FE0;
+}
+
+.detail-attachment > text:last-child {
+	font-size: 21rpx;
+	color: #64748B;
+	text-align: center;
+}
+
+.detail-shipping-card {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 28rpx;
+	margin-top: 20rpx;
+}
+
+.detail-shipping-group {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 18rpx;
+}
+
+.detail-shipping-group > text:first-child {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.detail-timeline-card {
+	margin-top: 20rpx;
+}
+
+.detail-timeline-heading {
+	margin-bottom: 28rpx;
 }
 
 .timeline-card {

@@ -92,7 +92,9 @@ function sanitizeOrderItemInput(item = {}) {
   data.product_name = normalizeText(data.product_name).slice(0, 80)
   data.product_category = normalizeText(data.product_category).slice(0, 80)
   data.product_model = normalizeText(data.product_model).slice(0, 80)
-  data.sn = normalizeText(data.sn).slice(0, 80)
+  const snError = getOrderItemSnError([data])
+  if (snError) throw new Error(snError)
+  data.sn = normalizeText(data.sn)
   data.buy_date = normalizeText(data.buy_date).slice(0, 20)
   data.fault_desc = normalizeText(data.fault_desc).slice(0, 2000)
   data.media_urls = normalizeArray(data.media_urls).slice(0, 12)
@@ -408,6 +410,54 @@ function stableDocumentId(prefix, value) {
 // 口径必须与 cicada-admin-customer / cicada-admin-order 中的同名函数保持一致。
 function normalizeSn(value) {
   return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
+}
+
+function getOrderItemSnError(items = []) {
+  return (Array.isArray(items) ? items : []).some(item => normalizeText(item && item.sn).length > 80)
+    ? '产品序列号不能超过80个字符'
+    : ''
+}
+
+function canonicalizeRepairItem(item = {}) {
+  const canonicalizeUrls = value => normalizeArray(value)
+    .map(url => normalizeText(url))
+    .filter(Boolean)
+    .sort()
+  return {
+    product_name: normalizeText(item.product_name),
+    product_category: normalizeText(item.product_category),
+    product_model: normalizeText(item.product_model),
+    sn: normalizeSn(item.sn),
+    buy_date: normalizeText(item.buy_date),
+    fault_desc: normalizeText(item.fault_desc),
+    media_urls: canonicalizeUrls(item.media_urls),
+    voucher_urls: canonicalizeUrls(item.voucher_urls),
+    image_urls: canonicalizeUrls(item.image_urls),
+    video_urls: canonicalizeUrls(item.video_urls)
+  }
+}
+
+function canonicalizeRepairRequest(request = {}) {
+  const items = (Array.isArray(request.items) ? request.items : [])
+    .map(item => canonicalizeRepairItem(item))
+    .map(item => JSON.stringify(item))
+    .sort()
+  return {
+    customer_type: normalizeText(request.customer_type),
+    ship_out_info: sanitizeShipInfo(request.ship_out_info),
+    ship_back_info: sanitizeShipInfo(request.ship_back_info),
+    items
+  }
+}
+
+function isSameRepairRequest(left = {}, right = {}) {
+  return JSON.stringify(canonicalizeRepairRequest(left)) === JSON.stringify(canonicalizeRepairRequest(right))
+}
+
+function buildRepairRequestFingerprint(request = {}) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(canonicalizeRepairRequest(request)))
+    .digest('hex')
 }
 
 // 将 YYYY-MM-DD 加上 N 个月，返回 YYYY-MM-DD；无效输入返回空串
@@ -999,11 +1049,10 @@ async function checkRateLimit(scope, identity, config) {
   throw new Error('操作过于频繁，请稍后再试')
 }
 
-async function findRecentDuplicateOrder(userId, items = [], now = Date.now()) {
-  const snKeys = Array.from(new Set((items || [])
-    .map(item => normalizeSn(item && item.sn))
-    .filter(Boolean)))
-  if (!userId || !snKeys.length) return null
+async function findRecentDuplicateOrder(userId, request = {}, now = Date.now()) {
+  const requestItems = Array.isArray(request.items) ? request.items : []
+  if (!userId || !requestItems.length) return null
+  const requestFingerprint = buildRepairRequestFingerprint(request)
 
   const since = now - DUPLICATE_ORDER_WINDOW_MS
   const orderRes = await db.collection('cicada_orders')
@@ -1012,27 +1061,133 @@ async function findRecentDuplicateOrder(userId, items = [], now = Date.now()) {
       create_time: db.command.gte(since),
       status: db.command.neq('cancelled')
     })
-    .field({ order_no: true, create_time: true, status: true })
+    .field({
+      order_no: true,
+      create_time: true,
+      status: true,
+      customer_type: true,
+      ship_out_info: true,
+      ship_back_info: true,
+      request_fingerprint: true
+    })
     .orderBy('create_time', 'desc')
     .limit(20)
     .get()
 
   const orders = orderRes.data || []
   if (!orders.length) return null
-  const orderIds = orders.map(order => order._id).filter(Boolean)
-  if (!orderIds.length) return null
+  for (const order of orders) {
+    if (!order || !order._id) continue
+    if (order.request_fingerprint) {
+      if (order.request_fingerprint === requestFingerprint) return order
+      continue
+    }
 
-  const itemRes = await db.collection('cicada_order_items')
-    .where({
-      order_id: db.command.in(orderIds),
-      sn_normalized: db.command.in(snKeys)
-    })
-    .field({ order_id: true, sn: true, sn_normalized: true })
-    .limit(20)
-    .get()
-  const matched = itemRes.data && itemRes.data[0]
-  if (!matched) return null
-  return orders.find(order => order._id === matched.order_id) || null
+    const itemRes = await db.collection('cicada_order_items')
+      .where({ order_id: order._id })
+      .field({
+        product_name: true,
+        product_category: true,
+        product_model: true,
+        sn: true,
+        buy_date: true,
+        fault_desc: true,
+        media_urls: true,
+        voucher_urls: true,
+        image_urls: true,
+        video_urls: true
+      })
+      .limit(Math.max(100, requestItems.length + 1))
+      .get()
+    const candidateRequest = {
+      customer_type: order.customer_type,
+      ship_out_info: order.ship_out_info,
+      ship_back_info: order.ship_back_info,
+      items: itemRes.data || []
+    }
+    if (isSameRepairRequest(request, candidateRequest)) return order
+  }
+  return null
+}
+
+function buildRepairIdempotencyKey(userId, requestFingerprint) {
+  const digest = crypto.createHash('sha256').update(`${userId}:${requestFingerprint}`).digest('hex')
+  return `repair-submit:${digest}`
+}
+
+async function acquireRepairSubmission(userId, requestFingerprint, now = Date.now()) {
+  const key = buildRepairIdempotencyKey(userId, requestFingerprint)
+  const col = db.collection('cicada_rate_limits')
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const found = await col.where({ key }).limit(1).get()
+    const record = found.data && found.data[0]
+    const lockToken = randomNonce(12)
+    const lockData = {
+      key,
+      scope: 'repair-idempotency',
+      identity: userId,
+      count: 1,
+      reset_time: now + DUPLICATE_ORDER_WINDOW_MS,
+      request_fingerprint: requestFingerprint,
+      state: 'pending',
+      lock_token: lockToken,
+      order_id: '',
+      order_no: '',
+      update_time: now
+    }
+
+    if (!record) {
+      try {
+        await col.add({ ...lockData, create_time: now })
+        return { state: 'owner', key, lockToken }
+      } catch (error) {
+        if (attempt === 2) throw error
+        continue
+      }
+    }
+
+    if (record.state === 'completed' && Number(record.reset_time || 0) > now && record.order_id) {
+      return { state: 'duplicate', orderId: record.order_id, orderNo: record.order_no || record.order_id }
+    }
+
+    const expired = Number(record.reset_time || 0) <= now
+    if (!expired) return { state: 'pending' }
+
+    const takeover = await col.where({
+      _id: record._id,
+      lock_token: record.lock_token || '',
+      update_time: record.update_time
+    }).update(lockData)
+    if (takeover.updated) return { state: 'owner', key, lockToken }
+  }
+
+  return { state: 'pending' }
+}
+
+async function completeRepairSubmission(lock, orderId, orderNo, now = Date.now()) {
+  if (!lock || lock.state !== 'owner') return
+  const result = await db.collection('cicada_rate_limits').where({
+    key: lock.key,
+    lock_token: lock.lockToken,
+    state: 'pending'
+  }).update({
+    state: 'completed',
+    order_id: orderId,
+    order_no: orderNo,
+    update_time: now,
+    reset_time: now + DUPLICATE_ORDER_WINDOW_MS
+  })
+  if (!result.updated) throw new Error('报修提交状态同步失败，请重试')
+}
+
+async function releaseRepairSubmission(lock) {
+  if (!lock || lock.state !== 'owner') return
+  await db.collection('cicada_rate_limits').where({
+    key: lock.key,
+    lock_token: lock.lockToken,
+    state: 'pending'
+  }).remove()
 }
 
 function randomNonce(size = 16) {
@@ -1529,6 +1684,7 @@ module.exports = {
 
   async createOrder(params) {
     let orderId = ''
+    let idempotencyLock = null
     try {
       const { token, ship_out_info, ship_back_info, items } = params
       const user = await verifyUserToken(token)
@@ -1549,6 +1705,10 @@ module.exports = {
       if (items.some(item => !normalizeText(item && item.sn))) {
         return { code: -1, msg: '产品序列号不能为空' }
       }
+      const snError = getOrderItemSnError(items)
+      if (snError) {
+        return { code: -1, msg: snError }
+      }
       if (items.some(item => !normalizeText(item && item.fault_desc))) {
         return { code: -1, msg: '故障描述不能为空' }
       }
@@ -1562,19 +1722,44 @@ module.exports = {
         return { code: -1, msg: '请完善产品回寄信息' }
       }
 
+      const safeShipOut = sanitizeShipInfo(ship_out_info)
+      const safeShipBack = sanitizeShipInfo(ship_back_info)
+      const safeItems = items.map(item => sanitizeOrderItemInput(item))
+      const repairRequest = {
+        customer_type: customerType,
+        ship_out_info: safeShipOut,
+        ship_back_info: safeShipBack,
+        items: safeItems
+      }
       const linkedCustomer = await findCustomerForUser(user)
       const now = Date.now()
-      const duplicateOrder = await findRecentDuplicateOrder(user._id, items, now)
+      const requestFingerprint = buildRepairRequestFingerprint(repairRequest)
+      const duplicateOrder = await findRecentDuplicateOrder(user._id, repairRequest, now)
       if (duplicateOrder) {
         return {
           code: 0,
-          msg: '检测到该设备刚提交过报修，已为您返回最近工单',
+          msg: '检测到相同报修刚提交过，已为您返回最近工单',
           data: {
             order_id: duplicateOrder._id,
             order_no: duplicateOrder.order_no || duplicateOrder._id,
             duplicate: true
           }
         }
+      }
+      idempotencyLock = await acquireRepairSubmission(user._id, requestFingerprint, now)
+      if (idempotencyLock.state === 'duplicate') {
+        return {
+          code: 0,
+          msg: '检测到相同报修刚提交过，已为您返回最近工单',
+          data: {
+            order_id: idempotencyLock.orderId,
+            order_no: idempotencyLock.orderNo,
+            duplicate: true
+          }
+        }
+      }
+      if (idempotencyLock.state !== 'owner') {
+        return { code: -1, msg: '相同报修正在提交，请稍后在工单列表查看' }
       }
       const order_no = genOrderNo()
       // 身份桥：未验证手机号只作当前 OpenID 档案的联系信息
@@ -1590,15 +1775,13 @@ module.exports = {
         customerId = ''
       }
       // 在保/过保自动判定：用于区分免费(在保质量问题)/收费(过保或人为损坏)维修
-      const safeShipOut = sanitizeShipInfo(ship_out_info)
-      const safeShipBack = sanitizeShipInfo(ship_back_info)
-      const safeItems = items.map(item => sanitizeOrderItemInput(item))
       const warranty = await computeOrderWarranty(user._id, safeItems)
       const newOrder = {
         order_no,
         user_id: user._id,
         customer_id: customerId,
         customer_type: customerType,
+        request_fingerprint: requestFingerprint,
         status: 'pending',
         ship_out_info: safeShipOut,
         ship_back_info: safeShipBack,
@@ -1636,6 +1819,7 @@ module.exports = {
       await upsertUserDevicesFromItems(user, safeItems, { order_no, order_id: orderId, status: 'pending', countRepair: true, customer_id: customerId })
       await sendOrderSubscription({ ...newOrder, _id: orderId }, 'repair_submitted', '报修申请已提交')
       await subscribeOrderTrack(persistedOrder, 'out')
+      await completeRepairSubmission(idempotencyLock, orderId, order_no)
       return { code: 0, msg: '提交成功', data: { order_id: orderId, order_no } }
     } catch (e) {
       if (orderId) {
@@ -1644,6 +1828,7 @@ module.exports = {
           db.collection('cicada_order_items').where({ order_id: orderId }).remove()
         ]).catch(() => {})
       }
+      await releaseRepairSubmission(idempotencyLock).catch(() => {})
       return fail(e)
     }
   },
@@ -2662,3 +2847,14 @@ module.exports = {
     }
   }
 }
+
+Object.defineProperty(module.exports, '__test__', {
+  value: Object.freeze({
+    acquireRepairSubmission,
+    buildRepairRequestFingerprint,
+    completeRepairSubmission,
+    getOrderItemSnError,
+    isSameRepairRequest,
+    releaseRepairSubmission
+  })
+})

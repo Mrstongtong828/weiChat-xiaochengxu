@@ -67,7 +67,7 @@ export const normalizeStatusTab = (value) => {
 export const CANONICAL_STATUS_KEYS = ['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled']
 
 const cnLabelToKey = {
-	'已提交': 'pending', '运输中': 'sent', '已寄出': 'sent', '已签收': 'received',
+	'已提交': 'pending', '待寄出': 'pending', '运输中': 'sent', '已寄出': 'sent', '已签收': 'received',
 	'检测中': 'inspecting', '待报价': 'inspecting', '待确认': 'inspecting', '待确认报价': 'inspecting',
 	'待付款': 'fixing', '待核款': 'fixing', '处理中': 'fixing', '维修中': 'fixing',
 	'已回寄': 'shipped', '已发货': 'shipped', '已完成': 'completed', '已评价': 'completed', '已取消': 'cancelled'
@@ -106,7 +106,7 @@ export const deriveDisplayStatus = (order = {}) => {
 	if (key === 'completed') return (order.review || order.reviewTime || order.review_time) ? '已评价' : '已完成'
   if (key === 'shipped') return '已回寄'
   if (order.arrivalConfirmStatus === 'pending' || order.arrival_confirm_status === 'pending') return '已到达，待入库'
-  if (key === 'pending') return '已提交'
+	if (key === 'pending') return '待寄出'
 	if (key === 'sent') return '运输中'
 	if (key === 'received') return '已签收'
 	// inspecting / fixing 受报价、付款子状态细分
@@ -177,7 +177,7 @@ export const getRepairProgressNodes = (order = {}) => {
 	if (!order.id) return []
 	const cancelled = order.statusKey === 'cancelled' || order.status === '已取消'
 	const statusBaseMap = { pending: 0, sent: 1, received: 1, inspecting: 1, fixing: 2, shipped: 3, completed: 3 }
-	const cnBaseMap = { '已提交': 0, '运输中': 1, '已签收': 1, '检测中': 1, '处理中': 2, '已回寄': 3, '已完成': 3 }
+	const cnBaseMap = { '已提交': 0, '待寄出': 0, '运输中': 1, '已签收': 1, '检测中': 1, '处理中': 2, '已回寄': 3, '已完成': 3 }
 	let reached = statusBaseMap[order.statusKey]
 	if (reached === undefined) reached = cnBaseMap[order.status]
 	if (reached === undefined) reached = 0

@@ -32,6 +32,12 @@
       "maxLength": 40,
       "description": "下单时客户类型快照；后台工单支持自定义类型"
     },
+    "request_fingerprint": {
+      "bsonType": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "description": "客户端报修完整请求的 SHA-256 指纹，用于十分钟内幂等判定"
+    },
     "status": {
       "bsonType": "string",
       "enum": [
