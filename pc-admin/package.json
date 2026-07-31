@@ -15,16 +15,22 @@
     "check:print": "node scripts/check-print-templates.mjs",
     "check:security": "node scripts/check-admin-security.mjs",
     "check:warranty": "node scripts/check-warranty-free-flow.mjs",
-    "check:logistics": "node scripts/check-logistics-readiness.mjs"
+    "check:logistics": "node scripts/check-logistics-readiness.mjs",
+    "check:policy-documents": "node scripts/check-policy-documents.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "@wangeditor/editor": "^5.1.23",
     "@wangeditor/editor-for-vue": "^5.1.12",
     "axios": "^1.16.1",
+    "docx-preview": "^0.4.0",
+    "dompurify": "^3.4.12",
     "echarts": "^6.1.0",
     "element-plus": "^2.14.0",
     "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "mammoth": "^1.12.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.34",
     "vue-router": "^4.6.4"

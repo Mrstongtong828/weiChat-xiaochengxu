@@ -949,19 +949,12 @@
 			</view>
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
-				<!-- 分块结构化：后台配置 warranty_policy_sections 时按块渲染，否则回退整段富文本 -->
-				<block v-if="warrantySections.length">
-					<view v-for="(section, index) in warrantySections" :key="section.title + index" class="warranty-section-card">
-						<view class="module-section-head single"><text>{{ section.title }}</text></view>
-						<view class="policy-rich-content warranty-section-content">
-							<rich-text :nodes="section.content"></rich-text>
-						</view>
-					</view>
-				</block>
-				<view v-else class="policy-rich-content">
-					<rich-text v-if="warrantyDoc.content" :nodes="warrantyDoc.content"></rich-text>
-					<text v-else class="policy-empty">暂无保修政策内容</text>
-				</view>
+				<PolicyDocumentViewer
+					:policy-document="warrantyDoc.policyDocument"
+					:fallback-sections="warrantySections"
+					:fallback-content="warrantyDoc.content"
+					empty-text="暂无保修政策内容"
+				/>
 				<view class="dual-actions">
 					<view class="primary-button tap" @click="go('repair')">立即报修</view>
 				</view>
@@ -972,10 +965,12 @@
 					<view :class="['glyph', 'glyph-' + activeDoc.icon]"><view class="glyph-extra"></view></view>
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
-				<view v-if="activeModule === 'fees'" class="policy-rich-content">
-					<rich-text v-if="activeDoc.content" :nodes="activeDoc.content"></rich-text>
-					<text v-else class="policy-empty">暂无收费办法内容</text>
-				</view>
+				<PolicyDocumentViewer
+					v-if="activeModule === 'fees'"
+					:policy-document="activeDoc.policyDocument"
+					:fallback-content="activeDoc.content"
+					empty-text="暂无收费办法内容"
+				/>
 				<view v-else-if="activeDoc.content" class="doc-paper">
 					<rich-text :nodes="activeDoc.content"></rich-text>
 				</view>
@@ -1669,6 +1664,7 @@ import PaymentMethodSelector from '@/components/PaymentMethodSelector.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
+import PolicyDocumentViewer from '@/components/PolicyDocumentViewer.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
@@ -2228,6 +2224,7 @@ const normalizeDoc = (doc, fallback = {}) => {
 		fileName: doc.fileName || doc.file_name || fallback.fileName || '',
 		fileUrl: doc.fileUrl || doc.file_url || fallback.fileUrl || '',
 		fileType: doc.fileType || doc.file_type || fallback.fileType || '',
+		policyDocument: doc.policyDocument || null,
 		media: Array.isArray(doc.media) ? doc.media : fallback.media || [],
 		sections: Array.isArray(doc.sections) && doc.sections.length ? doc.sections : fallback.sections || [],
 		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps || []

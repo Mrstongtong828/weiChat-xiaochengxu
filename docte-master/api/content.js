@@ -1,6 +1,7 @@
 import { unwrapCloudResult, uploadToCloud, withToken } from './cloudHelpers.js'
 import { getCloudTempFileURL, importCloudObject, checkCloudAvailable } from '@/utils/cloud.js'
 import request from '@/utils/request.js'
+import { parsePolicyDocument, resolvePolicyDocumentFiles } from '@/utils/policyDocument.js'
 
 let publicCloudObject = null
 let userCloudObject = null
@@ -58,6 +59,19 @@ const resolveCloudUrl = async (value) => {
 	} catch (e) {
 		return value
 	}
+}
+
+const resolvePolicyDocumentSetting = async (value) => {
+	const document = parsePolicyDocument(value)
+	if (!document) return null
+	return resolvePolicyDocumentFiles(document, async (fileIds) => {
+		const res = await getCloudTempFileURL(fileIds)
+		const map = {}
+		;(res.fileList || []).forEach(item => {
+			if (item && item.fileID) map[item.fileID] = item.tempFileURL
+		})
+		return map
+	})
 }
 
 const settingDoc = (title, content = '', file = null) => ({
@@ -166,7 +180,7 @@ export const uploadVideo = (filePath) => uploadToCloud(filePath, 'repair/videos'
 export const uploadFeedbackImage = (filePath) => uploadToCloud(filePath, 'feedback/images', 'jpg')
 
 export const getWarrantyPolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy', 'warranty_policy_sections'] }).then(unwrapCloudResult)
+	const settings = await getPublicCloudObject().getSettings({ keys: ['warranty_policy', 'warranty_policy_sections', 'warranty_policy_document'] }).then(unwrapCloudResult)
 	// 分块结构化配置（后台可编辑的 JSON 数组 [{title, content}]）；无配置或解析失败时回退整段富文本
 	let sections = []
 	try {
@@ -179,12 +193,14 @@ export const getWarrantyPolicy = async () => {
 	} catch (e) {
 		sections = []
 	}
-	return { ...settingDoc('保修政策', settings.warranty_policy), sections }
+	const policyDocument = await resolvePolicyDocumentSetting(settings.warranty_policy_document)
+	return { ...settingDoc('保修政策', settings.warranty_policy), sections, policyDocument }
 }
 
 export const getFeePolicy = async () => {
-	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy'] }).then(unwrapCloudResult)
-	return settingDoc('收费指南', settings.fee_description || settings.fee_policy)
+	const settings = await getPublicCloudObject().getSettings({ keys: ['fee_description', 'fee_policy', 'fee_policy_document'] }).then(unwrapCloudResult)
+	const policyDocument = await resolvePolicyDocumentSetting(settings.fee_policy_document)
+	return { ...settingDoc('收费指南', settings.fee_description || settings.fee_policy), policyDocument }
 }
 
 export const getGuide = (type) => getPublicCloudObject().getGuide({ type }).then(unwrapCloudResult)

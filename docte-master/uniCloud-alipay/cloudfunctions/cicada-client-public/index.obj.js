@@ -16,8 +16,10 @@ const cacheStore = Object.create(null)
 const PUBLIC_SETTING_KEYS = new Set([
   'warranty_policy',
   'warranty_policy_sections',
+  'warranty_policy_document',
   'fee_description',
   'fee_policy',
+  'fee_policy_document',
   'home_guide_popup_enabled',
   'home_guide_popup_content',
   'contact_phone',

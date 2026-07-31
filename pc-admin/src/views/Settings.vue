@@ -13,6 +13,12 @@
           <el-button type="primary" link @click="openPolicyPreview('warranty')"><el-icon><View /></el-icon>预览小程序效果</el-button>
         </div>
         <div class="sub-label">直接填写保修政策内容，支持图文；保存后同步至小程序「保修政策」页展示。</div>
+        <PolicyDocumentImporter
+          v-model="warrantyPolicyDocument"
+          document-key="warranty"
+          title="保修政策 Word 文档"
+          description="保留原稿页面，同时生成适合手机阅读的排版。"
+        />
         <RichEditor v-model="config.warranty" upload-dir="warranty/" placeholder="填写保修政策总述，如质保范围、保修期限、免责情形等…" />
 
         <div class="qual-head" style="margin-top:24px;">
@@ -38,6 +44,12 @@
           <el-button type="primary" link @click="openPolicyPreview('fees')"><el-icon><View /></el-icon>预览小程序效果</el-button>
         </div>
         <div class="sub-label">直接填写收费办法说明，支持图文；保存后同步至小程序「收费指南」页展示。</div>
+        <PolicyDocumentImporter
+          v-model="feePolicyDocument"
+          document-key="fees"
+          title="收费指南 Word 文档"
+          description="自动识别标题、列表和表格，并生成原稿 PDF 与逐页预览。"
+        />
         <RichEditor v-model="config.feePolicy" upload-dir="fees/" placeholder="填写收费办法说明，如检测费、维修费、加急费的计费规则等…" />
 
         <div class="qual-head">
@@ -362,7 +374,8 @@
         <div class="mp-phone-header">{{ policyPreviewTab === 'warranty' ? '保修政策' : '收费指南' }}</div>
         <div class="mp-phone-body">
           <template v-if="policyPreviewTab === 'warranty'">
-            <template v-if="previewWarrantySections.length">
+            <div v-if="warrantyPolicyDocument?.mobileHtml" class="mp-rich" v-html="warrantyPolicyDocument.mobileHtml"></div>
+            <template v-else-if="previewWarrantySections.length">
               <div v-for="(section, index) in previewWarrantySections" :key="index" class="mp-warranty-section">
                 <div class="mp-warranty-section-title">{{ section.title || '未命名分块' }}</div>
                 <div class="mp-rich" v-html="section.content"></div>
@@ -372,15 +385,16 @@
             <div v-else class="mp-empty">暂无保修政策内容</div>
           </template>
           <template v-else>
-            <div v-if="feeTiers.length" class="mp-fee-table">
+            <div v-if="feePolicyDocument?.mobileHtml" class="mp-rich" v-html="feePolicyDocument.mobileHtml"></div>
+            <div v-else-if="feeTiers.length" class="mp-fee-table">
               <div class="mp-fee-row mp-fee-head"><span>收费项</span><span>标准价</span></div>
               <div v-for="(t, i) in feeTiers" :key="i" class="mp-fee-row">
                 <span class="mp-fee-name">{{ t.name || '未命名' }}<em v-if="t.note">{{ t.note }}</em></span>
                 <span class="mp-fee-price">¥{{ t.price || 0 }}<i v-if="t.unit">/{{ t.unit }}</i></span>
               </div>
             </div>
-            <div v-if="config.feePolicy" class="mp-rich" v-html="config.feePolicy"></div>
-            <div v-if="!feeTiers.length && !config.feePolicy" class="mp-empty">暂无收费办法内容</div>
+            <div v-if="!feePolicyDocument?.mobileHtml && config.feePolicy" class="mp-rich" v-html="config.feePolicy"></div>
+            <div v-if="!feePolicyDocument?.mobileHtml && !feeTiers.length && !config.feePolicy" class="mp-empty">暂无收费办法内容</div>
           </template>
         </div>
       </div>
@@ -422,7 +436,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
 import PrintTemplateEditor from '../components/PrintTemplateEditor.vue'
 import RichEditor from '../components/RichEditor.vue'
+import PolicyDocumentImporter from '../components/PolicyDocumentImporter.vue'
 import { normalizePolicyHtml } from '../utils/policyHtml.js'
+import { parsePolicyDocumentSetting, serializePolicyDocumentSetting } from '../utils/policyDocument.js'
 import { parsePrintTemplates } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { uploadToOss } from '../utils/ossUpload.js'
@@ -436,6 +452,8 @@ const savingPrintTemplates = ref(false)
 // ===== 保修与收费 =====
 const savingPolicy = ref(false)
 const feeTiers = ref([])
+const warrantyPolicyDocument = ref(null)
+const feePolicyDocument = ref(null)
 // 保修政策分块（小程序按块渲染），存 warranty_policy_sections（JSON 数组 [{title, content}]）
 const warrantySections = ref([])
 
@@ -940,6 +958,8 @@ const loadSettings = async () => {
     const data = await getSettings(token)
     config.warranty = normalizePolicyHtml(data.warranty_policy || '')
     config.feePolicy = normalizePolicyHtml(data.fee_description || '')
+    warrantyPolicyDocument.value = parsePolicyDocumentSetting(data.warranty_policy_document)
+    feePolicyDocument.value = parsePolicyDocumentSetting(data.fee_policy_document)
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
     warrantySections.value = parseJsonArray(data.warranty_policy_sections)
       .map(item => ({ title: String(item.title || ''), content: normalizePolicyHtml(item.content || '') }))
@@ -985,9 +1005,8 @@ const saveConfig = async () => {
     await saveSettings(token, {
       warranty_policy: warrantyPolicy,
       fee_description: feePolicy,
-      // 已下线「文档上传」入口：清空旧文档字段，避免小程序端读到过期文档
-      warranty_policy_file: '',
-      fee_policy_file: '',
+      warranty_policy_document: serializePolicyDocumentSetting(warrantyPolicyDocument.value),
+      fee_policy_document: serializePolicyDocumentSetting(feePolicyDocument.value),
       fee_tier_templates: JSON.stringify(cleanFeeTiers),
       warranty_policy_sections: JSON.stringify(cleanWarrantySections)
     })
