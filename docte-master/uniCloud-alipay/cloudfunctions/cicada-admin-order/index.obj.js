@@ -144,6 +144,7 @@ function createWorkflowFallback() {
     ORDER_STATUS,
     assertOrderStatusTransition,
     assertRolePermission,
+    getOrderStatusLabel,
     getWorkflowConfigForRole,
     hasRolePermission,
     isKnownRole
@@ -166,6 +167,7 @@ const {
   ORDER_STATUS,
   assertOrderStatusTransition,
   assertRolePermission,
+  getOrderStatusLabel,
   getWorkflowConfigForRole,
   hasRolePermission,
   isKnownRole
@@ -4523,7 +4525,7 @@ module.exports = {
         addOrderGroup({
           key: 'quote', title: '待报价', severity: 'info', roles: ['admin', 'engineer', 'support'],
           filter: order => matchesTodoType(order, 'quote'),
-          description: order => `当前状态：${ORDER_STATUS_LABELS[order.status] || order.status || '待处理'}`
+          description: order => `当前状态：${getOrderStatusLabel(order.status || '待处理')}`
         })
         addOrderGroup({
           key: 'payment', title: '待核销', severity: 'warning', roles: ['admin', 'finance'],
