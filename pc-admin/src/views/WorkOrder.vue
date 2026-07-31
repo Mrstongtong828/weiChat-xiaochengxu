@@ -1401,9 +1401,21 @@
       <section class="manual-order-section">
         <div class="manual-order-section-head">
           <span class="manual-order-step">1</span>
-          <div><strong>客户信息</strong><small>工单联系人与 CRM 客户档案</small></div>
+          <div><strong>受理与客户信息</strong><small>线下收件、客户联系人与 CRM 客户档案</small></div>
         </div>
-        <div class="manual-order-grid manual-order-grid--customer">
+        <div class="manual-order-grid manual-order-grid--intake">
+          <el-form-item label="收件日期" required>
+            <el-date-picker v-model="createOrderForm.received_date" type="date" value-format="YYYY-MM-DD" placeholder="选择收件日期"></el-date-picker>
+          </el-form-item>
+          <el-form-item label="对接业务员">
+            <el-input v-model="createOrderForm.customer.biz_user" maxlength="40" placeholder="负责对接的业务员"></el-input>
+          </el-form-item>
+          <el-form-item label="快递公司">
+            <el-input v-model="createOrderForm.ship_out_info.logistics_company" maxlength="40" placeholder="如：顺丰速运"></el-input>
+          </el-form-item>
+          <el-form-item label="快递单号">
+            <el-input v-model="createOrderForm.ship_out_info.logistics_no" maxlength="40" placeholder="客户寄入运单号"></el-input>
+          </el-form-item>
           <el-form-item label="客户类型" required>
             <el-select v-model="createOrderForm.customer.customer_type" filterable allow-create default-first-option placeholder="选择或输入客户类型">
               <el-option v-for="option in customerTypeOptionsWithCurrent(createOrderForm.customer.customer_type)" :key="option.value" :label="option.label" :value="option.value"></el-option>
@@ -1420,6 +1432,13 @@
           </el-form-item>
           <el-form-item label="客户地址" required class="manual-order-span-2">
             <el-input v-model="createOrderForm.customer.address" maxlength="200" placeholder="省市区及详细地址"></el-input>
+          </el-form-item>
+          <el-form-item label="初始状态" required class="manual-order-span-2 manual-order-status">
+            <el-radio-group v-model="createOrderForm.status">
+              <el-radio-button value="pending">待客户寄入</el-radio-button>
+              <el-radio-button value="sent">运输中</el-radio-button>
+              <el-radio-button value="received">已到店/已签收</el-radio-button>
+            </el-radio-group>
           </el-form-item>
         </div>
       </section>
@@ -1440,7 +1459,7 @@
                 </el-button>
               </el-tooltip>
             </div>
-            <div class="manual-order-grid manual-order-grid--device">
+            <div class="manual-order-filter-row">
               <el-form-item label="产品名称" required>
                 <el-select
                   v-model="item.product_name"
@@ -1479,6 +1498,8 @@
                   </template>
                 </el-input>
               </el-form-item>
+            </div>
+            <div class="manual-order-grid manual-order-grid--device-detail">
               <el-form-item label="购买日期">
                 <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
               </el-form-item>
@@ -1496,47 +1517,9 @@
         </div>
       </section>
 
-      <section class="manual-order-section">
-        <div class="manual-order-section-head">
-          <span class="manual-order-step">3</span>
-          <div><strong>收寄信息</strong><small>选择设备当前所处阶段</small></div>
-          <el-button text type="primary" @click="fillCreateOrderShipping"><el-icon><Refresh /></el-icon> 使用客户信息</el-button>
-        </div>
-        <el-form-item label="初始状态" required class="manual-order-status">
-          <el-radio-group v-model="createOrderForm.status">
-            <el-radio-button value="pending">待客户寄入</el-radio-button>
-            <el-radio-button value="sent">运输中</el-radio-button>
-            <el-radio-button value="received">已到店/已签收</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
-        <div class="manual-order-logistics-columns">
-          <div class="manual-order-logistics-column">
-            <strong>客户寄入信息</strong>
-            <div class="manual-order-grid">
-              <el-form-item label="寄件人" required><el-input v-model="createOrderForm.ship_out_info.name" maxlength="40"></el-input></el-form-item>
-              <el-form-item label="寄件手机号" required><el-input v-model="createOrderForm.ship_out_info.phone" maxlength="11" inputmode="numeric"></el-input></el-form-item>
-              <el-form-item label="寄件地址" required class="manual-order-span-2"><el-input v-model="createOrderForm.ship_out_info.detail" maxlength="200"></el-input></el-form-item>
-              <template v-if="createOrderForm.status === 'sent'">
-                <el-form-item label="物流公司"><el-input v-model="createOrderForm.ship_out_info.logistics_company" maxlength="40" placeholder="如：顺丰"></el-input></el-form-item>
-                <el-form-item label="寄入物流单号" required><el-input v-model="createOrderForm.ship_out_info.logistics_no" maxlength="40"></el-input></el-form-item>
-              </template>
-            </div>
-          </div>
-          <div class="manual-order-logistics-column">
-            <strong>维修后回寄信息</strong>
-            <div class="manual-order-grid">
-              <el-form-item label="收件单位"><el-input v-model="createOrderForm.ship_back_info.unit" maxlength="80"></el-input></el-form-item>
-              <el-form-item label="收件人" required><el-input v-model="createOrderForm.ship_back_info.name" maxlength="40"></el-input></el-form-item>
-              <el-form-item label="收件手机号" required><el-input v-model="createOrderForm.ship_back_info.phone" maxlength="11" inputmode="numeric"></el-input></el-form-item>
-              <el-form-item label="回寄地址" required class="manual-order-span-2"><el-input v-model="createOrderForm.ship_back_info.detail" maxlength="200"></el-input></el-form-item>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section class="manual-order-section manual-order-section--last">
         <div class="manual-order-section-head">
-          <span class="manual-order-step">4</span>
+          <span class="manual-order-step">3</span>
           <div><strong>内部备注</strong><small>仅后台工作人员可见</small></div>
         </div>
         <el-input v-model="createOrderForm.admin_remark" type="textarea" :rows="2" maxlength="1000" show-word-limit placeholder="如：客户通过电话报修、紧急程度、沟通约定等"></el-input>
@@ -1906,26 +1889,31 @@ const createManualOrderItem = () => ({
   lookupLoading: false
 })
 
+const todayDateString = () => new Date().toISOString().slice(0, 10)
+
 const createOrderDialogVisible = ref(false)
 const createOrderSubmitting = ref(false)
 const createOrderFormRef = ref(null)
 const createOrderForm = reactive({
+  received_date: todayDateString(),
   customer: {
     customer_id: '',
     customer_type: 'clinic',
     name: '',
     contact: '',
     phone: '',
-    address: ''
+    address: '',
+    biz_user: ''
   },
-  status: 'pending',
+  status: 'received',
   ship_out_info: {
     name: '',
     phone: '',
     unit: '',
     detail: '',
     logistics_company: '',
-    logistics_no: ''
+    logistics_no: '',
+    received_at: ''
   },
   ship_back_info: {
     name: '',
@@ -1938,22 +1926,25 @@ const createOrderForm = reactive({
 })
 
 const resetCreateOrderForm = () => {
+  createOrderForm.received_date = todayDateString()
   Object.assign(createOrderForm.customer, {
     customer_id: '',
     customer_type: 'clinic',
     name: '',
     contact: '',
     phone: '',
-    address: ''
+    address: '',
+    biz_user: ''
   })
-  createOrderForm.status = 'pending'
+  createOrderForm.status = 'received'
   Object.assign(createOrderForm.ship_out_info, {
     name: '',
     phone: '',
     unit: '',
     detail: '',
     logistics_company: '',
-    logistics_no: ''
+    logistics_no: '',
+    received_at: ''
   })
   Object.assign(createOrderForm.ship_back_info, {
     name: '',
@@ -2001,6 +1992,23 @@ const fillCreateOrderShipping = () => {
   })
 }
 
+const syncCreateOrderShipping = () => {
+  const { name, contact, phone, address } = createOrderForm.customer
+  Object.assign(createOrderForm.ship_out_info, {
+    name: contact,
+    phone,
+    unit: name,
+    detail: address,
+    received_at: createOrderForm.received_date
+  })
+  Object.assign(createOrderForm.ship_back_info, {
+    name: contact,
+    phone,
+    unit: name,
+    detail: address
+  })
+}
+
 const lookupCreateOrderItemBySn = async (item) => {
   const sn = String(item && item.sn || '').trim()
   if (!sn || item.lookupLoading) return
@@ -2033,6 +2041,7 @@ const lookupCreateOrderItemBySn = async (item) => {
 }
 
 const validateCreateOrderForm = () => {
+  syncCreateOrderShipping()
   const customer = createOrderForm.customer
   const customerType = resolveCustomerTypeValue(customer.customer_type)
   if (!customerType) return '请选择或输入客户类型'
@@ -2042,6 +2051,7 @@ const validateCreateOrderForm = () => {
   if (!customer.contact.trim()) return '请填写联系人'
   if (!/^1\d{10}$/.test(customer.phone.trim())) return '请填写正确的 11 位手机号'
   if (!customer.address.trim()) return '请填写客户地址'
+  if (!createOrderForm.received_date) return '请选择收件日期'
   if (!createOrderForm.items.length) return '请至少添加一台维修设备'
   for (let index = 0; index < createOrderForm.items.length; index += 1) {
     const item = createOrderForm.items[index]
@@ -2055,8 +2065,8 @@ const validateCreateOrderForm = () => {
   }
   const out = createOrderForm.ship_out_info
   const back = createOrderForm.ship_back_info
-  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户寄入联系人、手机号和地址'
-  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善维修后回寄联系人、手机号和地址'
+  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户名称、联系方式和客户地址'
+  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善客户名称、联系方式和客户地址'
   if (createOrderForm.status === 'sent' && !out.logistics_no.trim()) return '运输中工单必须填写寄入物流单号'
   return ''
 }
@@ -4000,11 +4010,17 @@ const confirmExportExcel = async () => {
 .manual-order-step { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; background: #1769aa; color: #fff; font-size: 12px; font-weight: 700; }
 .manual-order-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
 .manual-order-grid--customer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.manual-order-grid--device { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.manual-order-grid--intake { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.manual-order-grid--device-detail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.manual-order-filter-row { display: grid; grid-template-columns: minmax(160px, 1.25fr) minmax(140px, 1fr) minmax(130px, .9fr) minmax(170px, 1.1fr); gap: 0 10px; padding: 10px 10px 0; margin-bottom: 10px; border: 1px solid #e5eefb; border-radius: 8px; background: #fff; }
 .manual-order-grid :deep(.el-form-item) { min-width: 0; margin-bottom: 14px; }
+.manual-order-filter-row :deep(.el-form-item) { min-width: 0; margin-bottom: 10px; }
 .manual-order-grid :deep(.el-select),
 .manual-order-grid :deep(.el-date-editor),
-.manual-order-grid :deep(.el-input-number) { width: 100%; }
+.manual-order-grid :deep(.el-input-number),
+.manual-order-filter-row :deep(.el-select),
+.manual-order-filter-row :deep(.el-date-editor),
+.manual-order-filter-row :deep(.el-input-number) { width: 100%; }
 .manual-order-span-2 { grid-column: 1 / -1; }
 .manual-order-item-list { display: flex; flex-direction: column; gap: 12px; }
 .manual-order-item { padding: 14px 14px 0; border: 1px solid #e5eaf1; border-radius: 8px; background: #fbfcfe; }
@@ -4371,7 +4387,9 @@ const confirmExportExcel = async () => {
   .manual-order-form { max-height: none; padding-right: 0; }
   .manual-order-grid,
   .manual-order-grid--customer,
-  .manual-order-grid--device,
+  .manual-order-grid--intake,
+  .manual-order-grid--device-detail,
+  .manual-order-filter-row,
   .manual-order-logistics-columns { grid-template-columns: 1fr; }
   .manual-order-section-head { align-items: flex-start; flex-wrap: wrap; }
   .manual-order-section-head > .el-button { margin-left: 36px; }

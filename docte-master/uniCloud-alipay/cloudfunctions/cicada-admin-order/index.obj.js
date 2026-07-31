@@ -941,7 +941,8 @@ function sanitizeManualShipInfo(info = {}) {
     region: Array.isArray(region) ? region.map(item => normalizeText(item).slice(0, 40)).filter(Boolean).slice(0, 4) : [],
     detail: normalizeText(source.detail).slice(0, 200),
     logistics_company: normalizeText(source.logistics_company || source.logisticsCompany).slice(0, 40),
-    logistics_no: normalizeText(source.logistics_no || source.logisticsNo || source.trackingNo).replace(/\s/g, '').slice(0, 40)
+    logistics_no: normalizeText(source.logistics_no || source.logisticsNo || source.trackingNo).replace(/\s/g, '').slice(0, 40),
+    received_at: normalizeText(source.received_at || source.receivedAt || source.receive_date || source.receiveDate).slice(0, 20)
   }
 }
 
@@ -978,6 +979,7 @@ async function ensureManualOrderCustomer(customer = {}, shipOutInfo = {}, shipBa
     if (phone && !normalizeText(existing.phone)) updateData.phone = phone
     if (normalizeText(rawCustomer.contact) && !normalizeText(existing.contact)) updateData.contact = normalizeText(rawCustomer.contact).slice(0, 40)
     if (normalizeText(rawCustomer.address || shipBackInfo.detail) && !normalizeText(existing.address)) updateData.address = normalizeText(rawCustomer.address || shipBackInfo.detail).slice(0, 200)
+    if (normalizeText(rawCustomer.biz_user || rawCustomer.bizUser) && !normalizeText(existing.biz_user)) updateData.biz_user = normalizeText(rawCustomer.biz_user || rawCustomer.bizUser).slice(0, 40)
     if (Object.keys(updateData).length > 1) {
       await db.collection('cicada_customers').doc(customerId).update(updateData).catch(() => {})
     }
@@ -1000,6 +1002,7 @@ async function ensureManualOrderCustomer(customer = {}, shipOutInfo = {}, shipBa
       if (normalizeText(rawCustomer.name) && !normalizeText(existing.name)) updateData.name = normalizeText(rawCustomer.name).slice(0, 80)
       if (normalizeText(rawCustomer.contact) && !normalizeText(existing.contact)) updateData.contact = normalizeText(rawCustomer.contact).slice(0, 40)
       if (normalizeText(rawCustomer.address || shipBackInfo.detail) && !normalizeText(existing.address)) updateData.address = normalizeText(rawCustomer.address || shipBackInfo.detail).slice(0, 200)
+      if (normalizeText(rawCustomer.biz_user || rawCustomer.bizUser) && !normalizeText(existing.biz_user)) updateData.biz_user = normalizeText(rawCustomer.biz_user || rawCustomer.bizUser).slice(0, 40)
       if (Object.keys(updateData).length > 1) {
         await db.collection('cicada_customers').doc(existing._id).update(updateData).catch(() => {})
       }
