@@ -50,5 +50,19 @@
       ],
       "MgoIsUnique": false
     }
+  },
+  {
+    "IndexName": "idx_email",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "email",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": true,
+      "MgoIsSparse": true
+    }
   }
 ]

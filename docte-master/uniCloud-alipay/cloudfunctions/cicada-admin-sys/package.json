@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "dependencies": {
     "cicada-admin-auth": "file:../common/cicada-admin-auth",
-    "cicada-order-workflow": "file:../common/cicada-order-workflow"
+    "cicada-order-workflow": "file:../common/cicada-order-workflow",
+    "nodemailer": "^7.0.13"
   },
   "cloudfunction-config": {
     "path": "/cicada-admin-sys"

@@ -77,6 +77,25 @@ for (const [label, pattern] of adminLoginRateLimitRequirements) {
   }
 }
 
+const passwordResetRequirements = [
+  ['request endpoint', /async requestPasswordReset\s*\(/],
+  ['reset endpoint', /async resetPasswordByEmail\s*\(/],
+  ['generic response', /如果该邮箱已绑定后台账号/],
+  ['hashed verification code', /code_hash/],
+  ['verification expiry', /PASSWORD_RESET_EXPIRE_MS/],
+  ['atomic attempt count', /attempts:\s*db\.command\.inc\(1\)/],
+  ['attempt limit', /PASSWORD_RESET_MAX_ATTEMPTS/],
+  ['enumeration timing padding', /waitForEnumerationSafeResponse/],
+  ['session invalidation', /token_expire:\s*0/]
+]
+
+for (const [label, pattern] of passwordResetRequirements) {
+  if (!pattern.test(adminSysSource)) {
+    console.error(`[fail] admin password reset missing: ${label}`)
+    failed = true
+  }
+}
+
 if (!failed) {
   console.log('[ok] admin security checks passed')
 } else {

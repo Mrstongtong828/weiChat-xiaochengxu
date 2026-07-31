@@ -28,6 +28,10 @@ const ADMIN_LOGIN_RATE_LIMIT = {
 const ADMIN_PASSWORD_MIN_LENGTH = 10
 const ADMIN_ACCOUNT_LOCK_THRESHOLD = 8
 const ADMIN_ACCOUNT_LOCK_MS = 15 * 60 * 1000
+const PASSWORD_RESET_EXPIRE_MS = 10 * 60 * 1000
+const PASSWORD_RESET_RATE_LIMIT = 3
+const PASSWORD_RESET_MAX_ATTEMPTS = 5
+const PASSWORD_RESET_RESPONSE = '如果该邮箱已绑定后台账号，验证码将在几分钟内发送，请注意查收。'
 const GUIDE_DEFAULTS = [
   {
     type: 'quick',
@@ -214,6 +218,90 @@ async function verifyAdminToken(token, allowedRoles = ['admin'], options = {}) {
 
 function normalizeIdentity(value = '') {
   return String(value || '').trim().toLowerCase()
+}
+
+function normalizeEmail(value = '') {
+  const email = normalizeIdentity(value)
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Error('请输入有效的邮箱地址')
+  return email
+}
+
+function digestResetValue(value) {
+  const secret = getEnvValue('PASSWORD_RESET_SECRET')
+  if (!secret || secret.length < 32) throw new Error('密码找回服务尚未完成安全配置')
+  return crypto.createHmac('sha256', secret).update(String(value)).digest('hex')
+}
+
+function safeEqualHex(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''), 'hex')
+  const rightBuffer = Buffer.from(String(right || ''), 'hex')
+  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+function createResetCode() {
+  return String(crypto.randomInt(100000, 1000000))
+}
+
+function getMailConfig() {
+  const host = getEnvValue('SMTP_HOST')
+  const user = getEnvValue('SMTP_USER')
+  const pass = getEnvValue('SMTP_PASS')
+  const from = getEnvValue('SMTP_FROM') || user
+  if (!host || !user || !pass || !from) throw new Error('密码找回邮件服务尚未配置')
+  return {
+    transport: {
+      host,
+      port: Number(getEnvValue('SMTP_PORT') || 465),
+      secure: getEnvValue('SMTP_SECURE').toLowerCase() !== 'false',
+      connectionTimeout: 3000,
+      greetingTimeout: 3000,
+      socketTimeout: 3000,
+      auth: { user, pass }
+    },
+    from
+  }
+}
+
+async function sendPasswordResetEmail(email, code) {
+  const nodemailer = require('nodemailer')
+  const config = getMailConfig()
+  await nodemailer.createTransport(config.transport).sendMail({
+    from: config.from,
+    to: email,
+    subject: '思科达维修服务后台密码验证码',
+    text: `您的密码重置验证码是 ${code}，10 分钟内有效。若非本人操作，请忽略本邮件。`,
+    html: `<p>您的密码重置验证码是：</p><p style="font-size:24px;font-weight:700;letter-spacing:4px">${code}</p><p>验证码 10 分钟内有效。若非本人操作，请忽略本邮件。</p>`
+  })
+}
+
+async function waitForEnumerationSafeResponse(startTime) {
+  const minimumMs = 3500 + crypto.randomInt(0, 301)
+  const remaining = minimumMs - (Date.now() - startTime)
+  if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining))
+}
+
+async function cleanupExpiredPasswordResets() {
+  try {
+    await db.collection('cicada_password_resets')
+      .where({ expires_at: db.command.lt(Date.now() - 24 * 3600 * 1000) })
+      .remove()
+  } catch (error) {
+    console.warn('清理过期密码重置记录失败:', error.message)
+  }
+}
+
+async function assertPasswordResetAllowed(emailHash, ip) {
+  const identities = [
+    { scope: 'admin-password-reset:email', identity: emailHash },
+    { scope: 'admin-password-reset:ip', identity: normalizeIdentity(ip) }
+  ].filter(item => item.identity && item.identity !== 'unknown')
+  for (const item of identities) {
+    const record = await getRateLimitRecord(`${item.scope}:${item.identity}`)
+    if (record && Date.now() <= record.reset_time && record.count >= PASSWORD_RESET_RATE_LIMIT) {
+      throw new Error('请求过于频繁，请 15 分钟后再试')
+    }
+  }
+  await Promise.all(identities.map(item => recordRateLimitHit(item.scope, item.identity)))
 }
 
 function getClientIp(ctx) {
@@ -415,6 +503,68 @@ async function issueOssUploadPolicy(keyPrefix = 'product-video/') {
   }
 }
 
+function validatePolicyDocumentUpload(buffer, safeDir, fileName) {
+  if (!safeDir.startsWith('policy-documents/')) return
+
+  const extension = String(fileName || '').split('.').pop().toLowerCase()
+  const isZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && [0x03, 0x05, 0x07].includes(buffer[2])
+  const isPdf = buffer.length >= 5 && buffer.subarray(0, 5).toString() === '%PDF-'
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  const isWebp = buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP'
+
+  if (safeDir.endsWith('/source')) {
+    if (buffer.length > 15 * 1024 * 1024) throw new Error('Word 文档不能超过 15MB')
+    if (extension !== 'docx' || !isZip) throw new Error('政策原件仅支持有效的 DOCX 文件')
+    return
+  }
+  if (safeDir.endsWith('/pdf')) {
+    if (buffer.length > 25 * 1024 * 1024) throw new Error('政策 PDF 不能超过 25MB')
+    if (extension !== 'pdf' || !isPdf) throw new Error('政策原稿必须是有效的 PDF 文件')
+    return
+  }
+  if (safeDir.endsWith('/pages')) {
+    if (buffer.length > 6 * 1024 * 1024) throw new Error('政策页面图片不能超过 6MB')
+    if (!['png', 'jpg', 'jpeg', 'webp'].includes(extension) || !(isPng || isJpeg || isWebp)) {
+      throw new Error('政策页面仅支持有效的 PNG、JPEG 或 WebP 图片')
+    }
+    return
+  }
+  throw new Error('政策文档上传目录不正确')
+}
+
+function validatePolicyDocumentSetting(key, value) {
+  if (!['warranty_policy_document', 'fee_policy_document'].includes(key) || value === '') return
+  if (typeof value !== 'string' || value.length > 500000) throw new Error('政策文档配置过大')
+
+  let document
+  try {
+    document = JSON.parse(value)
+  } catch (error) {
+    throw new Error('政策文档配置格式不正确')
+  }
+  if (!document || document.status !== 'published' || Number(document.schemaVersion) !== 1) {
+    throw new Error('政策文档发布状态不正确')
+  }
+  const pages = document.original && Array.isArray(document.original.pages) ? document.original.pages : []
+  if (pages.length > 20) throw new Error('政策文档页数不能超过 20 页')
+  const mobileHtml = String(document.mobileHtml || '')
+  if (!mobileHtml && !pages.length && !(document.original && document.original.pdfUrl)) {
+    throw new Error('政策文档没有可展示内容')
+  }
+  if (/<\s*(script|style|iframe|object|embed|form|input|button|textarea|select|svg|canvas)\b|\son\w+\s*=|javascript:/i.test(mobileHtml)) {
+    throw new Error('政策文档包含不安全内容')
+  }
+  const fileUrls = [
+    document.source && document.source.fileUrl,
+    document.original && document.original.pdfUrl,
+    ...pages
+  ].filter(Boolean)
+  if (fileUrls.some(url => !/^(cloud:\/\/|https?:\/\/)/i.test(String(url)))) {
+    throw new Error('政策文档文件地址不正确')
+  }
+}
+
 async function uploadAdminFile(ctx, params, defaultDir = 'guides/', allowedRoles = ['admin']) {
   const data = getRequestData(ctx, params)
   const { token, fileContent, fileName, fileType, dir } = data
@@ -425,6 +575,7 @@ async function uploadAdminFile(ctx, params, defaultDir = 'guides/', allowedRoles
   const buffer = Buffer.from(fileContent, 'base64')
   const safeFileName = String(fileName).replace(/[\\/:*?"<>|]/g, '_')
   const safeDir = String(dir || defaultDir).replace(/[^a-zA-Z0-9_\-/]/g, '').replace(/\/+$/, '') || 'guides'
+  validatePolicyDocumentUpload(buffer, safeDir, safeFileName)
   const cloudPath = `${safeDir}/${Date.now()}_${safeFileName}`
   const res = await uniCloud.uploadFile({
     cloudPath,
@@ -617,6 +768,111 @@ module.exports = {
     }
   },
 
+  async requestPasswordReset(params) {
+    try {
+      const requestStartedAt = Date.now()
+      const { email } = getRequestData(this, params)
+      const normalizedEmail = normalizeEmail(email)
+      const emailHash = digestResetValue(normalizedEmail)
+      const requestIp = getClientIp(this)
+      await assertPasswordResetAllowed(emailHash, requestIp)
+      getMailConfig()
+      await cleanupExpiredPasswordResets()
+      const userRes = await db.collection('cicada_users')
+        .where({ email: normalizedEmail, role: db.command.in(STAFF_ROLES), disabled: db.command.neq(true) })
+        .limit(1)
+        .get()
+      const user = userRes.data && userRes.data[0]
+      if (!user || user.username === 'admin_root') {
+        await waitForEnumerationSafeResponse(requestStartedAt)
+        return { code: 0, msg: PASSWORD_RESET_RESPONSE }
+      }
+
+      const code = createResetCode()
+      const now = Date.now()
+      const challenge = await db.collection('cicada_password_resets').add({
+        email_hash: emailHash,
+        code_hash: digestResetValue(`${emailHash}:${code}`),
+        user_id: user._id,
+        request_ip: requestIp,
+        attempts: 0,
+        used: false,
+        expires_at: now + PASSWORD_RESET_EXPIRE_MS,
+        create_time: now,
+        update_time: now
+      })
+      try {
+        await sendPasswordResetEmail(normalizedEmail, code)
+      } catch (mailError) {
+        await db.collection('cicada_password_resets').doc(challenge.id).update({ used: true, update_time: Date.now() })
+        console.error('密码重置邮件发送失败:', mailError.message)
+      }
+      await waitForEnumerationSafeResponse(requestStartedAt)
+      return { code: 0, msg: PASSWORD_RESET_RESPONSE }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async resetPasswordByEmail(params) {
+    try {
+      const { email, code, newPassword } = getRequestData(this, params)
+      const normalizedEmail = normalizeEmail(email)
+      const normalizedCode = String(code || '').trim()
+      if (!/^\d{6}$/.test(normalizedCode)) return { code: -1, msg: '验证码无效或已过期' }
+      assertPasswordPolicy(newPassword, '新密码')
+      const emailHash = digestResetValue(normalizedEmail)
+      const resetRes = await db.collection('cicada_password_resets')
+        .where({ email_hash: emailHash, used: false })
+        .orderBy('create_time', 'desc')
+        .limit(1)
+        .get()
+      const reset = resetRes.data && resetRes.data[0]
+      if (!reset || Number(reset.expires_at) < Date.now() || Number(reset.attempts) >= PASSWORD_RESET_MAX_ATTEMPTS) {
+        return { code: -1, msg: '验证码无效或已过期' }
+      }
+      const attempt = await db.collection('cicada_password_resets')
+        .where({
+          _id: reset._id,
+          used: false,
+          expires_at: db.command.gte(Date.now()),
+          attempts: db.command.lt(PASSWORD_RESET_MAX_ATTEMPTS)
+        })
+        .update({ attempts: db.command.inc(1), update_time: Date.now() })
+      if (!attempt.updated) return { code: -1, msg: '验证码无效或已过期' }
+      const validCode = safeEqualHex(reset.code_hash, digestResetValue(`${emailHash}:${normalizedCode}`))
+      if (!validCode) return { code: -1, msg: '验证码无效或已过期' }
+      const userRes = await db.collection('cicada_users').doc(reset.user_id).get()
+      const user = userRes.data && userRes.data[0]
+      if (!user || user.disabled || !STAFF_ROLES.includes(user.role) || normalizeIdentity(user.email) !== normalizedEmail) {
+        return { code: -1, msg: '验证码无效或已过期' }
+      }
+      if (verifyPassword(user, newPassword)) return { code: -1, msg: '新密码不能与原密码相同' }
+      const consumed = await db.collection('cicada_password_resets')
+        .where({
+          _id: reset._id,
+          used: false,
+          expires_at: db.command.gte(Date.now())
+        })
+        .update({ used: true, update_time: Date.now() })
+      if (!consumed.updated) return { code: -1, msg: '验证码无效或已过期' }
+      await db.collection('cicada_users').doc(user._id).update({
+        ...buildPasswordFields(newPassword),
+        must_change_password: false,
+        token: '',
+        token_expire: 0,
+        failed_login_count: 0,
+        lock_until: 0,
+        update_time: Date.now()
+      })
+      await db.collection('cicada_password_resets').where({ email_hash: emailHash, used: false }).update({ used: true, update_time: Date.now() })
+      await writeAdminLog(user, 'password_reset_by_email', { id: user._id, name: user.username || user.name || '' }, { method: 'email' })
+      return { code: 0, msg: '密码已重置，请使用新密码登录' }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async updateMyProfile(params) {
     try {
       let token, name, phone, avatar
@@ -720,9 +976,13 @@ module.exports = {
         assertPasswordPolicy(staff.password, '登录密码')
         if (!STAFF_ROLES.includes(staff.role)) return { code: -1, msg: '角色不正确' }
         if (staff.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可创建超级管理员账号' }
+        const normalizedEmail = normalizeEmail(staff.email)
         const exists = await col.where({ username: staff.username }).limit(1).get()
         if (exists.data.length) return { code: -1, msg: '账号已存在' }
+        const emailExists = await col.where({ email: normalizedEmail, role: db.command.in(STAFF_ROLES) }).limit(1).get()
+        if (emailExists.data.length) return { code: -1, msg: '邮箱已绑定其他后台账号' }
         const data = pickFields(staff, ['username', 'name', 'phone', 'avatar', 'role', 'device_categories', 'service_areas'])
+        data.email = normalizedEmail
         const res = await col.add({
           ...data,
           openid: '',
@@ -735,6 +995,11 @@ module.exports = {
       } else if (action === 'edit') {
         if (!staff || !staff._id) return { code: -1, msg: '缺少员工ID' }
         const data = pickFields(staff, ['username', 'name', 'phone', 'avatar', 'role', 'disabled', 'device_categories', 'service_areas'])
+        if (Object.prototype.hasOwnProperty.call(staff, 'email')) {
+          data.email = normalizeEmail(staff.email)
+          const emailExists = await col.where({ email: data.email, role: db.command.in(STAFF_ROLES), _id: db.command.neq(staff._id) }).limit(1).get()
+          if (emailExists.data.length) return { code: -1, msg: '邮箱已绑定其他后台账号' }
+        }
         if (data.role && !STAFF_ROLES.includes(data.role)) return { code: -1, msg: '角色不正确' }
         if (data.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可设置超级管理员角色' }
         if (staff.password) {
@@ -1055,6 +1320,7 @@ module.exports = {
       const now = Date.now()
 
       for (const [key, value] of Object.entries(settings)) {
+        validatePolicyDocumentSetting(key, value)
         const existing = await col.where({ key }).limit(1).get()
         if (existing.data.length > 0) {
           await col.doc(existing.data[0]._id).update({ value, update_time: now })
