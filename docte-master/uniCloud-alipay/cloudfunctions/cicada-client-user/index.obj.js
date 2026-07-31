@@ -30,10 +30,23 @@ function isAllowedFeedbackImage(url = '') {
   const value = normalizeText(url)
   if (!value) return false
   if (/^cloud:\/\//i.test(value)) return true
-  if (/^https:\/\//i.test(value) && /tcb\.qcloud\.la|file\.myqcloud\.com|cloudbase|unicloud|aliyuncs\.com|bspapp\.com/i.test(value)) {
-    return true
+
+  try {
+    const parsed = new URL(value)
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port) return false
+    const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '')
+    const allowedSuffixes = [
+      'tcb.qcloud.la',
+      'file.myqcloud.com',
+      'cloudbaseapp.cn',
+      'cloudbasefunction.cn',
+      'aliyuncs.com',
+      'bspapp.com'
+    ]
+    return allowedSuffixes.some(suffix => hostname === suffix || hostname.endsWith(`.${suffix}`))
+  } catch (error) {
+    return false
   }
-  return false
 }
 
 function stableDocumentId(prefix, value) {
@@ -632,3 +645,7 @@ module.exports = {
     }
   }
 }
+
+Object.defineProperty(module.exports, '__test__', {
+  value: Object.freeze({ isAllowedFeedbackImage })
+})

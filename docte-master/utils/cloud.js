@@ -115,10 +115,16 @@ export function uploadCloudFile(options = {}) {
     // 云上传不可用时，降级为 HTTP 上传
     console.warn('[cloud] 降级为 HTTP 上传')
     return new Promise((resolve, reject) => {
+      const token = uni.getStorageSync('token')
       uni.uploadFile({
         url: `${baseURL}/upload`,
         filePath: options.filePath,
         name: options.name || 'file',
+        header: {
+          ...(options.header || {}),
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        ...(options.formData ? { formData: options.formData } : {}),
         success: (res) => {
           try {
             const data = JSON.parse(res.data || '{}')

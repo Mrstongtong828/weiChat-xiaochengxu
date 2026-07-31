@@ -697,6 +697,13 @@ function isCompanyMismatch(inputCompany = '', storedCompany = '') {
   return input !== stored
 }
 
+function resolvePackageAccess(isOwner = false, phoneLast4Matched = false) {
+  return {
+    allowed: Boolean(isOwner || phoneLast4Matched),
+    fullAccess: Boolean(isOwner)
+  }
+}
+
 function getPackageStatus(order = {}) {
   const status = order.status || 'pending'
   if (status === 'completed') return { status: 5, statusText: '已完成', tone: 'ok', reached: 4 }
@@ -1644,12 +1651,13 @@ module.exports = {
       }
 
       const phoneLast4Matched = Boolean(storedLast4 && inputLast4 && storedLast4 === inputLast4)
-      if (!isOwner && !phoneLast4Matched) return { code: 0, data: null }
+      const packageAccess = resolvePackageAccess(isOwner, phoneLast4Matched)
+      if (!packageAccess.allowed) return { code: 0, data: null }
       if (isCompanyMismatch(inputCompany, matchedCompany)) {
         return { code: -1, msg: '快递公司与工单记录不一致，请切换后重试。' }
       }
 
-      const fullAccess = true
+      const { fullAccess } = packageAccess
       if (matchedType !== 'invoice') order = await refreshOrderTrack(order, matchedType)
       // 设备型号：取工单首个维修产品名，供卡片底部「工单号+型号」防混淆展示
       let model = ''
@@ -1672,7 +1680,7 @@ module.exports = {
           model: fullAccess ? model : '',
           matchedType,
           phoneLast4Matched,
-          privacyLimited: false,
+          privacyLimited: !fullAccess,
           out: buildPackageSegment(order, 'out', fullAccess),
           back: matchedType === 'invoice' ? buildInvoicePackageSegment(order, fullAccess) : buildPackageSegment(order, 'back', fullAccess)
         }
@@ -2855,6 +2863,7 @@ Object.defineProperty(module.exports, '__test__', {
     completeRepairSubmission,
     getOrderItemSnError,
     isSameRepairRequest,
-    releaseRepairSubmission
+    releaseRepairSubmission,
+    resolvePackageAccess
   })
 })

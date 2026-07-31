@@ -414,9 +414,7 @@ function verifyPassword(user, password) {
     const storedBuffer = Buffer.from(user.password_hash)
     return inputBuffer.length === storedBuffer.length && crypto.timingSafeEqual(inputBuffer, storedBuffer)
   }
-
-  // 兼容历史明文密码账号，登录成功后会迁移为哈希存储。
-  return user.password === password
+  return false
 }
 
 function getRequestData(ctx, params) {
@@ -533,6 +531,37 @@ function validatePolicyDocumentUpload(buffer, safeDir, fileName) {
   throw new Error('政策文档上传目录不正确')
 }
 
+function validateGenericAdminUpload(buffer, fileName, fileType = '') {
+  if (!buffer.length) throw new Error('上传文件不能为空')
+
+  const extension = String(fileName || '').split('.').pop().toLowerCase()
+  const mime = String(fileType || '').split(';')[0].trim().toLowerCase()
+  const isZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && [0x03, 0x05, 0x07].includes(buffer[2])
+  const isDocx = isZip && buffer.includes(Buffer.from('[Content_Types].xml')) && buffer.includes(Buffer.from('word/'))
+  const isDoc = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))
+  const isPdf = buffer.length >= 5 && buffer.subarray(0, 5).toString() === '%PDF-'
+  const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff
+  const isWebp = buffer.length >= 12 && buffer.subarray(0, 4).toString() === 'RIFF' && buffer.subarray(8, 12).toString() === 'WEBP'
+  const formats = {
+    jpg: { valid: isJpeg, maxSize: 6 * 1024 * 1024, mimes: ['image/jpeg'] },
+    jpeg: { valid: isJpeg, maxSize: 6 * 1024 * 1024, mimes: ['image/jpeg'] },
+    png: { valid: isPng, maxSize: 6 * 1024 * 1024, mimes: ['image/png'] },
+    webp: { valid: isWebp, maxSize: 6 * 1024 * 1024, mimes: ['image/webp'] },
+    pdf: { valid: isPdf, maxSize: 20 * 1024 * 1024, mimes: ['application/pdf'] },
+    doc: { valid: isDoc, maxSize: 20 * 1024 * 1024, mimes: ['application/msword'] },
+    docx: {
+      valid: isDocx,
+      maxSize: 20 * 1024 * 1024,
+      mimes: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip']
+    }
+  }
+  const format = formats[extension]
+  if (!format || !format.valid) throw new Error('仅支持有效的 JPG、PNG、WebP、PDF 或 Word 文件')
+  if (buffer.length > format.maxSize) throw new Error(`文件不能超过 ${format.maxSize / 1024 / 1024}MB`)
+  if (mime && !format.mimes.includes(mime)) throw new Error('文件类型与文件内容不一致')
+}
+
 function validatePolicyDocumentSetting(key, value) {
   if (!['warranty_policy_document', 'fee_policy_document'].includes(key) || value === '') return
   if (typeof value !== 'string' || value.length > 500000) throw new Error('政策文档配置过大')
@@ -571,11 +600,20 @@ async function uploadAdminFile(ctx, params, defaultDir = 'guides/', allowedRoles
   await verifyAdminToken(token, allowedRoles)
 
   if (!fileContent || !fileName) return { code: -1, msg: '缺少文件内容或文件名' }
+  const maxEncodedLength = Math.ceil(25 * 1024 * 1024 * 4 / 3) + 4
+  if (typeof fileContent !== 'string' || fileContent.length > maxEncodedLength) {
+    throw new Error('上传文件不能超过 25MB')
+  }
 
   const buffer = Buffer.from(fileContent, 'base64')
   const safeFileName = String(fileName).replace(/[\\/:*?"<>|]/g, '_')
   const safeDir = String(dir || defaultDir).replace(/[^a-zA-Z0-9_\-/]/g, '').replace(/\/+$/, '') || 'guides'
-  validatePolicyDocumentUpload(buffer, safeDir, safeFileName)
+  if (!safeFileName || safeFileName.length > 180) throw new Error('文件名不正确')
+  if (safeDir.startsWith('policy-documents/')) {
+    validatePolicyDocumentUpload(buffer, safeDir, safeFileName)
+  } else {
+    validateGenericAdminUpload(buffer, safeFileName, fileType)
+  }
   const cloudPath = `${safeDir}/${Date.now()}_${safeFileName}`
   const res = await uniCloud.uploadFile({
     cloudPath,
@@ -694,9 +732,6 @@ module.exports = {
         last_login: Date.now(),
         last_login_ip: loginIp,
         failed_login_count: 0
-      }
-      if (!user.password_hash || !user.password_salt) {
-        Object.assign(updateData, buildPasswordFields(password))
       }
       // 保留既有紧急救援账号规则：首次登录时自愈为超级管理员。
       if (user.username === 'admin_root' && user.role !== 'superadmin') {
@@ -1596,3 +1631,7 @@ module.exports = {
     }
   }
 }
+
+Object.defineProperty(module.exports, '__test__', {
+  value: Object.freeze({ validateGenericAdminUpload, verifyPassword })
+})
