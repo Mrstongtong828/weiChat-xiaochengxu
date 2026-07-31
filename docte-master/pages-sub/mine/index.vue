@@ -79,8 +79,7 @@
 		</view>
 
 		<view class="footer-brand">
-			<image class="footer-logo" :src="cicadaAssets.logoFull" mode="aspectFit"></image>
-			<text>佛山思科达 · 牙医仪器检修 v1.2.0</text>
+			<image class="footer-logo" :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 		</view>
 
 		<BottomTabbar :tabs="tabs" active-id="mine" @select="go" />

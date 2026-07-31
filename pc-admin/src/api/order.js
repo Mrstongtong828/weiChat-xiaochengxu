@@ -19,6 +19,14 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
   })
 }
 
+// 工作人员代客户录入售后报修工单
+export const createAdminOrder = (token, payload = {}) => {
+  return request.post(`${API_BASE.adminOrder}/createAdminOrder`, {
+    token,
+    ...payload
+  })
+}
+
 // 保存工单产品/设备信息（SN 回填后落库，并重算在保快照）
 export const saveOrderItems = (token, orderId, items) => {
   return request.post(`${API_BASE.adminOrder}/saveOrderItems`, {

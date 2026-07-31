@@ -34,6 +34,7 @@ const ALL_ROLES = Object.keys(ROLE_LABELS)
 
 const PERMISSIONS = {
   view_order: ALL_ROLES,
+  create_order: ['admin', 'engineer', 'support'],
   export_order: ALL_ROLES,
   get_stats: ALL_ROLES,
   get_workflow_config: ALL_ROLES,

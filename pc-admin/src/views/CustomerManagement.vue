@@ -3,7 +3,7 @@
     <div class="section-title">
       <div>
         <span>客户管理</span>
-        <p class="section-desc">维护诊所、经销商和散户档案，统一查看客户资产、历史工单和服务标签。</p>
+        <p class="section-desc">维护门诊/医院、代理商/经销商和自定义类型客户档案，统一查看客户资产、历史工单和服务标签。</p>
       </div>
       <div class="title-actions">
         <el-button v-if="canEdit" size="small" @click="tagMgrVisible = true">标签管理</el-button>
@@ -20,10 +20,8 @@
     <div class="filter-bar">
       <el-input v-model.trim="filters.keyword" placeholder="客户名称 / 联系人 / 手机号" clearable
         style="width:240px;" @keyup.enter="reload" @clear="reload" />
-      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable style="width:200px;" @change="reload">
-        <el-option label="企业" value="clinic" />
-        <el-option label="签约代理商（齿科）" value="dealer" />
-        <el-option label="个人" value="individual" />
+      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable filterable allow-create default-first-option style="width:200px;" @change="reload">
+        <el-option v-for="option in customerTypeOptionsWithCurrent(filters.customer_type)" :key="option.value" :label="option.label" :value="option.value" />
       </el-select>
       <el-select v-model="filters.status" style="width:130px;" @change="reload">
         <el-option label="正常客户" value="active" />
@@ -101,8 +99,8 @@
               size="small" @click="revealPhone(row)">查看</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="100">
-          <template #default="{row}"><el-tag size="small" :type="typeTag(row.customer_type)">{{ typeLabel(row.customer_type) }}</el-tag></template>
+        <el-table-column label="类型" min-width="130">
+          <template #default="{row}"><el-tag class="customer-type-cell-tag" size="small" :type="typeTag(row.customer_type)" :title="typeLabel(row.customer_type)">{{ typeLabel(row.customer_type) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="标签" min-width="140">
           <template #default="{row}">
@@ -138,14 +136,12 @@
   <el-dialog v-model="editVisible" :title="isEdit ? '编辑客户' : '新增客户'" width="520px" align-center>
     <el-form :model="form" label-width="100px">
       <el-form-item label="客户类型">
-        <el-select v-model="form.customer_type" style="width:100%;">
-          <el-option label="企业" value="clinic" />
-          <el-option label="签约代理商（齿科）" value="dealer" />
-          <el-option label="个人" value="individual" />
+        <el-select v-model="form.customer_type" filterable allow-create default-first-option placeholder="选择或输入客户类型" style="width:100%;">
+          <el-option v-for="option in customerTypeOptionsWithCurrent(form.customer_type)" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="客户名称" required>
-        <el-input v-model.trim="form.name" placeholder="诊所名 / 经销商名 / 个人姓名" />
+        <el-input v-model.trim="form.name" placeholder="门诊、经销商或客户名称" />
       </el-form-item>
       <el-form-item label="联系人"><el-input v-model.trim="form.contact" /></el-form-item>
       <el-form-item label="手机号"><el-input v-model.trim="form.phone" maxlength="11" placeholder="11位手机号" /></el-form-item>
@@ -386,21 +382,21 @@ import {
   listCustomerOrders, getCustomerLogs,
   listTags, saveTag, deleteTag, batchTag, exportCustomers, batchImportCustomers
 } from '../api/customer.js'
+import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { downloadCustomerTemplate, exportCustomerWorkbook, parseCustomerExcelFile } from '../utils/customerExcel.js'
 
-const TYPE_LABELS = { clinic: '企业', dealer: '签约代理商（齿科）', individual: '个人' }
 const route = useRoute()
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
 const WARRANTY_LABELS = { in_warranty: '在保', extended: '已延保', expired: '过保', unknown: '待补充' }
 const ORDER_STATUS_LABELS = { pending: '待寄出', sent: '已寄出', received: '已收货', inspecting: '检测中', fixing: '维修中', shipped: '已寄回', completed: '已完成', cancelled: '已取消' }
 const LOG_ACTION_LABELS = { create: '新增', edit: '编辑', cancel: '注销', view_phone: '查看手机号', device_save: '设备变更', device_delete: '解绑设备', sync: '同步', export: '导出' }
 
-const typeLabel = (t) => TYPE_LABELS[t] || t || '-'
+const typeLabel = (t) => customerTypeLabel(t) || '-'
 const sourceLabel = (s) => SOURCE_LABELS[s] || '-'
 const warrantyLabel = (s) => WARRANTY_LABELS[s] || '待补充'
 const orderStatusLabel = (s) => ORDER_STATUS_LABELS[s] || s
 const logActionLabel = (a) => LOG_ACTION_LABELS[a] || a
-const typeTag = (t) => (t === 'dealer' ? 'warning' : t === 'individual' ? 'info' : 'success')
+const typeTag = (t) => (customerTypeMeta(t) || {}).type || 'info'
 const warrantyTag = (s) => (s === 'expired' ? 'danger' : (!s || s === 'unknown') ? 'warning' : 'success')
 const warrantyAlertLabel = (category) => ({ missing: '资料待补充', expiring: '即将到期', expired: '已过保' }[category] || '待处理')
 const warrantyAlertTag = (category) => (category === 'expired' ? 'danger' : category === 'expiring' ? 'warning' : 'info')
@@ -454,7 +450,7 @@ const tagColor = (name) => tagColorMap.value[name] || ''
 const load = async () => {
   loading.value = true
   try {
-    const data = await listCustomers({ ...filters })
+    const data = await listCustomers({ ...filters, customer_type: resolveCustomerTypeValue(filters.customer_type) })
     list.value = data.list || []
     total.value = data.total || 0
   } catch (e) { /* 拦截器已提示 */ } finally { loading.value = false }
@@ -527,6 +523,10 @@ const openEdit = (row) => {
 const saveCustomer = async () => {
   if (!form.name) { ElMessage.warning('请填写客户名称'); return }
   if (form.phone && !/^1\d{10}$/.test(form.phone)) { ElMessage.warning('手机号格式不正确'); return }
+  const customerType = resolveCustomerTypeValue(form.customer_type)
+  if (!customerType) { ElMessage.warning('请选择或输入客户类型'); return }
+  if (customerType.length > 40) { ElMessage.warning('客户类型不能超过 40 个字符'); return }
+  form.customer_type = customerType
   saving.value = true
   try {
     const payload = { ...form }
@@ -696,7 +696,7 @@ const submitBatchTag = async () => {
 const doExport = async () => {
   exporting.value = true
   try {
-    const data = await exportCustomers({ keyword: filters.keyword, customer_type: filters.customer_type, status: filters.status, tag: filters.tag })
+    const data = await exportCustomers({ keyword: filters.keyword, customer_type: resolveCustomerTypeValue(filters.customer_type), status: filters.status, tag: filters.tag })
     if (!data.length) { ElMessage.warning('没有可导出的数据'); return }
     await exportCustomerWorkbook(data)
     ElMessage.success(`已导出 ${data.length} 条`)
@@ -765,6 +765,8 @@ watch(() => route.query.alert, () => {
 .batch-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; background: #ecf5ff; border-radius: 8px; color: #4e5969; }
 .batch-bar b { color: #409eff; }
 .row-tag { margin-right: 4px; margin-bottom: 2px; }
+.customer-type-cell-tag { max-width: 100%; }
+.customer-type-cell-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: #909399; font-size: 13px; }
 .tag-add-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .import-tip { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

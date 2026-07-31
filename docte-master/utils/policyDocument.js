@@ -39,7 +39,26 @@ export const parsePolicyDocument = (value) => {
 
 const isCloudFile = (value) => /^cloud:\/\//i.test(asText(value))
 
-export const resolvePolicyDocumentFiles = async (document, resolveFiles) => {
+const resolveFilesWithDeadline = async (resolveFiles, fileIds, timeoutMs) => {
+  const lookup = Promise.resolve()
+    .then(() => resolveFiles(fileIds))
+    .catch(() => ({}))
+  if (!(timeoutMs > 0)) return lookup
+
+  let timer
+  try {
+    return await Promise.race([
+      lookup,
+      new Promise(resolve => {
+        timer = setTimeout(() => resolve({}), timeoutMs)
+      })
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+export const resolvePolicyDocumentFiles = async (document, resolveFiles, { timeoutMs = 0 } = {}) => {
   if (!document) return null
 
   const cloudFiles = [
@@ -48,9 +67,11 @@ export const resolvePolicyDocumentFiles = async (document, resolveFiles) => {
     ...document.original.pages
   ].filter(isCloudFile)
   const uniqueCloudFiles = [...new Set(cloudFiles)]
-  const resolved = uniqueCloudFiles.length && typeof resolveFiles === 'function'
-    ? await resolveFiles(uniqueCloudFiles)
-    : {}
+  let resolved = {}
+  if (uniqueCloudFiles.length && typeof resolveFiles === 'function') {
+    // Mobile HTML is already usable; temporary file URLs are optional enhancements.
+    resolved = await resolveFilesWithDeadline(resolveFiles, uniqueCloudFiles, timeoutMs) || {}
+  }
   const previewUrl = (value) => (isCloudFile(value) ? resolved[value] || value : value)
 
   return {

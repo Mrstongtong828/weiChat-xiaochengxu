@@ -28,12 +28,9 @@
     },
     "customer_type": {
       "bsonType": "string",
-      "enum": [
-        "clinic",
-        "dealer",
-        "individual"
-      ],
-      "description": "下单时客户类型快照"
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "下单时客户类型快照；后台工单支持自定义类型"
     },
     "status": {
       "bsonType": "string",

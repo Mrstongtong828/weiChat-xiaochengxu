@@ -7,6 +7,12 @@
 					<text class="module-title">{{ moduleInfo.title }}</text>
 					<text class="module-subtitle">{{ moduleInfo.subtitle }}</text>
 				</view>
+				<image
+					v-if="activeModule !== 'repair'"
+					class="module-brand-watermark"
+					:src="cicadaAssets.logoHeader"
+					mode="aspectFit"
+				></image>
 			</view>
 
 			<view v-if="activeModule === 'repair'" class="module-content repair-module">
@@ -41,9 +47,14 @@
 							<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
 						</view>
 						<view class="repair-form-card">
-							<view class="repair-field">
-								<text>产品名称</text>
-								<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
+							<view class="repair-field select-row tap" @click="openProductPicker(index)">
+								<text><text class="required-star">*</text>产品名称</text>
+								<text class="select-value" :class="{ placeholder: !product.name }">{{ repairProductNameText(product) }}</text>
+								<view class="field-arrow"></view>
+							</view>
+							<view v-if="isOtherRepairProduct(product)" class="repair-field">
+								<text><text class="required-star">*</text>其他名称</text>
+								<input v-model.trim="product.name" maxlength="80" placeholder="请输入产品名称" placeholder-class="input-placeholder" />
 							</view>
 							<view class="repair-field">
 								<text><text class="required-star">*</text>产品序列号</text>
@@ -69,14 +80,34 @@
 								</view>
 							</view>
 							<view v-else-if="product.snInfo && !product.snInfo.found && product.serial" class="sn-result muted"><text>首次报修可手动填写，提交后会自动登记</text></view>
-							<view class="repair-field">
-								<text>设备分类</text>
-								<input v-model="product.category" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
+							<view v-if="!product.name" class="repair-field select-row tap" @click="openProductPicker(index)">
 								<text><text class="required-star">*</text>产品型号</text>
-								<input v-model="product.model" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
+								<text class="select-value placeholder">请先选择产品名称</text>
+								<view class="field-arrow"></view>
 							</view>
+							<view v-else-if="isOtherRepairProduct(product)" class="repair-field">
+								<text><text class="required-star">*</text>产品型号</text>
+								<input v-model.trim="product.model" maxlength="80" placeholder="请输入产品型号" placeholder-class="input-placeholder" />
+							</view>
+							<template v-else>
+								<picker
+									class="native-field-picker"
+									mode="selector"
+									:range="product.modelPickerOptions"
+									:value="repairProductModelPickerIndex(product)"
+									@change="(event) => onRepairProductModelChange(index, event)"
+								>
+									<view class="repair-field select-row tap">
+										<text><text class="required-star">*</text>产品型号</text>
+										<text class="select-value" :class="{ placeholder: !product.model }">{{ repairProductModelText(product) }}</text>
+										<view class="field-arrow"></view>
+									</view>
+								</picker>
+								<view v-if="isOtherRepairModel(product)" class="repair-field repair-custom-model-field">
+									<text><text class="required-star">*</text>其他型号</text>
+									<input v-model.trim="product.model" maxlength="80" placeholder="请输入产品型号" placeholder-class="input-placeholder" />
+								</view>
+							</template>
 							<view class="repair-field">
 								<text>购买日期</text>
 								<picker mode="date" :value="product.buyDate" @change="(e) => onDateChange(index, e)">
@@ -216,12 +247,12 @@
 					</view>
 				</view>
 
-				<view class="repair-brand-watermark" aria-hidden="true">
-					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-					<text>思科达售后维修中心</text>
+				<view class="repair-brand-watermark">
+					<image :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
+					<text>思科达售后服务中心</text>
 				</view>
 
-				<view class="repair-bottom-bar">
+				<view v-if="!uploadPrivacyVisible" class="repair-bottom-bar">
 					<view class="bottom-more tap" @click="showRepairTools = true">
 						<view class="bottom-more-icon"><view></view><view></view><view></view></view>
 						<text>工具</text>
@@ -243,6 +274,53 @@
 								<text class="address-choice-detail">{{ savedAddressText(item) }}</text>
 							</view>
 							<text v-if="item.isDefault" class="address-choice-default">默认</text>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showCustomerTypePicker" class="sheet-mask" @click="showCustomerTypePicker = false"></view>
+				<view v-if="showCustomerTypePicker" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="showCustomerTypePicker = false">取消</text>
+						<text>选择用户类型</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y>
+						<view v-for="item in customerTypeOptions" :key="item.value" class="choice-row tap" @click="selectCustomerType(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="repairForm.customerType === item.value" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showProductPicker" class="sheet-mask" @click="closeProductPicker"></view>
+				<view v-if="showProductPicker" class="choice-sheet">
+					<view class="choice-head">
+						<text class="tap" @click="closeProductPicker">取消</text>
+						<text>选择产品名称</text>
+						<text></text>
+					</view>
+					<view class="product-choice-search">
+						<view class="glyph glyph-search glyph-search-small"></view>
+						<input v-model.trim="repairProductKeyword" maxlength="60" confirm-type="search" placeholder="产品名称、型号或拼音首字母" placeholder-class="input-placeholder" />
+					</view>
+					<scroll-view class="choice-scroll product-choice-scroll" scroll-y>
+						<view v-if="repairProductLoading && !repairProductOptions.length" class="choice-empty">产品名称加载中...</view>
+						<view v-else-if="filteredRepairProductOptions.length">
+							<view v-for="item in filteredRepairProductOptions" :key="item.value" class="choice-row choice-row-product tap" @click="selectRepairProduct(item)">
+								<view>
+									<text>{{ item.label }}</text>
+								</view>
+								<view v-if="isActiveRepairProduct(item)" class="mini-icon mini-check"></view>
+							</view>
+						</view>
+						<view v-else class="choice-empty">没有匹配的产品</view>
+						<view v-if="!repairProductLoading" class="choice-row choice-row-product choice-row-other tap" @click="selectRepairProduct(repairProductOtherOption)">
+							<view>
+								<text>其他</text>
+								<text>自行填写产品名称</text>
+							</view>
+							<view v-if="isOtherRepairProduct(activeRepairProduct)" class="mini-icon mini-check"></view>
 						</view>
 					</scroll-view>
 				</view>
@@ -1037,11 +1115,11 @@
 				<view v-for="item in productList" :key="item.sn || item.title" class="product-card">
 					<view class="product-icon"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
 					<view class="product-copy">
-						<text>{{ item.title }}</text>
-						<text>SN · {{ item.sn || '未登记' }}</text>
-							<text v-if="item.model">型号 · {{ item.model }}</text>
-							<text v-if="item.lastOrderNo">最近工单 · {{ item.lastOrderNo }}{{ item.repairCount ? `（累计报修 ${item.repairCount} 次）` : '' }}</text>
-						<text v-else-if="item.date">购买日期 · {{ item.date }}</text>
+						<text class="product-title">{{ item.title }}</text>
+						<text class="product-meta">SN · {{ item.sn || '未登记' }}</text>
+						<text v-if="item.model" class="product-meta">型号 · {{ item.model }}</text>
+						<text v-if="item.lastOrderText" class="product-order">{{ item.lastOrderText }}</text>
+						<text v-else-if="item.date" class="product-meta">购买日期 · {{ item.date }}</text>
 						<text :class="['tag', item.expired ? 'tag-muted' : 'tag-ok']">{{ item.warranty }}</text>
 					</view>
 					<view class="ghost-mini tap" @click="go('repair')">报修</view>
@@ -1160,7 +1238,7 @@
 							</view>
 							<text class="feedback-ticket-content">{{ record.content }}</text>
 							<view v-if="record.images && record.images.length" class="feedback-ticket-images">
-								<image v-for="(image, index) in record.images" :key="image.id || image.url || image || index" :src="image.url || image" mode="aspectFill" class="feedback-ticket-image tap" @click="previewFeedbackRecordImage(record, index)"></image>
+								<image v-for="(image, index) in record.images" :key="image.id || image.url || image || index" :src="getFeedbackRecordImageUrl(image)" mode="aspectFill" class="feedback-ticket-image tap" @click="previewFeedbackRecordImage(record, index)"></image>
 							</view>
 							<view class="feedback-reply">
 								<text>客服回复</text>
@@ -1190,7 +1268,7 @@
 			<view v-if="activeTab === 'home'" class="home-body">
 				<view class="brand-bar">
 					<view class="brand-left">
-						<text class="home-brand-subtitle">思科达服务</text>
+						<text class="home-brand-subtitle">服务中心</text>
 					</view>
 				</view>
 
@@ -1343,7 +1421,7 @@
 			<view v-else-if="activeTab === 'company'" class="company-body">
 				<view class="company-brand">
 					<view class="brand-left">
-						<image class="brand-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
+						<image class="brand-logo" :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 					</view>
 				</view>
 
@@ -1432,8 +1510,16 @@
 				</view>
 
 				<view class="follow-card">
+					<view class="qr-image-wrap company-qr">
+						<image
+							class="qr-image"
+							:src="wechatInfo.qrcodeUrl || cicadaAssets.qrWechat"
+							mode="aspectFill"
+							show-menu-by-longpress
+						></image>
+					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
+					<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
 					<official-account class="official-account-btn"></official-account>
 				</view>
 			</view>
@@ -1510,7 +1596,7 @@
 				</view>
 
 				<view class="mine-footer">
-					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
+					<image :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 					<text>佛山思科达 · 牙医仪器检修 v1.2.0</text>
 				</view>
 			</view>
@@ -1519,8 +1605,8 @@
 		<view v-else class="boot-screen">
 			<view class="boot-content">
 				<image class="boot-logo" :src="cicadaAssets.bootLogo" mode="aspectFit"></image>
-				<text class="boot-title">思科达售后维修中心</text>
-				<view class="boot-dots" aria-hidden="true">
+				<text class="boot-title">思科达售后服务中心</text>
+				<view class="boot-dots">
 					<view class="boot-dot"></view>
 					<view class="boot-dot"></view>
 					<view class="boot-dot"></view>
@@ -1635,10 +1721,11 @@
 		</view>
 		<view v-if="uploadPrivacyVisible" class="upload-privacy-mask">
 			<view class="upload-privacy-card">
+				<view class="upload-privacy-close tap" @click="rejectUploadPrivacy">×</view>
 				<text class="upload-privacy-title">隐私政策与信息授权</text>
 				<scroll-view scroll-y class="upload-privacy-body">
 					<rich-text v-if="uploadPrivacyHtml" :nodes="uploadPrivacyHtml"></rich-text>
-					<view v-else class="upload-privacy-text">上传图片或视频前，需要您同意隐私授权。我们会依法使用您选择的图片、视频和报修信息，仅用于售后报修、维修沟通和服务记录。</view>
+					<view v-else class="upload-privacy-text">使用图片、视频、微信地址或扫码功能前，需要您同意隐私授权。相关信息仅用于售后报修、维修沟通和服务记录。</view>
 				</scroll-view>
 				<view class="upload-privacy-actions">
 					<view class="upload-privacy-btn ghost tap" @click="rejectUploadPrivacy">不同意</view>
@@ -1651,7 +1738,7 @@
 				</view>
 			</view>
 		</view>
-		<PrivacyConsent />
+		<PrivacyConsent :disabled="activeModule === 'repair'" />
 		<PolicyDialog v-model:visible="homeGuideVisible" title="操作指引" :content="homeGuideContent" />
 	</view>
 </template>
@@ -1714,9 +1801,10 @@ import {
 	updateRepairOutboundLogistics
 } from '@/api/repair'
 import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
-import { getCloudTempFileURL } from '@/utils/cloud.js'
+import { downloadCloudFile, getCloudTempFileURL } from '@/utils/cloud.js'
 import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { normalizePolicyHtml } from '@/utils/policyHtml.js'
+import { createPolicyDocumentRefresher } from '@/utils/policyRefresh.js'
 import {
 	basics,
 	companyAdvantages,
@@ -1724,6 +1812,7 @@ import {
 	companyProductLines,
 	companyServiceTags,
 	companyStats,
+	customerTypeOptions,
 	defaultReceiver,
 	defaultStatusItems,
 	guides,
@@ -1778,6 +1867,15 @@ import {
 	normalizeUploadFileId,
 	normalizeUploadUrl
 } from './composables/uploadUtils'
+import { getRepairProductOptions } from '@/api/product'
+import {
+	createRepairProductModelOptions,
+	REPAIR_PRODUCT_MODEL_OTHER_LABEL,
+	REPAIR_PRODUCT_OTHER_VALUE,
+	repairProductOptions as defaultRepairProductOptions,
+	repairProductOtherOption,
+	splitRepairProductModels
+} from '@/config/repair-products.js'
 
 const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
@@ -1924,11 +2022,6 @@ const requestStatusSubscription = (_scene) => {
 	})()
 	return subscriptionRequestPromise
 }
-const customerTypeOptions = [
-	{ value: 'individual', label: '个人' },
-	{ value: 'clinic', label: '企业' },
-	{ value: 'dealer', label: '签约代理商（齿科）' }
-]
 const customerTypeLabel = (value) => {
 	const option = customerTypeOptions.find((item) => item.value === value)
 	return option ? option.label : ''
@@ -1940,9 +2033,18 @@ const savedAddressTarget = ref('sender')
 const showOutboundSheet = ref(false)
 const outboundSubmitting = ref(false)
 const outboundForm = ref({ company: '', trackingNo: '' })
+// 报修表单：产品名称下拉选择（后端驱动）
+const showCustomerTypePicker = ref(false)
+const showProductPicker = ref(false)
+const activeProductPickerIndex = ref(-1)
+const repairProductLoading = ref(false)
+const repairProductOptions = ref(defaultRepairProductOptions.map((item) => ({ ...item })))
+const repairProductKeyword = ref('')
+let repairProductOptionsLoaded = false
 const feedbackContactValue = ref('')
 const feedbackOrderId = ref('')
 const feedbackRecords = ref([])
+const feedbackImageTempUrls = ref({})
 const packageQuery = ref({
 	trackingNo: '',
 	phoneLast4: ''
@@ -2177,7 +2279,7 @@ const customerService = ref({
 const wechatInfo = ref({
 	qrcodeUrl: cicadaAssets.qrWechat,
 	name: '思科达售后',
-	description: '获取最新维修指南 / 售后政策'
+	description: '获取最新服务指南 / 售后政策'
 })
 
 const contactHotlines = ref([
@@ -2274,11 +2376,12 @@ const openRepairSection = (section) => {
 	}
 }
 
-const chooseWechatAddress = (target) => {
+const chooseWechatAddress = async (target) => {
 	if (typeof uni.chooseAddress !== 'function') {
 		uni.showToast({ title: '当前微信版本不支持地址导入', icon: 'none' })
 		return
 	}
+	if (!(await ensureWechatPrivacyForAction())) return
 	uni.chooseAddress({
 		success: (result = {}) => {
 			const address = Array.from(new Set([
@@ -2307,7 +2410,149 @@ const chooseWechatAddress = (target) => {
 	})
 }
 
-const scanTrackingNo = () => {
+const selectCustomerType = (item) => {
+	repairForm.value.customerType = item.value
+	showCustomerTypePicker.value = false
+}
+
+const activeRepairProduct = computed(() => repairProducts.value[activeProductPickerIndex.value] || null)
+const normalizedRepairProductKeyword = computed(() => String(repairProductKeyword.value || '').trim().toLowerCase())
+const filteredRepairProductOptions = computed(() => {
+	const keyword = normalizedRepairProductKeyword.value
+	if (!keyword) return repairProductOptions.value
+	return repairProductOptions.value.filter((item = {}) => {
+		const searchable = item.searchKeywords
+			|| [item.label, item.name, item.model, item.initials].filter(Boolean).join(' ').toLowerCase()
+		return searchable.includes(keyword)
+	})
+})
+
+const loadRepairProductOptions = async () => {
+	if (repairProductLoading.value || repairProductOptionsLoaded) return
+	repairProductLoading.value = true
+	try {
+		const options = await getRepairProductOptions({ scene: 'repair' })
+		if (options.length) repairProductOptions.value = options
+	} catch (error) {
+		console.warn('repair product options failed:', error)
+	} finally {
+		repairProductLoading.value = false
+		repairProductOptionsLoaded = true
+	}
+}
+
+const openProductPicker = (index) => {
+	activeProductPickerIndex.value = index
+	repairProductKeyword.value = ''
+	showProductPicker.value = true
+	loadRepairProductOptions()
+}
+
+const closeProductPicker = () => {
+	showProductPicker.value = false
+	repairProductKeyword.value = ''
+	activeProductPickerIndex.value = -1
+}
+
+const isOtherRepairProduct = (product = {}) => Boolean(product && product.isCustomName)
+const isOtherRepairModel = (product = {}) => Boolean(product && product.isCustomModel)
+const repairProductNameText = (product = {}) => {
+	if (product.name) return product.name
+	return isOtherRepairProduct(product) ? '其他（请填写）' : '请选择产品名称'
+}
+
+const findRepairProductOption = (product = {}) => repairProductOptions.value.find((item = {}) => (
+	Boolean(product.productId && product.productId === item.value)
+	|| Boolean(product.name && product.name === (item.label || item.name))
+))
+
+const repairProductModelOptions = (product = {}) => {
+	const option = findRepairProductOption(product)
+	return createRepairProductModelOptions(option && option.model)
+}
+
+const repairProductModelPickerOptions = (product = {}) => (
+	repairProductModelOptions(product).map((option) => option.label)
+)
+
+const syncRepairProductModelPickerOptions = (product = {}, sourceOption) => {
+	const option = sourceOption || findRepairProductOption(product)
+	product.modelPickerOptions = createRepairProductModelOptions(option && option.model)
+		.map((item) => item.label)
+}
+
+const isConfiguredRepairProductModel = (product = {}, model = '') => {
+	const option = findRepairProductOption(product)
+	return splitRepairProductModels(option && option.model).includes(String(model || '').trim())
+}
+
+const repairProductModelPickerIndex = (product = {}) => {
+	const options = Array.isArray(product.modelPickerOptions) && product.modelPickerOptions.length
+		? product.modelPickerOptions
+		: [REPAIR_PRODUCT_MODEL_OTHER_LABEL]
+	if (isOtherRepairModel(product)) return Math.max(0, options.length - 1)
+	const index = options.indexOf(String(product.model || '').trim())
+	return index >= 0 ? index : 0
+}
+
+const repairProductModelText = (product = {}) => {
+	if (product.model) return product.model
+	return isOtherRepairModel(product) ? '其他（请填写）' : '请选择产品型号'
+}
+
+const onRepairProductModelChange = (productIndex, event) => {
+	const product = repairProducts.value[productIndex]
+	if (!product) return
+	const options = Array.isArray(product.modelPickerOptions) ? product.modelPickerOptions : []
+	const selected = options[Number(event && event.detail && event.detail.value)]
+	if (!selected) return
+	if (selected === REPAIR_PRODUCT_MODEL_OTHER_LABEL) {
+		if (product.isCustomModel) return
+		product.isCustomModel = true
+		product.model = ''
+		return
+	}
+	product.isCustomModel = false
+	product.model = selected
+}
+
+const isActiveRepairProduct = (item = {}) => {
+	const product = activeRepairProduct.value || {}
+	return Boolean(product.productId && product.productId === item.value) || Boolean(product.name && product.name === item.label)
+}
+
+const selectRepairProduct = (item = {}) => {
+	const product = activeRepairProduct.value
+	if (!product) return
+	if (item.value === REPAIR_PRODUCT_OTHER_VALUE) {
+		if (product.isCustomName) {
+			closeProductPicker()
+			return
+		}
+		product.productId = ''
+		product.name = ''
+		product.model = ''
+		product.isCustomName = true
+		product.isCustomModel = true
+		product.modelPickerOptions = [REPAIR_PRODUCT_MODEL_OTHER_LABEL]
+		closeProductPicker()
+		return
+	}
+	const productChanged = product.productId !== (item.value || '') || product.name !== (item.label || item.name || '')
+	product.productId = item.value || ''
+	product.name = item.label || item.name || ''
+	product.isCustomName = false
+	syncRepairProductModelPickerOptions(product, item)
+	if (productChanged) {
+		const models = splitRepairProductModels(item.model)
+		product.model = models.length === 1 ? models[0] : ''
+		product.isCustomModel = false
+	}
+	closeProductPicker()
+}
+
+const scanTrackingNo = async () => {
+	if (!(await ensureWechatPrivacyForAction())) return
 	uni.scanCode({
 		onlyFromCamera: false,
 		scanType: ['qrCode', 'barCode'],
@@ -2514,6 +2759,11 @@ const normalizeProduct = (item = {}) => {
 	const warranty = item.warrantyText || item.warranty
 		|| (warrantyStatus ? warrantyStatusLabels[warrantyStatus] : '')
 		|| (item.warrantyExpire ? `保修至 ${item.warrantyExpire}` : '保修信息待同步')
+	const lastOrderNo = item.lastOrderNo || item.last_order_no || ''
+	const repairCount = Number(item.repairCount || item.repair_count || 0) || 0
+	const lastOrderText = lastOrderNo
+		? `最近工单 · ${lastOrderNo}${repairCount ? `（累计报修 ${repairCount} 次）` : ''}`
+		: ''
 	return {
 		title: item.title || item.name || item.productName || item.model || '已登记设备',
 		sn: item.sn || item.serial || item.productSerial || item.id || '',
@@ -2521,8 +2771,9 @@ const normalizeProduct = (item = {}) => {
 		date: item.buyDate || item.purchaseDate || item.date || '',
 		warranty,
 		expired: warrantyStatus === 'expired' || Boolean(item.expired || item.isExpired),
-		lastOrderNo: item.lastOrderNo || item.last_order_no || '',
-		repairCount: Number(item.repairCount || item.repair_count || 0) || 0
+		lastOrderNo,
+		repairCount,
+		lastOrderText
 	}
 }
 
@@ -2711,6 +2962,12 @@ const updateDoc = (key, doc) => {
 		[key]: normalized
 	}
 }
+
+const refreshPolicyDocument = createPolicyDocumentRefresher({
+	getWarrantyPolicy,
+	getFeePolicy,
+	updateDoc
+})
 
 const statusItems = computed(() => {
 	const counts = orderList.value.reduce(
@@ -2990,8 +3247,11 @@ const openGuideFile = async (doc = {}) => {
 	try {
 		uni.showLoading({ title: '打开中' })
 		const ext = getGuideFileExt(doc)
-		const url = await resolveGuideFileUrl(doc.fileUrl)
 		const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+		const isWebFile = /^https?:\/\//i.test(String(doc.fileUrl || '').trim())
+		const url = imageExts.includes(ext) || isWebFile
+			? await resolveGuideFileUrl(doc.fileUrl)
+			: ''
 
 		if (imageExts.includes(ext)) {
 			uni.hideLoading()
@@ -2999,8 +3259,14 @@ const openGuideFile = async (doc = {}) => {
 			return
 		}
 
-		const downloadRes = await uni.downloadFile({ url })
+		const downloadRes = isWebFile
+			? await uni.downloadFile({ url })
+			: await downloadCloudFile(doc.fileUrl)
+		if (isWebFile && Number(downloadRes.statusCode) !== 200) {
+			throw new Error(`文档下载失败（HTTP ${downloadRes.statusCode || '未知'}）`)
+		}
 		const filePath = downloadRes.tempFilePath
+		if (!filePath) throw new Error('文档下载后未生成临时文件')
 		uni.hideLoading()
 		await uni.openDocument({
 			filePath,
@@ -3807,6 +4073,8 @@ const reRepair = (order = {}) => {
 	const product = defaultRepairProduct()
 	product.name = order.productName || ''
 	product.model = order.productModel || ''
+	product.isCustomModel = Boolean(product.model && !isConfiguredRepairProductModel(product, product.model))
+	syncRepairProductModelPickerOptions(product)
 	product.serial = order.productSerial || order.serial || ''
 	repairProducts.value = [product]
 	repairProductSeed = 1
@@ -4089,9 +4357,39 @@ const syncFeedbackRecords = async () => {
 		if (!Array.isArray(list)) return
 		feedbackRecords.value = list.map(normalizeFeedbackRecord)
 		saveFeedbackRecords()
+		await resolveFeedbackRecordImageUrls(feedbackRecords.value)
 	} catch (error) {
 		// 网络/登录异常时保留本地缓存，不打断页面
 		console.warn('sync feedback records fallback:', error)
+	}
+}
+
+const getFeedbackRecordImageUrl = (image = {}) => {
+	const item = typeof image === 'string' ? { url: image } : image
+	const fileID = getCloudFileId(item)
+	return (fileID && feedbackImageTempUrls.value[fileID]) || getPreviewUrl(item)
+}
+
+const resolveFeedbackRecordImageUrls = async (records = []) => {
+	const fileIDs = [...new Set((Array.isArray(records) ? records : [])
+		.flatMap((record = {}) => Array.isArray(record.images) ? record.images : [])
+		.map((image) => getCloudFileId(typeof image === 'string' ? { url: image } : image))
+		.filter(Boolean))]
+	const unresolved = fileIDs.filter((fileID) => !feedbackImageTempUrls.value[fileID])
+	if (!unresolved.length) return
+
+	try {
+		const result = await getCloudTempFileURL(unresolved)
+		const nextUrls = { ...feedbackImageTempUrls.value }
+		const fileList = result && Array.isArray(result.fileList) ? result.fileList : []
+		for (const item of fileList) {
+			const fileID = item.fileID || item.fileId || ''
+			const tempFileURL = item.tempFileURL || item.url || ''
+			if (fileID && tempFileURL && !isCloudFileId(tempFileURL)) nextUrls[fileID] = tempFileURL
+		}
+		feedbackImageTempUrls.value = nextUrls
+	} catch (error) {
+		console.warn('resolve feedback image urls failed:', error)
 	}
 }
 
@@ -4130,7 +4428,7 @@ const addLocalFeedbackRecord = (status = 'submitted', result = {}) => {
 }
 
 const previewFeedbackRecordImage = (record = {}, index = 0) => {
-	const urls = (record.images || []).map((item) => (typeof item === 'string' ? item : item.url)).filter(Boolean)
+	const urls = (record.images || []).map(getFeedbackRecordImageUrl).filter(Boolean)
 	if (!urls.length) return
 	uni.previewImage({
 		current: urls[index] || urls[0],
@@ -4241,6 +4539,10 @@ const openModule = (id, type) => {
 	showOfficial.value = false
 	showQr.value = false
 
+	if (policyDocKeys.has(id)) {
+		refreshPolicyDocument(id).catch((error) => console.warn(`${id} policy refresh failed:`, error))
+	}
+
 	if (id === 'invoices') {
 		activeInvoiceOrderId.value = ''
 		activeInvoiceTab.value = '待开票'
@@ -4263,6 +4565,7 @@ const openModule = (id, type) => {
 	if (id === 'repair') {
 		repairStep.value = 1
 		prefillRepairAddress()
+		loadRepairProductOptions()
 	}
 
 	if (id === 'orders' && type !== undefined) {
@@ -4404,6 +4707,14 @@ const normalizeRepairProducts = (products = []) => {
 
 	return products.map((item, index) => ({
 		id: Number(item.id) || index + 1,
+		productId: item.productId || item.product_id || '',
+		isCustomName: item.isCustomName === undefined
+			? Boolean(item.name && !findRepairProductOption(item))
+			: Boolean(item.isCustomName),
+		isCustomModel: item.isCustomModel === undefined
+			? Boolean(item.model && !isConfiguredRepairProductModel(item, item.model))
+			: Boolean(item.isCustomModel),
+		modelPickerOptions: repairProductModelPickerOptions(item),
 		name: item.name || '',
 		category: item.category || '',
 		model: item.model || '',
@@ -4769,6 +5080,9 @@ const buildRepairPayload = () => {
 		customerType: repairForm.value.customerType,
 		status: 'submitted',
 		statusText: '已提交',
+		customerType: repairForm.value.customerType,
+		customer_type: repairForm.value.customerType,
+		productId: product.productId || '',
 		productName: (product.name || product.model || '维修产品').trim(),
 		productModel: String(product.model || '').trim(),
 		productSerial: String(product.serial || '').trim(),
@@ -4791,6 +5105,8 @@ const buildRepairPayload = () => {
 			const media = splitRepairMedia(item.media)
 			const voucherUrls = (item.voucherList || []).map(getUploadedUrl).filter(Boolean)
 			return {
+				productId: item.productId || '',
+				product_id: item.productId || '',
 				productName: (item.name || item.model || '维修产品').trim(),
 				productCategory: String(item.category || '').trim(),
 				productModel: String(item.model || '').trim(),
@@ -4812,6 +5128,15 @@ const validateRepairStep = (step) => {
 	const products = repairProducts.value
 	if (step === 1) {
 		for (let i = 0; i < products.length; i += 1) {
+			if (!String(products[i].name || '').trim()) {
+				uni.showToast({
+					title: isOtherRepairProduct(products[i])
+						? `第 ${i + 1} 个产品请填写其他产品名称`
+						: `第 ${i + 1} 个产品请选择产品名称`,
+					icon: 'none'
+				})
+				return false
+			}
 			if (!String(products[i].model || '').trim()) {
 				uni.showToast({ title: `第 ${i + 1} 个产品请填写产品型号`, icon: 'none' })
 				return false
@@ -4895,9 +5220,16 @@ const doRecognizeSn = async (index, sn) => {
 		info = await lookupDeviceBySn(sn)
 		product.snInfo = info || { found: false, sn }
 		if (info && info.found) {
-			if (info.model && !String(product.model || '').trim()) product.model = info.model
 			if (info.productCategory && !String(product.category || '').trim()) product.category = info.productCategory
-			if (info.productName && !String(product.name || '').trim()) product.name = info.productName
+			if (info.productName && !product.isCustomName && !String(product.name || '').trim()) {
+				product.name = info.productName
+				product.isCustomName = false
+				syncRepairProductModelPickerOptions(product)
+			}
+			if (info.model && !product.isCustomModel && !String(product.model || '').trim()) {
+				product.model = info.model
+				product.isCustomModel = !isConfiguredRepairProductModel(product, info.model)
+			}
 			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
 		} else {
 			handleSnNotFound(index)
@@ -4959,9 +5291,10 @@ const openHistoryOrder = async (orderId) => {
 	}
 }
 
-const scanSn = (index) => {
+const scanSn = async (index) => {
 	const now = Date.now()
 	if (now - lastScanAt < 800) return // 连续扫码节流
+	if (!(await ensureWechatPrivacyForAction())) return
 	lastScanAt = now
 	uni.scanCode({
 		scanType: ['barCode', 'qrCode'],
@@ -4994,6 +5327,11 @@ const validateRepairForm = () => {
 	for (let index = 0; index < repairProducts.value.length; index += 1) {
 		const product = repairProducts.value[index] || {}
 		const label = `第 ${index + 1} 个产品`
+		if (!String(product.name || '').trim()) {
+			openRepairSection('products')
+			uni.showToast({ title: isOtherRepairProduct(product) ? `${label}请填写其他产品名称` : `${label}请选择产品名称`, icon: 'none' })
+			return false
+		}
 		if (!String(product.model || '').trim()) {
 			openRepairSection('products')
 			uni.showToast({ title: `${label}请填写产品型号`, icon: 'none' })
@@ -5521,7 +5859,7 @@ const showLoginError = (message) => {
 	uni.showToast({ title: message, icon: 'none' })
 }
 
-const ensureWechatPrivacyForUpload = async () => {
+const ensureWechatPrivacyForAction = async () => {
 	try {
 		if (await getWechatPrivacyReady()) return true
 		try {
@@ -5533,7 +5871,7 @@ const ensureWechatPrivacyForUpload = async () => {
 		}
 	} catch (error) {
 		console.warn('manual privacy authorization before upload failed:', error)
-		uni.showToast({ title: '请先同意隐私授权后再上传', icon: 'none' })
+		uni.showToast({ title: '请先同意隐私授权后再使用该功能', icon: 'none' })
 		return false
 	}
 }
@@ -5570,7 +5908,7 @@ const rejectUploadPrivacy = () => {
 		uploadPrivacyResolve(false)
 		uploadPrivacyResolve = null
 	}
-	uni.showToast({ title: '请先同意隐私授权后再上传', icon: 'none' })
+	uni.showToast({ title: '请先同意隐私授权后再使用该功能', icon: 'none' })
 }
 
 const isWechatPrivacyScopeUndeclared = (error = {}) => {
@@ -5588,7 +5926,7 @@ const getWechatPrivacyPickerMessage = (error = {}) => {
 const isWechatPrivacyError = (error) => isWechatPrivacyScopeUndeclared(error) || /privacy|agreePrivacyAuthorization|隐私/i.test(String(error && (error.errMsg || error.message) || error || ''))
 
 const chooseImageWithPrivacy = async (options = {}) => {
-	if (!(await ensureWechatPrivacyForUpload())) {
+	if (!(await ensureWechatPrivacyForAction())) {
 		throw new Error('privacy authorization required')
 	}
 	try {
@@ -5597,13 +5935,13 @@ const chooseImageWithPrivacy = async (options = {}) => {
 		if (!isWechatPrivacyError(error)) throw error
 		if (isWechatPrivacyScopeUndeclared(error)) throw error
 		resetWechatPrivacyReady()
-		if (!(await ensureWechatPrivacyForUpload())) throw error
+		if (!(await ensureWechatPrivacyForAction())) throw error
 		return await uni.chooseImage(options)
 	}
 }
 
 const chooseVideoWithPrivacy = async (options = {}) => {
-	if (!(await ensureWechatPrivacyForUpload())) {
+	if (!(await ensureWechatPrivacyForAction())) {
 		throw new Error('privacy authorization required')
 	}
 	try {
@@ -5612,7 +5950,7 @@ const chooseVideoWithPrivacy = async (options = {}) => {
 		if (!isWechatPrivacyError(error)) throw error
 		if (isWechatPrivacyScopeUndeclared(error)) throw error
 		resetWechatPrivacyReady()
-		if (!(await ensureWechatPrivacyForUpload())) throw error
+		if (!(await ensureWechatPrivacyForAction())) throw error
 		return await uni.chooseVideo(options)
 	}
 }
@@ -5765,6 +6103,10 @@ onPullDownRefresh(async () => {
 })
 
 onBackPress(() => {
+	if (uploadPrivacyVisible.value) {
+		rejectUploadPrivacy()
+		return true
+	}
 	if (!activeModule.value && !diagOpen.value) return false
 	return returnFromModule()
 })
@@ -5884,7 +6226,7 @@ onUnmounted(() => {
 	position: fixed;
 	inset: 0;
 	z-index: 99999;
-	padding: 48rpx;
+	padding: 48rpx 48rpx calc(48rpx + env(safe-area-inset-bottom));
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -5893,12 +6235,15 @@ onUnmounted(() => {
 }
 
 .upload-privacy-card {
+	position: relative;
 	width: 100%;
 	max-width: 640rpx;
+	height: 78vh;
 	max-height: 78vh;
 	padding: 36rpx 32rpx 28rpx;
 	display: flex;
 	flex-direction: column;
+	overflow: hidden;
 	border-radius: 24rpx;
 	background: #FFFFFF;
 	box-shadow: 0 24rpx 60rpx rgba(15, 31, 58, 0.22);
@@ -5906,6 +6251,8 @@ onUnmounted(() => {
 }
 
 .upload-privacy-title {
+	flex-shrink: 0;
+	padding: 0 52rpx;
 	text-align: center;
 	font-size: 34rpx;
 	font-weight: 800;
@@ -5913,9 +6260,29 @@ onUnmounted(() => {
 	color: #0F1F3A;
 }
 
+.upload-privacy-close {
+	position: absolute;
+	top: 18rpx;
+	right: 18rpx;
+	z-index: 2;
+	width: 64rpx;
+	height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background: #F2F4F7;
+	font-size: 42rpx;
+	font-weight: 400;
+	line-height: 1;
+	color: #667085;
+}
+
 .upload-privacy-body {
+	flex: 1;
+	min-height: 0;
+	height: 0;
 	margin: 24rpx 0;
-	max-height: 52vh;
 	font-size: 27rpx;
 	line-height: 1.8;
 	color: #4E5969;
@@ -5928,6 +6295,7 @@ onUnmounted(() => {
 }
 
 .upload-privacy-actions {
+	flex-shrink: 0;
 	display: flex;
 	gap: 20rpx;
 }
@@ -6159,6 +6527,15 @@ onUnmounted(() => {
 	font-size: 23rpx;
 	line-height: 1.4;
 	color: #6B7C97;
+}
+
+.module-brand-watermark {
+	width: 190rpx;
+	height: 46rpx;
+	margin-left: auto;
+	flex-shrink: 0;
+	opacity: 0.25;
+	pointer-events: none;
 }
 
 .module-content {
@@ -8793,6 +9170,14 @@ onUnmounted(() => {
 	overflow: hidden;
 }
 
+.repair-user-card {
+	margin-top: 20rpx;
+}
+
+.repair-product {
+	margin-bottom: 20rpx;
+}
+
 .repair-brand-watermark {
 	position: relative;
 	z-index: 0;
@@ -8930,6 +9315,27 @@ onUnmounted(() => {
 .field-optional {
 	font-size: 22rpx;
 	color: #9CA3AF;
+}
+
+.voucher-field .field-label-wrap {
+	width: 220rpx;
+	flex-wrap: nowrap;
+	white-space: nowrap;
+}
+
+.voucher-field .field-label-wrap > text {
+	white-space: nowrap;
+}
+
+.voucher-field .field-label-wrap > text:first-child {
+	flex-shrink: 0;
+	font-size: 27rpx;
+	line-height: 1.3;
+	color: #324563;
+}
+
+.voucher-field .field-optional {
+	flex-shrink: 0;
 }
 
 .repair-field > text,
@@ -12437,8 +12843,40 @@ onUnmounted(() => {
 	color: #0F1F3A;
 }
 
+.product-choice-search {
+	margin: 18rpx 24rpx 8rpx;
+	padding: 0 22rpx;
+	min-height: 76rpx;
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	border: 2rpx solid #D7E3FA;
+	border-radius: 16rpx;
+	background: #F7FAFF;
+	box-sizing: border-box;
+}
+
+.product-choice-search .glyph-search {
+	width: 30rpx;
+	height: 30rpx;
+	flex-shrink: 0;
+	color: #5A6C8D;
+}
+
+.product-choice-search input {
+	min-width: 0;
+	flex: 1;
+	height: 72rpx;
+	font-size: 26rpx;
+	color: #0F1F3A;
+}
+
 .choice-scroll {
 	max-height: calc(70vh - 92rpx);
+}
+
+.product-choice-scroll {
+	max-height: calc(70vh - 192rpx);
 }
 
 .choice-row {
@@ -12453,6 +12891,42 @@ onUnmounted(() => {
 	box-sizing: border-box;
 }
 
+.choice-row-product > view:first-child {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+	padding: 20rpx 20rpx 20rpx 0;
+}
+
+.choice-row-product > view:first-child text:first-child {
+	font-size: 28rpx;
+	color: #0F1F3A;
+}
+
+.choice-row-product > view:first-child text + text {
+	font-size: 23rpx;
+	line-height: 1.45;
+	color: #94A3B8;
+}
+
+.choice-row-other {
+	background: #F7FAFF;
+}
+
+.choice-row-other > view:first-child text:first-child {
+	color: #1E6FE0;
+	font-weight: 700;
+}
+
+.choice-empty {
+	padding: 56rpx 32rpx;
+	text-align: center;
+	font-size: 26rpx;
+	line-height: 1.5;
+	color: #94A3B8;
+}
 .doc-hero {
 	padding: 36rpx;
 	border-radius: 28rpx;
@@ -13240,16 +13714,25 @@ onUnmounted(() => {
 	gap: 6rpx;
 }
 
-.product-copy > text:first-child {
+.product-title {
 	font-size: 28rpx;
 	font-weight: 700;
+	line-height: 1.35;
 	color: #0F1F3A;
 }
 
-.product-copy > text:nth-child(2),
-.product-copy > text:nth-child(3) {
+.product-meta {
 	font-size: 22rpx;
+	line-height: 1.45;
 	color: #94A3B8;
+}
+
+.product-order {
+	font-size: 26rpx;
+	font-weight: 500;
+	line-height: 1.45;
+	color: #0F1F3A;
+	word-break: break-all;
 }
 
 .ghost-mini {
@@ -13517,14 +14000,18 @@ onUnmounted(() => {
 .feedback-ticket-meta {
 	margin-top: 20rpx;
 	padding: 20rpx;
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	display: flex;
+	align-items: flex-start;
 	gap: 16rpx;
 	border-radius: 20rpx;
 	background: #F7FAFF;
+	box-sizing: border-box;
 }
 
 .feedback-ticket-meta view {
+	width: 0;
+	min-width: 0;
+	flex: 1;
 	display: flex;
 	flex-direction: column;
 	gap: 6rpx;
@@ -13536,8 +14023,14 @@ onUnmounted(() => {
 }
 
 .feedback-ticket-meta text:last-child {
+	display: block;
+	width: 100%;
+	min-width: 0;
 	font-size: 24rpx;
 	font-weight: 700;
+	line-height: 1.4;
+	word-break: break-all;
+	overflow-wrap: anywhere;
 	color: #0F1F3A;
 }
 
@@ -13557,10 +14050,13 @@ onUnmounted(() => {
 }
 
 .feedback-ticket-image {
+	display: block;
+	flex: 0 0 112rpx;
 	width: 112rpx;
 	height: 112rpx;
 	border-radius: 14rpx;
 	background: #F3F8FF;
+	overflow: hidden;
 }
 
 .feedback-reply {

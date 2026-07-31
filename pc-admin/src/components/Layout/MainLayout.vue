@@ -140,7 +140,7 @@
         </template>
         <template v-else-if="!miniappLoading">
           <el-empty description="尚未配置小程序二维码">
-            <p class="miniapp-qr-note">请在「系统设置 → 隐私与合规 → 小程序体验版二维码」上传后，此处即可扫码预览。</p>
+            <p class="miniapp-qr-note">请在「系统设置 → 联系与公众号 → 小程序体验版二维码」上传后，此处即可扫码预览。</p>
             <el-button v-if="canManageSettings" type="primary" @click="goSettings">前往设置上传</el-button>
           </el-empty>
         </template>

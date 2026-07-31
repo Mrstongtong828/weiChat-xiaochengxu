@@ -132,6 +132,7 @@
 				<text class="compliance-divider">·</text>
 				<text class="compliance-link tap" @click="openPolicy('cancellation')">账号注销规则</text>
 			</view>
+			<image class="page-footer-brand" :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 		</view>
 
 		<view class="float-actions">
@@ -149,6 +150,10 @@ import { ref, onMounted } from 'vue'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
+import productImplant from '@/static/product-implant.jpg'
+import productPrevention from '@/static/product-prevention.jpg'
+import productRestoration from '@/static/product-restoration.jpg'
+import productRootCanal from '@/static/product-root-canal.jpg'
 import { getCompliance, getGuides } from '@/api/content.js'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
 
@@ -266,32 +271,32 @@ const introParagraphs = [
 
 const advantages = [
 	{ icon: 'lightning', title: '研发制造', desc: '高标准研发中心，配备德国进口精密生产设备，持续驱动产品迭代升级。' },
-	{ icon: 'microscope', title: '质量合规', desc: '依据医疗器械安全规范搭建完善质量管理体系，产品符合国内外行业标准与注册准入要求。' }
+	{ icon: 'microscope', title: '质量合规', desc: '依据《医疗器械生产质量管理规范》搭建完善质量管理体系，产品符合国内外行业标准与注册准入要求。' }
 ]
 
 const productLines = [
 	{
 		title: '根管系列',
 		desc: '覆盖根管马达、根管锉、根尖定位、热牙胶充填、根管冲洗等整套根管诊疗方案。',
-		image: '/static/product-root-canal.png',
+		image: productRootCanal,
 		gradient: 'linear-gradient(135deg, #2C5985 0%, #6BB0CC 100%)'
 	},
 	{
 		title: '修复系列',
 		desc: '牙科光固化机、高速气涡轮手机、低速气动马达手机、牙科低压电动马达满足各类牙体美学修复需求。',
-		image: '/static/product-restoration.png',
+		image: productRestoration,
 		gradient: 'linear-gradient(135deg, #3D6F9E 0%, #6BB0CC 100%)'
 	},
 	{
 		title: '种植系列',
 		desc: '种植机、种植手机、清水仪、种植扭力扳手，适配各类种植外科修复手术。',
-		image: '/static/product-implant.png',
+		image: productImplant,
 		gradient: 'linear-gradient(135deg, #0A4FB8 0%, #6BB0CC 100%)'
 	},
 	{
 		title: '预防辅助系列',
 		desc: '洁牙抛光设备，助力门诊基础预防诊疗。',
-		image: '/static/product-prevention.png',
+		image: productPrevention,
 		gradient: 'linear-gradient(135deg, #1D8A96 0%, #7BC9C7 100%)'
 	}
 ]
@@ -386,6 +391,16 @@ const copyEmail = () => {
 	font-weight: 700;
 	color: #0F1F3A;
 	line-height: 1.2;
+}
+
+
+.page-footer-brand {
+	width: 300rpx;
+	height: 58rpx;
+	margin: 28rpx auto 0;
+	display: block;
+	opacity: 0.22;
+	pointer-events: none;
 }
 
 .icon-phone,

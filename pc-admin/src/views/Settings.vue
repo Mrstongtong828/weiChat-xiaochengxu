@@ -3,7 +3,7 @@
     <div class="section-title">
       <div>
         <span>系统配置</span>
-        <p class="section-desc">维护保修政策、收费办法、基础收费项、隐私合规文案和小程序联系方式。</p>
+        <p class="section-desc">维护保修政策、收费办法、基础收费项、小程序联系方式和预览二维码。</p>
       </div>
     </div>
     <el-tabs v-model="activeContentTab" class="modern-tabs">
@@ -154,66 +154,9 @@
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="隐私与合规" name="compliance">
-        <el-alert
-          title="医疗器械小程序上线必备：隐私政策、账号注销规则、资质公示。保存后小程序端实时读取并展示。"
-          type="warning"
-          show-icon
-          :closable="false"
-          style="margin: 20px 0;"
-        />
-
-        <div class="field-title">隐私政策</div>
-        <RichEditor v-model="compliance.privacy_policy" upload-dir="compliance/" placeholder="完整隐私协议，支持图文，一键同步至小程序隐私弹窗（个人信息收集用途也写在此处即可）…" />
-
-        <div class="field-title" style="margin-top:20px;">账号注销规则</div>
-        <el-input v-model="compliance.account_cancellation_policy" type="textarea" :rows="3" placeholder="账号注销流程与数据删除规则（满足《个人信息保护法》），简要说明即可" />
-
-        <div class="qual-head">
-          <span>资质公示</span>
-          <el-button type="primary" link @click="addQualification">+ 新增资质</el-button>
-        </div>
-        <div v-if="!qualifications.length" class="empty-tip">还没有资质，点击右上角“新增资质”。小程序「公司介绍 / 关于我们」会自动读取展示。</div>
-        <div v-for="(item, index) in qualifications" :key="index" class="qual-card">
-          <div class="qual-row">
-            <el-input v-model="item.name" placeholder="资质名称，如《医疗器械生产许可证》" style="max-width:360px;" />
-            <el-radio-group v-model="item.type">
-              <el-radio-button label="image">图片</el-radio-button>
-              <el-radio-button label="text">文本</el-radio-button>
-            </el-radio-group>
-            <el-button type="danger" link @click="qualifications.splice(index, 1)">删除</el-button>
-          </div>
-          <div v-if="item.type === 'image'" class="qual-img-row">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(f) => handleQualImage(f, item)">
-              <el-button>{{ item.imageUrl ? '更换图片' : '上传图片' }}</el-button>
-            </el-upload>
-            <img v-if="qualPreview(item)" :src="qualPreview(item)" class="qual-thumb" />
-            <span v-else-if="item.imageUrl" class="preview-hint">图片已上传（云存储）</span>
-          </div>
-          <el-input v-else v-model="item.text" type="textarea" :rows="3" placeholder="资质说明文本，如备案号、有效期等" />
-        </div>
-
-        <el-divider />
-
-        <div class="qual-head">
-          <span>小程序体验版二维码</span>
-        </div>
-        <div class="empty-tip">上传微信公众平台「版本管理」的体验版/开发版二维码。后台顶栏「访问小程序」按钮会弹出此码供员工扫码预览客户端；换版后重新上传即可（员工微信需先在公众平台「成员管理」加为体验成员）。</div>
-        <div class="qual-img-row">
-          <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="handleMiniappQr">
-            <el-button>{{ miniappQr ? '更换二维码' : '上传二维码' }}</el-button>
-          </el-upload>
-          <img v-if="miniappQrPreview" :src="miniappQrPreview" class="qual-thumb" />
-          <span v-else-if="miniappQr" class="preview-hint">二维码已上传（云存储）</span>
-          <el-button v-if="miniappQr" type="danger" link @click="removeMiniappQr">移除</el-button>
-        </div>
-
-        <div class="save-row"><el-button type="primary" :loading="savingCompliance" @click="saveCompliance">保存隐私与合规配置</el-button></div>
-      </el-tab-pane>
-
       <el-tab-pane label="联系与公众号" name="contact">
         <el-alert
-          title="以下内容直接展示在小程序首页与「关于我们」：企业联系方式、在线客服和公众号二维码。保存后小程序端实时读取展示。"
+          title="以下内容直接展示在小程序首页与「关于我们」：企业联系方式、在线客服、公众号二维码和后台预览二维码。保存后小程序端实时读取展示。"
           type="info"
           show-icon
           :closable="false"
@@ -277,7 +220,18 @@
           </el-form-item>
         </el-form>
 
-        <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与公众号配置</el-button></div>
+        <div class="field-title" style="margin-top:20px;">小程序体验版二维码</div>
+        <div class="empty-tip">上传微信公众平台「版本管理」的体验版/开发版二维码。后台顶栏「访问小程序」按钮会弹出此码供员工扫码预览客户端；换版后重新上传即可（员工微信需先在公众平台「成员管理」加为体验成员）。</div>
+        <div class="qual-img-row">
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="handleMiniappQr">
+            <el-button>{{ miniappQr ? '更换二维码' : '上传二维码' }}</el-button>
+          </el-upload>
+          <img v-if="miniappQrPreview" :src="miniappQrPreview" class="qual-thumb" />
+          <span v-else-if="miniappQr" class="preview-hint">二维码已上传（云存储）</span>
+          <el-button v-if="miniappQr" type="danger" link @click="removeMiniappQr">移除</el-button>
+        </div>
+
+        <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与访问配置</el-button></div>
       </el-tab-pane>
 
       <el-tab-pane label="打印模板" name="print">
@@ -964,7 +918,7 @@ const loadSettings = async () => {
     warrantySections.value = parseJsonArray(data.warranty_policy_sections)
       .map(item => ({ title: String(item.title || ''), content: normalizePolicyHtml(item.content || '') }))
     printTemplates.value = parsePrintTemplates(data.print_templates, data.print_config)
-    applyCompliance(data)
+    applyMiniappQr(data)
     applyContactInfo(data)
     applySurveyConfig(data.survey_config)
   } catch (error) {
@@ -1021,64 +975,9 @@ const saveConfig = async () => {
   }
 }
 
-// ===== 隐私与合规配置 =====
-const compliance = reactive({
-  privacy_policy: '',
-  account_cancellation_policy: ''
-})
-const qualifications = ref([])
-const qualPreviewMap = reactive({}) // fileID -> 临时预览地址
-const savingCompliance = ref(false)
+// ===== 小程序访问二维码 =====
 const miniappQr = ref('')          // 小程序体验版二维码（云存储 fileID 或外链）
 const miniappQrPreview = ref('')   // 临时预览地址
-
-const parseQualifications = (value) => {
-  try {
-    const list = value ? JSON.parse(value) : []
-    return Array.isArray(list)
-      ? list.map(it => ({ name: it.name || '', type: it.type === 'text' ? 'text' : 'image', imageUrl: it.imageUrl || '', text: it.text || '' }))
-      : []
-  } catch (error) {
-    return []
-  }
-}
-
-const resolveQualPreviews = async () => {
-  const token = localStorage.getItem('adminToken')
-  const ids = qualifications.value
-    .filter(it => it.type === 'image' && it.imageUrl && !isWebUrl(it.imageUrl) && !qualPreviewMap[it.imageUrl])
-    .map(it => it.imageUrl)
-  if (!ids.length) return
-  try {
-    const map = await getTempFileURL(token, ids)
-    Object.entries(map || {}).forEach(([id, url]) => { qualPreviewMap[id] = url })
-  } catch (error) {
-    console.error('解析资质图片地址失败:', error)
-  }
-}
-
-const qualPreview = (item) => {
-  if (!item || item.type !== 'image' || !item.imageUrl) return ''
-  if (isWebUrl(item.imageUrl)) return item.imageUrl
-  return qualPreviewMap[item.imageUrl] || ''
-}
-
-const addQualification = () => {
-  qualifications.value.push({ name: '', type: 'image', imageUrl: '', text: '' })
-}
-
-const handleQualImage = async (uploadFile, item) => {
-  const raw = uploadFile && uploadFile.raw
-  if (!raw) return
-  try {
-    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, 'compliance/', 5 * 1024 * 1024)
-    item.imageUrl = fileUrl
-    if (tempUrl) qualPreviewMap[fileUrl] = tempUrl
-    ElMessage.success('图片上传成功')
-  } catch (error) {
-    ElMessage.error(error.message || '图片上传失败')
-  }
-}
 
 const handleMiniappQr = async (uploadFile) => {
   const raw = uploadFile && uploadFile.raw
@@ -1098,11 +997,7 @@ const removeMiniappQr = () => {
   miniappQrPreview.value = ''
 }
 
-const applyCompliance = (data = {}) => {
-  compliance.privacy_policy = data.privacy_policy || ''
-  compliance.account_cancellation_policy = data.account_cancellation_policy || ''
-  qualifications.value = parseQualifications(data.qualifications)
-  resolveQualPreviews()
+const applyMiniappQr = (data = {}) => {
   miniappQr.value = data.miniapp_preview_qr || ''
   resolveMiniappQrPreview()
 }
@@ -1117,30 +1012,6 @@ const resolveMiniappQrPreview = async () => {
     miniappQrPreview.value = (map && map[id]) || ''
   } catch (error) {
     console.error('解析小程序二维码地址失败:', error)
-  }
-}
-
-const saveCompliance = async () => {
-  try {
-    savingCompliance.value = true
-    const token = localStorage.getItem('adminToken')
-    const cleaned = qualifications.value
-      .filter(it => it.name || it.imageUrl || it.text)
-      .map(it => ({ name: it.name, type: it.type, imageUrl: it.type === 'image' ? it.imageUrl : '', text: it.type === 'text' ? it.text : '' }))
-    await saveSettings(token, {
-      privacy_policy: compliance.privacy_policy,
-      account_cancellation_policy: compliance.account_cancellation_policy,
-      // 已下线的字段：保存空串以清除历史内容，避免小程序端仍展示旧的更新公告/数据收集告知
-      privacy_update_notice: '',
-      data_collection_notice: '',
-      qualifications: JSON.stringify(cleaned),
-      miniapp_preview_qr: miniappQr.value || ''
-    })
-    ElMessage.success('隐私与合规配置已保存')
-  } catch (error) {
-    ElMessage.error(error.message || '保存失败')
-  } finally {
-    savingCompliance.value = false
   }
 }
 
@@ -1213,8 +1084,9 @@ const saveContact = async () => {
     const token = localStorage.getItem('adminToken')
     const payload = {}
     CONTACT_KEYS.forEach(key => { payload[key] = contactInfo[key] || '' })
+    payload.miniapp_preview_qr = miniappQr.value || ''
     await saveSettings(token, payload)
-    ElMessage.success('联系与公众号配置已保存')
+    ElMessage.success('联系与访问配置已保存')
   } catch (error) {
     ElMessage.error(error.message || '保存失败')
   } finally {

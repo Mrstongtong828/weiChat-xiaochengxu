@@ -27,8 +27,8 @@ const PERMISSIONS = {
   export: ['admin']                  // 导出
 }
 
-const CUSTOMER_TYPES = ['clinic', 'dealer', 'individual']
 const CUSTOMER_SOURCES = ['miniapp', 'offline', 'dealer_referral']
+const MAX_CUSTOMER_TYPE_LENGTH = 40
 const MAX_PAGE_SIZE = 100
 const WARRANTY_ALERT_SCAN_LIMIT = 5000
 
@@ -79,6 +79,11 @@ function getPermissionConfigForRole(role) {
 }
 
 function normalizeText(v) { return String(v == null ? '' : v).trim() }
+function isValidCustomerType(v) {
+  if (typeof v !== 'string') return false
+  const type = normalizeText(v)
+  return !!type && type.length <= MAX_CUSTOMER_TYPE_LENGTH
+}
 
 // SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
 // 口径必须与 cicada-client-order / cicada-admin-order 中的同名函数保持一致。
@@ -441,7 +446,8 @@ module.exports = {
 
       const where = {}
       if (statusFilter !== 'all') where.status = statusFilter === 'cancelled' ? 'cancelled' : dbCmd.neq('cancelled')
-      if (customerType && CUSTOMER_TYPES.includes(customerType)) where.customer_type = customerType
+      if (customerType.length > MAX_CUSTOMER_TYPE_LENGTH) return { code: -1, msg: '客户类型不能超过40个字符' }
+      if (customerType) where.customer_type = customerType
       if (dealerId) where.dealer_id = dealerId
       if (tagFilter) where.tags = tagFilter // 数组字段：包含该标签即命中
 
@@ -524,7 +530,8 @@ module.exports = {
       data.name = normalizeText(data.name)
       data.phone = normalizeText(data.phone)
       if (!data.name) return { code: -1, msg: '客户名称不能为空' }
-      if (data.customer_type && !CUSTOMER_TYPES.includes(data.customer_type)) return { code: -1, msg: '客户类型不正确' }
+      data.customer_type = normalizeText(data.customer_type || 'clinic')
+      if (!isValidCustomerType(data.customer_type)) return { code: -1, msg: '客户类型不能为空且不能超过40个字符' }
       if (data.source && !CUSTOMER_SOURCES.includes(data.source)) return { code: -1, msg: '客户来源不正确' }
       if (data.phone && !isValidPhone(data.phone)) return { code: -1, msg: '手机号格式不正确' }
 
@@ -574,7 +581,10 @@ module.exports = {
         data.name = normalizeText(data.name)
         if (!data.name) return { code: -1, msg: '客户名称不能为空' }
       }
-      if (data.customer_type && !CUSTOMER_TYPES.includes(data.customer_type)) return { code: -1, msg: '客户类型不正确' }
+      if (Object.prototype.hasOwnProperty.call(data, 'customer_type')) {
+        data.customer_type = normalizeText(data.customer_type)
+        if (!isValidCustomerType(data.customer_type)) return { code: -1, msg: '客户类型不能为空且不能超过40个字符' }
+      }
       if (data.source && !CUSTOMER_SOURCES.includes(data.source)) return { code: -1, msg: '客户来源不正确' }
       if (Object.prototype.hasOwnProperty.call(data, 'phone')) {
         data.phone = normalizeText(data.phone)
@@ -810,12 +820,17 @@ module.exports = {
 
       // 关联客户名称（便于后台核对归属）
       let customerName = ''
+      let customerType = ''
       const customerId = device ? normalizeText(device.customer_id) : ''
       if (customerId) {
         try {
           const cr = await db.collection('cicada_customers').doc(customerId).get()
           customerName = (cr.data && cr.data[0] && cr.data[0].name) || ''
-        } catch (e) { customerName = '' }
+          customerType = (cr.data && cr.data[0] && cr.data[0].customer_type) || ''
+        } catch (e) {
+          customerName = ''
+          customerType = ''
+        }
       }
 
       return {
@@ -826,6 +841,7 @@ module.exports = {
           deviceId: device ? device._id : '',
           customerId,
           customerName,
+          customerType,
           productName: device ? (device.product_name || '') : '',
           productCategory: device ? (device.product_category || '') : '',
           model: device ? (device.model || '') : '',
@@ -1056,7 +1072,8 @@ module.exports = {
 
       const where = {}
       if (statusFilter !== 'all') where.status = statusFilter === 'cancelled' ? 'cancelled' : dbCmd.neq('cancelled')
-      if (customerType && CUSTOMER_TYPES.includes(customerType)) where.customer_type = customerType
+      if (customerType.length > MAX_CUSTOMER_TYPE_LENGTH) return { code: -1, msg: '客户类型不能超过40个字符' }
+      if (customerType) where.customer_type = customerType
       if (tagFilter) where.tags = tagFilter
 
       const res = await db.collection('cicada_customers').where(where).orderBy('create_time', 'desc').limit(5000).get()
@@ -1106,7 +1123,21 @@ module.exports = {
       if (!rows.length) return { code: -1, msg: '没有可导入的数据' }
       if (rows.length > 1000) return { code: -1, msg: '单次最多导入 1000 条' }
 
-      const TYPE_ALIAS = { '企业': 'clinic', '终端诊所': 'clinic', '诊所': 'clinic', '签约代理商（齿科）': 'dealer', '经销商': 'dealer', '个人散户': 'individual', '散户': 'individual', '个人': 'individual', clinic: 'clinic', dealer: 'dealer', individual: 'individual' }
+      const TYPE_ALIAS = {
+        '门诊/医院': 'clinic',
+        '企业': 'clinic',
+        '终端诊所': 'clinic',
+        '诊所': 'clinic',
+        '代理商/经销商': 'dealer',
+        '签约代理商（齿科）': 'dealer',
+        '经销商': 'dealer',
+        '个人散户': 'individual',
+        '散户': 'individual',
+        '个人': 'individual',
+        clinic: 'clinic',
+        dealer: 'dealer',
+        individual: 'individual'
+      }
       const col = db.collection('cicada_customers')
       const now = Date.now()
       const failed = []
@@ -1118,8 +1149,10 @@ module.exports = {
         const rowNo = i + 1
         const name = normalizeText(r.name)
         const phone = normalizeText(r.phone)
+        const rawCustomerType = normalizeText(r.customer_type)
         if (!name) { failed.push({ row: rowNo, name, reason: '客户名称为空' }); continue }
         if (phone && !isValidPhone(phone)) { failed.push({ row: rowNo, name, reason: '手机号格式不正确' }); continue }
+        if (rawCustomerType.length > MAX_CUSTOMER_TYPE_LENGTH) { failed.push({ row: rowNo, name, reason: '客户类型超过40个字符' }); continue }
         if (phone) {
           if (seenPhones.has(phone)) { failed.push({ row: rowNo, name, reason: '文件内手机号重复' }); continue }
           const dup = await col.where({ phone, status: dbCmd.neq('cancelled') }).limit(1).get()
@@ -1131,7 +1164,7 @@ module.exports = {
           name,
           contact: normalizeText(r.contact),
           phone,
-          customer_type: TYPE_ALIAS[normalizeText(r.customer_type)] || 'clinic',
+          customer_type: TYPE_ALIAS[rawCustomerType] || rawCustomerType || 'clinic',
           source: 'offline',
           address: normalizeText(r.address),
           credit_code: normalizeText(r.credit_code),

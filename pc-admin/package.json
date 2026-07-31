@@ -16,7 +16,9 @@
     "check:security": "node scripts/check-admin-security.mjs",
     "check:warranty": "node scripts/check-warranty-free-flow.mjs",
     "check:logistics": "node scripts/check-logistics-readiness.mjs",
-    "check:policy-documents": "node scripts/check-policy-documents.mjs"
+    "check:customer-types": "node scripts/check-customer-types.mjs",
+    "check:policy-documents": "node scripts/check-policy-documents.mjs",
+    "check:repair-products": "node scripts/check-repair-products.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

@@ -4,6 +4,8 @@ import bootLogo from '@/static/cicada-boot-logo.jpg'
 import logoMark from '@/static/logo-cicada-mark.jpg'
 import logoFull from '@/static/logo-cicada-full.jpg'
 import logoNew from '@/static/new-logo.png'
+import logoCompact from '@/static/cicada-logo-compact.png'
+import logoHeader from '@/static/cicada-logo-header.png'
 import wordmarkBlue from '@/static/cicada-wordmark.png'
 import wordmarkRegistered from '@/static/cicada-wordmark-registered.png'
 import wordmarkWhite from '@/static/cicada-wordmark-white.png'
@@ -19,6 +21,8 @@ export const cicadaAssets = {
 	logoMark,
 	logoFull,
 	logoNew,
+	logoCompact,
+	logoHeader,
 	wordmarkBlue,
 	wordmarkRegistered,
 	wordmarkWhite,

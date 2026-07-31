@@ -1,8 +1,8 @@
 import ExcelJS from 'exceljs'
+import { customerTypeLabel } from '../config/customerTypes.js'
 
 const normalizeText = (value) => String(value ?? '').trim()
 
-const TYPE_LABELS = { clinic: '企业', dealer: '签约代理商（齿科）', individual: '个人' }
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
 const STATUS_LABELS = { active: '正常', cancelled: '已注销' }
 
@@ -42,7 +42,7 @@ export const downloadCustomerTemplate = async () => {
   const workbook = new ExcelJS.Workbook()
   const ws = workbook.addWorksheet('客户导入模板')
   ws.addRow(IMPORT_HEADERS)
-  ws.addRow(['示例口腔诊所', '张医生', '13800138000', '企业', '某省某市某区某街道', '', '', '在保客户', '示例数据，可删除'])
+  ws.addRow(['示例口腔诊所', '张医生', '13800138000', '门诊/医院', '某省某市某区某街道', '', '', '在保客户', '示例数据，可删除'])
   ws.columns = IMPORT_HEADERS.map(h => ({ width: Math.max(h.length * 2 + 6, 14) }))
   await downloadWorkbook(workbook, '客户导入模板.xlsx')
 }
@@ -66,7 +66,7 @@ export const exportCustomerWorkbook = async (rows = [], filename = '客户档案
   ]
   const data = rows.map(r => ({
     ...r,
-    customer_type: TYPE_LABELS[r.customer_type] || r.customer_type || '',
+    customer_type: customerTypeLabel(r.customer_type),
     source: SOURCE_LABELS[r.source] || r.source || '',
     status: STATUS_LABELS[r.status] || r.status || '',
     create_time: r.create_time ? new Date(r.create_time).toLocaleString('zh-CN') : ''

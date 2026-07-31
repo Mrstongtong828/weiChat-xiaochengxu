@@ -150,8 +150,63 @@ const DEFAULT_SURVEY_CONFIG = {
   successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。'
 }
 
+const REPAIR_PRODUCT_OPTIONS = [
+  ['牙科光固化机', 'CV-215、CV-215-I、CV-215 GUN、G1、G2、G3、G4、G5、G6、G7、G8、One Sec、Sweet Cure', 'ykgghj'],
+  ['牙科种植机', 'Surgic Pro+、Surgic Pro、Surgic Plus', 'ykzzj'],
+  ['机用根管锉', 'DT-C3', 'jyggc'],
+  ['气动洁牙机', 'CV-S、CV-P、CV-K', 'qdjyj'],
+  ['牙科根管长度测定仪', 'DPEX-6', 'ykggcdcdy'],
+  ['牙科弯手机', 'D45L、D15L、DW15L', 'ykwsj'],
+  ['牙科种植手机', 'W201L、SG20、W20L、CX20', 'ykzzsj'],
+  ['喷砂洁牙机', 'DT-X1、DT-X2、DT-X3、DT-X4、DT-X5', 'psjyj'],
+  ['根管预备机', 'T-Fine-II(IS)、T-Fine-II(LED)、T-Fine-II(CC)', 'ggybj'],
+  ['高速气涡轮手机', 'CV/GX602、CV/GX604、CV/GX612、CV/GX、CV/GX622、CV/GX624、CV/GX632、CV/GX634、CV/GX642、CV/GX644、CV/GX652、CV/GX654、GK01L、GK02L、GK03L、GK45L、GN02L、GN45L、GN01、G401、G402、G445、G406、G408、G409、G410、G201、G245、G206、G208、G209、G210', 'gsqwlssj'],
+  ['网电源供电骨组织手术设备', 'DT-JZ1', 'wdygdgzzsssb'],
+  ['牙科抛光手机', 'PMTC-I、PMTC-E', 'ykpgsj'],
+  ['牙科低压电动马达', 'NL 400-1、NL 400-2、NL 400-3、NL 400-4、NL 400-5', 'ykdyddmd'],
+  ['低速气动马达手机', 'CV/DX、CV/DX802、J05/D05M/D05Z、J03W/D05M/D05Z、J04/D05M/D05Z、D02W/D02M/D02Z、Z45L/D02M/D02Z、Z01/D02M/D02Z、D04W/D04M/D04Z、D01W/D01M/D01Z、D05W/D04M/D04Z、D04W/D04M/D03Z、J03Z', 'dsqdmdsj'],
+  ['热熔牙胶充填系统', 'DT-Fill、DT-Fill Plus', 'rryjctxx'],
+  ['牙科去冠器', 'EASY REMOVER 01', 'ykqgq'],
+  ['超声洁牙机工作尖', 'CV-EN18、CV-EN22、CV-EN28', 'csjyjgzj'],
+  ['医用放大镜', 'CV-288、CV-292', 'yyfdj'],
+  ['牙科用刀', '15HD、25HD、40HD、60HD、90HD、OKS15、OKS25、OKS40、OKS60、OKS80', 'ykyd'],
+  ['牙科用镊', '根管锉夹持器 DT-JCQ-I', 'ykyn'],
+  ['一次性使用牙科冲洗针', 'S-27G-22、S-27G-26、S-30G-22、S-30G-26、PP-S-26G-26', 'ycxsykcxz'],
+  ['口腔冲洗器', 'DT-CX1', 'kqcxq'],
+  ['牙用充填器', 'D01、D02、D03', 'yyctq'],
+  ['牙科种植用扳手', 'F型', 'ykzzybs'],
+  ['牙科医师椅', 'B型、M型、S型', 'ykysy'],
+  ['牙胶尖切断器', 'CV-Fill-P1', 'yjjqdq'],
+  ['一次性使用护牙弯角', 'DT-HY01、DT-HY02', 'ycxsyhywj'],
+  ['气动洁牙机工作尖', 'SJ1、SJ2、SJ3、SG1、SG2、SQ1、SQ2、SQ3、SW1、SW2、SW3、SY1、SZ1', 'qdjyjgzj']
+].map(([label, model, initials], index) => ({
+  id: `repair-product-${String(index + 1).padStart(2, '0')}`,
+  value: `repair-product-${String(index + 1).padStart(2, '0')}`,
+  name: label,
+  product_name: label,
+  label,
+  model,
+  initials,
+  searchKeywords: [label, model, initials].join(' ').toLowerCase()
+}))
+
 function safeText(value, max = 500) {
   return String(value == null ? '' : value).trim().slice(0, max)
+}
+
+function normalizeSettingKeys(value) {
+  if (Array.isArray(value)) return value
+  if (typeof value !== 'string') return []
+
+  const text = value.trim()
+  if (!text) return []
+  try {
+    const parsed = JSON.parse(text)
+    if (Array.isArray(parsed)) return parsed
+  } catch (error) {
+    // URL-based cloud-object calls may encode arrays as comma-separated text.
+  }
+  return text.split(',')
 }
 
 function parseSurveyConfig(value) {
@@ -318,6 +373,18 @@ module.exports = {
     }
   },
 
+  async getRepairProductOptions({ keyword = '' } = {}) {
+    try {
+      const normalizedKeyword = safeText(keyword, 60).toLowerCase()
+      const list = normalizedKeyword
+        ? REPAIR_PRODUCT_OPTIONS.filter(item => item.searchKeywords.includes(normalizedKeyword))
+        : REPAIR_PRODUCT_OPTIONS
+      return { code: 0, data: { list, total: list.length } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async getFaultKb({ category_id, forceRefresh = false } = {}) {
     try {
       const cacheKey = `fault-kb:${category_id || 'all'}`
@@ -350,11 +417,15 @@ module.exports = {
     }
   },
 
-  async getSettings({ keys } = {}) {
+  async getSettings(params = {}) {
     try {
-      const requested = Array.isArray(keys)
-        ? keys.map(key => String(key || '').trim()).filter(Boolean)
-        : []
+      const source = params && params.keys != null
+        ? params
+        : (this && this.params) || {}
+      const { keys } = source
+      const requested = normalizeSettingKeys(keys)
+        .map(key => String(key || '').trim())
+        .filter(Boolean)
       if (!requested.length) {
         return { code: -1, msg: '请指定要读取的配置项' }
       }

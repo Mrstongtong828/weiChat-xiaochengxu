@@ -6,51 +6,48 @@
 					<view class="chevron-left"></view>
 				</view>
 				<text class="nav-title">{{ showForm ? formTitle : '收货地址管理' }}</text>
-				<view class="nav-spacer"></view>
+				<image class="nav-brand" :src="cicadaAssets.wordmarkWhite" mode="aspectFit"></image>
 			</view>
 		</view>
 
 		<view v-if="!showForm" class="address-page">
-			<view class="hero-card">
-				<view class="hero-copy">
-					<text class="hero-kicker">回寄信息</text>
-					<text class="hero-title">管理常用收货地址</text>
-					<text class="hero-desc">可保存多个地址，默认地址会优先用于维修回寄信息。</text>
+			<view class="section-heading">
+				<view>
+					<text>默认回寄地址</text>
+					<text>用于维修完成后的设备寄回</text>
 				</view>
-				<view class="hero-icon">
-					<view class="pin-mark"></view>
-				</view>
+				<text>{{ addresses.length ? '共 ' + addresses.length + ' 条' : '待添加' }}</text>
 			</view>
 
-			<view class="summary-row">
-				<view class="summary-card">
-					<text>{{ addresses.length }}</text>
-					<text>已保存地址</text>
-				</view>
-				<view class="summary-card">
-					<text>{{ defaultAddressName }}</text>
-					<text>默认联系人</text>
-				</view>
-			</view>
-
-			<view v-if="addresses.length" class="address-list">
-				<view v-for="item in addresses" :key="item.id" class="address-card">
-					<view class="card-head">
-						<view class="person-line">
-							<text class="person-name">{{ item.receiver }}</text>
-							<text class="person-phone">{{ formatPhone(item.phone) }}</text>
+			<view v-if="sortedAddresses.length" class="address-list">
+				<view v-for="(item, index) in sortedAddresses" :key="item.id" :class="['address-card', { 'is-default': item.isDefault }]">
+					<view class="address-track">
+						<view class="track-dot">
+							<text>{{ item.isDefault ? '默' : index + 1 }}</text>
 						</view>
-						<text v-if="item.isDefault" class="default-tag">默认</text>
+						<view class="track-line"></view>
 					</view>
-					<text v-if="item.unit" class="unit-line">{{ item.unit }}</text>
-					<text class="detail-line">{{ fullAddress(item) }}</text>
-					<view v-if="validContacts(item).length" class="contact-row">
-						<text v-for="phone in validContacts(item)" :key="phone">{{ formatPhone(phone) }}</text>
-					</view>
-					<view class="card-actions">
-						<view class="action-link tap" @click="editAddress(item)">编辑</view>
-						<view v-if="!item.isDefault" class="action-link tap" @click="setDefault(item.id)">设为默认</view>
-						<view class="action-link danger tap" @click="deleteAddress(item.id)">删除</view>
+					<view class="address-body">
+						<view class="card-head">
+							<view class="person-line">
+								<text class="person-name">{{ item.receiver || '未命名联系人' }}</text>
+								<text class="person-phone">{{ formatPhone(item.phone) }}</text>
+							</view>
+							<text v-if="item.isDefault" class="default-tag">默认</text>
+						</view>
+						<view class="address-main">
+							<text v-if="item.unit" class="unit-line">{{ item.unit }}</text>
+							<text class="detail-line">{{ fullAddress(item) || '未填写详细地址' }}</text>
+						</view>
+						<view class="contact-row">
+							<text class="contact-chip">主号 {{ formatPhone(item.phone) }}</text>
+							<text v-for="phone in validContacts(item)" :key="phone" class="contact-chip">{{ formatPhone(phone) }}</text>
+						</view>
+						<view class="card-actions">
+							<view class="action-link tap" @click="editAddress(item)">编辑</view>
+							<view v-if="!item.isDefault" class="action-link tap" @click="setDefault(item.id)">设为默认</view>
+							<view class="action-link danger tap" @click="deleteAddress(item.id)">删除</view>
+						</view>
 					</view>
 				</view>
 			</view>
@@ -59,13 +56,17 @@
 				<view class="empty-illustration">
 					<view></view>
 					<view></view>
+					<view></view>
 				</view>
 				<text class="empty-title">还没有收货地址</text>
-				<text class="empty-desc">新增后，后续报修回寄时可以快速选择和复用。</text>
+				<text class="empty-desc">先添加一个默认地址，报修填写回寄信息时会自动带出。</text>
 			</view>
 
 			<view class="add-address-btn tap" @click="createAddress">
-				<text>+</text>
+				<view class="add-plus">
+					<text></text>
+					<text></text>
+				</view>
 				<text>新增收货地址</text>
 			</view>
 		</view>
@@ -146,6 +147,7 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { cicadaAssets } from '@/config/cicada-assets'
 import {
 	getAddressList,
 	addAddress,
@@ -191,10 +193,10 @@ const form = ref(emptyForm())
 
 const formTitle = computed(() => (form.value.id ? '编辑收货地址' : '新增收货地址'))
 const regionText = computed(() => (form.value.region || []).filter(Boolean).join(' / '))
-const defaultAddressName = computed(() => {
-	const target = addresses.value.find((item) => item.isDefault)
-	return target ? target.receiver : '未设置'
-})
+const sortedAddresses = computed(() => [...addresses.value].sort((a, b) => {
+	if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1
+	return (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+}))
 
 onMounted(() => {
 	loadAddresses()
@@ -537,16 +539,27 @@ const goBack = () => {
 	height: 92rpx;
 	display: flex;
 	align-items: center;
-	justify-content: space-between;
+	justify-content: flex-start;
+	gap: 18rpx;
+	padding-right: 322rpx;
 	box-sizing: border-box;
 }
 
-.back-btn {
+.nav-brand {
 	position: absolute;
-	left: 32rpx;
-	bottom: 24rpx;
+	right: 190rpx;
+	bottom: 30rpx;
+	width: 132rpx;
+	height: 34rpx;
+	opacity: 0.82;
+	pointer-events: none;
+}
+
+.back-btn {
+	position: relative;
 	width: 72rpx;
 	height: 72rpx;
+	flex-shrink: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -556,8 +569,7 @@ const goBack = () => {
 }
 
 .nav-spacer {
-	width: 72rpx;
-	height: 72rpx;
+	display: none;
 }
 
 .chevron-left {
@@ -570,6 +582,11 @@ const goBack = () => {
 }
 
 .nav-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	font-size: 34rpx;
 	font-weight: 700;
 	letter-spacing: 1rpx;
@@ -580,6 +597,10 @@ const goBack = () => {
 	padding: 28rpx 28rpx 0;
 	padding-top: 188rpx;
 	box-sizing: border-box;
+}
+
+.address-page {
+	padding-bottom: 156rpx;
 }
 
 .hero-card {
@@ -893,6 +914,328 @@ const goBack = () => {
 .add-address-btn text:first-child {
 	font-size: 42rpx;
 	line-height: 1;
+}
+
+.section-heading {
+	margin: 8rpx 4rpx 16rpx;
+	display: flex;
+	align-items: flex-end;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.section-heading view {
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.section-heading view text:first-child {
+	font-size: 32rpx;
+	font-weight: 900;
+	color: #0D1B33;
+}
+
+.section-heading view text:last-child {
+	font-size: 23rpx;
+	color: #7588A3;
+}
+
+.section-heading > text {
+	padding: 8rpx 16rpx;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+	background: #EAF3FF;
+	color: #1E6FE0;
+	font-size: 22rpx;
+	font-weight: 800;
+}
+
+.address-list {
+	margin-top: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 22rpx;
+}
+
+.address-card {
+	position: relative;
+	overflow: hidden;
+	padding: 0;
+	border: 2rpx solid rgba(212, 226, 241, 0.9);
+	border-radius: 34rpx;
+	background: #FFFFFF;
+	box-shadow: 0 18rpx 48rpx rgba(43, 72, 112, 0.1);
+	box-sizing: border-box;
+	display: flex;
+}
+
+.address-card.is-default {
+	border-color: rgba(30, 111, 224, 0.28);
+	box-shadow: 0 20rpx 58rpx rgba(30, 111, 224, 0.16);
+}
+
+.address-card::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	top: 0;
+	height: 8rpx;
+	border-radius: 34rpx 34rpx 0 0;
+	background: linear-gradient(90deg, #1E6FE0 0%, #25B6D2 52%, #8FD5C5 100%);
+}
+
+.address-track {
+	position: relative;
+	width: 86rpx;
+	padding-top: 48rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	flex-shrink: 0;
+	background: linear-gradient(180deg, #F3F8FE 0%, #FFFFFF 100%);
+}
+
+.track-dot {
+	position: relative;
+	z-index: 2;
+	width: 46rpx;
+	height: 46rpx;
+	border-radius: 50%;
+	background: #1E6FE0;
+	color: #FFFFFF;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 20rpx;
+	font-weight: 900;
+	box-shadow: 0 0 0 8rpx #EAF3FF;
+}
+
+.track-line {
+	width: 4rpx;
+	flex: 1;
+	min-height: 176rpx;
+	margin-top: 16rpx;
+	border-radius: 999rpx;
+	background: linear-gradient(180deg, rgba(30, 111, 224, 0.42), rgba(30, 111, 224, 0));
+}
+
+.address-body {
+	min-width: 0;
+	flex: 1;
+	padding: 32rpx 30rpx 24rpx 4rpx;
+	box-sizing: border-box;
+}
+
+.card-head {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 18rpx;
+}
+
+.person-line {
+	min-width: 0;
+	display: flex;
+	align-items: baseline;
+	gap: 16rpx;
+	flex-wrap: wrap;
+}
+
+.person-name {
+	max-width: 220rpx;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 34rpx;
+	font-weight: 900;
+	color: #0D1B33;
+}
+
+.person-phone {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #5B6F8D;
+}
+
+.default-tag {
+	flex-shrink: 0;
+	padding: 7rpx 16rpx;
+	border-radius: 999rpx;
+	background: #EAF3FF;
+	color: #1E6FE0;
+	font-size: 22rpx;
+	font-weight: 900;
+}
+
+.address-main {
+	margin-top: 20rpx;
+	padding: 20rpx 22rpx;
+	border-radius: 24rpx;
+	background: #F7FAFE;
+}
+
+.unit-line {
+	display: block;
+	margin-top: 0;
+	font-size: 29rpx;
+	line-height: 1.35;
+	font-weight: 900;
+	color: #182B48;
+}
+
+.detail-line {
+	display: block;
+	margin-top: 10rpx;
+	font-size: 25rpx;
+	line-height: 1.62;
+	color: #627795;
+}
+
+.contact-row {
+	margin-top: 18rpx;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12rpx;
+}
+
+.contact-row .contact-chip {
+	padding: 8rpx 16rpx;
+	border-radius: 999rpx;
+	background: #EDF5FE;
+	color: #58708F;
+	font-size: 22rpx;
+	font-weight: 700;
+}
+
+.card-actions {
+	margin-top: 22rpx;
+	padding-top: 20rpx;
+	border-top: 1rpx dashed #DCE7F3;
+	display: flex;
+	justify-content: flex-end;
+	gap: 30rpx;
+}
+
+.action-link {
+	font-size: 26rpx;
+	font-weight: 900;
+	color: #1E6FE0;
+}
+
+.action-link.danger {
+	color: #E5484D;
+}
+
+.empty-card {
+	margin-top: 0;
+	min-height: 360rpx;
+	padding: 54rpx 44rpx;
+	border: 2rpx dashed #C9D9EC;
+	border-radius: 34rpx;
+	background: rgba(255, 255, 255, 0.9);
+	box-shadow: 0 18rpx 52rpx rgba(55, 83, 126, 0.08);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	text-align: center;
+	box-sizing: border-box;
+}
+
+.empty-illustration {
+	position: relative;
+	width: 154rpx;
+	height: 118rpx;
+	margin-bottom: 24rpx;
+}
+
+.empty-illustration view:first-child {
+	position: absolute;
+	left: 8rpx;
+	top: 36rpx;
+	width: 136rpx;
+	height: 70rpx;
+	border-radius: 28rpx;
+	background: #E7F1FF;
+}
+
+.empty-illustration view:nth-child(2) {
+	position: absolute;
+	left: 42rpx;
+	top: 8rpx;
+	width: 70rpx;
+	height: 86rpx;
+	border: 6rpx solid #1E6FE0;
+	border-radius: 36rpx 36rpx 40rpx 40rpx;
+	transform: rotate(45deg);
+	box-sizing: border-box;
+}
+
+.empty-illustration view:last-child {
+	position: absolute;
+	left: 66rpx;
+	top: 32rpx;
+	width: 20rpx;
+	height: 20rpx;
+	border-radius: 50%;
+	background: #1E6FE0;
+}
+
+.empty-title {
+	font-size: 33rpx;
+	font-weight: 900;
+	color: #0D1B33;
+}
+
+.empty-desc {
+	margin-top: 12rpx;
+	font-size: 26rpx;
+	line-height: 1.56;
+	color: #6B7C97;
+}
+
+.add-address-btn {
+	position: fixed;
+	left: 32rpx;
+	right: 32rpx;
+	bottom: calc(28rpx + env(safe-area-inset-bottom));
+	z-index: 20;
+	height: 100rpx;
+	border-radius: 30rpx;
+	background: linear-gradient(180deg, #2A97F5 0%, #1E6FE0 100%);
+	box-shadow: 0 20rpx 42rpx rgba(30, 111, 224, 0.28);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 14rpx;
+	color: #FFFFFF;
+	font-size: 31rpx;
+	font-weight: 900;
+}
+
+.add-plus {
+	position: relative;
+	width: 38rpx;
+	height: 38rpx;
+	border-radius: 12rpx;
+	background: rgba(255, 255, 255, 0.16);
+}
+
+.add-plus text {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 20rpx;
+	height: 4rpx;
+	border-radius: 999rpx;
+	background: #FFFFFF;
+	transform: translate(-50%, -50%);
+}
+
+.add-plus text:last-child {
+	transform: translate(-50%, -50%) rotate(90deg);
 }
 
 .recognize-card,

@@ -3,6 +3,67 @@ import { getCloudTempFileURL, importCloudObject, checkCloudAvailable } from '@/u
 import request from '@/utils/request.js'
 import { parsePolicyDocument, resolvePolicyDocumentFiles } from '@/utils/policyDocument.js'
 
+const escapePolicyHtml = (value = '') => String(value)
+	.replace(/&/g, '&amp;')
+	.replace(/</g, '&lt;')
+	.replace(/>/g, '&gt;')
+	.replace(/"/g, '&quot;')
+	.replace(/'/g, '&#39;')
+
+const policyLinesToHtml = (lines = []) => lines
+	.map(line => {
+		const content = escapePolicyHtml(line)
+		return /^(第.+条|[一二三四五六七八九十]、)/.test(line)
+			? '<p><strong>' + content + '</strong></p>'
+			: '<p>' + content + '</p>'
+	})
+	.join('')
+
+const DEFAULT_PRIVACY_POLICY = policyLinesToHtml([
+	'为规范个人信息处理活动，遵守《中华人民共和国个人信息保护法》《网络安全法》《微信小程序平台运营规范》，思科达向您清晰说明小程序信息收集、使用、存储相关规则，请您仔细阅读。',
+	'一、我们收集的个人信息',
+	'本小程序仅收集开展售后维修服务必需信息，绝不超额采集用户隐私：',
+	'微信基础信息：微信昵称、微信头像（仅作账号展示，用户可拒绝授权，不影响基础报修功能）；',
+	'联系电话：用户在报修/地址中主动填写的手机号（用于沟通维修报价、物流对接；登录本身以微信身份为准）；',
+	'用户主动填报业务信息：门店名称、经营地址、牙科设备型号、故障描述、维修工单记录；',
+	'系统日志信息：小程序访问时间、页面操作记录，仅用于排查系统卡顿、报错故障。',
+	'为实现报修凭证上传与地址填写，本小程序可能在您主动操作时申请相册/摄像头（拍照上传）、扫码与地理位置（地图选址）权限；不会申请身份证、银行卡等无关敏感信息。',
+	'二、信息使用用途',
+	'核验用户身份，完成小程序账号登录；',
+	'与用户实时对接维修方案、上门安排、配件物流、售后回访；',
+	'归档维修工单，方便用户随时查询历史维修记录、质保期限；',
+	'统计售后业务数据，优化工程师维修流程、提升服务体验。',
+	'我方承诺：不会出售、出租、共享用户手机号、诊所经营信息给任何第三方机构，所有信息仅用于本牙科设备售后维修业务。',
+	'三、信息存储与留存规则',
+	'用户全部数据存储于国内合规云服务器，采用加密机制存储，防止信息泄露、篡改、丢失；',
+	'维修工单档案长期留存，用于设备质保追溯；用户申请注销账号后，我方将在 7 个工作日内清除手机号、门店地址等可识别个人信息，仅保留去除身份标识的匿名维修统计数据；',
+	'我方不会将用户数据传输至境外服务器。',
+	'四、您享有的个人信息权利',
+	'查阅权：可在小程序个人中心查看系统留存的本人全部信息；',
+	'更正权：可自行修改门店地址、联系电话等填报信息；',
+	'删除 / 注销权：联系小程序客服申请账号注销，清除全部个人实名信息；',
+	'撤回授权权：可在微信设置中管理对本小程序的授权；取消必要授权可能影响图片上传、扫码或地图选址等功能，登录与基础查询仍可使用。',
+	'五、未成年人保护',
+	'本小程序服务面向成年口腔机构经营者，不主动收集任何未成年人个人信息，若误收集未成年人信息，核实后将第一时间删除。',
+	'六、咨询与反馈渠道',
+	'若您对本隐私政策、个人信息处理存在疑问，可通过小程序内在线客服联系我方咨询。',
+	'七、政策修订说明',
+	'我方会依据法律法规、业务变动更新本隐私政策，更新版本将在小程序登录页面公示，您继续使用小程序服务，即视为同意更新后的隐私政策。',
+	'思科达售后服务中心'
+])
+
+const DEFAULT_CANCELLATION_POLICY = policyLinesToHtml([
+	'一、注销申请方式',
+	'用户可通过小程序内在线客服或联系电话提交账号注销申请，并提供可核验的账号联系方式。',
+	'二、处理时限',
+	'我方核实账号身份与未完结维修事项后，将在 7 个工作日内完成账号注销与个人信息脱敏处理。',
+	'三、数据处理规则',
+	'注销后，账号手机号、联系地址、微信绑定信息等可识别个人信息将被清除或脱敏；已形成的维修工单、支付、发票、质保和售后记录会按法律法规及业务追溯要求保留必要的匿名化记录。',
+	'四、注销影响',
+	'账号注销后将无法继续查看历史工单、质保记录或使用该账号提交新的报修申请。如仍有进行中的维修、退款、发票或物流事项，请先完成相关流程后再申请注销。',
+	'思科达售后服务中心'
+])
+
 let publicCloudObject = null
 let userCloudObject = null
 let orderCloudObject = null
@@ -71,7 +132,7 @@ const resolvePolicyDocumentSetting = async (value) => {
 			if (item && item.fileID) map[item.fileID] = item.tempFileURL
 		})
 		return map
-	})
+	}, { timeoutMs: 1500 })
 }
 
 const settingDoc = (title, content = '', file = null) => ({
@@ -459,8 +520,8 @@ export const getCompliance = async () => {
 	}
 
 	return {
-		privacyPolicy: settings.privacy_policy || '',
-		cancellationPolicy: settings.account_cancellation_policy || '',
+		privacyPolicy: settings.privacy_policy || DEFAULT_PRIVACY_POLICY,
+		cancellationPolicy: settings.account_cancellation_policy || DEFAULT_CANCELLATION_POLICY,
 		qualifications
 	}
 }

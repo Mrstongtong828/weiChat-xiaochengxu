@@ -1312,13 +1312,13 @@ async function ensureCustomerForUser(user = {}, orderPhone = '', customerType = 
   const now = Date.now()
   const normalizedCustomerType = ['individual', 'clinic', 'dealer'].includes(customerType) ? customerType : 'clinic'
 
-  // 本次报修可修正历史默认的客户类型；已有代理商档案不因后续选择而降级。
+  // 本次报修可修正历史预设类型；后台维护的自定义类型不被小程序选择覆盖。
   const existing = linkedCustomer || await findCustomerForUser(user)
   if (existing) {
     const updateData = { update_time: now }
     if (phone && !normalizeText(existing.phone)) updateData.phone = phone
     const existingCustomerType = normalizeText(existing.customer_type)
-    if (existingCustomerType !== 'dealer' && existingCustomerType !== normalizedCustomerType) {
+    if (['clinic', 'individual'].includes(existingCustomerType) && existingCustomerType !== normalizedCustomerType) {
       updateData.customer_type = normalizedCustomerType
     }
     await customerCol.doc(existing._id).update(updateData).catch(() => {})

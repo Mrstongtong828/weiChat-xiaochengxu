@@ -1,5 +1,6 @@
 import { unwrapCloudResult, withToken } from '@/api/cloudHelpers.js'
 import request, { baseURL } from './request.js'
+import { downloadCloudFileWithClient } from './cloudFile.js'
 
 // 云服务可用性标记
 let cloudAvailable = null
@@ -95,7 +96,9 @@ export function importCloudObject(name) {
     const cloudClient = getUniCloudClient()
     ensureUniCloudReady(cloudClient)
 
-    const cloudObject = cloudClient.importObject(name)
+    // 云对象 SDK 默认会在每次调用时自动 showLoading；并发请求或本地调试超时
+    // 时可能留下无法关闭的全局遮罩，页面业务层自行处理加载与错误提示。
+    const cloudObject = cloudClient.importObject(name, { customUI: true })
     if (!cloudObject) {
       console.warn(`[cloud] 云对象 ${name} 导入失败`)
       return null
@@ -144,4 +147,13 @@ export function getCloudTempFileURL(fileList = []) {
 
   const cloudClient = getUniCloudClient()
   return cloudClient.getTempFileURL({ fileList })
+}
+
+export function downloadCloudFile(fileID = '') {
+  const cloudClient = getUniCloudClient()
+  return downloadCloudFileWithClient({
+    cloudClient,
+    fileID,
+    downloadFile: (options) => uni.downloadFile(options)
+  })
 }

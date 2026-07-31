@@ -10,6 +10,22 @@ export const formatFeedbackTime = (ms) => {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
+const normalizeFeedbackImage = (image, index) => {
+	if (!image) return null
+	if (typeof image === 'string') {
+		return { id: image || `feedback-image-${index}`, url: image }
+	}
+	if (!image || typeof image !== 'object') return null
+	const fileID = image.fileID || image.fileId || image.cloudUrl || ''
+	const url = image.resolvedUrl || image.previewUrl || image.url || image.fileUrl || image.path || fileID
+	if (!url) return null
+	return {
+		id: image.id || fileID || url || `feedback-image-${index}`,
+		url,
+		fileID
+	}
+}
+
 export const normalizeFeedbackRecord = (item = {}) => ({
 	ticketNo: item.ticketNo || item.id,
 	type: item.type,
@@ -17,7 +33,9 @@ export const normalizeFeedbackRecord = (item = {}) => ({
 	contactType: item.contactType,
 	contact: item.contact,
 	orderId: item.orderId,
-	images: (item.images || []).map((url) => ({ url })),
+	images: (Array.isArray(item.images) ? item.images : [])
+		.map(normalizeFeedbackImage)
+		.filter(Boolean),
 	status: item.status || 'submitted',
 	statusLabel: item.statusLabel || '',
 	reply: item.reply || '',

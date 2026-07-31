@@ -5,6 +5,11 @@
         <h2 class="page-title">报修工单管理</h2>
         <p class="page-subtitle">从待签收、报价到回寄，集中处理客户维修工单。</p>
       </div>
+      <div class="page-header-actions">
+        <el-button v-if="canPerformOrderAction('create_order')" type="primary" @click="openCreateOrderDialog">
+          <el-icon><Plus /></el-icon> 新建工单
+        </el-button>
+      </div>
     </div>
 
     <div class="workorder-toolbar">
@@ -29,11 +34,9 @@
           <el-option label="在保" value="in_warranty"></el-option>
           <el-option label="已过保" value="expired"></el-option>
         </el-select>
-        <el-select v-model="wo.customerTypeFilter" placeholder="用户类型" clearable>
+        <el-select v-model="wo.customerTypeFilter" placeholder="用户类型" clearable filterable allow-create default-first-option>
           <el-option label="全部用户类型" value=""></el-option>
-          <el-option label="企业" value="clinic"></el-option>
-          <el-option label="签约代理商（齿科）" value="dealer"></el-option>
-          <el-option label="个人" value="individual"></el-option>
+          <el-option v-for="option in customerTypeOptionsWithCurrent(wo.customerTypeFilter)" :key="option.value" :label="option.label" :value="option.value"></el-option>
         </el-select>
         <el-select v-model="slaFilter" placeholder="SLA 状态" clearable>
           <el-option label="全部 SLA 状态" value=""></el-option>
@@ -130,6 +133,7 @@
                 round
                 :type="customerTypeMeta(row.customerType).type"
                 class="customer-type-tag"
+                :title="customerTypeMeta(row.customerType).label"
               >{{ customerTypeMeta(row.customerType).label }}</el-tag>
             </div>
             <div class="phone-number">{{ row.phone }}</div>
@@ -360,6 +364,7 @@
                         size="small"
                         effect="light"
                         :type="customerTypeMeta(currentOrder.customerType).type"
+                        :title="customerTypeMeta(currentOrder.customerType).label"
                       >{{ customerTypeMeta(currentOrder.customerType).label }}</el-tag>
                       <span v-else>-</span>
                     </strong>
@@ -1209,7 +1214,22 @@
   <el-dialog v-model="quickShipDialogVisible" title="快捷发货" width="400px" align-center @closed="resetQuickShipDialog">
     <el-form label-width="86px">
       <el-form-item label="物流公司" required>
-        <el-input v-model="quickShipForm.returnCompany" placeholder="请输入物流公司"></el-input>
+        <el-select
+          v-model="quickShipForm.returnCompany"
+          placeholder="请选择物流公司"
+          filterable
+          allow-create
+          default-first-option
+          clearable
+          style="width: 100%;"
+        >
+          <el-option
+            v-for="company in logisticsCompanyOptions"
+            :key="company"
+            :label="company"
+            :value="company"
+          ></el-option>
+        </el-select>
       </el-form-item>
       <el-form-item label="物流单号" required>
         <el-input v-model="quickShipForm.returnNo" placeholder="请输入物流单号"></el-input>
@@ -1367,16 +1387,181 @@
     </template>
   </el-dialog>
 
+  <el-dialog
+    v-model="createOrderDialogVisible"
+    title="新建报修工单"
+    width="920px"
+    :fullscreen="isMobile"
+    align-center
+    destroy-on-close
+    class="manual-order-dialog"
+    @closed="resetCreateOrderForm"
+  >
+    <el-form ref="createOrderFormRef" :model="createOrderForm" label-position="top" class="manual-order-form">
+      <section class="manual-order-section">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">1</span>
+          <div><strong>客户信息</strong><small>工单联系人与 CRM 客户档案</small></div>
+        </div>
+        <div class="manual-order-grid manual-order-grid--customer">
+          <el-form-item label="客户类型" required>
+            <el-select v-model="createOrderForm.customer.customer_type" filterable allow-create default-first-option placeholder="选择或输入客户类型">
+              <el-option v-for="option in customerTypeOptionsWithCurrent(createOrderForm.customer.customer_type)" :key="option.value" :label="option.label" :value="option.value"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="客户/单位名称" required>
+            <el-input v-model="createOrderForm.customer.name" maxlength="80" placeholder="如：某某口腔门诊部"></el-input>
+          </el-form-item>
+          <el-form-item label="联系人" required>
+            <el-input v-model="createOrderForm.customer.contact" maxlength="40" placeholder="客户联系人姓名"></el-input>
+          </el-form-item>
+          <el-form-item label="手机号" required>
+            <el-input v-model="createOrderForm.customer.phone" maxlength="11" inputmode="numeric" placeholder="11 位手机号码"></el-input>
+          </el-form-item>
+          <el-form-item label="客户地址" required class="manual-order-span-2">
+            <el-input v-model="createOrderForm.customer.address" maxlength="200" placeholder="省市区及详细地址"></el-input>
+          </el-form-item>
+        </div>
+      </section>
+
+      <section class="manual-order-section">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">2</span>
+          <div><strong>设备与故障</strong><small>支持同一工单录入多台设备</small></div>
+          <el-button type="primary" plain @click="addCreateOrderItem"><el-icon><Plus /></el-icon> 添加设备</el-button>
+        </div>
+        <div class="manual-order-item-list">
+          <div v-for="(item, index) in createOrderForm.items" :key="item.key" class="manual-order-item">
+            <div class="manual-order-item-head">
+              <strong>设备 {{ index + 1 }}</strong>
+              <el-tooltip v-if="createOrderForm.items.length > 1" content="移除此设备" placement="top">
+                <el-button circle text type="danger" aria-label="移除此设备" @click="removeCreateOrderItem(index)">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </el-tooltip>
+            </div>
+            <div class="manual-order-grid manual-order-grid--device">
+              <el-form-item label="产品名称" required>
+                <el-select
+                  v-model="item.product_name"
+                  filterable
+                  allow-create
+                  default-first-option
+                  clearable
+                  placeholder="选择或输入其他产品"
+                  @change="onCreateOrderProductNameChange(item)"
+                >
+                  <el-option v-for="product in REPAIR_PRODUCT_OPTIONS" :key="product.name" :label="product.name" :value="product.name"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="产品型号" required>
+                <el-select
+                  v-model="item.product_model"
+                  filterable
+                  allow-create
+                  default-first-option
+                  clearable
+                  :disabled="!item.product_name"
+                  placeholder="选择或输入其他型号"
+                >
+                  <el-option v-for="model in getRepairProductModels(item.product_name)" :key="model" :label="model" :value="model"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="设备分类">
+                <el-input v-model="item.product_category" maxlength="80" placeholder="如：牙科手机"></el-input>
+              </el-form-item>
+              <el-form-item label="设备 SN" required>
+                <el-input v-model="item.sn" maxlength="80" placeholder="机身序列号" @blur="lookupCreateOrderItemBySn(item)">
+                  <template #append>
+                    <el-button :loading="item.lookupLoading" aria-label="识别设备 SN" @click="lookupCreateOrderItemBySn(item)">
+                      <el-icon><Search /></el-icon>
+                    </el-button>
+                  </template>
+                </el-input>
+              </el-form-item>
+              <el-form-item label="购买日期">
+                <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="质保月数">
+                <el-input-number v-model="item.warranty_months" :min="0" :max="120" controls-position="right"></el-input-number>
+              </el-form-item>
+              <el-form-item label="质保到期日">
+                <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="故障描述" required class="manual-order-span-2">
+                <el-input v-model="item.fault_desc" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="客户反馈的故障现象、发生条件和已尝试操作"></el-input>
+              </el-form-item>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="manual-order-section">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">3</span>
+          <div><strong>收寄信息</strong><small>选择设备当前所处阶段</small></div>
+          <el-button text type="primary" @click="fillCreateOrderShipping"><el-icon><Refresh /></el-icon> 使用客户信息</el-button>
+        </div>
+        <el-form-item label="初始状态" required class="manual-order-status">
+          <el-radio-group v-model="createOrderForm.status">
+            <el-radio-button value="pending">待客户寄入</el-radio-button>
+            <el-radio-button value="sent">运输中</el-radio-button>
+            <el-radio-button value="received">已到店/已签收</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <div class="manual-order-logistics-columns">
+          <div class="manual-order-logistics-column">
+            <strong>客户寄入信息</strong>
+            <div class="manual-order-grid">
+              <el-form-item label="寄件人" required><el-input v-model="createOrderForm.ship_out_info.name" maxlength="40"></el-input></el-form-item>
+              <el-form-item label="寄件手机号" required><el-input v-model="createOrderForm.ship_out_info.phone" maxlength="11" inputmode="numeric"></el-input></el-form-item>
+              <el-form-item label="寄件地址" required class="manual-order-span-2"><el-input v-model="createOrderForm.ship_out_info.detail" maxlength="200"></el-input></el-form-item>
+              <template v-if="createOrderForm.status === 'sent'">
+                <el-form-item label="物流公司"><el-input v-model="createOrderForm.ship_out_info.logistics_company" maxlength="40" placeholder="如：顺丰"></el-input></el-form-item>
+                <el-form-item label="寄入物流单号" required><el-input v-model="createOrderForm.ship_out_info.logistics_no" maxlength="40"></el-input></el-form-item>
+              </template>
+            </div>
+          </div>
+          <div class="manual-order-logistics-column">
+            <strong>维修后回寄信息</strong>
+            <div class="manual-order-grid">
+              <el-form-item label="收件单位"><el-input v-model="createOrderForm.ship_back_info.unit" maxlength="80"></el-input></el-form-item>
+              <el-form-item label="收件人" required><el-input v-model="createOrderForm.ship_back_info.name" maxlength="40"></el-input></el-form-item>
+              <el-form-item label="收件手机号" required><el-input v-model="createOrderForm.ship_back_info.phone" maxlength="11" inputmode="numeric"></el-input></el-form-item>
+              <el-form-item label="回寄地址" required class="manual-order-span-2"><el-input v-model="createOrderForm.ship_back_info.detail" maxlength="200"></el-input></el-form-item>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="manual-order-section manual-order-section--last">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">4</span>
+          <div><strong>内部备注</strong><small>仅后台工作人员可见</small></div>
+        </div>
+        <el-input v-model="createOrderForm.admin_remark" type="textarea" :rows="2" maxlength="1000" show-word-limit placeholder="如：客户通过电话报修、紧急程度、沟通约定等"></el-input>
+      </section>
+    </el-form>
+    <template #footer>
+      <el-button @click="createOrderDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="createOrderSubmitting" @click="submitCreateOrder">
+        <el-icon><CirclePlus /></el-icon> 创建工单
+      </el-button>
+    </template>
+  </el-dialog>
+
 </template>
 
 <script setup>
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
+import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
+import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
@@ -1708,14 +1893,203 @@ const todoTypeMap = {
   exception: '异常工单'
 }
 
-const CUSTOMER_TYPE_META = {
-  clinic: { label: '企业', type: 'success' },
-  dealer: { label: '签约代理商（齿科）', type: 'warning' },
-  individual: { label: '个人', type: 'info' }
+const createManualOrderItem = () => ({
+  key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  product_name: '',
+  product_category: '',
+  product_model: '',
+  sn: '',
+  buy_date: '',
+  warranty_months: 0,
+  warranty_expire: '',
+  fault_desc: '',
+  lookupLoading: false
+})
+
+const createOrderDialogVisible = ref(false)
+const createOrderSubmitting = ref(false)
+const createOrderFormRef = ref(null)
+const createOrderForm = reactive({
+  customer: {
+    customer_id: '',
+    customer_type: 'clinic',
+    name: '',
+    contact: '',
+    phone: '',
+    address: ''
+  },
+  status: 'pending',
+  ship_out_info: {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: '',
+    logistics_company: '',
+    logistics_no: ''
+  },
+  ship_back_info: {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: ''
+  },
+  items: [createManualOrderItem()],
+  admin_remark: ''
+})
+
+const resetCreateOrderForm = () => {
+  Object.assign(createOrderForm.customer, {
+    customer_id: '',
+    customer_type: 'clinic',
+    name: '',
+    contact: '',
+    phone: '',
+    address: ''
+  })
+  createOrderForm.status = 'pending'
+  Object.assign(createOrderForm.ship_out_info, {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: '',
+    logistics_company: '',
+    logistics_no: ''
+  })
+  Object.assign(createOrderForm.ship_back_info, {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: ''
+  })
+  createOrderForm.items = [createManualOrderItem()]
+  createOrderForm.admin_remark = ''
+  createOrderFormRef.value?.clearValidate()
 }
 
-const customerTypeMeta = (type = '') => CUSTOMER_TYPE_META[String(type || '').trim()] || null
-const customerTypeLabel = (type = '') => (customerTypeMeta(type) || {}).label || ''
+const openCreateOrderDialog = () => {
+  resetCreateOrderForm()
+  createOrderDialogVisible.value = true
+}
+
+const addCreateOrderItem = () => {
+  createOrderForm.items.push(createManualOrderItem())
+}
+
+const onCreateOrderProductNameChange = (item) => {
+  const models = getRepairProductModels(item && item.product_name)
+  item.product_model = models.length === 1 ? models[0] : ''
+}
+
+const removeCreateOrderItem = (index) => {
+  if (createOrderForm.items.length <= 1) return
+  createOrderForm.items.splice(index, 1)
+}
+
+const fillCreateOrderShipping = () => {
+  const { name, contact, phone, address } = createOrderForm.customer
+  Object.assign(createOrderForm.ship_out_info, {
+    name: contact || createOrderForm.ship_out_info.name,
+    phone: phone || createOrderForm.ship_out_info.phone,
+    unit: name || createOrderForm.ship_out_info.unit,
+    detail: address || createOrderForm.ship_out_info.detail
+  })
+  Object.assign(createOrderForm.ship_back_info, {
+    name: contact || createOrderForm.ship_back_info.name,
+    phone: phone || createOrderForm.ship_back_info.phone,
+    unit: name || createOrderForm.ship_back_info.unit,
+    detail: address || createOrderForm.ship_back_info.detail
+  })
+}
+
+const lookupCreateOrderItemBySn = async (item) => {
+  const sn = String(item && item.sn || '').trim()
+  if (!sn || item.lookupLoading) return
+  item.lookupLoading = true
+  try {
+    const result = await lookupDeviceBySnApi(sn)
+    await logSnAction('sn_query', sn, {
+      matched: Boolean(result && result.found),
+      device_id: result && result.deviceId,
+      warranty_status: result && result.warrantyStatus
+    })
+    if (!result || !result.found) return
+    item.product_name = result.productName || item.product_name
+    item.product_category = result.productCategory || item.product_category
+    item.product_model = result.model || item.product_model
+    item.buy_date = result.buyDate || item.buy_date
+    item.warranty_months = Number(result.warrantyMonths || item.warranty_months || 0) || 0
+    item.warranty_expire = result.warrantyExpire || item.warranty_expire
+    if (result.customerId && !createOrderForm.customer.customer_id) {
+      createOrderForm.customer.customer_id = result.customerId
+      createOrderForm.customer.name = result.customerName || createOrderForm.customer.name
+      createOrderForm.customer.customer_type = result.customerType || createOrderForm.customer.customer_type
+    }
+    ElMessage.success('已从设备档案回填 SN 信息')
+  } catch (error) {
+    if (!error.__displayed) ElMessage.warning(error.message || 'SN 识别失败')
+  } finally {
+    item.lookupLoading = false
+  }
+}
+
+const validateCreateOrderForm = () => {
+  const customer = createOrderForm.customer
+  const customerType = resolveCustomerTypeValue(customer.customer_type)
+  if (!customerType) return '请选择或输入客户类型'
+  if (customerType.length > 40) return '客户类型不能超过 40 个字符'
+  customer.customer_type = customerType
+  if (!customer.name.trim()) return '请填写客户/单位名称'
+  if (!customer.contact.trim()) return '请填写联系人'
+  if (!/^1\d{10}$/.test(customer.phone.trim())) return '请填写正确的 11 位手机号'
+  if (!customer.address.trim()) return '请填写客户地址'
+  if (!createOrderForm.items.length) return '请至少添加一台维修设备'
+  for (let index = 0; index < createOrderForm.items.length; index += 1) {
+    const item = createOrderForm.items[index]
+    const prefix = `设备 ${index + 1}`
+    if (!item.product_name.trim()) return `${prefix}：请填写产品名称`
+    if (item.product_name.trim().length > 80) return `${prefix}：产品名称不能超过 80 个字符`
+    if (!item.product_model.trim()) return `${prefix}：请填写产品型号`
+    if (item.product_model.trim().length > 80) return `${prefix}：产品型号不能超过 80 个字符`
+    if (!item.sn.trim()) return `${prefix}：请填写设备 SN`
+    if (!item.fault_desc.trim()) return `${prefix}：请填写故障描述`
+  }
+  const out = createOrderForm.ship_out_info
+  const back = createOrderForm.ship_back_info
+  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户寄入联系人、手机号和地址'
+  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善维修后回寄联系人、手机号和地址'
+  if (createOrderForm.status === 'sent' && !out.logistics_no.trim()) return '运输中工单必须填写寄入物流单号'
+  return ''
+}
+
+const submitCreateOrder = async () => {
+  const validationError = validateCreateOrderForm()
+  if (validationError) {
+    ElMessage.warning(validationError)
+    return
+  }
+
+  createOrderSubmitting.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const payload = {
+      customer: { ...createOrderForm.customer },
+      status: createOrderForm.status,
+      ship_out_info: { ...createOrderForm.ship_out_info },
+      ship_back_info: { ...createOrderForm.ship_back_info },
+      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item })),
+      admin_remark: createOrderForm.admin_remark
+    }
+    const result = await createAdminOrder(token, payload)
+    createOrderDialogVisible.value = false
+    wo.page = 1
+    await loadOrders()
+    ElMessage.success(`工单 ${result.order_no || ''} 创建成功`)
+  } catch (error) {
+    if (!error.__displayed) ElMessage.error(error.message || '新建工单失败')
+  } finally {
+    createOrderSubmitting.value = false
+  }
+}
 
 const exportableFields = [
   { label: '工单编号', key: 'id', getter: order => order.id },
@@ -1910,7 +2284,7 @@ const loadOrders = async () => {
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       warrantyStatus: wo.warrantyFilter,
-      customerType: wo.customerTypeFilter,
+      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
       responseMode: 'page'
@@ -1943,7 +2317,7 @@ const fetchAllFilteredOrders = async () => {
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       warrantyStatus: wo.warrantyFilter,
-      customerType: wo.customerTypeFilter,
+      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
       responseMode: 'page'
@@ -2101,6 +2475,20 @@ const partPickerVisible = ref(false)
 const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
 const pickerParts = ref([])
+const logisticsCompanyOptions = [
+  '顺丰速运',
+  '京东物流',
+  '中国邮政EMS',
+  '德邦快递',
+  '中通快递',
+  '圆通速递',
+  '申通快递',
+  '韵达快递',
+  '极兔速递',
+  '百世快递',
+  '跨越速运',
+  '安能物流'
+]
 const quickShipForm = reactive({ returnCompany: '顺丰速运', returnNo: '' })
 const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
 
@@ -3601,6 +3989,31 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.manual-order-form { max-height: 68vh; overflow-y: auto; padding: 0 6px 4px 0; }
+.manual-order-section { padding: 0 0 20px; margin: 0 0 20px; border-bottom: 1px solid #e8edf4; }
+.manual-order-section--last { margin-bottom: 0; border-bottom: 0; }
+.manual-order-section-head { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-bottom: 14px; }
+.manual-order-section-head > div { display: flex; flex-direction: column; min-width: 0; }
+.manual-order-section-head > div strong { color: #17212f; font-size: 15px; line-height: 1.35; }
+.manual-order-section-head > div small { color: #8a97aa; font-size: 12px; line-height: 1.4; }
+.manual-order-section-head > .el-button { margin-left: auto; }
+.manual-order-step { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; background: #1769aa; color: #fff; font-size: 12px; font-weight: 700; }
+.manual-order-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.manual-order-grid--customer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.manual-order-grid--device { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.manual-order-grid :deep(.el-form-item) { min-width: 0; margin-bottom: 14px; }
+.manual-order-grid :deep(.el-select),
+.manual-order-grid :deep(.el-date-editor),
+.manual-order-grid :deep(.el-input-number) { width: 100%; }
+.manual-order-span-2 { grid-column: 1 / -1; }
+.manual-order-item-list { display: flex; flex-direction: column; gap: 12px; }
+.manual-order-item { padding: 14px 14px 0; border: 1px solid #e5eaf1; border-radius: 8px; background: #fbfcfe; }
+.manual-order-item-head { display: flex; align-items: center; justify-content: space-between; min-height: 30px; margin-bottom: 8px; }
+.manual-order-item-head strong { color: #344054; font-size: 13px; }
+.manual-order-status { margin-bottom: 16px; }
+.manual-order-logistics-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.manual-order-logistics-column { min-width: 0; padding: 14px 14px 0; border: 1px solid #e5eaf1; border-radius: 8px; }
+.manual-order-logistics-column > strong { display: block; margin-bottom: 12px; color: #344054; font-size: 13px; }
 .column-config-panel { padding: 4px 2px; }
 .column-config-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .column-config-head strong { color: #1d2129; font-size: 14px; }
@@ -3619,7 +4032,8 @@ const confirmExportExcel = async () => {
 
 .clinic-name { font-weight: 600; color: #1d2129; font-size: 14px; margin-bottom: 4px; }
 .customer-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.customer-type-tag { margin-left: 0; }
+.customer-type-tag { margin-left: 0; max-width: 180px; }
+.customer-type-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .customer-name { color: #4e5969; font-size: 13px; margin-bottom: 2px; }
 .phone-number { color: #86909c; font-size: 12px; font-family: 'Consolas', monospace; }
 
@@ -3915,6 +4329,8 @@ const confirmExportExcel = async () => {
 
 @media screen and (max-width: 768px) {
   .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .page-header-actions { width: 100%; }
+  .page-header-actions :deep(.el-button) { width: 100%; }
   .workorder-toolbar { padding: 10px; }
   .search-strip { grid-template-columns: 1fr; }
   .batch-strip { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
@@ -3952,6 +4368,15 @@ const confirmExportExcel = async () => {
   .invoice-detail-disclosure > summary::before { position: absolute; right: 16px; margin-top: 5px; }
   .drawer-footer-actions { flex-wrap: wrap; }
   .warranty-entry-row { grid-template-columns: 1fr; align-items: stretch; }
+  .manual-order-form { max-height: none; padding-right: 0; }
+  .manual-order-grid,
+  .manual-order-grid--customer,
+  .manual-order-grid--device,
+  .manual-order-logistics-columns { grid-template-columns: 1fr; }
+  .manual-order-section-head { align-items: flex-start; flex-wrap: wrap; }
+  .manual-order-section-head > .el-button { margin-left: 36px; }
+  .manual-order-status :deep(.el-radio-group) { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .manual-order-status :deep(.el-radio-button__inner) { width: 100%; }
 }
 
 </style>

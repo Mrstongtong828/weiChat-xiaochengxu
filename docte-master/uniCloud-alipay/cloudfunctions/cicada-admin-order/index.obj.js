@@ -80,6 +80,7 @@ function createWorkflowFallback() {
   const ALL_ROLES = Object.keys(ROLE_LABELS)
   const PERMISSIONS = {
     view_order: ALL_ROLES,
+    create_order: ['admin', 'engineer', 'support'],
     export_order: ALL_ROLES,
     get_stats: ALL_ROLES,
     get_workflow_config: ALL_ROLES,
@@ -721,6 +722,16 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+function normalizeCustomerType(value, fallback = '') {
+  if (value !== undefined && value !== null && typeof value !== 'string') {
+    throw new Error('客户类型格式不正确')
+  }
+  const customerType = normalizeText(value)
+  if (!customerType) return fallback
+  if (customerType.length > 40) throw new Error('客户类型不能超过40个字符')
+  return customerType
+}
+
 function getOrderShipInfo(order = {}, segment = 'out') {
   const info = segment === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
   return {
@@ -901,6 +912,188 @@ async function callInvoiceProvider(req) {
 // 口径必须与 cicada-client-order / cicada-admin-customer 中的同名函数保持一致。
 function normalizeSn(value) {
   return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
+}
+
+function normalizeArray(value) {
+  if (!Array.isArray(value)) return []
+  return value.map(item => normalizeText(item)).filter(Boolean)
+}
+
+function extractValidPhone(value) {
+  const digits = normalizeText(value).replace(/\D/g, '')
+  return /^1\d{10}$/.test(digits) ? digits : ''
+}
+
+function genOrderNo() {
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const datePart = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  return 'DR' + datePart + crypto.randomBytes(4).toString('hex').toUpperCase()
+}
+
+function sanitizeManualShipInfo(info = {}) {
+  const source = info && typeof info === 'object' ? info : {}
+  const region = source.region
+  return {
+    name: normalizeText(source.name).slice(0, 40),
+    phone: extractValidPhone(source.phone) || normalizeText(source.phone).replace(/\D/g, '').slice(0, 20),
+    unit: normalizeText(source.unit).slice(0, 80),
+    region: Array.isArray(region) ? region.map(item => normalizeText(item).slice(0, 40)).filter(Boolean).slice(0, 4) : [],
+    detail: normalizeText(source.detail).slice(0, 200),
+    logistics_company: normalizeText(source.logistics_company || source.logisticsCompany).slice(0, 40),
+    logistics_no: normalizeText(source.logistics_no || source.logisticsNo || source.trackingNo).replace(/\s/g, '').slice(0, 40)
+  }
+}
+
+function sanitizeManualOrderItem(item = {}) {
+  const data = {
+    product_name: normalizeText(item.product_name || item.productName).slice(0, 80),
+    product_category: normalizeText(item.product_category || item.productCategory).slice(0, 80),
+    product_model: normalizeText(item.product_model || item.productModel || item.model).slice(0, 80),
+    sn: normalizeText(item.sn || item.serial).slice(0, 80),
+    buy_date: normalizeText(item.buy_date || item.buyDate).slice(0, 20),
+    warranty_months: Math.max(0, Number(item.warranty_months || item.warrantyMonths || 0) || 0),
+    warranty_expire: normalizeText(item.warranty_expire || item.warrantyExpire).slice(0, 20),
+    fault_desc: normalizeText(item.fault_desc || item.faultDesc).slice(0, 2000),
+    media_urls: normalizeArray(item.media_urls || item.mediaUrls).slice(0, 12),
+    voucher_urls: normalizeArray(item.voucher_urls || item.voucherUrls).slice(0, 12),
+    image_urls: normalizeArray(item.image_urls || item.imageUrls).slice(0, 12),
+    video_urls: normalizeArray(item.video_urls || item.videoUrls).slice(0, 6)
+  }
+  data.sn_normalized = normalizeSn(data.sn)
+  return data
+}
+
+async function ensureManualOrderCustomer(customer = {}, shipOutInfo = {}, shipBackInfo = {}) {
+  const rawCustomer = customer && typeof customer === 'object' ? customer : {}
+  const customerId = normalizeText(rawCustomer.customer_id || rawCustomer._id)
+  const phone = extractValidPhone(rawCustomer.phone || shipOutInfo.phone || shipBackInfo.phone)
+  const customerType = normalizeCustomerType(rawCustomer.customer_type || rawCustomer.customerType, 'clinic')
+
+  if (customerId) {
+    const res = await db.collection('cicada_customers').doc(customerId).get()
+    const existing = res.data && res.data[0]
+    if (!existing || existing.status === 'cancelled') throw new Error('客户档案不存在或已注销')
+    const updateData = { update_time: Date.now() }
+    if (phone && !normalizeText(existing.phone)) updateData.phone = phone
+    if (normalizeText(rawCustomer.contact) && !normalizeText(existing.contact)) updateData.contact = normalizeText(rawCustomer.contact).slice(0, 40)
+    if (normalizeText(rawCustomer.address || shipBackInfo.detail) && !normalizeText(existing.address)) updateData.address = normalizeText(rawCustomer.address || shipBackInfo.detail).slice(0, 200)
+    if (Object.keys(updateData).length > 1) {
+      await db.collection('cicada_customers').doc(customerId).update(updateData).catch(() => {})
+    }
+    return {
+      customer_id: customerId,
+      user_id: existing.user_id || '',
+      customer_type: existing.customer_type || customerType,
+      customer: existing
+    }
+  }
+
+  if (phone) {
+    const found = await db.collection('cicada_customers')
+      .where({ phone, status: dbCmd.neq('cancelled') })
+      .limit(1)
+      .get()
+    const existing = found.data && found.data[0]
+    if (existing) {
+      const updateData = { update_time: Date.now() }
+      if (normalizeText(rawCustomer.name) && !normalizeText(existing.name)) updateData.name = normalizeText(rawCustomer.name).slice(0, 80)
+      if (normalizeText(rawCustomer.contact) && !normalizeText(existing.contact)) updateData.contact = normalizeText(rawCustomer.contact).slice(0, 40)
+      if (normalizeText(rawCustomer.address || shipBackInfo.detail) && !normalizeText(existing.address)) updateData.address = normalizeText(rawCustomer.address || shipBackInfo.detail).slice(0, 200)
+      if (Object.keys(updateData).length > 1) {
+        await db.collection('cicada_customers').doc(existing._id).update(updateData).catch(() => {})
+      }
+      return {
+        customer_id: existing._id,
+        user_id: existing.user_id || '',
+        customer_type: existing.customer_type || customerType,
+        customer: existing
+      }
+    }
+  }
+
+  const name = normalizeText(rawCustomer.name || rawCustomer.clinic_name || rawCustomer.clinicName || shipBackInfo.unit || shipOutInfo.unit || shipOutInfo.name)
+  if (!name) throw new Error('客户名称不能为空')
+  const now = Date.now()
+  const doc = {
+    name: name.slice(0, 80),
+    contact: normalizeText(rawCustomer.contact || shipOutInfo.name || shipBackInfo.name).slice(0, 40),
+    phone,
+    customer_type: customerType,
+    source: 'offline',
+    address: normalizeText(rawCustomer.address || shipBackInfo.detail || shipOutInfo.detail).slice(0, 200),
+    dealer_id: normalizeText(rawCustomer.dealer_id).slice(0, 80),
+    biz_user: normalizeText(rawCustomer.biz_user || rawCustomer.bizUser).slice(0, 40),
+    tags: Array.isArray(rawCustomer.tags) ? rawCustomer.tags.map(item => normalizeText(item)).filter(Boolean) : [],
+    remark: normalizeText(rawCustomer.remark).slice(0, 500),
+    user_id: '',
+    openid: '',
+    status: 'active',
+    create_time: now,
+    update_time: now
+  }
+  const res = await db.collection('cicada_customers').add(doc)
+  return {
+    customer_id: res.id,
+    user_id: '',
+    customer_type: customerType,
+    customer: { ...doc, _id: res.id },
+    created: true
+  }
+}
+
+async function upsertManualCustomerDevices(customerInfo = {}, items = [], orderMeta = {}) {
+  if (!customerInfo.customer_id || !Array.isArray(items) || !items.length) return
+  const now = Date.now()
+  for (const item of items) {
+    const sn = normalizeText(item && item.sn)
+    if (!sn) continue
+    const snKey = normalizeSn(sn)
+    try {
+      let existRes = await db.collection('cicada_user_devices')
+        .where({ sn_normalized: snKey })
+        .limit(1)
+        .get()
+      if (!existRes.data || !existRes.data.length) {
+        existRes = await db.collection('cicada_user_devices').where({ sn }).limit(1).get()
+      }
+      const existing = existRes.data && existRes.data[0]
+      const baseFields = {
+        user_id: customerInfo.user_id || (existing && existing.user_id) || '',
+        product_category: item.product_category || (existing && existing.product_category) || '',
+        product_name: item.product_name || (existing && existing.product_name) || '已登记设备',
+        model: item.product_model || (existing && existing.model) || '',
+        sn,
+        sn_normalized: snKey,
+        buy_date: item.buy_date || (existing && existing.buy_date) || '',
+        last_order_no: orderMeta.order_no || (existing && existing.last_order_no) || '',
+        last_order_id: orderMeta.order_id || (existing && existing.last_order_id) || '',
+        last_repair_status: orderMeta.status || (existing && existing.last_repair_status) || '',
+        last_repair_time: now,
+        update_time: now
+      }
+      if (!existing || !normalizeText(existing.customer_id) || normalizeText(existing.customer_id) === customerInfo.customer_id) {
+        baseFields.customer_id = customerInfo.customer_id
+      }
+      if (item.warranty_months > 0) baseFields.warranty_months = item.warranty_months
+      if (item.warranty_expire) baseFields.warranty_expire = item.warranty_expire
+      if (existing) {
+        await db.collection('cicada_user_devices').doc(existing._id).update({
+          ...baseFields,
+          repair_count: Number(existing.repair_count || 0) + 1
+        })
+      } else {
+        await db.collection('cicada_user_devices').add({
+          ...baseFields,
+          repair_count: 1,
+          source: 'admin_manual_order',
+          create_time: now
+        })
+      }
+    } catch (e) {
+      console.warn('代客建单设备沉淀失败:', e && e.message)
+    }
+  }
 }
 
 // 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串（与 client-order 口径一致）
@@ -2119,6 +2312,153 @@ module.exports = {
     }
   },
 
+  // 后台代客新建工单：用于客户不会/不便通过小程序提交报修的线下受理场景
+  async createAdminOrder(params) {
+    let orderId = ''
+    try {
+      const currentAdmin = requireAdminPermission(this, 'create_order')
+      const requestParams = pickParam(this, params)
+      const {
+        customer = {},
+        ship_out_info,
+        ship_back_info,
+        items,
+        status = 'pending',
+        admin_remark = '',
+        print_remark = ''
+      } = requestParams
+
+      const safeShipOut = sanitizeManualShipInfo(ship_out_info)
+      const safeShipBack = sanitizeManualShipInfo(ship_back_info)
+      const safeItems = (Array.isArray(items) ? items : []).map(item => sanitizeManualOrderItem(item))
+      if (!safeItems.length) return { code: -1, msg: '请至少填写一个维修产品' }
+      if (safeItems.some(item => !item.product_name)) return { code: -1, msg: '产品名称不能为空' }
+      if (safeItems.some(item => !item.product_model)) return { code: -1, msg: '产品型号不能为空' }
+      if (safeItems.some(item => !item.sn)) return { code: -1, msg: '产品序列号不能为空' }
+      if (safeItems.some(item => !item.fault_desc)) return { code: -1, msg: '故障描述不能为空' }
+      if (safeItems.some(item => item.fault_desc.length > 2000)) return { code: -1, msg: '故障描述不能超过2000字' }
+      if (!safeShipOut.name || !extractValidPhone(safeShipOut.phone) || !safeShipOut.detail) {
+        return { code: -1, msg: '请完善客户寄入联系人、手机号和地址' }
+      }
+      if (!safeShipBack.name || !extractValidPhone(safeShipBack.phone) || !safeShipBack.detail) {
+        return { code: -1, msg: '请完善回寄联系人、手机号和地址' }
+      }
+
+      const normalizedStatus = normalizeText(status) || 'pending'
+      if (!['pending', 'sent', 'received'].includes(normalizedStatus)) {
+        return { code: -1, msg: '新建工单初始状态只能为已提交、运输中或已签收' }
+      }
+      if (normalizedStatus === 'sent' && !safeShipOut.logistics_no) {
+        return { code: -1, msg: '运输中工单必须填写寄入物流单号' }
+      }
+
+      const customerInfo = await ensureManualOrderCustomer(customer, safeShipOut, safeShipBack)
+      if (!safeShipBack.unit) safeShipBack.unit = (customerInfo.customer && customerInfo.customer.name) || safeShipOut.unit || safeShipBack.name
+
+      const now = Date.now()
+      const order_no = genOrderNo()
+      const warranty = await computeOrderWarrantyFromItems(safeItems)
+      const timeline = [
+        {
+          title: '后台代客创建报修单',
+          desc: `${currentAdmin.name || currentAdmin.username || '工作人员'} 已代客户录入售后报修信息`,
+          time: now,
+          done: true
+        }
+      ]
+      if (normalizedStatus === 'sent') {
+        timeline.push({
+          title: '已记录寄入物流',
+          desc: `${safeShipOut.logistics_company || '物流'} ${safeShipOut.logistics_no}`,
+          time: now,
+          done: true
+        })
+      }
+      if (normalizedStatus === 'received') {
+        timeline.push({
+          title: '设备已到店/已签收',
+          desc: '后台创建时已确认设备到达维修点',
+          time: now,
+          done: true
+        })
+      }
+
+      const newOrder = {
+        order_no,
+        user_id: customerInfo.user_id || '',
+        customer_id: customerInfo.customer_id || '',
+        customer_type: customerInfo.customer_type || 'clinic',
+        status: normalizedStatus,
+        ship_out_info: safeShipOut,
+        ship_back_info: safeShipBack,
+        engineer_id: '',
+        total_price: 0,
+        quote_status: 'pending',
+        payment_status: 'pending',
+        in_warranty: warranty.in_warranty,
+        warranty_status: warranty.warranty_status,
+        charge_type: warranty.charge_type,
+        arrival_confirm_status: normalizedStatus === 'received' ? 'confirmed' : 'pending',
+        admin_remark: normalizeText(admin_remark).slice(0, 1000),
+        print_remark: normalizeText(print_remark).slice(0, 500),
+        create_source: 'admin_manual',
+        created_by_admin_id: currentAdmin._id || '',
+        created_by_admin_name: currentAdmin.name || currentAdmin.username || currentAdmin.nickname || '',
+        timeline,
+        status_enter_time: now,
+        status_update_time: now,
+        update_time: now,
+        create_time: now
+      }
+      if (normalizedStatus === 'received') {
+        newOrder.arrival_confirmed_at = now
+        newOrder.arrival_confirmed_by = currentAdmin._id || ''
+        newOrder.arrival_confirmed_name = currentAdmin.name || currentAdmin.username || currentAdmin.nickname || ''
+      }
+
+      const orderRes = await db.collection('cicada_orders').add(newOrder)
+      orderId = orderRes.id
+      await Promise.all(safeItems.map(item => db.collection('cicada_order_items').add({ ...item, order_id: orderId })))
+      await upsertManualCustomerDevices(customerInfo, safeItems, { order_no, order_id: orderId, status: normalizedStatus })
+
+      const persistedOrder = { ...newOrder, _id: orderId }
+      await logOrderEvent({
+        order: persistedOrder,
+        action: 'create_order',
+        actor: currentAdmin,
+        before: {},
+        after: {
+          source: 'admin_manual',
+          status: normalizedStatus,
+          customer_id: customerInfo.customer_id,
+          customer_created: Boolean(customerInfo.created),
+          item_count: safeItems.length
+        }
+      })
+      if (safeShipOut.logistics_no) await subscribeOrderLogistics(persistedOrder, 'out')
+      if (newOrder.user_id) await sendOrderSubscription(persistedOrder, 'repair_submitted', '工作人员已为您创建报修工单')
+
+      return {
+        code: 0,
+        msg: '工单创建成功',
+        data: {
+          order_id: orderId,
+          order_no,
+          customer_id: customerInfo.customer_id,
+          status: normalizedStatus
+        }
+      }
+    } catch (e) {
+      if (orderId) {
+        await Promise.all([
+          db.collection('cicada_orders').doc(orderId).remove(),
+          db.collection('cicada_order_items').where({ order_id: orderId }).remove()
+        ]).catch(() => {})
+      }
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 获取后台工单列表（支持筛选/分页）
   async getAdminOrderList(params) {
     try {
@@ -2146,15 +2486,11 @@ module.exports = {
       const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
-      const normalizedCustomerType = normalizeText(customerType || customer_type)
-      if (normalizedCustomerType && !['clinic', 'dealer', 'individual'].includes(normalizedCustomerType)) {
-        return { code: -1, msg: '用户类型不正确' }
-      }
+      const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
       const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
-      // customer_type 为订单快照等值字段，可直接下推；有 CRM 回退场景时 JS 过滤仍会兜底
-      if (directMatchCond && normalizedCustomerType) directMatchCond.customer_type = normalizedCustomerType
-      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedSlaLevel
+      // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
+      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
 
       let list = []
       let total = 0
@@ -2164,10 +2500,6 @@ module.exports = {
       if (canUseDirectQuery) {
         const pageResult = await fetchAdminOrderPage(directMatchCond, pagination)
         list = await enrichAdminOrdersForList(pageResult.rawOrders, currentAdmin)
-        // 快照为空、靠 CRM 回填类型的工单不在 DB 等值结果里；当前以订单快照筛选为准
-        if (normalizedCustomerType) {
-          list = list.filter(order => normalizeText(order.customer_type) === normalizedCustomerType)
-        }
         total = pageResult.total
         deviceModels = collectDeviceModelsFromOrders(list)
       } else {
@@ -2180,8 +2512,6 @@ module.exports = {
         //           绝不能下推可能误删有效行的条件（keyword/设备型号/SLA/发票状态默认值等仍留在 JS）。
         // 1) 在保状态：独立等值字段，系统写入值规范，直接下推
         if (normalizedWarrantyStatus) fallbackMatchCond.warranty_status = normalizedWarrantyStatus
-        // 1.5) 用户类型快照：下单写入的 customer_type，可等值下推
-        if (normalizedCustomerType) fallbackMatchCond.customer_type = normalizedCustomerType
         // 2) 直接型待办(inbound/payment/return)的 DB 条件与 matchesTodoType 完全等价；
         //    仅在未显式指定 status 时下推，避免与 status 参数的交集语义冲突（该冲突场景交给 JS 兜底）
         if (!status) {
