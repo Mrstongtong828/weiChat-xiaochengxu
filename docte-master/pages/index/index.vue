@@ -1348,7 +1348,7 @@
 				</view>
 
 				<view class="new-brand-banner" style="margin: 12px; overflow: hidden; border-radius: 8px; position: relative; z-index: 10;">
-					<image src="/static/logo-banner.jpg" mode="widthFix" style="width: 100%; display: block;"></image>
+					<image src="/static/home-top-background.jpg" mode="widthFix" style="width: 100%; display: block;"></image>
 				</view>
 
 				<view class="section section-basic">
