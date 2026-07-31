@@ -151,8 +151,11 @@
 									<view v-for="media in product.media" :key="media.id" class="media-thumb">
 										<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
 										<view v-else class="media-video">
-											<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
-											<text>视频</text>
+											<image v-if="media.coverPath" class="media-image" :src="media.coverPath" mode="aspectFill"></image>
+											<view class="media-video-overlay">
+												<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
+												<text>视频</text>
+											</view>
 										</view>
 										<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
 									</view>
@@ -642,7 +645,14 @@
 						<text>工单号</text>
 						<text :class="['tag', 'tag-muted-light']">{{ detailOrder.status }}</text>
 					</view>
-					<text class="detail-order-no">{{ detailOrder.id }}</text>
+					<view class="detail-order-no-row">
+						<text class="detail-order-no" selectable user-select>{{ detailOrder.id }}</text>
+						<view class="detail-order-copy tap" @click="copyOne(detailOrder.id, 'detailOrderNo')">
+							<view v-if="copied === 'detailOrderNo'" class="mini-icon mini-check mini-check-white"></view>
+							<view v-else class="mini-icon mini-copy mini-copy-white"></view>
+							<text>{{ copied === 'detailOrderNo' ? '已复制' : '复制' }}</text>
+						</view>
+					</view>
 					<view class="detail-hero-grid">
 						<view><text>产品</text><text>{{ detailOrder.model }}</text></view>
 						<view><text>预计完成</text><text>{{ detailOrder.doneTime }}</text></view>
@@ -679,7 +689,10 @@
 									<text>故障图片</text>
 								</view>
 								<view v-for="attachment in item.videos" :key="attachment.id" class="detail-attachment tap" @click="previewDetailVideo(attachment)">
-									<view class="detail-video-placeholder"><text>▶</text></view>
+									<view class="detail-video-placeholder">
+										<image v-if="getDetailAttachmentCoverUrl(attachment)" :src="getDetailAttachmentCoverUrl(attachment)" mode="aspectFill"></image>
+										<view class="detail-video-play"><text>▶</text></view>
+									</view>
 									<text>故障视频</text>
 								</view>
 							</view>
@@ -1168,18 +1181,22 @@
 				</scroll-view>
 				<view class="module-content orders-content-classic">
 					<view v-for="order in filteredOrderList" :key="order.id" class="order-card-mini order-card-classic tap" @click="openOrderDetail(order)">
-						<view class="order-card-main">
-							<text class="muted-line">工单 {{ order.id }}</text>
-							<text class="order-card-title">{{ order.cardTitle }}</text>
-							<text v-if="order.faultDesc" class="order-card-fault">{{ order.faultDesc }}</text>
-							<view v-if="order.cardMeta && order.cardMeta.length" class="order-card-meta">
-								<text v-for="meta in order.cardMeta" :key="meta">{{ meta }}</text>
-							</view>
-							<text class="order-card-date">报修日期 · {{ order.date }}</text>
-						</view>
-						<view class="order-card-side">
+						<view class="order-card-head">
+							<text class="order-card-no">工单 {{ order.id }}</text>
 							<text :class="['tag', 'tag-' + getOrderStatusTone(order)]">{{ order.status }}</text>
-							<text class="order-card-price">{{ formatOrderListPrice(order) }}</text>
+						</view>
+						<text class="order-card-title">{{ order.cardTitle }}</text>
+						<text v-if="order.faultDesc" class="order-card-fault">{{ order.faultDesc }}</text>
+						<view v-if="order.cardMeta && order.cardMeta.length" class="order-card-meta">
+							<text v-for="meta in order.cardMeta" :key="meta">{{ meta }}</text>
+						</view>
+						<view class="order-card-footer">
+							<text class="order-card-date">报修日期 · {{ order.date }}</text>
+							<view class="order-card-action">
+								<text v-if="formatOrderListPrice(order, '')" class="order-card-price">{{ formatOrderListPrice(order, '') }}</text>
+								<text>查看详情</text>
+								<view class="order-card-chevron"></view>
+							</view>
 						</view>
 					</view>
 					<view v-if="!filteredOrderList.length" class="empty-hint compact">当前筛选条件下没有订单。</view>
@@ -1348,51 +1365,67 @@
 				</view>
 
 				<view class="new-brand-banner" style="margin: 12px; overflow: hidden; border-radius: 8px; position: relative; z-index: 10;">
-					<image src="/static/home-top-background.jpg" mode="widthFix" style="width: 100%; display: block;"></image>
+					<image :src="homeTopBackground" mode="widthFix" style="width: 100%; display: block;"></image>
 				</view>
 
 				<view class="section section-basic">
-					<text class="section-title">基础服务</text>
+					<view class="home-section-heading">
+						<view class="home-section-marker"></view>
+						<text class="section-title">基础服务</text>
+					</view>
 					<view class="three-grid">
 						<view
 							v-for="item in basics"
 							:key="item.id"
-							class="service-card tap"
+							class="service-card basic-service-card tap"
 							@click="go(item.id)"
 						>
-							<view class="service-icon" :style="{ backgroundColor: item.bg, color: item.color }">
-								<view :class="['glyph', 'glyph-' + item.icon]">
-									<view class="glyph-extra"></view>
+							<view class="service-icon-halo basic-icon-halo" :style="{ backgroundColor: item.bg }">
+								<view class="service-icon" :style="{ backgroundColor: item.color, color: '#FFFFFF' }">
+									<view :class="['glyph', 'glyph-' + item.icon]">
+										<view class="glyph-extra"></view>
+									</view>
 								</view>
 							</view>
 							<text class="service-title">{{ item.title }}</text>
+							<text class="service-desc">{{ item.desc }}</text>
+							<view class="service-accent" :style="{ backgroundColor: item.color }"></view>
 						</view>
 					</view>
 				</view>
 
 				<view class="section section-query">
-					<text class="section-title">自助查询</text>
+					<view class="home-section-heading">
+						<view class="home-section-marker"></view>
+						<text class="section-title">自助查询</text>
+					</view>
 					<view class="query-grid">
 						<view
 							v-for="item in queries"
 							:key="item.id"
-							class="service-card tap"
+							class="query-service-card tap"
 							@click="go(item.id)"
 						>
-							<view class="service-icon" :style="{ backgroundColor: item.bg, color: item.color }">
-								<view :class="['glyph', 'glyph-' + item.icon]">
-									<view class="glyph-extra"></view>
+							<view class="service-icon-halo query-icon-halo" :style="{ backgroundColor: item.bg }">
+								<view class="service-icon query-service-icon" :style="{ backgroundColor: item.color, color: '#FFFFFF' }">
+									<view :class="['glyph', 'glyph-' + item.icon]">
+										<view class="glyph-extra"></view>
+									</view>
 								</view>
 							</view>
-							<text class="service-title">{{ item.title }}</text>
+							<view class="query-service-copy">
+								<text class="service-title">{{ item.title }}</text>
+								<text class="service-desc">{{ item.desc }}</text>
+							</view>
+							<view class="query-chevron" :style="{ borderColor: item.color }"></view>
 						</view>
 					</view>
 				</view>
 
 				<view class="section section-guide">
-					<view class="section-line tutorial-section-line">
+					<view class="home-section-heading tutorial-section-line">
+						<view class="home-section-marker"></view>
 						<text class="section-title">操作教程</text>
-						<text class="section-meta">维修与开票</text>
 					</view>
 					<view class="tutorial-guide-grid">
 						<view
@@ -1406,33 +1439,40 @@
 									<view class="glyph-extra"></view>
 								</view>
 							</view>
-							<text class="guide-title">{{ item.title }}</text>
+							<view class="guide-copy">
+								<text class="guide-title">{{ item.title }}</text>
+								<text class="guide-desc">{{ item.desc }}</text>
+							</view>
 							<view class="chevron"></view>
 						</view>
 					</view>
+				</view>
 
-					<view v-if="homeIntroVideo" class="maintenance-video-wrap">
-						<view class="maintenance-video-list">
-							<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
-								<text class="maintenance-video-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
-								<view class="maintenance-video-cover">
-									<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
-									<view v-else class="maintenance-video-placeholder">
-										<text class="maintenance-video-brand">CICADA Dental</text>
-										<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
-									</view>
-									<view class="maintenance-video-shade"></view>
-									<view class="maintenance-play-badge"><text>▶</text></view>
+				<view v-if="homeIntroVideo" class="section maintenance-video-wrap">
+					<view class="maintenance-video-list">
+						<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
+							<text class="maintenance-video-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
+							<text v-if="homeIntroVideo.desc" class="maintenance-video-intro">{{ homeIntroVideo.desc }}</text>
+							<view class="maintenance-video-cover">
+								<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
+								<view v-else class="maintenance-video-placeholder">
+									<text class="maintenance-video-brand">CICADA Dental</text>
+									<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
 								</view>
+								<view class="maintenance-video-shade"></view>
+								<view class="maintenance-play-badge"><text>▶</text></view>
 							</view>
 						</view>
 					</view>
 				</view>
 
 				<view class="section section-contact">
-					<text class="section-title">联系我们</text>
-					<view class="two-grid">
-						<button class="contact-card tap" open-type="contact" @click="openCustomerService">
+					<view class="home-section-heading">
+						<view class="home-section-marker"></view>
+						<text class="section-title">联系我们</text>
+					</view>
+					<view class="contact-grid">
+						<button class="contact-card tap" open-type="contact">
 							<view class="contact-icon">
 								<view class="glyph glyph-chat">
 									<view class="glyph-extra"></view>
@@ -1442,6 +1482,7 @@
 								<text class="contact-title">在线客服</text>
 								<text class="contact-desc">8:00-17:30</text>
 							</view>
+							<text class="contact-action">咨询</text>
 						</button>
 						<view class="contact-card tap" @click="makePhoneCall">
 							<view class="contact-icon">
@@ -1453,44 +1494,44 @@
 								<text class="contact-title">服务热线</text>
 								<text class="contact-desc">{{ contactInfo.phone }}</text>
 							</view>
+							<text class="contact-action">拨打</text>
+						</view>
+					</view>
+					<view class="home-receiver-detail">
+						<view class="receiver-card">
+							<view class="receiver-head">
+								<view class="glyph glyph-pin glyph-pin-title">
+									<view class="glyph-extra"></view>
+								</view>
+								<text>收件信息</text>
+							</view>
+							<view
+								v-for="(item, index) in receiver"
+								:key="item.label"
+								class="receiver-row"
+								:class="{ 'receiver-row-last': index === receiverLastIndex }"
+							>
+								<view class="receiver-line">
+									<view class="receiver-text">
+										<text class="receiver-label">{{ item.label }}</text>
+										<text class="receiver-value" selectable user-select>{{ item.value }}</text>
+									</view>
+									<view class="copy-button tap" @click="copyOne(item.value, item.label)">
+										<view v-if="copied === item.label" class="mini-icon mini-check"></view>
+										<view v-else class="mini-icon mini-copy"></view>
+									</view>
+								</view>
+							</view>
+						</view>
+						<view class="copy-row">
+							<view class="copy-all tap" @click="copyAll">
+								<view class="mini-icon mini-check mini-check-white"></view>
+								<text>{{ copied === 'all' ? '已复制' : '一键复制以上收件信息' }}</text>
+							</view>
 						</view>
 					</view>
 				</view>
 
-				<view class="receiver-wrap">
-					<view class="receiver-card">
-						<view class="receiver-head">
-							<view class="glyph glyph-pin glyph-pin-title">
-								<view class="glyph-extra"></view>
-							</view>
-							<text>收件信息</text>
-						</view>
-						<view
-							v-for="(item, index) in receiver"
-							:key="item.label"
-							class="receiver-row"
-							:class="{ 'receiver-row-last': index === receiverLastIndex }"
-						>
-							<view class="receiver-line">
-								<view class="receiver-text">
-									<text class="receiver-label">{{ item.label }}</text>
-									<text class="receiver-value" selectable user-select>{{ item.value }}</text>
-								</view>
-								<view class="copy-button tap" @click="copyOne(item.value, item.label)">
-									<view v-if="copied === item.label" class="mini-icon mini-check"></view>
-									<view v-else class="mini-icon mini-copy"></view>
-								</view>
-							</view>
-						</view>
-					</view>
-				</view>
-
-				<view class="copy-row">
-					<view class="copy-all tap" @click="copyAll">
-						<view class="mini-icon mini-check mini-check-white"></view>
-						<text>{{ copied === 'all' ? '已复制' : '一键复制以上收件信息' }}</text>
-					</view>
-				</view>
 			</view>
 
 			<view v-else-if="activeTab === 'company'" class="company-body">
@@ -1828,6 +1869,7 @@ import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
 import PolicyDocumentViewer from '@/components/PolicyDocumentViewer.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
+import homeTopBackground from '@/static/home-top-background.jpg'
 import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import {
@@ -2265,18 +2307,6 @@ const docFallbacks = {
 		content: '',
 		sections: []
 	},
-	'guide-quick': {
-		title: '快速指南',
-		icon: 'book',
-		lead: '5 分钟了解小程序核心功能，让售后流程一目了然。',
-		paperTitle: '思科达医疗小程序 — 快速指南',
-		sections: [
-			{ title: '一、故障自查', marker: 'a)', lines: ['点击首页「故障自查」或在导航栏选择「操作指南」。', '选择产品类型，按照指引进行故障排查，即可获得初步解决方案。'] },
-			{ title: '二、如何报修', marker: 'b)', lines: ['点击首页「立即报修」进入报修表单。', '填写产品信息、故障描述、上传附件图片，点击提交完成报修。', '提交后可获得工单号，用于后续进度查询。'] },
-			{ title: '三、维修进度查询', marker: 'c)', lines: ['在首页或「维修进度」页面输入工单号查询。', '维修状态会实时更新，包括：已提交、运输中、已签收、处理中、已回寄、已完成等状态。'] },
-			{ title: '四、自助开票', marker: 'd)', lines: ['维修完成后，在「我的订单」中选择开票。', '选择发票类型，填写开票信息后提交。'] }
-		]
-	},
 	'guide-repair': {
 		title: '报修指南',
 		icon: 'repair',
@@ -2292,18 +2322,6 @@ const docFallbacks = {
 			{ title: '填写产品信息', desc: '选择产品类型，输入产品序列号，填写产品购买日期。' },
 			{ title: '上传故障图片', desc: '详细描述故障现象，上传故障照片或视频。' },
 			{ title: '确认并提交', desc: '核对报修信息无误后，点击提交完成申请。' }
-		]
-	},
-	'guide-query': {
-		title: '查询指南',
-		icon: 'search',
-		lead: '随时随地掌握维修进度，信息透明更安心。',
-		paperTitle: '思科达维修查询指南',
-		sections: [
-			{ title: '一、工单号查询', lines: ['登录后进入「我的 · 维修订单」页面，在顶部搜索框输入 DR 开头的完整工单号。', '即可查看该工单的实时物流进度、检测报告及维修状态。'] },
-			{ title: '二、序列号（SN）查询', lines: ['在「我的 · 维修订单」页面顶部搜索框，输入设备机身刻印的 SN 序列号进行查询。', '该方式可追溯设备的所有历史维修记录及保修剩余时长。'] },
-			{ title: '三、个人中心查询', lines: ['登录小程序后，点击右下角「我的」。', '进入「维修订单」页面，即可查看名下绑定的所有维修申请及进度。'] },
-			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系客服热线 0757-85775667，提供报修时的手机号由客服协助查询。'], marker: '' }
 		]
 	},
 	'guide-invoice': {
@@ -3408,11 +3426,13 @@ const openGuideFromHome = async (id) => {
 }
 
 const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const clientGuideAudiences = new Set(['', 'client', 'public', 'all'])
 
 const normalizeMaintenanceVideos = async (list = []) => {
 	const picked = (Array.isArray(list) ? list : []).filter((item = {}) => {
 		const category = String(item.category || item.title || '')
-		return maintenanceVideoCategories.some((name) => category.includes(name)) && (item.audience === 'client' || !item.audience)
+		const audience = String(item.audience || '').trim().toLowerCase()
+		return maintenanceVideoCategories.some((name) => category.includes(name)) && clientGuideAudiences.has(audience)
 	}).sort((a = {}, b = {}) => {
 		const aCategory = String(a.category || a.title || '')
 		const bCategory = String(b.category || b.title || '')
@@ -3424,7 +3444,11 @@ const normalizeMaintenanceVideos = async (list = []) => {
 	const result = []
 	for (const guide of picked) {
 		const media = Array.isArray(guide.media) ? guide.media : []
-		const video = media.find((item) => item && item.type === 'video' && item.url)
+		let video = media.find((item) => item && item.type === 'video' && item.url)
+		const legacyFileUrl = guide.videoUrl || guide.video_url || guide.fileUrl || guide.file_url || ''
+		if (!video && legacyFileUrl) {
+			video = { url: legacyFileUrl, name: guide.videoName || guide.video_name || guide.fileName || guide.file_name || '' }
+		}
 		if (!video) continue
 		const cover = media.find((item) => item && item.type === 'image' && item.url)
 		let coverUrl = ''
@@ -3551,6 +3575,10 @@ const getDetailAttachmentUrl = (attachment = {}) => {
 	if (fileID && detailAttachmentTempUrls.value[fileID]) return detailAttachmentTempUrls.value[fileID]
 	return getPreviewUrl(attachment)
 }
+
+const getDetailAttachmentCoverUrl = (attachment = {}) => (
+	attachment.coverUrl || attachment.cover_url || attachment.coverPath || attachment.thumbTempFilePath || ''
+)
 
 const resolveDetailAttachmentUrls = async (attachments = []) => {
 	const fileIDs = [...new Set((Array.isArray(attachments) ? attachments : [])
@@ -5157,6 +5185,22 @@ const uploadRepairImage = async (index) => {
 	}
 }
 
+const getVideoCoverPath = (path = '') => new Promise((resolve) => {
+	if (!path || typeof uni.getVideoInfo !== 'function') {
+		resolve('')
+		return
+	}
+	try {
+		uni.getVideoInfo({
+			src: path,
+			success: (result = {}) => resolve(result.thumbTempFilePath || result.thumbPath || ''),
+			fail: () => resolve('')
+		})
+	} catch (error) {
+		resolve('')
+	}
+})
+
 const uploadRepairVideo = async (index) => {
 	const product = repairProducts.value[index]
 	if (!product || product.media.length >= 3) return
@@ -5176,12 +5220,14 @@ const uploadRepairVideo = async (index) => {
 
 		uni.showLoading({ title: '上传中' })
 		loadingShown = true
+		const coverPath = chooseRes.thumbTempFilePath || await getVideoCoverPath(chooseRes.tempFilePath)
 		const uploadRes = await uploadVideo(chooseRes.tempFilePath)
 		repairMediaSeed += 1
 		product.media.push({
 			id: `vid-${repairMediaSeed}`,
 			type: 'video',
 			path: chooseRes.tempFilePath,
+			coverPath,
 			fileID: normalizeUploadFileId(uploadRes),
 			url: normalizeUploadUrl(uploadRes, chooseRes.tempFilePath),
 			duration: chooseRes.duration,
@@ -7370,13 +7416,38 @@ onUnmounted(() => {
 }
 
 .section-basic {
-	padding-top: 48rpx;
+	padding-top: 28rpx;
 }
 
 .section-query,
 .section-guide,
 .section-contact {
-	padding-top: 44rpx;
+	padding-top: 38rpx;
+}
+
+.home-section-heading {
+	height: 54rpx;
+	padding: 0 2rpx 18rpx;
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	box-sizing: content-box;
+}
+
+.home-section-marker {
+	width: 9rpx;
+	height: 38rpx;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+	background: #2F86EA;
+	box-shadow: 0 6rpx 14rpx rgba(47, 134, 234, 0.22);
+}
+
+.home-section-heading .section-title {
+	padding: 0;
+	font-size: 32rpx;
+	font-weight: 800;
+	line-height: 54rpx;
 }
 
 .section-title {
@@ -7408,108 +7479,193 @@ onUnmounted(() => {
 .three-grid {
 	display: flex;
 	align-items: stretch;
-	justify-content: space-between;
+	gap: 14rpx;
 }
 
 .query-grid {
-	display: flex;
-	align-items: stretch;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: 20rpx 0;
-}
-
-.query-grid .service-card {
-	width: 337rpx;
-	min-height: 172rpx;
-	padding: 30rpx 16rpx;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20rpx 16rpx;
 }
 
 .service-card {
-	width: 218rpx;
-	padding: 36rpx 16rpx;
+	min-width: 0;
+	flex: 1;
+	padding: 26rpx 10rpx 22rpx;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 20rpx;
-	border-radius: 28rpx;
+	border-radius: 24rpx;
 	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
 	box-sizing: border-box;
 }
 
+.basic-service-card {
+	min-height: 238rpx;
+}
+
+.service-icon-halo {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+}
+
+.basic-icon-halo {
+	width: 108rpx;
+	height: 108rpx;
+}
+
 .service-icon {
-	width: 96rpx;
-	height: 96rpx;
+	width: 86rpx;
+	height: 86rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	border-radius: 999rpx;
-}
-
-.section-basic .service-icon {
-	width: 112rpx;
-	height: 112rpx;
+	box-shadow: inset 0 2rpx 8rpx rgba(255, 255, 255, 0.24), 0 6rpx 14rpx rgba(29, 78, 145, 0.12);
 }
 
 .section-basic .service-icon .glyph {
 	width: 48rpx;
 	height: 48rpx;
-	transform: scale(1.18);
+	transform: scale(1.06);
 	transform-origin: center center;
 }
 
 .section-basic .service-icon .glyph-box {
-	transform: translateY(-1rpx) scale(1.18);
+	transform: translateY(-1rpx) scale(1.06);
 }
 
 .service-title {
-	font-size: 26rpx;
-	font-weight: 500;
+	display: block;
+	margin-top: 18rpx;
+	font-size: 28rpx;
+	font-weight: 700;
 	line-height: 1.2;
 	color: #0F1F3A;
 }
 
-.two-grid {
+.service-desc {
+	display: block;
+	margin-top: 8rpx;
+	font-size: 21rpx;
+	line-height: 1.3;
+	color: #A0A9B8;
+	white-space: nowrap;
+}
+
+.service-accent {
+	width: 46rpx;
+	height: 5rpx;
+	margin-top: 16rpx;
+	border-radius: 999rpx;
+}
+
+.query-service-card {
+	min-width: 0;
+	min-height: 120rpx;
+	padding: 18rpx 18rpx;
 	display: flex;
-	align-items: stretch;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: 20rpx 0;
+	align-items: center;
+	gap: 16rpx;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
+	box-sizing: border-box;
+}
+
+.query-icon-halo {
+	width: 82rpx;
+	height: 82rpx;
+}
+
+.query-service-icon {
+	width: 64rpx;
+	height: 64rpx;
+}
+
+.query-service-icon .glyph {
+	transform: scale(0.84);
+	transform-origin: center center;
+}
+
+.query-service-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+
+.query-service-copy .service-title {
+	margin-top: 0;
+	font-size: 27rpx;
+	white-space: nowrap;
+}
+
+.query-service-copy .service-desc {
+	margin-top: 8rpx;
+	font-size: 20rpx;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.query-chevron {
+	width: 15rpx;
+	height: 15rpx;
+	flex-shrink: 0;
+	border-right: 5rpx solid;
+	border-bottom: 5rpx solid;
+	transform: rotate(-45deg);
 }
 
 .guide-card {
-	width: 337rpx;
-	min-height: 96rpx;
-	padding: 28rpx;
+	min-width: 0;
+	min-height: 128rpx;
+	padding: 20rpx 22rpx;
 	display: flex;
 	align-items: center;
-	gap: 20rpx;
-	border-radius: 24rpx;
+	gap: 16rpx;
+	border-radius: 22rpx;
 	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 24rpx rgba(30, 111, 224, 0.05);
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
 	box-sizing: border-box;
 }
 
 .guide-icon {
-	width: 68rpx;
-	height: 68rpx;
+	width: 76rpx;
+	height: 76rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
-	border-radius: 18rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
+	border-radius: 17rpx;
+	background: #E8F2FF;
+	color: #2F86EA;
+}
+
+.guide-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
 }
 
 .guide-title {
-	min-width: 0;
-	flex: 1;
 	font-size: 27rpx;
-	font-weight: 500;
+	font-weight: 700;
 	line-height: 1.25;
 	color: #0F1F3A;
+}
+
+.guide-desc {
+	margin-top: 8rpx;
+	font-size: 20rpx;
+	line-height: 1.25;
+	color: #A0A9B8;
+	white-space: nowrap;
 }
 
 .tutorial-guide-grid {
@@ -7521,7 +7677,6 @@ onUnmounted(() => {
 .tutorial-guide-grid .guide-card {
 	width: auto;
 	min-width: 0;
-	min-height: 112rpx;
 }
 
 .maintenance-video-wrap {
@@ -7565,11 +7720,26 @@ onUnmounted(() => {
 
 .maintenance-video-title {
 	display: block;
-	margin-bottom: 18rpx;
 	font-size: 31rpx;
 	font-weight: 700;
 	line-height: 1.35;
 	color: #0F1F3A;
+}
+
+.maintenance-video-intro {
+	display: -webkit-box;
+	margin-top: 6rpx;
+	margin-bottom: 18rpx;
+	font-size: 23rpx;
+	line-height: 1.5;
+	color: #6B7C97;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+
+.maintenance-video-title + .maintenance-video-cover {
+	margin-top: 18rpx;
 }
 
 .maintenance-video-cover {
@@ -7662,48 +7832,95 @@ onUnmounted(() => {
 }
 
 .contact-card {
-	width: 337rpx;
-	min-height: 104rpx;
-	padding: 28rpx;
+	width: auto;
+	min-width: 0;
+	min-height: 124rpx;
+	margin: 0;
+	padding: 20rpx 18rpx;
 	display: flex;
 	align-items: center;
-	gap: 20rpx;
-	border-radius: 24rpx;
-	background: #D7E3FA;
-	box-shadow: 0 4rpx 16rpx rgba(30, 111, 224, 0.08);
+	gap: 14rpx;
+	border: 0;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
+	line-height: normal;
 	box-sizing: border-box;
 }
 
+.contact-card::after {
+	border: 0;
+}
+
+.contact-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16rpx;
+}
+
 .contact-icon {
-	width: 76rpx;
-	height: 76rpx;
+	width: 72rpx;
+	height: 72rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.6);
-	color: #1E6FE0;
+	border-radius: 17rpx;
+	background: #E8F2FF;
+	color: #2F86EA;
+}
+
+.contact-icon .glyph {
+	transform: scale(0.82);
+	transform-origin: center center;
 }
 
 .contact-copy {
 	min-width: 0;
+	flex: 1;
 	display: flex;
 	flex-direction: column;
 }
 
 .contact-title {
-	font-size: 27rpx;
+	font-size: 25rpx;
 	font-weight: 700;
 	line-height: 1.2;
-	color: #0F1F3A;
+	color: #2F86EA;
+	white-space: nowrap;
 }
 
 .contact-desc {
 	margin-top: 6rpx;
-	font-size: 22rpx;
+	font-size: 20rpx;
 	line-height: 1.2;
-	color: #1E6FE0;
+	color: #66758B;
+	white-space: nowrap;
+}
+
+.contact-action {
+	min-width: 68rpx;
+	height: 48rpx;
+	padding: 0 12rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+	background: #2F86EA;
+	color: #FFFFFF;
+	font-size: 21rpx;
+	font-weight: 700;
+	line-height: 48rpx;
+	box-sizing: border-box;
+}
+
+.home-receiver-detail {
+	margin-top: 16rpx;
+}
+
+.home-receiver-detail .copy-row {
+	padding: 16rpx 0 0;
 }
 
 .receiver-wrap {
@@ -9231,6 +9448,11 @@ onUnmounted(() => {
 	background: transparent;
 }
 
+.mini-copy-white::before,
+.mini-copy-white::after {
+	border-color: #FFFFFF;
+}
+
 .mini-external::before {
 	left: 8rpx;
 	top: 8rpx;
@@ -9854,12 +10076,27 @@ onUnmounted(() => {
 }
 
 .media-video {
+	position: relative;
+	width: 100%;
+	height: 100%;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 	gap: 8rpx;
 	color: #1E6FE0;
+}
+
+.media-video-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8rpx;
+	background: rgba(15, 31, 58, 0.24);
+	color: #FFFFFF;
 }
 
 .media-remove {
@@ -11598,11 +11835,36 @@ onUnmounted(() => {
 }
 
 .detail-order-no {
-	display: block;
-	margin-top: 8rpx;
+	min-width: 0;
+	flex: 1;
 	font-size: 32rpx;
 	font-weight: 800;
 	letter-spacing: 1rpx;
+	word-break: break-all;
+}
+
+.detail-order-no-row {
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+	margin-top: 8rpx;
+}
+
+.detail-order-copy {
+	min-width: 92rpx;
+	height: 52rpx;
+	padding: 0 14rpx;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6rpx;
+	flex-shrink: 0;
+	border: 2rpx solid rgba(255, 255, 255, 0.58);
+	border-radius: 12rpx;
+	box-sizing: border-box;
+	color: #FFFFFF;
+	font-size: 21rpx;
+	font-weight: 600;
 }
 
 .detail-hero-grid {
@@ -11750,9 +12012,27 @@ onUnmounted(() => {
 	color: #64748B;
 }
 
-.detail-video-placeholder text {
+.detail-video-placeholder {
+	position: relative;
+}
+
+.detail-video-placeholder image {
+	width: 100%;
+	height: 100%;
+}
+
+.detail-video-play {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(15, 31, 58, 0.2);
+}
+
+.detail-video-play text {
 	font-size: 38rpx;
-	color: #1E6FE0;
+	color: #FFFFFF;
 }
 
 .detail-attachment > text:last-child {
@@ -13896,63 +14176,40 @@ onUnmounted(() => {
 	margin-bottom: 20rpx;
 	padding: 28rpx;
 	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 20rpx;
-}
-
-.order-card-mini > view:first-child {
-	min-width: 0;
-	flex: 1;
-	display: flex;
 	flex-direction: column;
-	gap: 8rpx;
-}
-
-.order-card-mini > view:first-child text:nth-child(2) {
-	font-size: 28rpx;
-	font-weight: 700;
-	line-height: 1.35;
-	color: #0F1F3A;
-}
-
-.order-card-mini > view:first-child text:last-child {
-	font-size: 23rpx;
-	color: #6B7C97;
-}
-
-.order-card-mini > view:last-child {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	gap: 12rpx;
-}
-
-.order-card-mini > view:last-child text:last-child {
-	font-size: 30rpx;
-	font-weight: 800;
-	color: #0F1F3A;
+	gap: 14rpx;
 }
 
 .order-card-classic {
-	padding: 32rpx 30rpx;
-	border-radius: 30rpx;
+	padding: 28rpx 30rpx 26rpx;
+	border-radius: 24rpx;
 	background: rgba(255, 255, 255, 0.96);
 	box-shadow: 0 10rpx 28rpx rgba(79, 112, 168, 0.08);
 }
 
-.order-card-main {
+.order-card-head {
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.order-card-no {
 	min-width: 0;
 	flex: 1;
-	display: flex;
-	flex-direction: column;
-	gap: 10rpx;
+	font-size: 22rpx;
+	line-height: 1.35;
+	color: #8795AB;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .order-card-title {
 	display: block;
 	max-width: 100%;
-	font-size: 28rpx;
+	font-size: 30rpx;
 	font-weight: 700;
 	line-height: 1.35;
 	color: #0F1F3A;
@@ -13962,56 +14219,83 @@ onUnmounted(() => {
 }
 
 .order-card-fault {
-	display: block;
 	max-width: 100%;
-	font-size: 23rpx;
-	line-height: 1.35;
+	font-size: 24rpx;
+	line-height: 1.5;
 	color: #6B7C97;
-	white-space: nowrap;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
 	overflow: hidden;
-	text-overflow: ellipsis;
 }
 
 .order-card-meta {
 	max-width: 100%;
 	display: flex;
 	align-items: center;
-	gap: 12rpx;
-	overflow: hidden;
+	flex-wrap: wrap;
+	gap: 10rpx 12rpx;
 }
 
 .order-card-meta text {
 	min-width: 0;
 	max-width: 100%;
-	padding: 4rpx 10rpx;
-	border-radius: 999rpx;
+	padding: 6rpx 12rpx;
+	border-radius: 8rpx;
 	background: #F3F8FF;
-	color: #5A6C8D;
-	font-size: 21rpx;
-	line-height: 1.25;
+	color: #566A89;
+	font-size: 22rpx;
+	font-weight: 500;
+	line-height: 1.35;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-.order-card-date {
-	font-size: 23rpx;
-	line-height: 1.3;
-	color: #6B7C97;
+.order-card-footer {
+	min-width: 0;
+	padding-top: 16rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+	border-top: 2rpx solid #EEF3FA;
 }
 
-.order-card-side {
+.order-card-date {
+	min-width: 0;
+	font-size: 22rpx;
+	line-height: 1.3;
+	color: #8795AB;
+	white-space: nowrap;
+}
+
+.order-card-action {
 	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	gap: 18rpx;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10rpx;
+	flex-shrink: 0;
+	font-size: 22rpx;
+	font-weight: 600;
+	line-height: 1.2;
+	color: #1E6FE0;
 }
 
 .order-card-price {
-	font-size: 30rpx;
+	margin-right: 6rpx;
+	font-size: 26rpx;
 	font-weight: 800;
 	line-height: 1.2;
 	color: #0F1F3A;
+}
+
+.order-card-chevron {
+	width: 12rpx;
+	height: 12rpx;
+	border-top: 3rpx solid currentColor;
+	border-right: 3rpx solid currentColor;
+	transform: rotate(45deg);
 }
 
 .product-card {

@@ -19,21 +19,21 @@ export const logisticsList = [
 ]
 
 export const basics = [
-	{ id: 'repair', title: '立即报修', icon: 'repair', color: '#1E6FE0', bg: '#DCE6FA' },
-	{ id: 'track', title: '服务进度', icon: 'track', color: '#C97A6B', bg: '#F8E2DA' },
-	{ id: 'package-query', title: '包裹查询', icon: 'box', color: '#10B981', bg: '#DCFCE7' }
+	{ id: 'repair', title: '立即报修', desc: '快速提交维修申请', icon: 'repair', color: '#2F86EA', bg: '#DDEBFF' },
+	{ id: 'track', title: '服务进度', desc: '实时跟踪处理进度', icon: 'track', color: '#FF7638', bg: '#FFE7DC' },
+	{ id: 'package-query', title: '包裹查询', desc: '查询物流配送状态', icon: 'box', color: '#55C87A', bg: '#DEF4E5' }
 ]
 
 export const queries = [
-	{ id: 'diag', title: '故障自查', icon: 'diag', color: '#0A4FB8', bg: '#D7E3FA' },
-	{ id: 'survey', title: '调研有礼', icon: 'gift', color: '#8E96A8', bg: '#E5E7EE' },
-	{ id: 'warranty', title: '保修政策', icon: 'shield', color: '#1E6FE0', bg: '#E8F1FE' },
-	{ id: 'fees', title: '收费指南', icon: 'money', color: '#D97706', bg: '#FFF7E6' }
+	{ id: 'diag', title: '故障自查', desc: '常见问题自助排查', icon: 'diag', color: '#5AA1F2', bg: '#DDEBFF' },
+	{ id: 'survey', title: '调研有礼', desc: '参与调研领取好礼', icon: 'gift', color: '#8374F2', bg: '#E9E5FF' },
+	{ id: 'warranty', title: '保修政策', desc: '查询保修政策说明', icon: 'shield', color: '#43B8EB', bg: '#DDF3FC' },
+	{ id: 'fees', title: '收费指南', desc: '了解收费标准说明', icon: 'money', color: '#F5B32A', bg: '#FFF0CF' }
 ]
 
 export const guides = [
-	{ id: 'guide-repair', title: '报修指南', icon: 'repair' },
-	{ id: 'guide-invoice', title: '开票指南', icon: 'invoice' }
+	{ id: 'guide-repair', title: '报修指南', desc: '教你如何快速报修', icon: 'repair' },
+	{ id: 'guide-invoice', title: '开票指南', desc: '发票申请操作指引', icon: 'invoice' }
 ]
 
 export const defaultReceiver = [
