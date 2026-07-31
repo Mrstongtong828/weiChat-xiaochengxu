@@ -219,9 +219,9 @@ async function checkRateLimit(scope, identity, options) {
           scope,
           identity,
           count: 1,
-          reset_time: now + config.windowMs,
-          create_time: now,
-          update_time: now
+          reset_time: new Date(now + config.windowMs),
+          create_time: new Date(now),
+          update_time: new Date(now)
         })
         return
       } catch (error) {
@@ -230,14 +230,14 @@ async function checkRateLimit(scope, identity, options) {
       }
     }
 
-    if (now > Number(record.reset_time || 0)) {
+    if (now > new Date(record.reset_time || 0).getTime()) {
       const reset = await col.where({
         _id: record._id,
-        reset_time: db.command.lt(now)
+        reset_time: db.command.lt(new Date(now))
       }).update({
         count: 1,
-        reset_time: now + config.windowMs,
-        update_time: now
+        reset_time: new Date(now + config.windowMs),
+        update_time: new Date(now)
       })
       if (reset.updated) return
       continue
@@ -245,11 +245,11 @@ async function checkRateLimit(scope, identity, options) {
 
     const increment = await col.where({
       _id: record._id,
-      reset_time: db.command.gte(now),
+      reset_time: db.command.gte(new Date(now)),
       count: db.command.lt(config.max)
     }).update({
       count: db.command.inc(1),
-      update_time: now
+      update_time: new Date(now)
     })
     if (increment.updated) return
     throw new Error('操作过于频繁，请稍后再试')
@@ -570,7 +570,8 @@ module.exports = {
         contact_value: normalizeText(contact_value).slice(0, 80),
         rel_order_no: linkedOrderNo,
         status: '待处理',
-        create_time: Date.now()
+        // Alipay uniCloud 的 timestamp 字段必须传 Date，不能传毫秒数。
+        create_time: new Date()
       })
       return { code: 0, data: { id: res.id, ticketNo: res.id, images: feedbackImages } }
     } catch (e) {
