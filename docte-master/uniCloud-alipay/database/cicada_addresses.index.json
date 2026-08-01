@@ -1,0 +1,15 @@
+[
+  {
+    "IndexName": "idx_user_id",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "user_id",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

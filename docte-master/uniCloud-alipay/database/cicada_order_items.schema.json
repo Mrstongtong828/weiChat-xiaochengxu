@@ -1,0 +1,86 @@
+{
+  "bsonType": "object",
+  "required": [
+    "order_id",
+    "product_name"
+  ],
+  "permission": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "properties": {
+    "_id": {
+      "description": "ID"
+    },
+    "order_id": {
+      "bsonType": "string"
+    },
+    "product_name": {
+      "bsonType": "string"
+    },
+    "product_model": {
+      "bsonType": "string"
+    },
+    "sn": {
+      "bsonType": "string"
+    },
+    "sn_normalized": {
+      "bsonType": "string",
+      "description": "SN 规范化键（大写、去空格/横杠），用于容错检索匹配"
+    },
+    "product_category": {
+      "bsonType": "string",
+      "description": "设备分类（后台回填）"
+    },
+    "buy_date": {
+      "bsonType": "string"
+    },
+    "warranty_months": {
+      "bsonType": "int",
+      "description": "可选质保月数；仅在明确填写时参与质保推算"
+    },
+    "warranty_expire": {
+      "bsonType": "string",
+      "description": "可选质保截止日 YYYY-MM-DD；填写时优先于月数推算"
+    },
+    "warranty_status": {
+      "bsonType": "string",
+      "description": "本产品质保状态快照：in_warranty / extended / expired / unknown"
+    },
+    "coverage_result": {
+      "bsonType": "string",
+      "description": "本次维修收费结论：pending / free / paid / partial / not_covered"
+    },
+    "coverage_reason": {
+      "bsonType": "string",
+      "description": "本次维修收费/质保原因，如 quality_issue / human_damage / consumable / expired / missing_proof / other"
+    },
+    "coverage_note": {
+      "bsonType": "string",
+      "description": "工程师质保核验备注"
+    },
+    "fault_desc": {
+      "bsonType": "string"
+    },
+    "media_urls": {
+      "bsonType": "array"
+    },
+    "voucher_urls": {
+      "bsonType": "array",
+      "description": "购买凭证图片列表"
+    },
+    "image_urls": {
+      "bsonType": "array",
+      "description": "故障图片列表"
+    },
+    "video_urls": {
+      "bsonType": "array",
+      "description": "故障视频列表"
+    },
+    "fix_solution": {
+      "bsonType": "string"
+    }
+  }
+}

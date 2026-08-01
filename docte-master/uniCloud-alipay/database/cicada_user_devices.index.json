@@ -1,0 +1,100 @@
+[
+  {
+    "IndexName": "idx_user_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "user_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_user_sn",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "user_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "sn",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_user_sn_normalized",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "user_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "sn_normalized",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_sn_normalized",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "sn_normalized",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_customer_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "customer_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_sn",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "sn",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": true
+    }
+  }
+]

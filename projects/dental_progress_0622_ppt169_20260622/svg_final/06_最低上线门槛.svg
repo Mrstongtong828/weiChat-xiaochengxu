@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+  </g>
+  <g id="p06-header">
+    <rect x="72" y="56" width="6" height="34" fill="#1565C0"/>
+    <text x="92" y="84" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="30" font-weight="bold" fill="#1A2230">最低上线门槛 · 达成 </text>
+    <text x="430" y="84" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="30" font-weight="bold" fill="#D32F2F">0 / 12</text>
+    <text x="1208" y="82" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#93A0B0">代码就绪 8 项，卡在部署 / 配置 / 验收</text>
+    <line x1="72" y1="108" x2="1208" y2="108" stroke="#E5EAF0" stroke-width="1"/>
+  </g>
+  <g id="gate-head">
+    <rect x="72" y="150" width="1136" height="36" fill="#0D3B66"/>
+    <text x="88" y="174" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">#</text>
+    <text x="126" y="174" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">门槛</text>
+    <text x="620" y="174" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">代码</text>
+    <text x="752" y="174" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">部署 / 配置 / 验收</text>
+    <text x="1200" y="174" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" font-weight="bold" fill="#FFFFFF">综合</text>
+  </g>
+  <g id="gate-rows-a">
+    <rect x="72" y="186" width="1136" height="39" fill="#F4F7FB"/>
+    <text x="88" y="212" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">01</text>
+    <text x="126" y="212" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">正式 AppID 真机登录成功</text>
+    <text x="620" y="212" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="212" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">真机未验收</text>
+    <text x="1200" y="212" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <text x="88" y="251" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">02</text>
+    <text x="126" y="251" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">正式库可建工单，后台可见</text>
+    <text x="620" y="251" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="251" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">未连正式环境</text>
+    <text x="1200" y="251" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <rect x="72" y="264" width="1136" height="39" fill="#F4F7FB"/>
+    <text x="88" y="290" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">03</text>
+    <text x="126" y="290" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">后台改状态，小程序进度同步</text>
+    <text x="620" y="290" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="290" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">未验收</text>
+    <text x="1200" y="290" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <text x="88" y="329" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">04</text>
+    <text x="126" y="329" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">后台发报价，小程序可确认</text>
+    <text x="620" y="329" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="329" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">未验收</text>
+    <text x="1200" y="329" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <rect x="72" y="342" width="1136" height="39" fill="#F4F7FB"/>
+    <text x="88" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">05</text>
+    <text x="126" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">微信支付或对公凭证至少一条可用</text>
+    <text x="620" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="368" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">WX_PAY_* 未配置</text>
+    <text x="1200" y="368" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <text x="88" y="407" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">06</text>
+    <text x="126" y="407" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">发票申请与后台开票状态同步</text>
+    <text x="620" y="407" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="407" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">未验收</text>
+    <text x="1200" y="407" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+  </g>
+  <g id="gate-rows-b">
+    <rect x="72" y="420" width="1136" height="39" fill="#F4F7FB"/>
+    <text x="88" y="446" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">07</text>
+    <text x="126" y="446" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">回寄物流小程序可见</text>
+    <text x="620" y="446" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="446" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">未验收</text>
+    <text x="1200" y="446" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <text x="88" y="485" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">08</text>
+    <text x="126" y="485" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">订阅消息成功 / 失败 / 拒绝可追踪</text>
+    <text x="620" y="485" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">就绪</text>
+    <text x="752" y="485" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">模板 ID 未配</text>
+    <text x="1200" y="485" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <rect x="72" y="498" width="1136" height="39" fill="#F4F7FB"/>
+    <text x="88" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">09</text>
+    <text x="126" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">PC 后台正式域名 HTTPS 可访问</text>
+    <text x="620" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">—</text>
+    <text x="752" y="524" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">未部署</text>
+    <text x="1200" y="524" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <text x="88" y="563" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">10</text>
+    <text x="126" y="563" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">不依赖 localhost / mock / 开发云空间</text>
+    <text x="620" y="563" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">—</text>
+    <text x="752" y="563" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">当前连开发云空间</text>
+    <text x="1200" y="563" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <rect x="72" y="576" width="1136" height="39" fill="#F4F7FB"/>
+    <text x="88" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">11</text>
+    <text x="126" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">数据库唯一 + 关键复合索引已创建</text>
+    <text x="620" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#2E7D32">清单</text>
+    <text x="752" y="602" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">控制台未创建</text>
+    <text x="1200" y="602" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#D32F2F">未达</text>
+    <text x="88" y="641" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">12</text>
+    <text x="126" y="641" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#1A2230">客户可见资料全部正式版本</text>
+    <text x="620" y="641" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#93A0B0">—</text>
+    <text x="752" y="641" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">热线 / 资质待确认</text>
+    <text x="1200" y="641" text-anchor="end" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="15" fill="#B7791F">待确认</text>
+  </g>
+  <g id="p06-footer">
+    <text x="72" y="678" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#93A0B0">门槛达成 0 / 12：代码侧已就绪 8 项，但全部卡在部署 / 配置 / 验收，任一未过原则上不得提审。</text>
+    <text x="1208" y="702" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">2026-06-22 · P06 / 12</text>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+{
+  "name": "cicada-client-public",
+  "version": "1.0.0",
+  "dependencies": {
+    "cicada-subscription-message": "file:../common/cicada-subscription-message"
+  },
+  "cloudfunction-config": {
+    "path": "/cicada-client-public"
+  }
+}

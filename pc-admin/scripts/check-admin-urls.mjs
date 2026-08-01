@@ -1,0 +1,149 @@
+import fs from 'node:fs'
+import path from 'node:path'
+
+const projectRoot = process.cwd()
+
+function parseEnvFile(filePath) {
+  if (!fs.existsSync(filePath)) return {}
+  return fs.readFileSync(filePath, 'utf8')
+    .split(/\r?\n/)
+    .reduce((env, line) => {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) return env
+      const index = trimmed.indexOf('=')
+      if (index <= 0) return env
+      const key = trimmed.slice(0, index).trim()
+      const value = trimmed.slice(index + 1).trim().replace(/^['"]|['"]$/g, '')
+      env[key] = value
+      return env
+    }, {})
+}
+
+const fileEnv = {
+  ...parseEnvFile(path.join(projectRoot, '.env')),
+  ...parseEnvFile(path.join(projectRoot, '.env.local')),
+  ...parseEnvFile(path.join(projectRoot, '.env.production')),
+  ...parseEnvFile(path.join(projectRoot, '.env.production.local'))
+}
+
+const readEnv = (key) => process.env[key] || fileEnv[key] || ''
+const normalizeBase = (base = '') => String(base || '').replace(/\/$/, '')
+const cloudBase = normalizeBase(readEnv('VITE_UNICLOUD_BASE_URL'))
+const resolveUrl = (envKey, functionName) => {
+  const explicitUrl = normalizeBase(readEnv(envKey))
+  if (explicitUrl) return explicitUrl
+  if (cloudBase) return `${cloudBase}/${functionName}`
+  throw new Error(`Missing ${envKey} or VITE_UNICLOUD_BASE_URL; refusing to use a default cloud environment.`)
+}
+
+const adminOrderUrl = resolveUrl('VITE_ADMIN_ORDER_URL', 'cicada-admin-order')
+const adminSysUrl = resolveUrl('VITE_ADMIN_SYS_URL', 'cicada-admin-sys')
+const adminKbUrl = resolveUrl('VITE_ADMIN_KB_URL', 'cicada-admin-kb')
+const adminCustomerUrl = resolveUrl('VITE_ADMIN_CUSTOMER_URL', 'cicada-admin-customer')
+const clientPublicUrl = normalizeBase(readEnv('VITE_CLIENT_PUBLIC_URL') || adminOrderUrl)
+const invalidToken = `codex-healthcheck-${Date.now()}`
+
+async function postJson(url, body) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    })
+    const text = await res.text()
+    let json = null
+    try {
+      json = text ? JSON.parse(text) : null
+    } catch {}
+    return { status: res.status, text, json }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function isExpectedAuthFailure(result) {
+  const message = result.json && (result.json.msg || result.json.message)
+  const rawText = result.text || ''
+  const hasAuthFailure =
+    (typeof message === 'string' && message.includes('鉴权失败')) ||
+    rawText.includes('鉴权失败')
+  const businessCode = result.json && Number(result.json.code)
+
+  // uniCloud cloud objects may serialize a handled business error as HTTP 200.
+  return [200, 401].includes(result.status) && hasAuthFailure && businessCode === 401
+}
+
+function getResultMessage(result) {
+  const message = result.json && (result.json.msg || result.json.message)
+  if (message) return message
+  if ((result.text || '').includes('鉴权失败')) return '鉴权失败'
+  return ''
+}
+
+const checks = [
+  {
+    name: 'getAdminOrderList invalid token',
+    url: `${adminOrderUrl}/getAdminOrderList`,
+    body: { token: invalidToken, page: 1, pageSize: 1, responseMode: 'page' }
+  },
+  {
+    name: 'getTodoSummary invalid token',
+    url: `${adminOrderUrl}/getTodoSummary`,
+    body: { token: invalidToken },
+    expect: isExpectedAuthFailure
+  },
+  {
+    name: 'manageStaff invalid token',
+    url: `${adminSysUrl}/manageStaff`,
+    body: { token: invalidToken, action: 'list' }
+  },
+  {
+    name: 'manageCategories invalid token',
+    url: `${adminKbUrl}/manageCategories`,
+    body: { token: invalidToken, action: 'list' }
+  },
+  {
+    name: 'getPermissionConfig invalid token',
+    url: `${adminCustomerUrl}/getPermissionConfig`,
+    body: { token: invalidToken }
+  },
+  {
+    name: 'getSubscriptionConfig reachable',
+    url: `${clientPublicUrl}/getSubscriptionConfig`,
+    body: {},
+    expect: (result) => {
+      const data = result.json && result.json.data
+      return result.status === 200 &&
+        result.json &&
+        result.json.code === 0 &&
+        data &&
+        Array.isArray(data.templates)
+    }
+  }
+].map((check) => ({ expect: isExpectedAuthFailure, ...check }))
+
+let failed = false
+
+for (const check of checks) {
+  try {
+    const result = await postJson(check.url, check.body)
+    if (check.expect(result)) {
+      console.log(`[ok] ${check.name}: ${result.status} ${getResultMessage(result)}`)
+    } else {
+      failed = true
+      const body = result.text ? result.text.slice(0, 300) : '<empty body>'
+      console.error(`[fail] ${check.name}: ${result.status} ${body}`)
+    }
+  } catch (error) {
+    failed = true
+    console.error(`[fail] ${check.name}: ${error.message}`)
+  }
+}
+
+if (failed) {
+  console.error('Admin cloud function URL healthcheck failed. Check .env.local URLs and redeploy cloud functions.')
+  process.exitCode = 1
+}

@@ -1,0 +1,74 @@
+[
+  {
+    "IndexName": "idx_part_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "part_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_order_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "order_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_order_no_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "order_no",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_flow_type_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "flow_type",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

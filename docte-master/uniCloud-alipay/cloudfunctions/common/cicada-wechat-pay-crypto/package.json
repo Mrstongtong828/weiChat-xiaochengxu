@@ -1,0 +1,6 @@
+{
+  "name": "cicada-wechat-pay-crypto",
+  "version": "1.0.0",
+  "description": "微信支付 API v3 公钥模式响应与通知验签",
+  "main": "index.js"
+}

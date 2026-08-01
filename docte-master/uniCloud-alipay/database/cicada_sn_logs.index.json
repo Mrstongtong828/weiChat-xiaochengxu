@@ -1,0 +1,56 @@
+[
+  {
+    "IndexName": "idx_create_time",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_sn_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "sn_normalized",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_source_action_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "source",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "action",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

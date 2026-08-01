@@ -1,0 +1,15 @@
+[
+  {
+    "IndexName": "idx_category_id",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "category_id",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

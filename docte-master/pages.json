@@ -1,0 +1,71 @@
+{
+	"pages": [
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "",
+				"enablePullDownRefresh": true
+			}
+		},
+		{
+			"path": "pages/login/index",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "登录"
+			}
+		}
+	],
+	"subPackages": [
+		{
+			"root": "pages-sub",
+			"pages": [
+				{
+					"path": "legal/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": ""
+					}
+				},
+				{
+					"path": "company/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": "公司介绍"
+					}
+				},
+				{
+					"path": "mine/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": "个人中心"
+					}
+				},
+				{
+					"path": "address/index",
+					"style": {
+						"navigationStyle": "custom",
+						"navigationBarTitleText": "收货地址管理"
+					}
+				},
+				{
+					"path": "webview/index",
+					"style": {
+						"navigationBarTitleText": "产品视频"
+					}
+				}
+			]
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "牙医仪器检修",
+		"navigationBarBackgroundColor": "#E8EEFA",
+		"backgroundColor": "#E8EEFA",
+		"usingComponents": {
+			"mp-checkbox": "weui-miniprogram/checkbox/checkbox",
+			"mp-checkbox-group": "weui-miniprogram/checkbox-group/checkbox-group"
+		}
+	},
+	"uniIdRouter": {}
+}

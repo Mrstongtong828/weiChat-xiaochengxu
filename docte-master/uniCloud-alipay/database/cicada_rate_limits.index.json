@@ -1,0 +1,28 @@
+[
+  {
+    "IndexName": "idx_key",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "key",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": true
+    }
+  },
+  {
+    "IndexName": "idx_reset_time",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "reset_time",
+          "Direction": "1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

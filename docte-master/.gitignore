@@ -1,0 +1,15 @@
+node_modules/
+.npm-cache/
+unpackage/
+.hbuilderx/
+.DS_Store
+.env
+.env.local
+.env.*.local
+unicloud.spaces.local.json
+uniCloud-alipay/cloudfunctions/**/.env
+uniCloud-alipay/cloudfunctions/**/wechat.private.config.js
+!.env.example
+project.private.config.json
+preview-info.json
+preview-qr.jpg

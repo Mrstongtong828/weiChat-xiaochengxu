@@ -1,0 +1,101 @@
+{
+  "bsonType": "object",
+  "required": [
+    "openid",
+    "role",
+    "create_time"
+  ],
+  "permission": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "properties": {
+    "_id": {
+      "description": "ID"
+    },
+    "openid": {
+      "bsonType": "string"
+    },
+    "username": {
+      "bsonType": "string"
+    },
+    "password": {
+      "bsonType": "string"
+    },
+    "password_hash": {
+      "bsonType": "string"
+    },
+    "password_salt": {
+      "bsonType": "string"
+    },
+    "token": {
+      "bsonType": "string"
+    },
+    "token_expire": {
+      "bsonType": "timestamp"
+    },
+    "role": {
+      "bsonType": "string",
+      "enum": [
+        "user",
+        "superadmin",
+        "admin",
+        "engineer",
+        "finance",
+        "support"
+      ]
+    },
+    "phone": {
+      "bsonType": "string"
+    },
+    "email": {
+      "bsonType": "string",
+      "description": "后台员工找回密码邮箱，统一存储为小写"
+    },
+    "name": {
+      "bsonType": "string"
+    },
+    "nickname": {
+      "bsonType": "string"
+    },
+    "avatar": {
+      "bsonType": "string"
+    },
+    "device_categories": {
+      "bsonType": "array",
+      "description": "负责维修的设备品类"
+    },
+    "service_areas": {
+      "bsonType": "array",
+      "description": "负责区域"
+    },
+    "disabled": {
+      "bsonType": "bool"
+    },
+    "last_login": {
+      "bsonType": "timestamp"
+    },
+    "last_login_ip": {
+      "bsonType": "string"
+    },
+    "last_failed_login": {
+      "bsonType": "timestamp"
+    },
+    "failed_login_count": {
+      "bsonType": "int"
+    },
+    "lock_until": {
+      "bsonType": "timestamp",
+      "description": "后台登录失败后的临时锁定截止时间"
+    },
+    "must_change_password": {
+      "bsonType": "bool",
+      "description": "临时密码登录后必须修改密码"
+    },
+    "create_time": {
+      "bsonType": "timestamp"
+    }
+  }
+}

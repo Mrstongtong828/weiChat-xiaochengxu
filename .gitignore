@@ -1,0 +1,18 @@
+node_modules/
+.npm-cache/
+unpackage/
+.hbuilderx/
+.DS_Store
+.env
+.env.local
+.env.*.local
+!.env.example
+project.private.config.json
+preview-info.json
+preview-qr.jpg
+# 打包备份产物（如 docte-master-...-上传版-*.zip），不纳入源码仓库
+docte-master-*.zip
+# codegraph 本地索引
+.codegraph/
+# Claude Code 本地配置与技能
+.claude/

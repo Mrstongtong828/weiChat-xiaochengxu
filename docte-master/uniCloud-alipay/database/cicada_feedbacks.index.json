@@ -1,0 +1,74 @@
+[
+  {
+    "IndexName": "idx_user_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "user_id",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_status_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "status",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_type_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "type",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_urgency_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "urgency",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

@@ -1,0 +1,28 @@
+[
+  {
+    "IndexName": "idx_order_id",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "order_id",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_sn_normalized",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "sn_normalized",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

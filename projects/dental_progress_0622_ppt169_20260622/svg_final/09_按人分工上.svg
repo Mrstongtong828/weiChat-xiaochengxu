@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#FFFFFF" />
+  </g>
+  <g id="p09-header">
+    <rect x="72" y="56" width="6" height="34" fill="#1565C0" />
+    <text x="92" y="84" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="30" font-weight="bold" fill="#1A2230">按人分工 · 卡点（上）</text>
+    <text x="1208" y="82" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="14" fill="#93A0B0">资料 / 平台配置 / 云端</text>
+    <line x1="72" y1="108" x2="1208" y2="108" stroke="#E5EAF0" stroke-width="1" />
+  </g>
+  <g id="card-wu">
+    <rect x="72" y="150" width="362" height="500" fill="#F4F7FB" />
+    <rect x="72" y="150" width="362" height="4" fill="#1565C0" />
+    
+  <g transform="translate(100, 178) scale(1.5)" fill="none" stroke="#1565C0" stroke-width="2">
+    <path d="M5 7a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" />
+    <path d="M3 21v-2a4 4 0 0 1 4 -4h4a4 4 0 0 1 4 4v2" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    <path d="M21 21v-2a4 4 0 0 0 -3 -3.85" />
+  </g>
+    <text x="148" y="206" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="24" font-weight="bold" fill="#1A2230">吴彤彤</text>
+    <text x="100" y="244" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#1565C0">客户资料 + 上线总控</text>
+    <line x1="100" y1="266" x2="406" y2="266" stroke="#E5EAF0" stroke-width="1" />
+    <text x="100" y="300" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="14" fill="#93A0B0">关键卡点</text>
+    <rect x="100" y="328" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="120" y="338">收齐正式资料：AppID / 云空间 /</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="120" y="364">商户号 / 域名 / 客服 / Logo / 政策</text><rect x="100" y="424" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="120" y="434">确认权威客服热线号</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="120" y="460">（暂用 0757-85775667）</text><rect x="100" y="520" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="120" y="530">组织每日进度同步，跟踪</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="120" y="556">支付 / 订阅 / URL / 索引 / 真机</text></g>
+  <g id="card-chen">
+    <rect x="458" y="150" width="362" height="500" fill="#F4F7FB" />
+    <rect x="458" y="150" width="362" height="4" fill="#1565C0" />
+    
+  <g transform="translate(486, 178) scale(1.5)" fill="none" stroke="#1565C0" stroke-width="2">
+    <path d="M10 5a2 2 0 1 1 4 0a7 7 0 0 1 4 6v3a4 4 0 0 0 2 3h-16a4 4 0 0 0 2 -3v-3a7 7 0 0 1 4 -6" />
+    <path d="M9 17v1a3 3 0 0 0 6 0v-1" />
+  </g>
+    <text x="534" y="206" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="24" font-weight="bold" fill="#1A2230">陈莎</text>
+    <text x="486" y="244" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#1565C0">微信平台 / 支付 / 订阅</text>
+    <line x1="486" y1="266" x2="792" y2="266" stroke="#E5EAF0" stroke-width="1" />
+    <text x="486" y="300" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="14" fill="#93A0B0">关键卡点</text>
+    <rect x="486" y="328" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="506" y="338">配置合法域名</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="506" y="364">request / upload / download</text><rect x="486" y="424" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="506" y="434">申请订阅模板 ID（报修 / 签收 /</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="506" y="460">报价 / 付款 / 发货 / 完成 / 回访）</text><rect x="486" y="520" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="506" y="530">微信支付商户号 / 证书 /</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="506" y="556">APIv3 / 回调 URL（WX_PAY_*）</text></g>
+  <g id="card-su">
+    <rect x="844" y="150" width="362" height="500" fill="#F4F7FB" />
+    <rect x="844" y="150" width="362" height="4" fill="#1565C0" />
+    
+  <g transform="translate(872, 178) scale(1.5)" fill="none" stroke="#1565C0" stroke-width="2">
+    <path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0" />
+    <path d="M4 6v6a8 3 0 0 0 16 0v-6" />
+    <path d="M4 12v6a8 3 0 0 0 16 0v-6" />
+  </g>
+    <text x="920" y="206" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="24" font-weight="bold" fill="#1A2230">苏凤冰</text>
+    <text x="872" y="244" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="16" fill="#1565C0">uniCloud / 数据库 / 云函数</text>
+    <line x1="872" y1="266" x2="1178" y2="266" stroke="#E5EAF0" stroke-width="1" />
+    <text x="872" y="300" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="14" fill="#93A0B0">关键卡点</text>
+    <rect x="872" y="328" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="892" y="338">创建 / 接入客户正式云空间</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="892" y="364">（当前在开发云）</text><rect x="872" y="424" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="892" y="434">重部署 7 个云函数</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="892" y="460">（含合规整改 5 个）</text><rect x="872" y="520" width="8" height="8" fill="#1565C0" />
+    <text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="892" y="530">创建集合 / schema / 索引</text><text font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" fill="#1A2230" font-size="16" x="892" y="556">（order_no 唯一、sn 清洗）</text></g>
+  <g id="p09-footer">
+    <text x="72" y="702" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">牙医仪器检修小程序 · 项目进度汇报</text>
+    <text x="1208" y="702" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">2026-06-22 · P09 / 12</text>
+  </g>
+</svg>

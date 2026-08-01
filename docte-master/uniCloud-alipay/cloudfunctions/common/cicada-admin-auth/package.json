@@ -1,0 +1,6 @@
+{
+  "name": "cicada-admin-auth",
+  "version": "1.0.0",
+  "description": "后台云对象统一鉴权错误响应",
+  "main": "index.js"
+}

@@ -1,0 +1,64 @@
+[
+  {
+    "IndexName": "idx_part_code",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "part_code",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": true
+    }
+  },
+  {
+    "IndexName": "idx_part_name",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "part_name",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_enabled_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "enabled",
+          "Direction": "1",
+          "Type": "bool"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_stock_warning",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "stock",
+          "Direction": "1",
+          "Type": "double"
+        },
+        {
+          "Name": "warning_threshold",
+          "Direction": "1",
+          "Type": "double"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]

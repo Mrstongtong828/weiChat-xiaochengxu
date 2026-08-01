@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <g id="bg">
+    <rect x="0" y="0" width="1280" height="720" fill="#FFFFFF"/>
+    <rect x="0" y="0" width="10" height="720" fill="#1565C0"/>
+  </g>
+  <g id="cover-kicker">
+    <rect x="72" y="118" width="34" height="4" fill="#1565C0"/>
+    <text x="118" y="126" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="17" letter-spacing="3" fill="#1565C0">PROJECT STATUS BRIEFING · 项目进度汇报</text>
+  </g>
+  <g id="cover-title">
+    <text x="70" y="244" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="62" font-weight="bold" fill="#1A2230">牙医仪器检修小程序</text>
+    <text x="72" y="324" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="30" font-weight="bold" fill="#1565C0">开发已基本完成，上线在配置与审核</text>
+    <rect x="72" y="360" width="120" height="4" fill="#0D3B66"/>
+  </g>
+  <g id="cover-info">
+    <text x="72" y="424" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="18" fill="#5A6675">统计时间 2026-06-22　·　目标 2026 年 7 月上线　·　上线总控：吴彤彤</text>
+  </g>
+  <g id="status-strip">
+    <line x1="72" y1="556" x2="1208" y2="556" stroke="#D7DEE7" stroke-width="1"/>
+    <line x1="356" y1="568" x2="356" y2="666" stroke="#E5EAF0" stroke-width="1"/>
+    <line x1="640" y1="568" x2="640" y2="666" stroke="#E5EAF0" stroke-width="1"/>
+    <line x1="924" y1="568" x2="924" y2="666" stroke="#E5EAF0" stroke-width="1"/>
+    <text x="72" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">代码功能完成度</text>
+    <text x="72" y="640" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="40" font-weight="bold" fill="#2E7D32">95%</text>
+    <text x="72" y="664" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#93A0B0">16 / 16 主流程已实现</text>
+    <text x="380" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">后端正式部署</text>
+    <text x="380" y="640" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="40" font-weight="bold" fill="#D32F2F">0%</text>
+    <text x="380" y="664" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#93A0B0">仅在开发云空间</text>
+    <text x="664" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">最低上线门槛</text>
+    <text x="664" y="640" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="40" font-weight="bold" fill="#D32F2F">0 / 12</text>
+    <text x="664" y="664" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#93A0B0">达成数 / 总数</text>
+    <text x="948" y="592" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="15" fill="#5A6675">发布阻断项</text>
+    <text x="948" y="640" font-family="SimHei, &quot;Microsoft YaHei&quot;, Arial, sans-serif" font-size="40" font-weight="bold" fill="#D32F2F">1</text>
+    <text x="948" y="664" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="13" fill="#93A0B0">医疗器械类目审核</text>
+  </g>
+  <g id="cover-footer">
+    <text x="72" y="702" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">牙医仪器检修小程序 · 项目进度汇报</text>
+    <text x="1208" y="702" text-anchor="end" font-family="&quot;Microsoft YaHei&quot;, &quot;PingFang SC&quot;, Arial, sans-serif" font-size="11" fill="#93A0B0">2026-06-22 · P01 / 12</text>
+  </g>
+</svg>

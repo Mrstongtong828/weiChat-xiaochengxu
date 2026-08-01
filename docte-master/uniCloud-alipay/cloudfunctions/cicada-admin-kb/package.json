@@ -1,0 +1,10 @@
+{
+  "name": "cicada-admin-kb",
+  "version": "1.0.0",
+  "dependencies": {
+    "cicada-admin-auth": "file:../common/cicada-admin-auth"
+  },
+  "cloudfunction-config": {
+    "path": "/cicada-admin-kb"
+  }
+}

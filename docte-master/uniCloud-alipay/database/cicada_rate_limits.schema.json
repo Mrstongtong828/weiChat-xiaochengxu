@@ -1,0 +1,59 @@
+{
+  "bsonType": "object",
+  "required": [
+    "key",
+    "scope",
+    "identity",
+    "count",
+    "reset_time"
+  ],
+  "permission": {
+    "read": false,
+    "create": false,
+    "update": false,
+    "delete": false
+  },
+  "properties": {
+    "_id": {
+      "description": "ID"
+    },
+    "key": {
+      "bsonType": "string"
+    },
+    "scope": {
+      "bsonType": "string"
+    },
+    "identity": {
+      "bsonType": "string"
+    },
+    "request_fingerprint": {
+      "bsonType": "string",
+      "description": "报修幂等锁对应的完整请求指纹"
+    },
+    "state": {
+      "bsonType": "string",
+      "enum": ["pending", "completed"]
+    },
+    "lock_token": {
+      "bsonType": "string"
+    },
+    "order_id": {
+      "bsonType": "string"
+    },
+    "order_no": {
+      "bsonType": "string"
+    },
+    "count": {
+      "bsonType": "int"
+    },
+    "reset_time": {
+      "bsonType": "timestamp"
+    },
+    "create_time": {
+      "bsonType": "timestamp"
+    },
+    "update_time": {
+      "bsonType": "timestamp"
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "说明": "牙科仪器维修订单项目数据",
+  "cicada_order_items": [
+    {
+      "order_id": "test_order_001",
+      "product_name": "洁牙机",
+      "product_model": "DTE-D3",
+      "sn": "DTE20230815001",
+      "buy_date": "2023-08-15",
+      "fault_desc": "洁牙手机震动无力，工作时有异响，清洁效果明显下降",
+      "media_urls": [],
+      "fix_solution": ""
+    }
+  ]
+}

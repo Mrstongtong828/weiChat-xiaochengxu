@@ -1,0 +1,68 @@
+[
+  {
+    "IndexName": "idx_token",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "token",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_openid",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "openid",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_username",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "username",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_role",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "role",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_email",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "email",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": true,
+      "MgoIsSparse": true
+    }
+  }
+]

@@ -1,0 +1,59 @@
+[
+  {
+    "IndexName": "idx_create_time",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_status_create",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "status",
+          "Direction": "1",
+          "Type": "varchar"
+        },
+        {
+          "Name": "create_time",
+          "Direction": "-1",
+          "Type": "long"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_contact",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "contact",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  },
+  {
+    "IndexName": "idx_order_no",
+    "MgoKeySchema": {
+      "MgoIndexKeys": [
+        {
+          "Name": "order_no",
+          "Direction": "1",
+          "Type": "varchar"
+        }
+      ],
+      "MgoIsUnique": false
+    }
+  }
+]
