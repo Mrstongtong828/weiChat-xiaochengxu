@@ -15,7 +15,7 @@
     <div class="workorder-toolbar">
       <div class="search-strip">
         <div class="search-strip-main">
-          <el-input v-model="wo.search" placeholder="搜索工单号、客户、手机号或设备 SN" clearable prefix-icon="Search"></el-input>
+          <el-input v-model="wo.search" placeholder="搜索工单号、快递单号、客户、手机号或设备 SN" clearable prefix-icon="Search"></el-input>
         </div>
         <el-select v-model="wo.filter" placeholder="工单状态" clearable>
           <el-option v-for="status in adminStatusOptions" :key="status" :label="status" :value="status"></el-option>

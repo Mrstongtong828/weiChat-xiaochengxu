@@ -2643,6 +2643,7 @@ module.exports = {
 
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
+      const compactKeyword = normalizedKeyword.replace(/[\s-]+/g, '')
       const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
@@ -2709,13 +2710,22 @@ module.exports = {
             order.ship_back_info && order.ship_back_info.phone,
             order.ship_back_info && order.ship_back_info.unit,
             order.ship_out_info && order.ship_out_info.logistics_no,
+            order.ship_out_info && order.ship_out_info.logisticsNo,
+            order.ship_out_info && order.ship_out_info.tracking_no,
+            order.ship_out_info && order.ship_out_info.trackingNo,
             order.ship_back_info && order.ship_back_info.logistics_no,
+            order.ship_back_info && order.ship_back_info.logisticsNo,
+            order.ship_back_info && order.ship_back_info.tracking_no,
+            order.ship_back_info && order.ship_back_info.trackingNo,
+            order.ship_back_info && order.ship_back_info.return_no,
+            order.ship_back_info && order.ship_back_info.returnNo,
             ...productModels,
             ...productSns
           ].filter(Boolean).join(' ').toLowerCase()
+          const compactSearchableText = searchableText.replace(/[\s-]+/g, '')
 
           return matchesTodoType(order, todoType) &&
-            (!normalizedKeyword || searchableText.includes(normalizedKeyword)) &&
+            (!normalizedKeyword || searchableText.includes(normalizedKeyword) || (compactKeyword && compactSearchableText.includes(compactKeyword))) &&
             (!normalizedDeviceModel || productModels.includes(normalizedDeviceModel)) &&
             (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
             (!normalizedWarrantyStatus || normalizeText(order.warranty_status) === normalizedWarrantyStatus) &&
