@@ -16,6 +16,7 @@ const order = {
   submitTime: '2026-05-30 09:30',
   receivedTime: '2026-05-30',
   completedTime: '2026-06-02',
+  updateTime: '2026-08-01 10:00',
   paymentStatus: 'uploaded',
   itemsList: [{
     product_name: '根管预备机',
@@ -61,6 +62,9 @@ assert.match(repairHtml, /售后维修单/)
 assert.match(repairHtml, /维修措施/)
 assert.match(repairHtml, /更换机芯、充电顶针/)
 assert.match(repairHtml, /20E19 246/)
+assert.match(repairHtml, /维修完成日期/)
+assert.doesNotMatch(repairHtml, /2026年6月2日/, '维修单完工日期应留空，由工程师手写')
+assert.doesNotMatch(repairHtml, /2026年8月1日/, '维修单不应把更新时间当成完工日期')
 
 repairTemplate.fields.find(item => item.key === 'batchNo').visible = false
 repairTemplate.fields.push({
@@ -90,6 +94,8 @@ assert.match(repairHtml, /功能正常/)
 
 const settlementHtml = buildPrintHtml([order], defaultPrintTemplate('settlement'), 'settlement')
 assert.match(settlementHtml, /待财务审核/)
+assert.match(settlementHtml, /2026年6月2日/, '结算单仍应显示真实维修完成日期')
+assert.doesNotMatch(settlementHtml, /2026年8月1日/, '结算单不应回退到更新时间')
 assert.doesNotMatch(settlementHtml, />uploaded</)
 
 let printCalls = 0
