@@ -27,6 +27,16 @@ export const createAdminOrder = (token, payload = {}) => {
   })
 }
 
+// 管理员批量逻辑删除误建工单；后端会逐单校验并返回未删除原因
+export const batchDeleteOrders = (token, orders, reason, confirmText) => {
+  return request.post(`${API_BASE.adminOrder}/batchDeleteOrders`, {
+    token,
+    orders,
+    reason,
+    confirm_text: confirmText
+  })
+}
+
 // 保存工单产品/设备信息（SN 回填后落库，并重算在保快照）
 export const saveOrderItems = (token, orderId, items) => {
   return request.post(`${API_BASE.adminOrder}/saveOrderItems`, {

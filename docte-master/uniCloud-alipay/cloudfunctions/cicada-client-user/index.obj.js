@@ -565,8 +565,8 @@ module.exports = {
       if (linkedOrderNo) {
         const orderRes = await db.collection('cicada_orders')
           .where(db.command.or([
-            { order_no: linkedOrderNo, user_id: user._id },
-            { _id: linkedOrderNo, user_id: user._id }
+            { order_no: linkedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) },
+            { _id: linkedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) }
           ]))
           .limit(1)
           .get()

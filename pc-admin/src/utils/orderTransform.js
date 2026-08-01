@@ -118,8 +118,12 @@ export const transformOrder = (order) => {
     // 报修方信息
     clinicName: shipBack.unit || '',
     customerName: shipBack.name || '',
+    contactName: shipBack.name || shipOut.name || '',
     phone: shipBack.phone || '',
     address: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
+    customerAddress: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
+    receivedDate: shipOut.received_at || shipOut.receivedAt || '',
+    bizUser: order.biz_user || order.bizUser || (order.customer && order.customer.biz_user) || '',
     // 下单用户类型快照：clinic / dealer / individual（优先订单字段，其次 CRM 摘要）
     customerType: order.customer_type || order.customerType || (order.customer && order.customer.customer_type) || '',
 
@@ -137,7 +141,12 @@ export const transformOrder = (order) => {
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
     productName: firstItem.product_name || order.product_name || '',
+    productCategory: firstItem.product_category || order.product_category || '',
     productCode: firstItem.product_code || firstItem.productCode || firstItem.code || order.product_code || order.productCode || order.code || '',
+    deviceSn: firstItem.sn || order.sn || '',
+    buyDate: firstItem.buy_date || order.buy_date || '',
+    warrantyMonths: Number(firstItem.warranty_months || order.warranty_months || 0) || 0,
+    warrantyExpire: firstItem.warranty_expire || order.warranty_expire || '',
     fault: firstItem.fault_desc || order.fault_desc || '',
     images,
     itemsList,

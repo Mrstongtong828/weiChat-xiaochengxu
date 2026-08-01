@@ -645,13 +645,13 @@ function exposeQuoteFields(order = {}) {
 async function findOwnedOrder(userId, orderId) {
   if (!orderId) return null
   const idRes = await db.collection('cicada_orders')
-    .where({ _id: orderId, user_id: userId })
+    .where({ _id: orderId, user_id: userId, is_deleted: db.command.neq(true) })
     .limit(1)
     .get()
   if (idRes.data && idRes.data[0]) return idRes.data[0]
 
   const noRes = await db.collection('cicada_orders')
-    .where({ order_no: orderId, user_id: userId })
+    .where({ order_no: orderId, user_id: userId, is_deleted: db.command.neq(true) })
     .limit(1)
     .get()
   return noRes.data && noRes.data[0] ? noRes.data[0] : null
@@ -975,7 +975,7 @@ async function findOrderByTrackingNo(trackingNo) {
 
   for (const item of checks) {
     const res = await db.collection('cicada_orders')
-      .where({ [item.field]: trackingNo })
+      .where({ [item.field]: trackingNo, is_deleted: db.command.neq(true) })
       .limit(1)
       .get()
     if (res.data && res.data[0]) {
@@ -1066,7 +1066,8 @@ async function findRecentDuplicateOrder(userId, request = {}, now = Date.now()) 
     .where({
       user_id: userId,
       create_time: db.command.gte(since),
-      status: db.command.neq('cancelled')
+      status: db.command.neq('cancelled'),
+      is_deleted: db.command.neq(true)
     })
     .field({
       order_no: true,
@@ -1847,7 +1848,7 @@ module.exports = {
       const user = await verifyUserToken(token)
       const pagination = normalizePage(page, pageSize)
       const res = await db.collection('cicada_orders')
-        .where({ user_id: user._id })
+        .where({ user_id: user._id, is_deleted: db.command.neq(true) })
         .orderBy('create_time', 'desc')
         .skip((pagination.page - 1) * pagination.pageSize)
         .limit(pagination.pageSize)
@@ -1899,7 +1900,7 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       const res = await db.collection('cicada_orders')
-        .where({ user_id: user._id })
+        .where({ user_id: user._id, is_deleted: db.command.neq(true) })
         .field({ status: true, total_price: true, payment_status: true, invoice_info: true })
         .limit(1000)
         .get()
@@ -1946,7 +1947,7 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       const pagination = normalizePage(page, pageSize)
-      const where = { user_id: user._id, 'invoice_info.need_invoice': true }
+      const where = { user_id: user._id, 'invoice_info.need_invoice': true, is_deleted: db.command.neq(true) }
       const col = db.collection('cicada_orders')
 
       const [countRes, listRes] = await Promise.all([
@@ -2108,7 +2109,7 @@ module.exports = {
       let history = []
       if (orderIds.length) {
         const ordersRes = await db.collection('cicada_orders')
-          .where({ _id: db.command.in(orderIds), user_id: user._id })
+          .where({ _id: db.command.in(orderIds), user_id: user._id, is_deleted: db.command.neq(true) })
           .field({ order_no: true, status: true, create_time: true })
           .orderBy('create_time', 'desc').limit(10).get()
         history = (ordersRes.data || []).map(o => ({

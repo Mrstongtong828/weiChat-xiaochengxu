@@ -84,6 +84,7 @@ function createWorkflowFallback() {
     export_order: ALL_ROLES,
     get_stats: ALL_ROLES,
     get_workflow_config: ALL_ROLES,
+    delete_order: ['admin'],
     update_status: ['admin', 'engineer'],
     import_logistics: ['admin', 'engineer'],
     issue_quote: ['admin', 'engineer'],
@@ -301,11 +302,12 @@ function collectDeviceModelsFromOrders(orders = []) {
 
 async function fetchAdminOrderPage(matchCond, pagination) {
   const offset = (pagination.page - 1) * pagination.pageSize
+  const activeMatchCond = withActiveOrderFilter(matchCond)
   const [countRes, pageRes] = await Promise.all([
-    db.collection('cicada_orders').where(matchCond).count(),
+    db.collection('cicada_orders').where(activeMatchCond).count(),
     db.collection('cicada_orders')
       .aggregate()
-      .match(matchCond)
+      .match(activeMatchCond)
       .sort({ create_time: -1 })
       .skip(offset)
       .limit(pagination.pageSize)
@@ -390,7 +392,10 @@ async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
     o.customer = {
       id: c._id,
       name: c.name || '',
+      contact: c.contact || '',
       phone: displayPhone,
+      address: c.address || '',
+      biz_user: c.biz_user || '',
       customer_type: crmType,
       tags: Array.isArray(c.tags) ? c.tags : []
     }
@@ -420,7 +425,7 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
 
 async function countOrdersByMatch(matchCond, todoType = '') {
   try {
-    const res = await db.collection('cicada_orders').where(matchCond).count()
+    const res = await db.collection('cicada_orders').where(withActiveOrderFilter(matchCond)).count()
     return res.total || 0
   } catch (e) {
     const orders = await fetchOrderBatches({ status: dbCmd.neq('cancelled') }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT })
@@ -724,6 +729,51 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+function withActiveOrderFilter(matchCond = {}) {
+  return { ...matchCond, is_deleted: dbCmd.neq(true) }
+}
+
+function isDeletedOrder(order = {}) {
+  return order.is_deleted === true
+}
+
+function getBatchDeleteBlockReason(order = {}) {
+  if (isDeletedOrder(order)) return '工单已删除'
+  if (!['pending', 'cancelled'].includes(normalizeText(order.status))) {
+    return '仅已提交或已取消的工单可以删除'
+  }
+
+  const paymentStatus = normalizeText(order.payment_status || order.paymentStatus)
+  const paymentProofs = order.payment_proofs || order.paymentProofs || []
+  if (['uploaded', 'paid', 'refunded'].includes(paymentStatus)
+    || normalizeText(order.wechat_pay_transaction_id)
+    || (Array.isArray(paymentProofs) && paymentProofs.length)) {
+    return '工单已有付款或付款凭证记录'
+  }
+
+  if (['processing', 'refunded'].includes(normalizeText(order.refund_status))) {
+    return '工单已有退款记录'
+  }
+
+  const invoice = order.invoice_info || {}
+  if (invoice.need_invoice === true
+    || normalizeText(invoice.invoice_no || invoice.invoiceNo)
+    || normalizeText(invoice.file_url || invoice.fileUrl || invoice.invoice_url || invoice.invoiceUrl)
+    || ['开具中', '已开具', '已寄出', '已签收'].includes(normalizeText(invoice.status))) {
+    return '工单已有开票申请或发票记录'
+  }
+
+  if (order.inventory_deducted === true || normalizeText(order.inventory_status)) {
+    return '工单已有库存处理记录'
+  }
+
+  if (['issued', 'confirmed'].includes(normalizeText(order.quote_status)) || Number(order.total_price || 0) > 0) {
+    return '工单已有正式报价记录'
+  }
+
+  return ''
+}
+
 function normalizeCustomerType(value, fallback = '') {
   if (value !== undefined && value !== null && typeof value !== 'string') {
     throw new Error('客户类型格式不正确')
@@ -823,7 +873,7 @@ async function validateTrackingNoBeforeSave(order, rawNo, company, segment = 'ba
     { field: 'ship_back_info.returnNo', segment: 'back' }
   ]
   const conflictRes = await db.collection('cicada_orders').where(dbCmd.or(
-    conflictFields.map(item => ({ [item.field]: localCheck.value }))
+    conflictFields.map(item => ({ [item.field]: localCheck.value, is_deleted: dbCmd.neq(true) }))
   )).limit(20).get()
   const conflict = findTrackingConflict(conflictRes.data, localCheck.value, order._id, segment)
   if (conflict) {
@@ -1383,14 +1433,15 @@ function buildLogisticsImportUpdate(order, item, type, now, importDate = '') {
 
 async function findOrderByNo(orderNo) {
   const orderNoRes = await db.collection('cicada_orders')
-    .where({ order_no: orderNo })
+    .where(withActiveOrderFilter({ order_no: orderNo }))
     .limit(1)
     .get()
   if (orderNoRes.data && orderNoRes.data[0]) return orderNoRes.data[0]
 
   try {
     const idRes = await db.collection('cicada_orders').doc(orderNo).get()
-    return idRes.data && idRes.data[0] ? idRes.data[0] : null
+    const order = idRes.data && idRes.data[0] ? idRes.data[0] : null
+    return order && !isDeletedOrder(order) ? order : null
   } catch (e) {
     return null
   }
@@ -2094,7 +2145,7 @@ async function fetchOrderBatches(matchCond = {}, { withItems = false, maxRows = 
 
     let query = db.collection('cicada_orders')
       .aggregate()
-      .match(matchCond)
+      .match(withActiveOrderFilter(matchCond))
       .sort({ create_time: -1 })
       .skip(offset)
       .limit(Math.min(batchSize, remaining || batchSize))
@@ -2393,6 +2444,7 @@ module.exports = {
         user_id: customerInfo.user_id || '',
         customer_id: customerInfo.customer_id || '',
         customer_type: customerInfo.customer_type || 'clinic',
+        biz_user: normalizeText(customer && (customer.biz_user || customer.bizUser)).slice(0, 40),
         status: normalizedStatus,
         ship_out_info: safeShipOut,
         ship_back_info: safeShipBack,
@@ -2460,6 +2512,109 @@ module.exports = {
           db.collection('cicada_order_items').where({ order_id: orderId }).remove()
         ]).catch(() => {})
       }
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 管理员批量逻辑删除误建工单。保留工单、明细和审计记录，避免破坏财务与售后追溯。
+  async batchDeleteOrders(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'delete_order')
+      const requestParams = pickParam(this, params)
+      const reason = normalizeText(requestParams.reason)
+      const confirmText = normalizeText(requestParams.confirm_text || requestParams.confirmText)
+      const rows = Array.isArray(requestParams.orders) ? requestParams.orders : []
+
+      if (!rows.length) return { code: -1, msg: '请至少选择一个要删除的工单' }
+      if (rows.length > 50) return { code: -1, msg: '单次最多删除50个工单' }
+      if (reason.length < 2) return { code: -1, msg: '删除原因至少填写2个字' }
+      if (reason.length > 500) return { code: -1, msg: '删除原因不能超过500字' }
+
+      const normalizedRows = rows.map(row => ({
+        order_id: normalizeText(row && (row.order_id || row.orderId || row._id)),
+        order_no: normalizeText(row && (row.order_no || row.orderNo || row.id))
+      }))
+      if (normalizedRows.some(row => !row.order_id || !row.order_no)) {
+        return { code: -1, msg: '所选工单信息不完整，请刷新列表后重试' }
+      }
+      const uniqueIds = [...new Set(normalizedRows.map(row => row.order_id))]
+      if (uniqueIds.length !== normalizedRows.length) return { code: -1, msg: '所选工单中存在重复项' }
+
+      const expectedConfirmText = `确认删除${normalizedRows.length}个工单`
+      if (confirmText !== expectedConfirmText) {
+        return { code: -1, msg: `请输入“${expectedConfirmText}”确认批量删除` }
+      }
+
+      const found = await db.collection('cicada_orders')
+        .where({ _id: dbCmd.in(uniqueIds) })
+        .limit(50)
+        .get()
+      const orderMap = new Map((found.data || []).map(order => [order._id, order]))
+      const deleted = []
+      const failures = []
+      const now = Date.now()
+      const deletedByName = currentAdmin.name || currentAdmin.username || currentAdmin.nickname || ''
+
+      for (const requested of normalizedRows) {
+        const order = orderMap.get(requested.order_id)
+        if (!order) {
+          failures.push({ order_id: requested.order_id, order_no: requested.order_no, reason: '工单不存在' })
+          continue
+        }
+        if (normalizeText(order.order_no) !== requested.order_no) {
+          failures.push({ order_id: requested.order_id, order_no: requested.order_no, reason: '工单号与工单ID不匹配，请刷新后重试' })
+          continue
+        }
+
+        const blockReason = getBatchDeleteBlockReason(order)
+        if (blockReason) {
+          failures.push({ order_id: order._id, order_no: order.order_no || requested.order_no, reason: blockReason })
+          continue
+        }
+
+        const updateRes = await db.collection('cicada_orders')
+          .where({ _id: order._id, is_deleted: dbCmd.neq(true) })
+          .update({
+            is_deleted: true,
+            deleted_time: now,
+            deleted_by: currentAdmin._id || '',
+            deleted_by_name: deletedByName,
+            delete_reason: reason,
+            update_time: now
+          })
+        if (!updateRes.updated) {
+          failures.push({ order_id: order._id, order_no: order.order_no || requested.order_no, reason: '工单状态已变化，请刷新后重试' })
+          continue
+        }
+
+        await logOrderEvent({
+          order,
+          source: 'admin',
+          action: 'delete_order',
+          actor: currentAdmin,
+          before: {
+            status: order.status || '',
+            payment_status: order.payment_status || '',
+            quote_status: order.quote_status || '',
+            is_deleted: false
+          },
+          after: { is_deleted: true, deleted_time: now, delete_reason: reason }
+        })
+        deleted.push({ order_id: order._id, order_no: order.order_no || requested.order_no })
+      }
+
+      return {
+        code: 0,
+        msg: failures.length ? '批量删除已完成，部分工单未删除' : '批量删除成功',
+        data: {
+          requested_count: normalizedRows.length,
+          deleted_count: deleted.length,
+          failed_count: failures.length,
+          deleted,
+          failures
+        }
+      }
+    } catch (e) {
       return { code: -1, msg: e.message }
     }
   },
@@ -2612,7 +2767,7 @@ module.exports = {
       // 使用聚合查询联表获取工单项目
       const res = await db.collection('cicada_orders')
         .aggregate()
-        .match({ _id: order_id })
+        .match(withActiveOrderFilter({ _id: order_id }))
         .lookup({
           from: 'cicada_order_items',
           localField: '_id',
@@ -3294,7 +3449,7 @@ module.exports = {
       const now = Date.now()
       for (const item of validRows) {
         const found = await db.collection('cicada_orders')
-          .where({ order_no: item.order_no })
+          .where(withActiveOrderFilter({ order_no: item.order_no }))
           .limit(1)
           .get()
         const order = found.data[0]
@@ -4418,7 +4573,7 @@ module.exports = {
 
       // 当月完工工单（完工时间近似取 update_time），仅取 engineer_id，JS 侧按工程师聚合
       const ordersRes = await db.collection('cicada_orders')
-        .where({ status: 'completed', update_time: dbCmd.gte(monthStart).and(dbCmd.lt(monthEnd)) })
+        .where(withActiveOrderFilter({ status: 'completed', update_time: dbCmd.gte(monthStart).and(dbCmd.lt(monthEnd)) }))
         .field({ engineer_id: true })
         .limit(2000)
         .get()
@@ -4456,9 +4611,10 @@ module.exports = {
 
       const [pendingRes, todayRes] = await Promise.all([
         db.collection('cicada_orders').where({
-          status: dbCmd.in(['pending', 'sent', 'received'])
+          status: dbCmd.in(['pending', 'sent', 'received']),
+          is_deleted: dbCmd.neq(true)
         }).count(),
-        db.collection('cicada_orders').where({ create_time: dbCmd.gte(todayStart) }).count()
+        db.collection('cicada_orders').where(withActiveOrderFilter({ create_time: dbCmd.gte(todayStart) })).count()
       ])
 
       return {
@@ -4611,7 +4767,7 @@ module.exports = {
 
       const orderRes = await db.collection('cicada_orders').doc(orderId).get()
       const order = orderRes.data && orderRes.data[0]
-      if (!order) return { code: -1, msg: '工单不存在' }
+      if (!order || isDeletedOrder(order)) return { code: -1, msg: '工单不存在' }
       const shipInfo = getOrderShipInfo(order, segment)
       const existingCache = (order.track_cache && order.track_cache[segment]) || {}
       const providerConfig = expressProvider.getConfig()

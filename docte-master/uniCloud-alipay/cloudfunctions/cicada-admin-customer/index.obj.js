@@ -805,7 +805,7 @@ module.exports = {
       let history = []
       if (orderIds.length) {
         const ordersRes = await db.collection('cicada_orders')
-          .where({ _id: dbCmd.in(orderIds) })
+          .where({ _id: dbCmd.in(orderIds), is_deleted: dbCmd.neq(true) })
           .field({ order_no: true, status: true, create_time: true })
           .orderBy('create_time', 'desc').limit(10).get()
         history = (ordersRes.data || []).map(o => ({ id: o._id, orderNo: o.order_no, status: o.status, createTime: o.create_time }))
@@ -899,8 +899,8 @@ module.exports = {
       const c = cur.data && cur.data[0]
       if (!c) return { code: -1, msg: '客户不存在' }
       // 按 (customer_id 或 user_id) 关联，换绑/历史单都不丢
-      const orFilters = [{ customer_id: id }]
-      if (c.user_id) orFilters.push({ user_id: c.user_id })
+      const orFilters = [{ customer_id: id, is_deleted: dbCmd.neq(true) }]
+      if (c.user_id) orFilters.push({ user_id: c.user_id, is_deleted: dbCmd.neq(true) })
 
       const res = await db.collection('cicada_orders')
         .where(dbCmd.or(orFilters)).orderBy('create_time', 'desc').limit(200).get()

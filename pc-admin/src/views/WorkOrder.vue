@@ -51,8 +51,8 @@
         <el-tooltip content="物流批量导入（签收单/回寄单）已统一到「物流管理」" placement="top">
           <el-button type="primary" plain class="top-btn-text" @click="$router.push('/logistics?tab=import')"><el-icon><Van /></el-icon> 物流导入</el-button>
         </el-tooltip>
-        <el-dropdown :disabled="!selectedOrders.length || batchCompleting" trigger="click" @command="handleBatchToolbarCommand">
-          <el-button plain class="top-btn-text" :disabled="!selectedOrders.length || batchCompleting" :loading="batchCompleting">
+        <el-dropdown :disabled="!selectedOrders.length || batchCompleting || batchDeleting" trigger="click" @command="handleBatchToolbarCommand">
+          <el-button plain class="top-btn-text" :disabled="!selectedOrders.length || batchCompleting || batchDeleting" :loading="batchCompleting || batchDeleting">
             批量操作<el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
@@ -60,6 +60,7 @@
               <el-dropdown-item command="print"><el-icon><Printer /></el-icon>打印所选工单</el-dropdown-item>
               <el-dropdown-item command="processing" :disabled="!getTransitionableOrders('处理中').length"><el-icon><CircleCheck /></el-icon>标记为处理中</el-dropdown-item>
               <el-dropdown-item command="complete" :disabled="!getTransitionableOrders('已完成').length" divided><el-icon><CircleCheck /></el-icon>批量结单</el-dropdown-item>
+              <el-dropdown-item v-if="canPerformOrderAction('delete_order')" command="delete" divided><el-icon><Delete /></el-icon>删除所选工单</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -119,7 +120,7 @@
           </div>
         </template>
         <el-table-column type="selection" width="42"></el-table-column>
-        <el-table-column prop="id" label="工单编号" width="150" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('id')" prop="id" label="工单号" width="150" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('reporter')" label="报修方信息" width="200">
           <template #default="{row}">
@@ -140,11 +141,25 @@
           </template>
         </el-table-column>
 
+        <el-table-column v-if="isTableColumnVisible('receivedDate')" prop="receivedDate" label="收件日期" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('bizUser')" prop="bizUser" label="对接业务员" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('customerType')" label="客户类型" width="110" show-overflow-tooltip>
+          <template #default="{row}">{{ customerTypeLabel(row.customerType) || '-' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isTableColumnVisible('clinicName')" prop="clinicName" label="客户/单位名称" width="180" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('contactName')" prop="contactName" label="联系人" width="110" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('phone')" prop="phone" label="手机号" width="130" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('customerAddress')" prop="customerAddress" label="客户地址" min-width="220" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('logisticsCompany')" prop="logisticsCompany" label="寄入快递公司" width="130" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('logisticsNo')" prop="logisticsNo" label="寄入快递单号" width="170" show-overflow-tooltip></el-table-column>
+
         <el-table-column v-if="isTableColumnVisible('productName')" label="产品名称" width="140" show-overflow-tooltip>
           <template #default="{row}">
             <div class="device-main-cell">{{ row.productName || '-' }}</div>
           </template>
         </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('productCategory')" prop="productCategory" label="设备分类" width="130" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('productModel')" label="型号" width="140" show-overflow-tooltip>
           <template #default="{row}">
@@ -157,6 +172,12 @@
             <div class="device-code-cell">{{ getOrderProductCode(row) }}</div>
           </template>
         </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('buyDate')" prop="buyDate" label="购买日期" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('warrantyMonths')" label="质保月数" width="110" show-overflow-tooltip>
+          <template #default="{row}">{{ row.warrantyMonths ? `${row.warrantyMonths} 个月` : '-' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isTableColumnVisible('warrantyExpire')" prop="warrantyExpire" label="质保到期日" width="130" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('fault')" label="故障" min-width="200">
           <template #default="{row}">
@@ -177,6 +198,9 @@
             </div>
           </template>
         </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('adminRemark')" prop="adminRemark" label="内部备注" min-width="180" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('printRemark')" prop="printRemark" label="随件留言" min-width="180" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('nextAction')" width="126">
           <template #header>
@@ -1387,6 +1411,43 @@
     </template>
   </el-dialog>
 
+  <el-dialog v-model="batchDeleteDialogVisible" title="批量删除工单" width="560px" align-center @closed="resetBatchDeleteForm">
+    <div class="delete-confirm-panel">
+      <el-alert
+        title="删除后工单会从正常列表、小程序和统计中隐藏，但会保留审计记录。已付款、已开票、已扣库存或状态不允许的工单会自动跳过。"
+        type="error"
+        :closable="false"
+        show-icon
+      ></el-alert>
+      <div class="delete-confirm-summary">
+        <strong>本次选择 {{ selectedOrders.length }} 个工单</strong>
+        <span>{{ formatOrderIdList(selectedOrders) }}</span>
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="删除原因" required>
+          <el-input
+            v-model="batchDeleteForm.reason"
+            type="textarea"
+            :rows="3"
+            maxlength="500"
+            show-word-limit
+            placeholder="例如：后台误建测试工单、客户重复提交后保留另一张工单"
+          ></el-input>
+        </el-form-item>
+        <el-form-item label="确认短语" required>
+          <el-input v-model="batchDeleteForm.confirmText" :placeholder="expectedBatchDeleteConfirmText"></el-input>
+          <p class="delete-confirm-tip">请输入：{{ expectedBatchDeleteConfirmText }}</p>
+        </el-form-item>
+      </el-form>
+    </div>
+    <template #footer>
+      <el-button @click="batchDeleteDialogVisible = false">取消</el-button>
+      <el-button type="danger" :loading="batchDeleting" @click="submitBatchDeleteOrders">
+        <el-icon><Delete /></el-icon> 确认删除
+      </el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog
     v-model="createOrderDialogVisible"
     title="新建报修工单"
@@ -1539,7 +1600,7 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -1867,6 +1928,7 @@ const loading = ref(false)
 const importing = ref(false)
 const quickStatusLoading = ref(false)
 const batchCompleting = ref(false)
+const batchDeleting = ref(false)
 const todoTypeMap = {
   inbound: '待签收',
   quote: '待报价',
@@ -2142,27 +2204,54 @@ const exportableFields = [
 ]
 
 const tableColumnStorageKey = 'pc-admin:work-order-visible-columns'
+const tableColumnStorageVersionKey = 'pc-admin:work-order-visible-columns-version'
+const tableColumnStorageVersion = '2'
 const tableColumnOptions = [
+  { key: 'id', label: '工单号' },
   { key: 'reporter', label: '报修方信息' },
+  { key: 'receivedDate', label: '收件日期' },
+  { key: 'bizUser', label: '对接业务员' },
+  { key: 'customerType', label: '客户类型' },
+  { key: 'clinicName', label: '客户/单位名称' },
+  { key: 'contactName', label: '联系人' },
+  { key: 'phone', label: '手机号' },
+  { key: 'customerAddress', label: '客户地址' },
+  { key: 'logisticsCompany', label: '寄入快递公司' },
+  { key: 'logisticsNo', label: '寄入快递单号' },
   { key: 'productName', label: '产品名称' },
+  { key: 'productCategory', label: '设备分类' },
   { key: 'productModel', label: '型号' },
   { key: 'productCode', label: '编码/SN' },
+  { key: 'buyDate', label: '购买日期' },
+  { key: 'warrantyMonths', label: '质保月数' },
+  { key: 'warrantyExpire', label: '质保到期日' },
   { key: 'fault', label: '故障' },
   { key: 'logistics', label: '物流信息' },
+  { key: 'adminRemark', label: '内部备注' },
+  { key: 'printRemark', label: '随件留言' },
   { key: 'nextAction', label: '下一步动作' },
   { key: 'status', label: '处理状态' },
   { key: 'invoice', label: '发票状态' },
   { key: 'sla', label: 'SLA' }
 ]
-const defaultTableColumnKeys = tableColumnOptions.map(column => column.key)
+const defaultTableColumnKeys = ['id', 'reporter', 'productName', 'productModel', 'productCode', 'fault', 'logistics', 'nextAction', 'status', 'invoice', 'sla']
+const availableTableColumnKeys = new Set(tableColumnOptions.map(column => column.key))
 
 const readTableColumnKeys = () => {
   try {
     const raw = localStorage.getItem(tableColumnStorageKey)
-    if (!raw) return [...defaultTableColumnKeys]
+    if (!raw) {
+      localStorage.setItem(tableColumnStorageVersionKey, tableColumnStorageVersion)
+      return [...defaultTableColumnKeys]
+    }
     const parsed = JSON.parse(raw)
-    const allowed = new Set(defaultTableColumnKeys)
-    return Array.isArray(parsed) ? parsed.filter(key => allowed.has(key)) : [...defaultTableColumnKeys]
+    if (!Array.isArray(parsed)) return [...defaultTableColumnKeys]
+    const visibleKeys = parsed.filter(key => availableTableColumnKeys.has(key))
+    if (localStorage.getItem(tableColumnStorageVersionKey) !== tableColumnStorageVersion) {
+      if (!visibleKeys.includes('id')) visibleKeys.unshift('id')
+      localStorage.setItem(tableColumnStorageVersionKey, tableColumnStorageVersion)
+    }
+    return visibleKeys
   } catch (error) {
     return [...defaultTableColumnKeys]
   }
@@ -2172,6 +2261,11 @@ const orders = ref([])
 const totalOrders = ref(0)
 const deviceModelOptions = ref([])
 const selectedOrders = ref([])
+const batchDeleteDialogVisible = ref(false)
+const batchDeleteForm = reactive({
+  reason: '',
+  confirmText: ''
+})
 const workflowConfig = ref(null)
 const printConfig = ref(parsePrintTemplates().repair_order)
 const printSettingsRaw = ref({})
@@ -2189,6 +2283,7 @@ const searchInvoiceStatus = ref('')
 const slaFilter = ref('')
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
+const expectedBatchDeleteConfirmText = computed(() => `确认删除${selectedOrders.value.length}个工单`)
 const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
 const logisticsImportTip = computed(() => {
   return activeLogisticsImportType.value === 'inbound'
@@ -3133,6 +3228,93 @@ const formatOrderIdList = (list = []) => {
   return ids.length > 6 ? `${visible} 等 ${ids.length} 单` : visible
 }
 
+const resetBatchDeleteForm = () => {
+  batchDeleteForm.reason = ''
+  batchDeleteForm.confirmText = ''
+}
+
+const openBatchDeleteDialog = () => {
+  if (!selectedOrders.value.length) {
+    ElMessage.warning('请先勾选要删除的工单')
+    return
+  }
+  if (!canPerformOrderAction('delete_order')) {
+    ElMessage.error('当前角色无权删除工单')
+    return
+  }
+  resetBatchDeleteForm()
+  batchDeleteDialogVisible.value = true
+}
+
+const buildBatchDeleteRows = (ordersForDelete = []) => ordersForDelete.map(order => ({
+  order_id: order._id,
+  order_no: order.id || order.order_no
+}))
+
+const formatBatchDeleteFailures = (failures = []) => failures
+  .slice(0, 8)
+  .map(item => `${item.order_no || item.order_id || '-'}：${item.reason || '未删除'}`)
+  .join('\n')
+
+const submitBatchDeleteOrders = async () => {
+  const ordersForDelete = [...selectedOrders.value]
+  if (!ordersForDelete.length) {
+    ElMessage.warning('请先勾选要删除的工单')
+    return
+  }
+  if (!canPerformOrderAction('delete_order')) {
+    ElMessage.error('当前角色无权删除工单')
+    return
+  }
+  const reason = batchDeleteForm.reason.trim()
+  const expected = `确认删除${ordersForDelete.length}个工单`
+  if (reason.length < 2) {
+    ElMessage.warning('删除原因至少填写2个字')
+    return
+  }
+  if (batchDeleteForm.confirmText.trim() !== expected) {
+    ElMessage.warning(`请输入“${expected}”确认批量删除`)
+    return
+  }
+
+  batchDeleting.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const result = await batchDeleteOrders(token, buildBatchDeleteRows(ordersForDelete), reason, expected)
+    const deletedCount = Number(result.deleted_count || result.deletedCount || 0)
+    const failedCount = Number(result.failed_count || result.failedCount || 0)
+    const failures = Array.isArray(result.failures) ? result.failures : []
+    const deleted = Array.isArray(result.deleted) ? result.deleted : []
+
+    if (deletedCount) {
+      ElMessage.success(`已删除 ${deletedCount} 个工单${failedCount ? `，${failedCount} 个未删除` : ''}`)
+    } else {
+      ElMessage.warning('没有工单被删除')
+    }
+    if (failures.length) {
+      const extra = failures.length > 8 ? `\n其余 ${failures.length - 8} 个失败原因请刷新后逐单查看。` : ''
+      await ElMessageBox.alert(formatBatchDeleteFailures(failures) + extra, '未删除工单', {
+        confirmButtonText: '知道了',
+        type: deletedCount ? 'warning' : 'error'
+      })
+    }
+
+    if (deleted.some(item => currentOrder.value && item.order_id === currentOrder.value._id)) {
+      drawerVisible.value = false
+      currentOrder.value = null
+    }
+    selectedOrders.value = []
+    batchDeleteDialogVisible.value = false
+    await loadOrders()
+  } catch (error) {
+    if (!isUserCancel(error)) {
+      ElMessage.error(error.message || '批量删除失败')
+    }
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 const getBatchSkipReason = (order = {}, targetStatus = '') => {
   if (!targetStatus) return '当前状态不支持该批量操作'
   if (!canMoveOrderToStatus(order, targetStatus)) return `当前状态“${order.status || '-'}”不能流转到“${targetStatus}”`
@@ -3888,6 +4070,7 @@ const handleBatchToolbarCommand = (command) => {
   if (command === 'print') return handleConfiguredBatchPrint()
   if (command === 'processing') return handleBatchProcessing()
   if (command === 'complete') return handleBatchComplete()
+  if (command === 'delete') return openBatchDeleteDialog()
 }
 
 const openImportDialog = (type = 'return') => {
@@ -3999,6 +4182,11 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.delete-confirm-panel { display: flex; flex-direction: column; gap: 16px; }
+.delete-confirm-summary { padding: 12px 14px; border-radius: 8px; background: #fff7f7; border: 1px solid #ffd6d6; }
+.delete-confirm-summary strong { display: block; margin-bottom: 6px; color: #c45656; font-size: 14px; line-height: 1.4; }
+.delete-confirm-summary span { display: block; color: #5f6b7a; font-size: 13px; line-height: 1.5; word-break: break-all; }
+.delete-confirm-tip { margin: 6px 0 0; color: #8a97aa; font-size: 12px; line-height: 1.4; }
 .manual-order-form { max-height: 68vh; overflow-y: auto; padding: 0 6px 4px 0; }
 .manual-order-section { padding: 0 0 20px; margin: 0 0 20px; border-bottom: 1px solid #e8edf4; }
 .manual-order-section--last { margin-bottom: 0; border-bottom: 0; }
@@ -4033,7 +4221,7 @@ const confirmExportExcel = async () => {
 .column-config-panel { padding: 4px 2px; }
 .column-config-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .column-config-head strong { color: #1d2129; font-size: 14px; }
-.column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
+.column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; max-height: min(58vh, 520px); overflow-y: auto; padding-right: 4px; }
 .table-responsive { width: 100%; overflow-x: auto; margin-top: 4px; }
 .modern-table { min-width: 1280px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }

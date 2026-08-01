@@ -19,6 +19,27 @@
     "order_no": {
       "bsonType": "string"
     },
+    "is_deleted": {
+      "bsonType": "bool",
+      "description": "后台逻辑删除标记；true 时不再出现在正常业务查询中"
+    },
+    "deleted_time": {
+      "bsonType": "timestamp",
+      "description": "后台逻辑删除时间"
+    },
+    "deleted_by": {
+      "bsonType": "string",
+      "description": "执行逻辑删除的管理员 ID"
+    },
+    "deleted_by_name": {
+      "bsonType": "string",
+      "description": "执行逻辑删除的管理员名称快照"
+    },
+    "delete_reason": {
+      "bsonType": "string",
+      "maxLength": 500,
+      "description": "后台逻辑删除原因"
+    },
     "user_id": {
       "bsonType": "string"
     },
@@ -31,6 +52,11 @@
       "minLength": 1,
       "maxLength": 40,
       "description": "下单时客户类型快照；后台工单支持自定义类型"
+    },
+    "biz_user": {
+      "bsonType": "string",
+      "maxLength": 40,
+      "description": "后台录单时填写的对接业务员快照"
     },
     "request_fingerprint": {
       "bsonType": "string",

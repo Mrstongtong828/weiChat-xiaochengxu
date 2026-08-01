@@ -41,6 +41,7 @@
       "bsonType": "string",
       "enum": [
         "create_order",
+        "delete_order",
         "update_status",
         "issue_quote",
         "confirm_quote",

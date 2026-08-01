@@ -38,6 +38,7 @@ const PERMISSIONS = {
   export_order: ALL_ROLES,
   get_stats: ALL_ROLES,
   get_workflow_config: ALL_ROLES,
+  delete_order: ['admin'],
   update_status: ['admin', 'engineer'],
   import_logistics: ['admin', 'engineer'],
   issue_quote: ['admin', 'engineer'],
