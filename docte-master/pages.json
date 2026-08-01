@@ -47,6 +47,12 @@
 						"navigationStyle": "custom",
 						"navigationBarTitleText": "收货地址管理"
 					}
+				},
+				{
+					"path": "webview/index",
+					"style": {
+						"navigationBarTitleText": "产品视频"
+					}
 				}
 			]
 		}

@@ -119,10 +119,10 @@
           </div>
         </div>
         <div class="qual-head maintenance-video-head">
-          <span>首页介绍视频</span>
+          <span>产品安装及维护保养视频</span>
           <el-button type="primary" link :disabled="maintenanceVideos.length >= 1" @click="addMaintenanceVideo">+ 添加视频</el-button>
         </div>
-        <div class="sub-label">保存后展示在小程序首页「操作教程」下方，只保留 1 个视频。适合上传售后流程、报修寄修、服务介绍等客户引导视频。</div>
+        <div class="sub-label">保存后展示在小程序首页「操作教程」下方，只保留 1 个视频。</div>
         <div class="product-video-list maintenance-video-list-admin">
           <div v-for="(video, index) in maintenanceVideos" :key="video._key" class="policy-document-card product-video-card">
             <div class="product-video-cover">
@@ -133,8 +133,6 @@
               </el-upload>
             </div>
             <div class="product-video-fields">
-              <el-input v-model="video.title" placeholder="视频标题，如：售后服务流程介绍" maxlength="50" show-word-limit />
-              <el-input v-model="video.intro" type="textarea" :rows="2" placeholder="一句话简介（可选）" maxlength="120" show-word-limit style="margin-top:8px;" />
               <div class="product-video-fileline">
                 <el-tag v-if="video.video_name" type="success" effect="plain"><el-icon><VideoPlay /></el-icon> {{ video.video_name }}</el-tag>
                 <span v-else class="policy-document-empty">暂未上传视频</span>
@@ -156,7 +154,7 @@
 
       <el-tab-pane label="联系与公众号" name="contact">
         <el-alert
-          title="以下内容直接展示在小程序首页与「关于我们」：企业联系方式、在线客服、公众号二维码和后台预览二维码。保存后小程序端实时读取展示。"
+          title="以下内容直接展示在小程序首页与「关于我们」：企业联系方式、在线客服、公众号二维码、公众号原始 ID 和后台预览二维码。保存后小程序端实时读取展示。"
           type="info"
           show-icon
           :closable="false"
@@ -208,6 +206,7 @@
         <div class="field-title" style="margin-top:20px;">公众号</div>
         <el-form :model="contactInfo" label-width="110px" class="print-form">
           <el-form-item label="公众号名称"><el-input v-model="contactInfo.wechat_name" placeholder="公众号名称" /></el-form-item>
+          <el-form-item label="原始 ID"><el-input v-model="contactInfo.wechat_username" placeholder="gh_ 开头，用于小程序内直接打开公众号主页" /></el-form-item>
           <el-form-item label="公众号简介"><el-input v-model="contactInfo.wechat_desc" type="textarea" :rows="2" placeholder="关注引导文案" /></el-form-item>
           <el-form-item label="公众号二维码">
             <div class="logo-row">
@@ -373,8 +372,7 @@
             ></video>
             <div v-else class="mp-video-loading">{{ videoPlayLoading ? '视频加载中…' : '视频地址无效，请确认已上传成功' }}</div>
             <div class="mp-video-meta">
-              <div class="mp-video-title">{{ (videoPreviewItem && videoPreviewItem.title) || '未命名视频' }}</div>
-              <div v-if="videoPreviewItem && videoPreviewItem.intro" class="mp-video-intro">{{ videoPreviewItem.intro }}</div>
+              <div class="mp-video-title">产品安装及维护保养视频</div>
             </div>
           </div>
         </div>
@@ -582,8 +580,9 @@ const saveGuideDocuments = async () => {
   }
 }
 
-// ===== 首页介绍视频（cicada_guides，category=首页介绍视频；desc=标题，content=简介，media=[视频,封面]）=====
+// ===== 首页介绍视频（cicada_guides，标题固定，media=[视频,封面]）=====
 const MAINTENANCE_VIDEO_CATEGORY = '首页介绍视频'
+const MAINTENANCE_VIDEO_TITLE = '产品安装及维护保养视频'
 const MAINTENANCE_VIDEO_LEGACY_CATEGORIES = ['维修保养视频', '维护保养视频', '维修保养', '维护保养']
 const maintenanceVideos = ref([])
 const savingMaintenanceVideos = ref(false)
@@ -619,8 +618,8 @@ const loadMaintenanceVideos = async () => {
       return {
         _id: g._id || g.id || '',
         _key: g._id || g.id || `new-maint-${++videoKeySeq}`,
-        title: g.title || g.description || g.desc || '',
-        intro: g.content || '',
+        title: MAINTENANCE_VIDEO_TITLE,
+        intro: '',
         video_url: video.url || '',
         video_name: video.name || '',
         cover_url: cover.url || '',
@@ -826,8 +825,8 @@ const addMaintenanceVideo = () => {
   maintenanceVideos.value.push({
     _id: '',
     _key: `new-maint-${++videoKeySeq}`,
-    title: '首页介绍视频',
-    intro: '了解报修、寄修、进度查询与开票流程',
+    title: MAINTENANCE_VIDEO_TITLE,
+    intro: '',
     video_url: '',
     video_name: '',
     cover_url: '',
@@ -863,12 +862,8 @@ const saveMaintenanceVideos = async () => {
     return
   }
   for (const v of maintenanceVideos.value) {
-    if (!String(v.title || '').trim()) {
-      ElMessage.warning('请填写首页介绍视频标题')
-      return
-    }
     if (!v.video_url) {
-      ElMessage.warning(`「${v.title || '未命名'}」还没有上传视频`)
+      ElMessage.warning('产品安装及维护保养视频还没有上传视频')
       return
     }
   }
@@ -882,10 +877,10 @@ const saveMaintenanceVideos = async () => {
       const payload = {
         category: MAINTENANCE_VIDEO_CATEGORY,
         audience: 'client',
-        title: String(v.title).trim(),
-        description: String(v.title).trim(),
-        desc: String(v.title).trim(),
-        content: v.intro || '',
+        title: MAINTENANCE_VIDEO_TITLE,
+        description: MAINTENANCE_VIDEO_TITLE,
+        desc: MAINTENANCE_VIDEO_TITLE,
+        content: '',
         media,
         sort: i + 1
       }
@@ -1020,7 +1015,7 @@ const CONTACT_KEYS = [
   'company_name', 'contact_phone', 'contact_email', 'contact_address', 'work_time',
   'bank_transfer_company_name', 'bank_transfer_tax_no', 'bank_transfer_address_phone', 'bank_transfer_bank_name', 'bank_transfer_account_no', 'bank_transfer_line_no',
   'customer_service_title', 'customer_service_desc', 'customer_service_wechat', 'customer_service_qrcode',
-  'wechat_name', 'wechat_desc', 'wechat_qrcode'
+  'wechat_name', 'wechat_desc', 'wechat_qrcode', 'wechat_username'
 ]
 const CONTACT_QR_KEYS = ['customer_service_qrcode', 'wechat_qrcode']
 const DEFAULT_CONTACT_INFO = {
@@ -1033,7 +1028,9 @@ const DEFAULT_CONTACT_INFO = {
   bank_transfer_address_phone: '佛山市南海区狮山镇罗村广东新光源产业基地核心区内B区5座二层  0757-85775667',
   bank_transfer_bank_name: '中国农业银行佛山惠景支行',
   bank_transfer_account_no: '4442 3201 0400 04288',
-  bank_transfer_line_no: '103588042208'
+  bank_transfer_line_no: '103588042208',
+  wechat_name: '思科达售后',
+  wechat_username: 'gh_efdbbf08eaa1'
 }
 const contactInfo = reactive(CONTACT_KEYS.reduce((acc, key) => { acc[key] = DEFAULT_CONTACT_INFO[key] || ''; return acc }, {}))
 const contactQrPreviewMap = reactive({})

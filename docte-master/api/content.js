@@ -328,12 +328,13 @@ export const getCustomerService = async () => {
 
 export const getWechat = async () => {
 	const settings = await getPublicCloudObject().getSettings({
-		keys: ['wechat_name', 'wechat_desc', 'wechat_qrcode']
+		keys: ['wechat_name', 'wechat_desc', 'wechat_qrcode', 'wechat_username']
 	}).then(unwrapCloudResult)
 	return {
 		name: settings.wechat_name,
 		description: settings.wechat_desc,
-		qrcodeUrl: await resolveCloudUrl(settings.wechat_qrcode)
+		qrcodeUrl: await resolveCloudUrl(settings.wechat_qrcode),
+		username: settings.wechat_username
 	}
 }
 

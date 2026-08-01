@@ -8,6 +8,7 @@ import logoCompact from '@/static/cicada-logo-compact.png'
 import logoHeader from '@/static/cicada-logo-header.png'
 import wordmarkBlue from '@/static/cicada-wordmark.png'
 import wordmarkRegistered from '@/static/cicada-wordmark-registered.png'
+import wordmarkRegisteredWhite from '@/static/cicada-wordmark-registered-white.png'
 import wordmarkWhite from '@/static/cicada-wordmark-white.png'
 import qrWechat from '@/static/qr-wechat.jpg'
 import surveyPoster from '@/static/survey-poster.jpg'
@@ -25,6 +26,7 @@ export const cicadaAssets = {
 	logoHeader,
 	wordmarkBlue,
 	wordmarkRegistered,
+	wordmarkRegisteredWhite,
 	wordmarkWhite,
 	qrWechat,
 	surveyPoster,

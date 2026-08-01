@@ -1446,18 +1446,30 @@
 							<view class="chevron"></view>
 						</view>
 					</view>
+					<view class="product-video-entry tap" @click="openProductVideoLink">
+						<view class="product-video-icon">
+							<view class="product-video-play"></view>
+						</view>
+						<view class="product-video-copy">
+							<view class="product-video-title-row">
+								<text class="product-video-title">产品视频</text>
+								<text class="product-video-new">NEW</text>
+							</view>
+							<text class="product-video-desc">观看产品使用视频</text>
+						</view>
+						<view class="product-video-chevron"></view>
+					</view>
 				</view>
 
 				<view v-if="homeIntroVideo" class="section maintenance-video-wrap">
 					<view class="maintenance-video-list">
 						<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
-							<text class="maintenance-video-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
-							<text v-if="homeIntroVideo.desc" class="maintenance-video-intro">{{ homeIntroVideo.desc }}</text>
+							<text class="maintenance-video-title">产品安装及维护保养视频</text>
 							<view class="maintenance-video-cover">
 								<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
 								<view v-else class="maintenance-video-placeholder">
 									<text class="maintenance-video-brand">CICADA Dental</text>
-									<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
+									<text class="maintenance-video-placeholder-title">产品安装及维护保养视频</text>
 								</view>
 								<view class="maintenance-video-shade"></view>
 								<view class="maintenance-play-badge"><text>▶</text></view>
@@ -1625,7 +1637,7 @@
 					</view>
 				</view>
 
-				<view class="follow-card">
+				<view class="follow-card tap" @click="openOfficialAccountProfile">
 					<view class="qr-image-wrap company-qr">
 						<image
 							class="qr-image"
@@ -1635,7 +1647,7 @@
 						></image>
 					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
+					<text class="follow-desc">点击打开官方公众号，获取产品资料、维修保养与售后服务支持。</text>
 					<official-account class="official-account-btn"></official-account>
 				</view>
 			</view>
@@ -1730,12 +1742,11 @@
 			</view>
 		</view>
 
-		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="showOfficial = true">
+		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="openOfficialAccountProfile">
 			<view class="vi-side-wordmark">
-				<text class="vi-side-logo-text">CICADA</text>
-				<text class="vi-side-logo-r">®</text>
+				<image class="vi-side-logo-img" :src="cicadaAssets.wordmarkRegisteredWhite" mode="aspectFit"></image>
 			</view>
-			<text class="side-text">思科达公众号</text>
+			<text class="side-text">公众号</text>
 		</view>
 
 		<BottomTabbar v-if="showBottomTabbar" :tabs="tabs" :active-id="activeTab" @select="go" />
@@ -1775,10 +1786,10 @@
 			<view class="official-modal" @click.stop>
 				<text class="modal-close tap" @click="showOfficial = false">×</text>
 				<view class="qr-image-wrap company-qr">
-					<image class="qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
+					<image class="qr-image" :src="wechatInfo.qrcodeUrl || cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
 				</view>
 				<text class="follow-title">了解产品与售后支持</text>
-				<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
+				<text class="follow-desc">当前环境暂不支持直接打开公众号，可长按识别二维码关注官方公众号。</text>
 				<official-account class="official-account-btn"></official-account>
 			</view>
 		</view>
@@ -2372,10 +2383,14 @@ const customerService = ref({
 	wechat: 'CSD-Service-001'
 })
 
+const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
+const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
+
 const wechatInfo = ref({
 	qrcodeUrl: cicadaAssets.qrWechat,
 	name: '思科达售后',
-	description: '获取最新服务指南 / 售后政策'
+	description: '获取最新服务指南 / 售后政策',
+	username: OFFICIAL_ACCOUNT_USERNAME
 })
 
 const contactHotlines = ref([
@@ -3574,6 +3589,20 @@ const getDetailAttachmentUrl = (attachment = {}) => {
 	const fileID = getCloudFileId(attachment)
 	if (fileID && detailAttachmentTempUrls.value[fileID]) return detailAttachmentTempUrls.value[fileID]
 	return getPreviewUrl(attachment)
+}
+
+const openProductVideoLink = () => {
+	const target = encodeURIComponent(PRODUCT_VIDEO_LINK)
+	uni.navigateTo({
+		url: `/pages-sub/webview/index?title=${encodeURIComponent('产品视频')}&url=${target}`,
+		fail: () => {
+			uni.setClipboardData({
+				data: PRODUCT_VIDEO_LINK,
+				success: () => uni.showToast({ title: '链接已复制，请在微信内打开', icon: 'none' }),
+				fail: () => uni.showToast({ title: '产品视频暂时无法打开', icon: 'none' })
+			})
+		}
+	})
 }
 
 const getDetailAttachmentCoverUrl = (attachment = {}) => (
@@ -6270,6 +6299,35 @@ const openCustomerService = () => {
 	uni.showToast({ title: '客服方式暂未配置', icon: 'none' })
 }
 
+const normalizeOfficialAccountUsername = (value) => String(value || '').trim()
+
+const launchOfficialAccountProfile = (username) => {
+	// #ifdef MP-WEIXIN
+	if (typeof wx !== 'undefined' && typeof wx.openOfficialAccountProfile === 'function') {
+		wx.openOfficialAccountProfile({
+			username,
+			fail: (error = {}) => {
+				const errMsg = String(error.errMsg || error.message || error || '')
+				console.warn('open official account failed:', error)
+				if (/cancel/i.test(errMsg)) return
+				showOfficial.value = true
+				uni.showToast({ title: '请长按二维码关注公众号', icon: 'none' })
+			}
+		})
+		return
+	}
+	// #endif
+
+	showOfficial.value = true
+	uni.showToast({ title: '当前版本暂不支持直接打开公众号', icon: 'none' })
+}
+
+const openOfficialAccountProfile = () => {
+	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
+	showOfficial.value = false
+	launchOfficialAccountProfile(username)
+}
+
 const makePhoneCall = () => {
 	callPhone(contactInfo.value.phone)
 }
@@ -7224,28 +7282,34 @@ onUnmounted(() => {
 }
 
 .vi-side-tab {
-	padding: 24rpx 20rpx 24rpx 32rpx !important;
-	background: linear-gradient(135deg, #3A86FF 0%, #0A4FB8 100%) !important;
-	box-shadow: -8rpx 12rpx 32rpx -8rpx rgba(10, 79, 184, 0.4) !important;
-}
-
-.vi-side-logo {
-	width: 108rpx;
-	height: 26rpx;
+	width: 150rpx;
+	height: 92rpx;
+	padding: 17rpx 14rpx 14rpx 26rpx !important;
+	border: none !important;
+	border-radius: 48rpx 0 0 48rpx !important;
+	background: linear-gradient(135deg, #23A8F2 0%, #1677E8 100%) !important;
+	box-shadow: -8rpx 12rpx 26rpx -9rpx rgba(22, 119, 232, 0.4) !important;
+	overflow: hidden;
 }
 
 .vi-side-logo-text {
-	font-family: Georgia, "Times New Roman", serif;
-	font-size: 27rpx;
-	font-weight: 800;
+	font-family: Georgia, "Times New Roman", "Noto Serif SC", serif;
+	font-size: 32rpx;
+	font-weight: 700;
 	line-height: 1;
-	letter-spacing: 1.8rpx;
+	letter-spacing: 0;
 	color: #FFFFFF;
+	text-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.08);
+}
+
+.vi-side-logo-img {
+	width: 102rpx;
+	height: 26rpx;
 }
 
 .vi-side-logo-r {
 	position: relative;
-	top: -8rpx;
+	top: -10rpx;
 	margin-left: 2rpx;
 	font-size: 12rpx;
 	font-weight: 800;
@@ -7256,6 +7320,8 @@ onUnmounted(() => {
 .vi-side-wordmark {
 	display: flex;
 	align-items: baseline;
+	justify-content: center;
+	width: 100%;
 	margin-bottom: 4rpx;
 }
 
@@ -7677,6 +7743,120 @@ onUnmounted(() => {
 .tutorial-guide-grid .guide-card {
 	width: auto;
 	min-width: 0;
+}
+
+.product-video-entry {
+	margin-top: 20rpx;
+	min-height: 124rpx;
+	padding: 20rpx 24rpx;
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
+	box-sizing: border-box;
+}
+
+.product-video-icon {
+	position: relative;
+	width: 76rpx;
+	height: 76rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	border-radius: 50%;
+	background: #FFE6E5;
+	color: #FF6B6B;
+}
+
+.product-video-icon::before {
+	content: "";
+	position: absolute;
+	width: 58rpx;
+	height: 58rpx;
+	border-radius: 50%;
+	background: #FF7775;
+	box-shadow: 0 8rpx 18rpx rgba(255, 107, 107, 0.24);
+}
+
+.product-video-play {
+	position: relative;
+	width: 30rpx;
+	height: 24rpx;
+	border: 4rpx solid #FFFFFF;
+	border-radius: 7rpx;
+	box-sizing: border-box;
+}
+
+.product-video-play::after {
+	content: "";
+	position: absolute;
+	left: 9rpx;
+	top: 4rpx;
+	width: 0;
+	height: 0;
+	border-top: 6rpx solid transparent;
+	border-bottom: 6rpx solid transparent;
+	border-left: 9rpx solid #FFFFFF;
+}
+
+.product-video-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+
+.product-video-title-row {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	min-width: 0;
+}
+
+.product-video-title {
+	font-size: 28rpx;
+	font-weight: 700;
+	line-height: 1.25;
+	color: #0F1F3A;
+}
+
+.product-video-new {
+	padding: 3rpx 8rpx;
+	border-radius: 12rpx;
+	background: #FF5E5E;
+	color: #FFFFFF;
+	font-size: 16rpx;
+	font-weight: 800;
+	line-height: 1.2;
+}
+
+.product-video-desc {
+	margin-top: 8rpx;
+	font-size: 20rpx;
+	line-height: 1.25;
+	color: #A0A9B8;
+}
+
+.product-video-chevron {
+	position: relative;
+	width: 18rpx;
+	height: 28rpx;
+	flex-shrink: 0;
+}
+
+.product-video-chevron::before {
+	content: "";
+	position: absolute;
+	top: 5rpx;
+	left: 0;
+	width: 15rpx;
+	height: 15rpx;
+	border-top: 5rpx solid #FF6B6B;
+	border-right: 5rpx solid #FF6B6B;
+	transform: rotate(45deg);
 }
 
 .maintenance-video-wrap {
@@ -8909,7 +9089,7 @@ onUnmounted(() => {
 .side-tab {
 	position: fixed;
 	right: 0;
-	top: 42%;
+	top: 39%;
 	z-index: 25;
 	padding: 20rpx 16rpx 20rpx 28rpx;
 	display: flex;
@@ -8923,7 +9103,7 @@ onUnmounted(() => {
 	box-shadow: -8rpx 12rpx 32rpx -8rpx rgba(10, 79, 184, 0.4);
 	color: #FFFFFF;
 	line-height: 1.1;
-	letter-spacing: 1.2rpx;
+	letter-spacing: 0;
 	transform: translateY(-50%);
 	box-sizing: border-box;
 }
@@ -8937,10 +9117,13 @@ onUnmounted(() => {
 }
 
 .side-text {
-	font-size: 19rpx;
-	font-weight: 600;
-	line-height: 1.1;
-	color: rgba(255, 255, 255, 0.95);
+	font-size: 22rpx;
+	font-weight: 700;
+	line-height: 1.15;
+	letter-spacing: 3rpx;
+	padding-left: 3rpx;
+	color: rgba(255, 255, 255, 0.96);
+	text-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.1);
 }
 
 .modal-mask {

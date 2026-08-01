@@ -40,6 +40,7 @@ const PUBLIC_SETTING_KEYS = new Set([
   'wechat_name',
   'wechat_desc',
   'wechat_qrcode',
+  'wechat_username',
   'privacy_policy',
   'account_cancellation_policy',
   'qualifications',
