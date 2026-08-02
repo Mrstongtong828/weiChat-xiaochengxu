@@ -49,6 +49,7 @@ const assetSources = [
 	'cicada-logo-header.png',
 	'cicada-wordmark.png',
 	'cicada-wordmark-registered.png',
+	'cicada-wordmark-registered-white.png',
 	'cicada-wordmark-white.png',
 	'company-intro-header-v2.jpg',
 	'company-product-black.jpg',

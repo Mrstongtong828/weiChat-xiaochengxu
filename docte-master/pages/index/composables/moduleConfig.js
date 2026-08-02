@@ -32,7 +32,9 @@ export const queries = [
 ]
 
 export const guides = [
+	{ id: 'guide-quick', title: '快速指南', desc: '快速了解小程序售后流程', icon: 'book' },
 	{ id: 'guide-repair', title: '报修指南', desc: '教你如何快速报修', icon: 'repair' },
+	{ id: 'guide-query', title: '查询指南', desc: '查询工单、物流和维修进度', icon: 'search' },
 	{ id: 'guide-invoice', title: '开票指南', desc: '发票申请操作指引', icon: 'invoice' }
 ]
 
@@ -101,7 +103,9 @@ export const moduleMap = {
 	diag: { title: '故障自查', subtitle: '选择产品类型和故障类型，查看排查建议' },
 	warranty: { title: '保修政策', subtitle: '文字形式展示保修范围、期限和注意事项' },
 	fees: { title: '收费指南', subtitle: '文字形式展示收费办法和常见项目' },
+	'guide-quick': { title: '快速指南', subtitle: '快速了解小程序售后流程' },
 	'guide-repair': { title: '报修指南', subtitle: '了解寄修报修的完整流程' },
+	'guide-query': { title: '查询指南', subtitle: '查询工单、物流和维修进度' },
 	'guide-invoice': { title: '开票指南', subtitle: '了解发票申请、抬头和寄送说明' },
 	invoices: { title: '发票与开票', subtitle: '申请开票、查看进度与复制电子发票' },
 	contact: { title: '联系我们', subtitle: '客服热线、工作时间和寄修地址' },

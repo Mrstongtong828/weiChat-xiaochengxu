@@ -81,7 +81,7 @@
 
       <el-tab-pane label="操作教程" name="guides">
         <el-alert
-          title="这里维护小程序首页两个操作教程按钮，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
+          title="这里维护小程序首页四个操作教程按钮，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
           type="info"
           show-icon
           :closable="false"
@@ -451,8 +451,10 @@ const moveWarrantySection = (index, offset) => {
 
 // ===== 操作教程文档 =====
 const GUIDE_TYPES = [
-  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 1 },
-  { type: 'invoice', category: '开票指南', desc: '说明发票申请、抬头填写和寄送方式。', sort: 2 }
+  { type: 'quick', category: '快速指南', desc: '快速了解小程序售后流程。', sort: 1 },
+  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 2 },
+  { type: 'query', category: '查询指南', desc: '说明工单、物流和维修进度查询方式。', sort: 3 },
+  { type: 'invoice', category: '开票指南', desc: '说明发票申请、抬头填写和寄送方式。', sort: 4 }
 ]
 const guideDocuments = ref(GUIDE_TYPES.map(item => ({ ...item, _id: '', file_name: '', file_url: '', file_type: '', updatedAt: '' })))
 const guidePreviewMap = reactive({})

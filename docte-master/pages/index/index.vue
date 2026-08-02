@@ -2313,7 +2313,7 @@ const maybeShowHomeGuidePopup = async () => {
 	}
 }
 
-const docModuleIds = ['fees', 'guide-repair', 'guide-invoice']
+const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-query', 'guide-invoice']
 
 const docFallbacks = {
 	fees: {
@@ -2322,6 +2322,13 @@ const docFallbacks = {
 		lead: '',
 		paperTitle: '',
 		content: '',
+		sections: []
+	},
+	'guide-quick': {
+		title: '快速指南',
+		icon: 'book',
+		lead: '快速了解小程序售后流程。',
+		paperTitle: '',
 		sections: []
 	},
 	'guide-repair': {
@@ -2341,6 +2348,13 @@ const docFallbacks = {
 			{ title: '确认并提交', desc: '核对报修信息无误后，点击提交完成申请。' }
 		]
 	},
+	'guide-query': {
+		title: '查询指南',
+		icon: 'search',
+		lead: '查询工单、物流和维修进度。',
+		paperTitle: '',
+		sections: []
+	},
 	'guide-invoice': {
 		title: '开票指南',
 		icon: 'invoice',
@@ -2354,7 +2368,7 @@ const docFallbacks = {
 	}
 }
 
-;['guide-repair', 'guide-invoice'].forEach((key) => {
+;['guide-quick', 'guide-repair', 'guide-query', 'guide-invoice'].forEach((key) => {
 	if (docFallbacks[key]) {
 		docFallbacks[key].content = ''
 		docFallbacks[key].fileName = ''
@@ -3401,7 +3415,9 @@ const openGuideFile = async (doc = {}) => {
 }
 
 const guideModuleTypeMap = {
+	'guide-quick': 'quick',
 	'guide-repair': 'repair',
+	'guide-query': 'query',
 	'guide-invoice': 'invoice'
 }
 
@@ -6397,9 +6413,15 @@ const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 		getFeePolicy()
 			.then((doc) => updateDoc('fees', doc))
 			.catch((error) => console.warn('fee fallback:', error)),
+		getGuide('quick')
+			.then((doc) => updateDoc('guide-quick', doc))
+			.catch((error) => console.warn('quick guide fallback:', error)),
 		getGuide('repair')
 			.then((doc) => updateDoc('guide-repair', doc))
 			.catch((error) => console.warn('repair guide fallback:', error)),
+		getGuide('query')
+			.then((doc) => updateDoc('guide-query', doc))
+			.catch((error) => console.warn('query guide fallback:', error)),
 		getGuide('invoice')
 			.then((doc) => updateDoc('guide-invoice', doc))
 			.catch((error) => console.warn('invoice guide fallback:', error)),
@@ -7288,59 +7310,40 @@ onUnmounted(() => {
 }
 
 .vi-side-tab {
-	width: 150rpx;
-	height: 92rpx;
-	padding: 17rpx 14rpx 14rpx 26rpx !important;
+	width: 252rpx;
+	height: 72rpx;
+	padding: 12rpx 20rpx 12rpx 30rpx !important;
+	flex-direction: row !important;
+	justify-content: flex-start;
+	gap: 12rpx;
 	border: none !important;
-	border-radius: 48rpx 0 0 48rpx !important;
+	border-radius: 42rpx 0 0 42rpx !important;
 	background: linear-gradient(135deg, #23A8F2 0%, #1677E8 100%) !important;
 	box-shadow: -8rpx 12rpx 26rpx -9rpx rgba(22, 119, 232, 0.4) !important;
 	overflow: hidden;
 }
 
-.vi-side-logo-text {
-	font-family: Georgia, "Times New Roman", "Noto Serif SC", serif;
-	font-size: 32rpx;
-	font-weight: 700;
-	line-height: 1;
+.vi-side-tab .side-text {
+	padding-left: 0;
+	flex-shrink: 0;
+	font-size: 22rpx;
 	letter-spacing: 0;
-	color: #FFFFFF;
-	text-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.08);
 }
 
 .vi-side-logo-img {
-	width: 102rpx;
-	height: 26rpx;
-}
-
-.vi-side-logo-r {
-	position: relative;
-	top: -10rpx;
-	margin-left: 2rpx;
-	font-size: 12rpx;
-	font-weight: 800;
-	line-height: 1;
-	color: #FFFFFF;
+	width: 112rpx;
+	height: 30rpx;
+	display: block;
 }
 
 .vi-side-wordmark {
 	display: flex;
-	align-items: baseline;
-	justify-content: center;
-	width: 100%;
-	margin-bottom: 4rpx;
-}
-
-.vi-side-wordmark .vi-en {
-	color: #FFFFFF;
-	font-size: 26rpx;
-	margin-right: 4rpx;
-}
-
-.vi-side-wordmark .vi-tm {
-	color: #FFFFFF;
-	font-size: 12rpx;
-	top: -0.5em;
+	align-items: center;
+	justify-content: flex-start;
+	width: 112rpx;
+	height: 30rpx;
+	margin-bottom: 0;
+	flex-shrink: 0;
 }
 
 .brand-left {
