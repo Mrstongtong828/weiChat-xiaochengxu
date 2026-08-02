@@ -583,7 +583,7 @@ const saveGuideDocuments = async () => {
 // ===== 首页介绍视频（cicada_guides，标题固定，media=[视频,封面]）=====
 const MAINTENANCE_VIDEO_CATEGORY = '首页介绍视频'
 const MAINTENANCE_VIDEO_TITLE = '产品安装及维护保养视频'
-const MAINTENANCE_VIDEO_LEGACY_CATEGORIES = ['维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const MAINTENANCE_VIDEO_LEGACY_CATEGORIES = ['产品视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
 const maintenanceVideos = ref([])
 const savingMaintenanceVideos = ref(false)
 const uploadingVideoKey = ref('')

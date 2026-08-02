@@ -3442,7 +3442,7 @@ const openGuideFromHome = async (id) => {
 	uni.showToast({ title: '该教程还未上传文档', icon: 'none' })
 }
 
-const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '产品视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
 const clientGuideAudiences = new Set(['', 'client', 'public', 'all'])
 
 const normalizeMaintenanceVideos = async (list = []) => {
