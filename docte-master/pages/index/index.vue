@@ -2364,7 +2364,7 @@ const docMap = ref({})
 logBoot('doc fallbacks ready')
 
 const contactInfo = ref({
-	companyName: '佛山市思科达医疗器械有限公司',
+	companyName: '佛山市登煌医疗器械有限公司',
 	phone: '0757-85775667',
 	email: '',
 	address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
@@ -15254,5 +15254,4 @@ onUnmounted(() => {
 .edit-btn.save { background: #1E6FE0; color: #FFFFFF; }
 .edit-btn.save.disabled { opacity: 0.6; }
 </style>
-
 

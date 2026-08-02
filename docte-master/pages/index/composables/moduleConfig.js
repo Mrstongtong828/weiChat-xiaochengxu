@@ -37,7 +37,7 @@ export const guides = [
 ]
 
 export const defaultReceiver = [
-	{ label: '收件公司', value: '佛山市思科达医疗器械有限公司' },
+	{ label: '收件公司', value: '佛山市登煌医疗器械有限公司' },
 	{ label: '收件人', value: '姚兵' },
 	{ label: '收件电话', value: '13929198537' },
 	{ label: '收件地址', value: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼' }
