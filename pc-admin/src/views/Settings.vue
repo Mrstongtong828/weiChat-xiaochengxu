@@ -1019,7 +1019,7 @@ const CONTACT_KEYS = [
 ]
 const CONTACT_QR_KEYS = ['customer_service_qrcode', 'wechat_qrcode']
 const DEFAULT_CONTACT_INFO = {
-  company_name: '佛山市思科达医疗器械有限公司',
+  company_name: '佛山市登煌医疗器械有限公司',
   contact_phone: '0757-85775667',
   contact_address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
   work_time: '周一至周五 08:00 - 21:00',

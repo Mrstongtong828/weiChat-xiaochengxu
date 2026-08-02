@@ -5,9 +5,20 @@
 		</view>
 
 		<view class="page-body">
-			<view class="company-hero">
-				<image class="hero-image" src="/static/company-intro-header-v2.jpg" mode="aspectFill"></image>
-			</view>
+			<swiper
+				class="company-hero"
+				circular
+				indicator-dots
+				autoplay
+				:interval="5000"
+				:duration="450"
+				indicator-color="rgba(30, 111, 224, 0.24)"
+				indicator-active-color="#1E6FE0"
+			>
+				<swiper-item v-for="image in heroImages" :key="image">
+					<image class="hero-image" :src="image" mode="aspectFit"></image>
+				</swiper-item>
+			</swiper>
 
 			<view class="stats-grid">
 				<view v-for="item in stats" :key="item.label" class="stat-card">
@@ -154,8 +165,17 @@ import productImplant from '@/static/product-implant.jpg'
 import productPrevention from '@/static/product-prevention.jpg'
 import productRestoration from '@/static/product-restoration.jpg'
 import productRootCanal from '@/static/product-root-canal.jpg'
+import companyProductBlack from '@/static/company-product-black.jpg'
+import companyProductLight from '@/static/company-product-light.jpg'
+import companyProductMultiView from '@/static/company-product-multi-view.jpg'
 import { getCompliance, getGuides } from '@/api/content.js'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
+
+const heroImages = [
+	companyProductBlack,
+	companyProductLight,
+	companyProductMultiView
+]
 
 const qualifications = ref([])
 const maintenanceGuides = ref([])
@@ -415,20 +435,16 @@ const copyEmail = () => {
 	position: relative;
 	margin-top: 12rpx;
 	width: 100%;
-	aspect-ratio: 1051 / 645;
+	aspect-ratio: 1 / 1;
 	overflow: hidden;
 	border-radius: 28rpx;
-	background: linear-gradient(135deg, #1A3C5C 0%, #2C5985 50%, #4A7BA6 100%);
+	background: #FFFFFF;
 	box-shadow: 0 10rpx 28rpx rgba(44, 89, 133, 0.16);
 }
 
 .hero-image {
-	position: absolute;
-	inset: 0;
 	width: 100%;
 	height: 100%;
-	transform: scale(1.012);
-	transform-origin: 50% 50%;
 }
 
 .stats-grid {

@@ -1554,7 +1554,7 @@
 				</view>
 
 				<view class="company-hero">
-					<image class="company-hero-image" src="/static/company-intro-header-v2.jpg" mode="aspectFill"></image>
+					<image class="company-hero-image" :src="companyIntroHeader" mode="aspectFill"></image>
 				</view>
 
 				<view class="company-stats-grid">
@@ -1881,6 +1881,7 @@ import PolicyDialog from '@/components/PolicyDialog.vue'
 import PolicyDocumentViewer from '@/components/PolicyDocumentViewer.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import homeTopBackground from '@/static/home-top-background.jpg'
+import companyIntroHeader from '@/static/company-intro-header-v2.jpg'
 import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import {
@@ -2363,7 +2364,7 @@ const docMap = ref({})
 logBoot('doc fallbacks ready')
 
 const contactInfo = ref({
-	companyName: '佛山市思科达医疗器械有限公司',
+	companyName: '佛山市登煌医疗器械有限公司',
 	phone: '0757-85775667',
 	email: '',
 	address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
@@ -15253,6 +15254,3 @@ onUnmounted(() => {
 .edit-btn.save { background: #1E6FE0; color: #FFFFFF; }
 .edit-btn.save.disabled { opacity: 0.6; }
 </style>
-
-
-
