@@ -20,26 +20,6 @@
       "file_type": "",
       "sort": 2,
       "update_time": 1779173903540
-    },
-    {
-      "type": "query",
-      "category": "查询指南",
-      "desc": "跳转到图文并茂的查询文档，说明工单、物流和维修进度查询方式。",
-      "file_name": "",
-      "file_url": "",
-      "file_type": "",
-      "sort": 3,
-      "update_time": 1779173903540
-    },
-    {
-      "type": "invoice",
-      "category": "开票指南",
-      "desc": "跳转到图文并茂的开票文档，说明发票申请、资料填写和开票进度查看方式。",
-      "file_name": "",
-      "file_url": "",
-      "file_type": "",
-      "sort": 4,
-      "update_time": 1779173903540
     }
   ]
 }

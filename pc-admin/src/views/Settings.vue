@@ -452,9 +452,7 @@ const moveWarrantySection = (index, offset) => {
 // ===== 操作教程文档 =====
 const GUIDE_TYPES = [
   { type: 'quick', category: '快速指南', desc: '快速了解小程序售后流程。', sort: 1 },
-  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 2 },
-  { type: 'query', category: '查询指南', desc: '说明工单、物流和维修进度查询方式。', sort: 3 },
-  { type: 'invoice', category: '开票指南', desc: '说明发票申请、抬头填写和寄送方式。', sort: 4 }
+  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 2 }
 ]
 const guideDocuments = ref(GUIDE_TYPES.map(item => ({ ...item, _id: '', file_name: '', file_url: '', file_type: '', updatedAt: '' })))
 const guidePreviewMap = reactive({})

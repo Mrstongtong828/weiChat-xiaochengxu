@@ -48,29 +48,11 @@ const GUIDE_DEFAULTS = [
     file_name: '',
     file_url: '',
     sort: 2
-  },
-  {
-    type: 'query',
-    category: '查询指南',
-    desc: '跳转到图文并茂的查询文档，说明工单、物流和维修进度查询方式。',
-    file_name: '',
-    file_url: '',
-    sort: 3
-  },
-  {
-    type: 'invoice',
-    category: '开票指南',
-    desc: '跳转到图文并茂的开票文档，说明发票申请、资料填写和开票进度查看方式。',
-    file_name: '',
-    file_url: '',
-    sort: 4
   }
 ]
 const GUIDE_TYPE_ALIASES = {
   quick: ['快速指南', '快速入门'],
-  repair: ['报修指南', '报修流程'],
-  query: ['查询指南', '查询办法', '维修查询', '物流寄送'],
-  invoice: ['开票指南', '发票开具']
+  repair: ['报修指南', '报修流程']
 }
 
 function genToken() {

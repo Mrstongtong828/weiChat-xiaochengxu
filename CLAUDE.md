@@ -102,6 +102,7 @@ Three remotes are configured: `origin` → `huaxie602/docte` (the issue/PRD trac
 
 ### Adding things
 
+- **Guide product constraint**: The client-facing operation-guide list is intentionally limited to `快速指南` and `报修指南`. Do not add `查询指南` or `开票指南` entries, default seed data, or homepage cards. Tracking/query capabilities and the `发票与开票` workflow remain available through their existing functional modules; this rule only covers standalone guide entries.
 - **Mini-program page**: create `docte-master/pages/<cat>/<name>.vue`, register in `docte-master/pages.json` with `navigationStyle: "custom"`.
 - **PC Admin page**: create `pc-admin/src/views/<Name>.vue`, add a child route under `MainLayout` in `pc-admin/src/router/index.js`, wire API in `pc-admin/src/api/`.
 - **Cloud function**: create `docte-master/uniCloud-alipay/cloudfunctions/<name>/index.obj.js`; if it touches orders/roles, require `../common/cicada-order-workflow` rather than duplicating constants; deploy via HBuilderX "Upload and deploy".

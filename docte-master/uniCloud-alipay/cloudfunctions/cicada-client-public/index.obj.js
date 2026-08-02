@@ -132,8 +132,6 @@ function isClientAudienceGuide(item = {}) {
 const GUIDE_CATEGORY_ALIASES = {
   quick: ['快速指南', '快速入门'],
   repair: ['报修指南', '报修流程'],
-  query: ['查询指南', '查询办法', '维修查询', '物流寄送'],
-  invoice: ['开票指南', '发票开具'],
   fault: ['自查指南', '故障自查']
 }
 

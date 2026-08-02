@@ -2313,7 +2313,7 @@ const maybeShowHomeGuidePopup = async () => {
 	}
 }
 
-const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-query', 'guide-invoice']
+const docModuleIds = ['fees', 'guide-quick', 'guide-repair']
 
 const docFallbacks = {
 	fees: {
@@ -2348,27 +2348,9 @@ const docFallbacks = {
 			{ title: '确认并提交', desc: '核对报修信息无误后，点击提交完成申请。' }
 		]
 	},
-	'guide-query': {
-		title: '查询指南',
-		icon: 'search',
-		lead: '查询工单、物流和维修进度。',
-		paperTitle: '',
-		sections: []
-	},
-	'guide-invoice': {
-		title: '开票指南',
-		icon: 'invoice',
-		lead: '支持多种发票类型，在线申请，极速送达。',
-		paperTitle: '思科达自助开票指南',
-		sections: [
-			{ title: '一、开票申请流程', lines: ['维修完成并支付后，在「维修订单」中选择对应订单。', '点击「申请开票」按钮，选择发票类型（电子普票/纸质专票）。', '录入单位抬头、税号及接收邮箱/地址，确认提交。'] },
-			{ title: '二、发票类型说明', lines: ['增值税普通发票：默认开具电子发票，发送至您的预留邮箱。', '增值税专用发票：需上传开票资料，纸质发票将于 3 个工作日内寄出。'] },
-			{ title: '三、开票时效', lines: ['电子发票申请后 24 小时内开具；纸质发票每周二、周五统一邮寄。'], marker: '' }
-		]
-	}
 }
 
-;['guide-quick', 'guide-repair', 'guide-query', 'guide-invoice'].forEach((key) => {
+;['guide-quick', 'guide-repair'].forEach((key) => {
 	if (docFallbacks[key]) {
 		docFallbacks[key].content = ''
 		docFallbacks[key].fileName = ''
@@ -3416,9 +3398,7 @@ const openGuideFile = async (doc = {}) => {
 
 const guideModuleTypeMap = {
 	'guide-quick': 'quick',
-	'guide-repair': 'repair',
-	'guide-query': 'query',
-	'guide-invoice': 'invoice'
+	'guide-repair': 'repair'
 }
 
 const openGuideFromHome = async (id) => {
@@ -6419,12 +6399,6 @@ const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 		getGuide('repair')
 			.then((doc) => updateDoc('guide-repair', doc))
 			.catch((error) => console.warn('repair guide fallback:', error)),
-		getGuide('query')
-			.then((doc) => updateDoc('guide-query', doc))
-			.catch((error) => console.warn('query guide fallback:', error)),
-		getGuide('invoice')
-			.then((doc) => updateDoc('guide-invoice', doc))
-			.catch((error) => console.warn('invoice guide fallback:', error)),
 		loadMaintenanceVideos(),
 		getContact()
 			.then((data) => applyContact(data))
@@ -7310,16 +7284,16 @@ onUnmounted(() => {
 }
 
 .vi-side-tab {
-	width: 252rpx;
-	height: 72rpx;
-	padding: 12rpx 20rpx 12rpx 30rpx !important;
-	flex-direction: row !important;
-	justify-content: flex-start;
-	gap: 12rpx;
+	width: 208rpx;
+	height: 88rpx;
+	padding: 14rpx 16rpx 12rpx 24rpx !important;
+	flex-direction: column !important;
+	justify-content: center;
+	gap: 2rpx;
 	border: none !important;
-	border-radius: 42rpx 0 0 42rpx !important;
+	border-radius: 36rpx 0 0 36rpx !important;
 	background: linear-gradient(135deg, #23A8F2 0%, #1677E8 100%) !important;
-	box-shadow: -8rpx 12rpx 26rpx -9rpx rgba(22, 119, 232, 0.4) !important;
+	box-shadow: -6rpx 9rpx 20rpx -8rpx rgba(22, 119, 232, 0.34) !important;
 	overflow: hidden;
 }
 
@@ -7339,7 +7313,7 @@ onUnmounted(() => {
 .vi-side-wordmark {
 	display: flex;
 	align-items: center;
-	justify-content: flex-start;
+	justify-content: center;
 	width: 112rpx;
 	height: 30rpx;
 	margin-bottom: 0;
