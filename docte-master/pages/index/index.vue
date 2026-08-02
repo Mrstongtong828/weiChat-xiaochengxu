@@ -1555,6 +1555,11 @@
 
 				<view class="company-hero">
 					<image class="company-hero-image" :src="companyIntroHeader" mode="aspectFill"></image>
+					<view class="company-hero-shade"></view>
+					<view class="company-hero-caption">
+						<text class="company-hero-kicker">CICADA DENTAL</text>
+						<text class="company-hero-title">20年专注口腔设备研发制造</text>
+					</view>
 				</view>
 
 				<view class="company-stats-grid">
@@ -8243,6 +8248,43 @@ onUnmounted(() => {
 	height: 100%;
 	transform: scale(1.012);
 	transform-origin: 50% 50%;
+}
+
+.company-hero-shade {
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 1;
+	height: 46%;
+	background: linear-gradient(180deg, rgba(5, 20, 40, 0) 0%, rgba(5, 20, 40, 0.58) 100%);
+}
+
+.company-hero-caption {
+	position: absolute;
+	left: 26rpx;
+	right: 26rpx;
+	bottom: 24rpx;
+	z-index: 2;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.company-hero-kicker {
+	font-size: 23rpx;
+	font-weight: 500;
+	line-height: 1.1;
+	color: rgba(255, 255, 255, 0.88);
+	letter-spacing: 0.4rpx;
+}
+
+.company-hero-title {
+	font-size: 34rpx;
+	font-weight: 800;
+	line-height: 1.2;
+	color: #FFFFFF;
+	text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.3);
 }
 
 .company-stats-grid {
