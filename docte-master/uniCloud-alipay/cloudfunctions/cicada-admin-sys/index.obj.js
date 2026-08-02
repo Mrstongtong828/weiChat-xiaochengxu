@@ -1528,7 +1528,7 @@ module.exports = {
     }
   },
 
-  // 删除教程（固定类型 quick/repair/query/invoice 不允许删除）
+  // 删除教程（固定类型 quick/repair 不允许删除）
   async deleteGuide(params) {
     try {
       const data = (params && params.token) ? params : (this.params || {})

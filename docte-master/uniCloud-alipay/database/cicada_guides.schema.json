@@ -15,7 +15,7 @@
     },
     "type": {
       "bsonType": "string",
-      "description": "固定教程类型：quick/repair/query/invoice；自定义教程为空"
+      "description": "固定教程类型：quick/repair；自定义教程为空"
     },
     "category": {
       "bsonType": "string",

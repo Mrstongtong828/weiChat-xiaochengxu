@@ -81,7 +81,7 @@
 
       <el-tab-pane label="操作教程" name="guides">
         <el-alert
-          title="这里维护小程序首页四个操作教程按钮，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
+          title="这里维护小程序首页的「快速指南」和「报修指南」，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
           type="info"
           show-icon
           :closable="false"
