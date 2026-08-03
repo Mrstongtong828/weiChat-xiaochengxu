@@ -7284,13 +7284,13 @@ onUnmounted(() => {
 }
 
 .vi-side-tab {
-	width: 80rpx;
-	height: 116rpx;
-	padding: 14rpx 8rpx !important;
+	width: 128rpx;
+	height: 88rpx;
+	padding: 10rpx 12rpx !important;
 	flex-direction: column !important;
 	justify-content: center;
 	align-items: center;
-	gap: 8rpx;
+	gap: 6rpx;
 	border: none !important;
 	border-radius: 24rpx 0 0 24rpx !important;
 	background: linear-gradient(180deg, #2A8DF1 0%, #1268D6 100%) !important;
@@ -7308,7 +7308,7 @@ onUnmounted(() => {
 }
 
 .vi-side-logo-img {
-	width: 62rpx;
+	width: 72rpx;
 	height: 18rpx;
 	display: block;
 }
@@ -7317,7 +7317,7 @@ onUnmounted(() => {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 66rpx;
+	width: 76rpx;
 	height: 18rpx;
 	margin-bottom: 0;
 	flex-shrink: 0;
