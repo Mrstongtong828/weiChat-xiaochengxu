@@ -7284,32 +7284,32 @@ onUnmounted(() => {
 }
 
 .vi-side-tab {
-	width: 96rpx;
-	height: 128rpx;
-	padding: 16rpx 10rpx !important;
+	width: 80rpx;
+	height: 116rpx;
+	padding: 14rpx 8rpx !important;
 	flex-direction: column !important;
 	justify-content: center;
 	align-items: center;
-	gap: 10rpx;
+	gap: 8rpx;
 	border: none !important;
-	border-radius: 28rpx 0 0 28rpx !important;
+	border-radius: 24rpx 0 0 24rpx !important;
 	background: linear-gradient(180deg, #2A8DF1 0%, #1268D6 100%) !important;
-	box-shadow: -8rpx 14rpx 28rpx -10rpx rgba(18, 104, 214, 0.46) !important;
+	box-shadow: -5rpx 9rpx 18rpx -9rpx rgba(18, 104, 214, 0.34) !important;
 	overflow: hidden;
 }
 
 .vi-side-tab .side-text {
 	padding-left: 0;
 	flex-shrink: 0;
-	font-size: 22rpx;
+	font-size: 20rpx;
 	letter-spacing: 0;
 	line-height: 1.15;
 	color: #FFFFFF;
 }
 
 .vi-side-logo-img {
-	width: 72rpx;
-	height: 20rpx;
+	width: 62rpx;
+	height: 18rpx;
 	display: block;
 }
 
@@ -7317,8 +7317,8 @@ onUnmounted(() => {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	width: 76rpx;
-	height: 20rpx;
+	width: 66rpx;
+	height: 18rpx;
 	margin-bottom: 0;
 	flex-shrink: 0;
 }
