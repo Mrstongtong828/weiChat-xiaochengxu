@@ -7,7 +7,8 @@
     "dev:mp-weixin": "cross-env UNI_INPUT_DIR=. UNI_OUTPUT_DIR=unpackage/dist/dev/mp-weixin uni -p mp-weixin",
     "build:mp-weixin": "cross-env UNI_INPUT_DIR=. UNI_OUTPUT_DIR=unpackage/dist/build/mp-weixin uni build -p mp-weixin",
     "check:client-secrets": "node scripts/check-client-secrets.cjs unpackage/dist/build/mp-weixin",
-    "check": "npm run build:mp-weixin && npm run check:client-secrets"
+    "check:package-size": "node scripts/check-miniapp-package-size.cjs unpackage/dist/build/mp-weixin",
+    "check": "npm run build:mp-weixin && npm run check:client-secrets && npm run check:package-size"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-alpha-1000920260519001",
