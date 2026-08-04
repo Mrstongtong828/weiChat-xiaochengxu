@@ -15,10 +15,24 @@ function isPlaceholder(value = '') {
   return !value || /^(?:<|your-|replace-|placeholder|changeme|请|填)/i.test(String(value).trim())
 }
 
+// uniCloud（支付宝云）服务空间客户端凭据是小程序端 uniCloud SDK 正常调用云函数所
+// 必需的运行时配置：HBuilderX 关联服务空间后会写入 unicloud.spaces.local.json 并
+// 随发行包一起编译进客户端，凭据形如
+//   {"provider":"alipay","spaceId":"env-xxx","accessKey":"...","secretKey":"..."}
+// 这类凭据只能发起匿名/公网云函数调用（云函数内部仍做鉴权），并不等同于服务端密钥
+// （WX_SECRET、支付私钥、OSS 密钥等），因此属于允许随包分发的“客户端凭据”。
+// 只有出现在 uniCloud 空间配置之外的 accessKey/secretKey 组合才判定为泄露。
+function isUniCloudSpaceCredential(content, matchStart) {
+  const before = content.slice(Math.max(0, matchStart - 400), matchStart)
+  return /"(?:spaceId|id)"\s*:\s*"env-[^"]*"/.test(before)
+}
+
 function containsClientSecret(content) {
   const cloudSpaceConfigs = content.matchAll(/"accessKey"\s*:\s*"([^"]*)"[\s\S]{0,200}?"secretKey"\s*:\s*"([^"]*)"/g)
   for (const match of cloudSpaceConfigs) {
-    if (!isPlaceholder(match[1]) || !isPlaceholder(match[2])) return true
+    if (isPlaceholder(match[1]) && isPlaceholder(match[2])) continue
+    if (isUniCloudSpaceCredential(content, match.index)) continue
+    return true
   }
 
   const environmentSecrets = content.matchAll(/(?:WX_SECRET|WECHAT_SECRET)\s*[=:]\s*["']?([^\s"',;]+)/g)

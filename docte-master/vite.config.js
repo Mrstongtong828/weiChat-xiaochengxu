@@ -1,5 +1,6 @@
 const path = require('path')
 const fs = require('fs')
+const sharp = require('sharp')
 
 function loadLocalUniCloudSpaces() {
 	if (process.env.UNI_CLOUD_PROVIDER || process.env.UNI_CLOUD_SPACES) {
@@ -96,7 +97,95 @@ function readBuiltAssetMappings(outDir) {
 	return mappings
 }
 
-function copyMiniappAssets() {
+async function writeMiniappAsset(sourcePath, outputPath) {
+	const metadata = await sharp(sourcePath).metadata()
+	const longestEdge = Math.max(metadata.width || 0, metadata.height || 0)
+
+	if (metadata.format === 'jpeg' && longestEdge > 1440) {
+		await sharp(sourcePath)
+			.rotate()
+			.resize({ width: 1440, height: 1440, fit: 'inside', withoutEnlargement: true })
+			.jpeg({ quality: 82, mozjpeg: true })
+			.toFile(outputPath)
+		return
+	}
+
+	fs.copyFileSync(sourcePath, outputPath)
+}
+
+function removeUnreferencedStaticAssets(outDir) {
+	const outputRoot = path.resolve(__dirname, outDir)
+	const staticDir = path.resolve(__dirname, outDir, 'static')
+	if (!fs.existsSync(staticDir)) return
+
+	const referenceExtensions = new Set(['.js', '.json', '.wxml', '.wxs', '.wxss'])
+	const references = []
+	const pendingDirectories = [outputRoot]
+
+	while (pendingDirectories.length) {
+		const directory = pendingDirectories.pop()
+		fs.readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+			const entryPath = path.join(directory, entry.name)
+			if (entry.isDirectory()) {
+				// 不扫描 static/ 自身，避免 static 内部引用互相“保活”未使用图片
+				if (entryPath !== staticDir) pendingDirectories.push(entryPath)
+				return
+			}
+			if (referenceExtensions.has(path.extname(entry.name))) {
+				references.push(fs.readFileSync(entryPath, 'utf8'))
+			}
+		})
+	}
+
+	const compiledReferences = references.join('\n')
+	fs.readdirSync(staticDir, { withFileTypes: true }).forEach((entry) => {
+		if (!entry.isFile()) return
+		// uni-app 会把源码 static/ 原样复制进构建产物，但运行时图片实际都通过
+		// common/assets.js 从 /assets/<hash> 加载；凡编译产物里没有被 /static/ 引用
+		// 的图片都是重复/未使用文件。删除它们可将主包压回微信 2MB 限制以内。
+		if (!compiledReferences.includes(`/static/${entry.name}`)) {
+			fs.unlinkSync(path.join(staticDir, entry.name))
+		}
+	})
+
+	// 目录已空则一并移除，保持产物整洁
+	if (fs.readdirSync(staticDir).length === 0) {
+		fs.rmdirSync(staticDir)
+	}
+}
+function removeUnreferencedMiniappAssets(outDir) {
+	const outputRoot = path.resolve(__dirname, outDir)
+	const assetsDir = path.resolve(__dirname, outDir, 'assets')
+	if (!fs.existsSync(assetsDir)) return
+
+	const referenceExtensions = new Set(['.js', '.json', '.wxml', '.wxs', '.wxss'])
+	const references = []
+	const pendingDirectories = [outputRoot]
+
+	while (pendingDirectories.length) {
+		const directory = pendingDirectories.pop()
+		fs.readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+			const entryPath = path.join(directory, entry.name)
+			if (entry.isDirectory()) {
+				if (entryPath !== assetsDir) pendingDirectories.push(entryPath)
+				return
+			}
+			if (referenceExtensions.has(path.extname(entry.name))) {
+				references.push(fs.readFileSync(entryPath, 'utf8'))
+			}
+		})
+	}
+
+	const compiledReferences = references.join('\n')
+	fs.readdirSync(assetsDir, { withFileTypes: true }).forEach((entry) => {
+		if (!entry.isFile()) return
+		if (!compiledReferences.includes(`/assets/${entry.name}`)) {
+			fs.unlinkSync(path.join(assetsDir, entry.name))
+		}
+	})
+}
+
+async function copyMiniappAssets() {
 	const outDir = process.env.UNI_OUTPUT_DIR || path.join('unpackage', 'dist', 'build', 'mp-weixin')
 	if (outDir.includes(`${path.sep}dev${path.sep}`) || outDir.includes('/dev/')) {
 		return
@@ -106,21 +195,24 @@ function copyMiniappAssets() {
 	fs.mkdirSync(assetsDir, { recursive: true })
 	const builtAssetMappings = readBuiltAssetMappings(outDir)
 
-	assetSources.forEach((sourceName) => {
+	await Promise.all(assetSources.map(async (sourceName) => {
 		const outputName = builtAssetMappings[sourceName]
 		if (!outputName) return
 		const sourcePath = path.resolve(__dirname, 'static', sourceName)
 		if (fs.existsSync(sourcePath)) {
-			fs.copyFileSync(sourcePath, path.join(assetsDir, outputName))
+			await writeMiniappAsset(sourcePath, path.join(assetsDir, outputName))
 		}
-	})
+	}))
+
+	removeUnreferencedMiniappAssets(outDir)
+	removeUnreferencedStaticAssets(outDir)
 }
 
 function keepMiniappAssets() {
 	return {
 		name: 'keep-miniapp-assets',
-		closeBundle() {
-			copyMiniappAssets()
+		async closeBundle() {
+			await copyMiniappAssets()
 		}
 	}
 }
