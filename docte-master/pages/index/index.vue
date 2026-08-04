@@ -2386,7 +2386,6 @@ const customerService = ref({
 })
 
 const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
-const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
 
 const wechatInfo = ref({
 	qrcodeUrl: cicadaAssets.qrWechat,
@@ -3593,18 +3592,12 @@ const getDetailAttachmentUrl = (attachment = {}) => {
 	return getPreviewUrl(attachment)
 }
 
+// 产品视频位于公众号主页。小程序 web-view 不支持打开公众号主页链接（真机上会白屏/提示无法打开），
+// 这里改用官方 API 直接打开公众号主页，失败时回退到长按二维码关注公众号。
 const openProductVideoLink = () => {
-	const target = encodeURIComponent(PRODUCT_VIDEO_LINK)
-	uni.navigateTo({
-		url: `/pages-sub/webview/index?title=${encodeURIComponent('产品视频')}&url=${target}`,
-		fail: () => {
-			uni.setClipboardData({
-				data: PRODUCT_VIDEO_LINK,
-				success: () => uni.showToast({ title: '链接已复制，请在微信内打开', icon: 'none' }),
-				fail: () => uni.showToast({ title: '产品视频暂时无法打开', icon: 'none' })
-			})
-		}
-	})
+	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
+	showOfficial.value = false
+	launchOfficialAccountProfile(username)
 }
 
 const getDetailAttachmentCoverUrl = (attachment = {}) => (
