@@ -46,9 +46,9 @@
     /* 小程序特有相关 */
     "mp-weixin" : {
         "appid" : "wx25289fbe4a3bf011",
-		"useExtendedLib" : {
-			"weui" : true
-		},
+        "useExtendedLib" : {
+            "weui" : true
+        },
         "setting" : {
             "urlCheck" : true,
             "minified" : true,

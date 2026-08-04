@@ -526,3 +526,22 @@ export const getCompliance = async () => {
 		qualifications
 	}
 }
+
+// 公司介绍「产品矩阵」四张产品图（后台可随时替换；未配置的项返回空，页面用内置静态图兜底）
+export const getCompanyProductImages = async () => {
+	const settings = await getPublicCloudObject().getSettings({
+		keys: [
+			'company_product_root_canal_image',
+			'company_product_restoration_image',
+			'company_product_implant_image',
+			'company_product_prevention_image'
+		]
+	}).then(unwrapCloudResult)
+
+	return {
+		rootCanal: await resolveCloudUrl(settings.company_product_root_canal_image),
+		restoration: await resolveCloudUrl(settings.company_product_restoration_image),
+		implant: await resolveCloudUrl(settings.company_product_implant_image),
+		prevention: await resolveCloudUrl(settings.company_product_prevention_image)
+	}
+}

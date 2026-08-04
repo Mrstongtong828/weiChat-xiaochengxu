@@ -233,6 +233,32 @@
         <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与访问配置</el-button></div>
       </el-tab-pane>
 
+      <el-tab-pane label="公司介绍" name="company">
+        <el-alert
+          title="这里维护小程序「公司介绍」页「产品矩阵」的四张产品图。保存后小程序端实时读取展示；某栏目未配置时继续使用小程序内置默认图片，无需重新发布小程序。"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin: 20px 0;"
+        />
+        <div class="field-title">产品矩阵图片</div>
+        <div class="company-product-grid">
+          <div v-for="item in COMPANY_PRODUCT_IMAGE_ITEMS" :key="item.key" class="company-product-card">
+            <div class="company-product-label">{{ item.label }}</div>
+            <div class="company-product-upload">
+              <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(f) => handleCompanyProductUpload(f, item.key)">
+                <el-button>{{ companyProductImages[item.key] ? '更换图片' : '上传图片' }}</el-button>
+              </el-upload>
+              <img v-if="companyProductPreview(item.key)" :src="companyProductPreview(item.key)" class="company-product-thumb" />
+              <span v-else-if="companyProductImages[item.key]" class="preview-hint">图片已上传（云存储）</span>
+              <el-button v-if="companyProductImages[item.key]" type="danger" link @click="removeCompanyProductImage(item.key)">移除</el-button>
+            </div>
+          </div>
+        </div>
+        <div class="empty-tip" style="margin-top:12px;">仅替换对应系列的产品展示图，不影响栏目名称与简介文案。</div>
+        <div class="save-row"><el-button type="primary" :loading="savingCompanyProductImages" @click="saveCompanyProductImages">保存公司介绍产品图</el-button></div>
+      </el-tab-pane>
+
       <el-tab-pane label="打印模板" name="print">
         <PrintTemplateEditor
           v-model="printTemplates"
@@ -915,6 +941,7 @@ const loadSettings = async () => {
     printTemplates.value = parsePrintTemplates(data.print_templates, data.print_config)
     applyMiniappQr(data)
     applyContactInfo(data)
+    applyCompanyProductImages(data)
     applySurveyConfig(data.survey_config)
   } catch (error) {
     console.error('加载配置失败:', error)
@@ -1088,6 +1115,75 @@ const saveContact = async () => {
     ElMessage.error(error.message || '保存失败')
   } finally {
     savingContact.value = false
+  }
+}
+
+// ===== 公司介绍：产品矩阵四张产品图 =====
+const COMPANY_PRODUCT_IMAGE_ITEMS = [
+  { key: 'company_product_root_canal_image', label: '根管系列' },
+  { key: 'company_product_restoration_image', label: '修复系列' },
+  { key: 'company_product_implant_image', label: '种植系列' },
+  { key: 'company_product_prevention_image', label: '预防辅助系列' }
+]
+const companyProductImages = reactive(COMPANY_PRODUCT_IMAGE_ITEMS.reduce((acc, item) => { acc[item.key] = ''; return acc }, {}))
+const companyProductPreviewMap = reactive({})
+const savingCompanyProductImages = ref(false)
+
+const companyProductPreview = (key) => {
+  const value = companyProductImages[key]
+  if (!value) return ''
+  if (isWebUrl(value)) return value
+  return companyProductPreviewMap[value] || ''
+}
+
+const resolveCompanyProductPreviews = async () => {
+  const token = localStorage.getItem('adminToken')
+  const ids = COMPANY_PRODUCT_IMAGE_ITEMS
+    .map(item => companyProductImages[item.key])
+    .filter(value => value && !isWebUrl(value) && !companyProductPreviewMap[value])
+  if (!ids.length) return
+  try {
+    const map = await getTempFileURL(token, ids)
+    Object.entries(map || {}).forEach(([id, url]) => { companyProductPreviewMap[id] = url })
+  } catch (error) {
+    console.error('解析公司产品图预览失败:', error)
+  }
+}
+
+const handleCompanyProductUpload = async (uploadFile, key) => {
+  const raw = uploadFile && uploadFile.raw
+  if (!raw) return
+  try {
+    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, 'company/', 5 * 1024 * 1024)
+    companyProductImages[key] = fileUrl
+    if (tempUrl) companyProductPreviewMap[fileUrl] = tempUrl
+    ElMessage.success('产品图上传成功')
+  } catch (error) {
+    ElMessage.error(error.message || '产品图上传失败')
+  }
+}
+
+const removeCompanyProductImage = (key) => {
+  companyProductImages[key] = ''
+}
+
+const applyCompanyProductImages = (data = {}) => {
+  COMPANY_PRODUCT_IMAGE_ITEMS.forEach(item => { companyProductImages[item.key] = data[item.key] || '' })
+  resolveCompanyProductPreviews()
+}
+
+const saveCompanyProductImages = async () => {
+  try {
+    savingCompanyProductImages.value = true
+    const token = localStorage.getItem('adminToken')
+    const payload = {}
+    COMPANY_PRODUCT_IMAGE_ITEMS.forEach(item => { payload[item.key] = companyProductImages[item.key] || '' })
+    await saveSettings(token, payload)
+    ElMessage.success('公司介绍产品图已保存')
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingCompanyProductImages.value = false
   }
 }
 
@@ -1313,7 +1409,14 @@ onMounted(() => {
 .modern-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background-color: #f0f2f5; }
 .modern-tabs :deep(.el-tabs__item) { font-size: 15px; padding: 0 20px; }
 
+.company-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+.company-product-card { border: 1px solid #e5eefb; border-radius: 10px; padding: 14px; background: #fbfdff; display: flex; flex-direction: column; gap: 10px; }
+.company-product-label { font-weight: 600; color: #1d2129; }
+.company-product-upload { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.company-product-thumb { height: 72px; max-width: 140px; border-radius: 6px; border: 1px solid #f0f2f5; object-fit: contain; }
+
 @media (max-width: 768px) {
+  .company-product-grid { grid-template-columns: 1fr; }
   .guide-document-grid { grid-template-columns: 1fr; }
   .policy-document-card { align-items:flex-start; flex-direction:column; }
   .policy-document-actions { width:100%; justify-content:flex-start; }

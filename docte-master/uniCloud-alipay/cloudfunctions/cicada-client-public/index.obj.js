@@ -44,7 +44,12 @@ const PUBLIC_SETTING_KEYS = new Set([
   'privacy_policy',
   'account_cancellation_policy',
   'qualifications',
-  'survey_config'
+  'survey_config',
+  // 公司介绍「产品矩阵」四张产品图（后台可随时替换）
+  'company_product_root_canal_image',
+  'company_product_restoration_image',
+  'company_product_implant_image',
+  'company_product_prevention_image'
 ])
 
 const SURVEY_RATE_LIMIT = { windowMs: 60 * 60 * 1000, max: 5 }

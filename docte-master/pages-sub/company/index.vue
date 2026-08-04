@@ -168,7 +168,7 @@ import productRootCanal from '@/static/product-root-canal.jpg'
 import companyProductBlack from '@/static/company-product-black.jpg'
 import companyProductLight from '@/static/company-product-light.jpg'
 import companyProductMultiView from '@/static/company-product-multi-view.jpg'
-import { getCompliance, getGuides } from '@/api/content.js'
+import { getCompliance, getGuides, getCompanyProductImages } from '@/api/content.js'
 import { getCloudTempFileURL } from '@/utils/cloud.js'
 
 const heroImages = [
@@ -196,6 +196,7 @@ onMounted(async () => {
 		console.warn('加载合规信息失败', e)
 	}
 	loadMaintenanceGuides()
+	loadCompanyProductImages()
 })
 
 // 把 cloud:// 文件地址解析为可访问临时地址（https/wxfile 直接返回）
@@ -208,6 +209,25 @@ const resolveFileUrl = async (url = '') => {
 		return (item && (item.tempFileURL || item.url)) || u
 	} catch (e) {
 		return u
+	}
+}
+
+// 加载后台配置的「产品矩阵」四张产品图（未配置的项保留内置静态图）
+const loadCompanyProductImages = async () => {
+	try {
+		const images = await getCompanyProductImages()
+		const map = [
+			{ key: 'rootCanal', index: 0 },
+			{ key: 'restoration', index: 1 },
+			{ key: 'implant', index: 2 },
+			{ key: 'prevention', index: 3 }
+		]
+		map.forEach(({ key, index }) => {
+			const url = images && images[key]
+			if (url) productLines.value[index] = { ...productLines.value[index], image: url }
+		})
+	} catch (e) {
+		console.warn('加载公司产品图配置失败', e)
 	}
 }
 
@@ -294,7 +314,7 @@ const advantages = [
 	{ icon: 'microscope', title: '质量合规', desc: '依据《医疗器械生产质量管理规范》搭建完善质量管理体系，产品符合国内外行业标准与注册准入要求。' }
 ]
 
-const productLines = [
+const productLines = ref([
 	{
 		title: '根管系列',
 		desc: '覆盖根管马达、根管锉、根尖定位、热牙胶充填、根管冲洗等整套根管诊疗方案。',
@@ -319,10 +339,10 @@ const productLines = [
 		image: productPrevention,
 		gradient: 'linear-gradient(135deg, #1D8A96 0%, #7BC9C7 100%)'
 	}
-]
+])
 
 const previewProductImage = (item = {}) => {
-	const urls = productLines.map(product => product.image).filter(Boolean)
+	const urls = productLines.value.map(product => product.image).filter(Boolean)
 	if (!item.image || !urls.length) return
 	uni.previewImage({ current: item.image, urls })
 }
