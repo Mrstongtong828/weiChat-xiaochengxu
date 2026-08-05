@@ -13,9 +13,13 @@ test('工单详情渲染完整报修字段和后端处理记录', () => {
 })
 
 test('提交成功页使用本次填写的物流数据，不显示静态承诺', () => {
-	assert.match(source, /\{\{ submittedLogisticsText \}\}/)
-	assert.doesNotMatch(source, /30 分钟内/)
-	assert.doesNotMatch(source, /顺丰到付/)
+	const successBlock = source.slice(
+		source.indexOf("activeModule === 'repair-success'"),
+		source.indexOf("activeModule === 'track'")
+	)
+	assert.match(successBlock, /\{\{ submittedLogisticsText \}\}/)
+	assert.doesNotMatch(successBlock, /30 分钟内/)
+	assert.doesNotMatch(successBlock, /顺丰到付/)
 })
 
 test('详情入口互斥选择工单，提交锁早于订阅授权', () => {

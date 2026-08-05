@@ -6,15 +6,22 @@
 		<view class="login-layout">
 			<view class="login-brand-panel">
 				<view class="login-logo-shell">
-					<image class="login-brand-logo" :src="cicadaAssets.wordmarkRegistered" mode="aspectFit"></image>
+					<image class="login-brand-logo" :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 				</view>
-				<text class="login-brand-title">思科达售后服务中心</text>
-				<text class="login-brand-subtitle">牙科设备售后服务</text>
+				<text class="login-brand-title">售后服务中心</text>
 			</view>
 
 			<view class="login-action-panel">
-				<button class="login-auth-button tap" :disabled="loading" @click="$emit('login')">
-					<view class="wechat-login-icon"><view></view><view></view></view>
+				<button
+					class="login-auth-button tap"
+					:class="{ 'login-auth-button--disabled': loading }"
+					:disabled="loading"
+					@click="$emit('login')"
+				>
+					<view class="wechat-login-icon">
+						<view class="wechat-login-bubble wechat-login-bubble--primary"></view>
+						<view class="wechat-login-bubble wechat-login-bubble--secondary"></view>
+					</view>
 					<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : '微信一键登录' }}</text>
 				</button>
 
@@ -26,9 +33,8 @@
 					<text class="login-policy-link" @click.stop="$emit('open-policy', 'privacy')">《隐私政策》</text>
 				</view>
 
-				<text v-if="error" class="login-error">{{ error }}</text>
 				<view class="login-security-note">
-					<view class="login-security-icon"><view></view></view>
+					<view class="login-security-icon"><view class="login-security-check"></view></view>
 					<text>微信身份安全登录</text>
 				</view>
 			</view>
@@ -42,8 +48,7 @@ import { cicadaAssets } from '@/config/cicada-assets'
 defineProps({
 	loading: { type: Boolean, default: false },
 	retrying: { type: Boolean, default: false },
-	agreed: { type: Boolean, default: false },
-	error: { type: String, default: '' }
+	agreed: { type: Boolean, default: false }
 })
 
 defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
@@ -153,19 +158,11 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 
 .login-brand-title {
 	margin-top: 46rpx;
-	font-size: 42rpx;
+	font-size: 32rpx;
 	font-weight: 700;
 	line-height: 1.3;
 	letter-spacing: 0;
 	color: #14263F;
-}
-
-.login-brand-subtitle {
-	margin-top: 14rpx;
-	font-size: 25rpx;
-	line-height: 1.5;
-	letter-spacing: 0;
-	color: #7D8A9C;
 }
 
 .login-action-panel {
@@ -195,7 +192,7 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 }
 
 .login-auth-button::after { border: none; }
-.login-auth-button[disabled] { opacity: 0.68; }
+.login-auth-button--disabled { opacity: 0.68; }
 
 .wechat-login-icon {
 	position: relative;
@@ -204,23 +201,21 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 	flex: 0 0 58rpx;
 }
 
-.wechat-login-icon view {
+.wechat-login-bubble {
 	position: absolute;
 	border-radius: 50%;
 	background: #FFFFFF;
 }
 
-.wechat-login-icon view:first-child {
+.wechat-login-bubble--primary {
 	left: 0;
 	top: 0;
 	width: 39rpx;
 	height: 33rpx;
 }
 
-.wechat-login-icon view:first-child::before,
-.wechat-login-icon view:first-child::after,
-.wechat-login-icon view:last-child::before,
-.wechat-login-icon view:last-child::after {
+.wechat-login-bubble::before,
+.wechat-login-bubble::after {
 	content: "";
 	position: absolute;
 	width: 5rpx;
@@ -229,10 +224,10 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 	background: #07C160;
 }
 
-.wechat-login-icon view:first-child::before { left: 10rpx; top: 12rpx; }
-.wechat-login-icon view:first-child::after { left: 24rpx; top: 12rpx; }
+.wechat-login-bubble--primary::before { left: 10rpx; top: 12rpx; }
+.wechat-login-bubble--primary::after { left: 24rpx; top: 12rpx; }
 
-.wechat-login-icon view:last-child {
+.wechat-login-bubble--secondary {
 	right: 0;
 	bottom: 0;
 	width: 35rpx;
@@ -240,8 +235,8 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 	box-shadow: 0 0 0 4rpx #07C160;
 }
 
-.wechat-login-icon view:last-child::before { left: 9rpx; top: 10rpx; }
-.wechat-login-icon view:last-child::after { left: 21rpx; top: 10rpx; }
+.wechat-login-bubble--secondary::before { left: 9rpx; top: 10rpx; }
+.wechat-login-bubble--secondary::after { left: 21rpx; top: 10rpx; }
 
 .login-consent-check {
 	width: 100%;
@@ -275,16 +270,6 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 .login-checkbox text { font-size: 21rpx; font-weight: 800; line-height: 1; color: #FFFFFF; }
 .login-policy-link { color: #2479D8; }
 
-.login-error {
-	width: 100%;
-	margin-top: 16rpx;
-	font-size: 22rpx;
-	line-height: 1.45;
-	letter-spacing: 0;
-	color: #D64545;
-	text-align: center;
-}
-
 .login-security-note {
 	margin-top: 38rpx;
 	display: flex;
@@ -306,7 +291,7 @@ defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])
 	box-sizing: border-box;
 }
 
-.login-security-icon view {
+.login-security-check {
 	position: absolute;
 	left: 7rpx;
 	top: 7rpx;

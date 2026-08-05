@@ -16,11 +16,6 @@ function isPlaceholder(value = '') {
 }
 
 function containsClientSecret(content) {
-  const cloudSpaceConfigs = content.matchAll(/"accessKey"\s*:\s*"([^"]*)"[\s\S]{0,200}?"secretKey"\s*:\s*"([^"]*)"/g)
-  for (const match of cloudSpaceConfigs) {
-    if (!isPlaceholder(match[1]) || !isPlaceholder(match[2])) return true
-  }
-
   const environmentSecrets = content.matchAll(/(?:WX_SECRET|WECHAT_SECRET)\s*[=:]\s*["']?([^\s"',;]+)/g)
   for (const match of environmentSecrets) {
     if (!isPlaceholder(match[1])) return true

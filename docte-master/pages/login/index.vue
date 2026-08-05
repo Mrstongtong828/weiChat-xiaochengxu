@@ -4,7 +4,6 @@
 			:loading="loading"
 			:retrying="retrying"
 			:agreed="agreed"
-			:error="loginError"
 			@back="goBack"
 			@login="onLoginButtonTap"
 			@toggle-agreement="toggleAgreement"
@@ -19,13 +18,12 @@ import { ref } from 'vue'
 import { wechatLogin } from '@/api/content'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
-import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
+import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 
 const agreed = ref(false)
 const loading = ref(false)
 const retrying = ref(false)
-const loginError = ref('')
 
 const openPolicy = (type) => {
 	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
@@ -33,7 +31,6 @@ const openPolicy = (type) => {
 
 const toggleAgreement = async () => {
 	agreed.value = !agreed.value
-	loginError.value = ''
 }
 
 const onLoginButtonTap = () => {
@@ -46,13 +43,11 @@ const onLoginButtonTap = () => {
 
 const onLoginDisabledTap = () => {
 	const message = '请先阅读并同意用户协议和隐私政策'
-	loginError.value = message
 	uni.showToast({ title: message, icon: 'none' })
 }
 
 const showLoginError = (message) => {
-	loginError.value = message
-	uni.showToast({ title: message, icon: 'none' })
+	if (message) uni.showToast({ title: message, icon: 'none' })
 }
 
 const goBackAfterLogin = () => {
@@ -87,7 +82,6 @@ const applyLoginSuccess = (res = {}, message = '') => {
 // 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
 const doWechatLogin = async () => {
 	if (loading.value) return
-	loginError.value = ''
 	retrying.value = false
 	loading.value = true
 
@@ -96,12 +90,12 @@ const doWechatLogin = async () => {
 			retries: 1,
 			onRetry: () => {
 				retrying.value = true
-				loginError.value = '微信登录失败，正在自动重试...'
 			}
 		})
 
 		applyLoginSuccess(res, '登录成功')
 	} catch (error) {
+		if (isLoginCancelledError(error)) return
 		showLoginError(getLoginErrorMessage(error))
 	} finally {
 		loading.value = false
