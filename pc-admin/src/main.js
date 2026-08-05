@@ -7,7 +7,7 @@ import './styles/shadcn.css'
 // 也有 prefix-icon="Search" 这类字符串用法，两者都依赖全局注册，故显式注册这批。
 import {
   ArrowDown, ArrowRight, Avatar, Bell, Box, Camera, ChatDotSquare, CircleCheck, DataAnalysis, Delete, Document,
-  Download, Files, Fold, HomeFilled, InfoFilled, Lock, Money, Monitor, Plus,
+  Download, Expand, Files, Fold, HomeFilled, InfoFilled, Lock, Money, Monitor, Plus,
   Printer, QuestionFilled, Refresh, Search, Setting, SwitchButton, Tickets,
   Upload, UploadFilled, User, Van, VideoPlay, View, Warning
 } from '@element-plus/icons-vue'
@@ -16,7 +16,7 @@ import App from './App.vue'
 
 const usedIcons = {
   ArrowDown, ArrowRight, Avatar, Bell, Box, Camera, ChatDotSquare, CircleCheck, DataAnalysis, Delete, Document,
-  Download, Files, Fold, HomeFilled, InfoFilled, Lock, Money, Monitor, Plus,
+  Download, Expand, Files, Fold, HomeFilled, InfoFilled, Lock, Money, Monitor, Plus,
   Printer, QuestionFilled, Refresh, Search, Setting, SwitchButton, Tickets,
   Upload, UploadFilled, User, Van, VideoPlay, View, Warning
 }

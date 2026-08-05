@@ -1730,7 +1730,6 @@
 
 				<view class="mine-footer">
 					<image :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
-					<text>佛山思科达 · 牙医仪器检修 v1.2.0</text>
 				</view>
 			</view>
 		</view>

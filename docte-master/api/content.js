@@ -1,6 +1,6 @@
 import { unwrapCloudResult, uploadToCloud, withToken } from './cloudHelpers.js'
 import { getCloudTempFileURL, importCloudObject, checkCloudAvailable } from '@/utils/cloud.js'
-import request from '@/utils/request.js'
+
 import { parsePolicyDocument, resolvePolicyDocumentFiles } from '@/utils/policyDocument.js'
 
 const escapePolicyHtml = (value = '') => String(value)
