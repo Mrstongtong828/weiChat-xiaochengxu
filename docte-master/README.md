@@ -65,7 +65,7 @@ Windows PowerShell：
 Copy-Item .env.example .env.local
 ```
 
-默认接口地址见 `utils/request.js`，优先读取 `VITE_API_BASE_URL`。
+小程序端数据统一走 uniCloud 云对象/云函数，无独立 HTTP 网关，无需配置接口地址。
 
 开发运行：
 
@@ -256,7 +256,6 @@ unpackage/              编译输出
 - `api/auth.js`
 - `api/repair.js`
 - `pages/login/index.vue`
-- `utils/request.js`
 - `utils/cloud.js`
 - `uniCloud-alipay/database/INDEXES.md`
 - `后端对接任务清单.md`

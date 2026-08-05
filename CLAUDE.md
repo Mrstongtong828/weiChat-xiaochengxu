@@ -90,7 +90,7 @@ Schemas: `docte-master/uniCloud-alipay/database/*.schema.json`. Init/test data: 
 
 - **Error codes**: `code: 0` (or `code: 0`/`code: -1` per function) = success/failure convention; `code: 401` = unauthorized.
 - **Mini-program navigation**: all pages use `navigationStyle: "custom"`.
-- **Mini-program API layer** (`api/*.js`): wraps cloud calls; `USE_CLOUD` toggle switches between `callCloudFunction()` and HTTP fallback.
+- **Mini-program API layer** (`api/*.js`): wraps uniCloud cloud-object / cloud-function calls directly; no HTTP gateway or HTTPS fallback (the old `utils/request.js` layer was removed).
 - **Company page content is settings-driven**: the 公司介绍 page「产品矩阵」 product images (`company_product_root_canal/restoration/implant/prevention_image` in `cicada_settings`) and 「产品视频」 list come from `api/content.js` (`getCompanyProductImages` / `getGuides`); unset items fall back to built-in static assets.
 - **WeChat AppID**: `wx25289fbe4a3bf011` (manifest.json). uniCloud provider: Alipay Cloud (`uniCloud-alipay`).
 - **WeChat Pay architecture**: the mini program already uses uni-app's `uni.requestPayment` to open the WeChat cashier. It does **not** use the `uni-pay` cloud module. `cicada-client-order` creates JSAPI prepay orders by calling WeChat Pay API v3 directly, signs client parameters, verifies/decrypts callbacks, and confirms payment by querying WeChat; `cicada-admin-order` owns refund and manual reconciliation. Never treat the client success callback as paid state, and never move `WX_PAY_*` secrets into client code. See `docte-master/uniCloud-alipay/微信支付与一键开票配置.md`.
