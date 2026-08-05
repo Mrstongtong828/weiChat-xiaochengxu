@@ -15,11 +15,12 @@
 
 <script setup>
 import { ref } from 'vue'
-import { wechatLogin } from '@/api/content'
+import { wechatLogin } from '@/api/user.js'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
 import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
+import { saveAuthSession } from '@/utils/storage.js'
 
 const agreed = ref(false)
 const loading = ref(false)
@@ -64,9 +65,7 @@ const goBack = () => {
 
 const applyLoginSuccess = (res = {}, message = '') => {
 	if (res && res.token) {
-		uni.setStorageSync('token', res.token)
-		uni.setStorageSync('userInfo', res.userInfo || {})
-		uni.setStorageSync('isLoggedIn', true)
+		saveAuthSession(res)
 
 		uni.showToast({ title: message || (res.offline ? '体验登录成功' : '登录成功'), icon: 'success' })
 
