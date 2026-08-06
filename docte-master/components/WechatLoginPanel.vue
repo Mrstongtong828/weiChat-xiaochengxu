@@ -14,15 +14,15 @@
 			<view class="login-action-panel">
 				<button
 					class="login-auth-button tap"
-					:class="{ 'login-auth-button--disabled': loading }"
-					:disabled="loading"
+					:class="{ 'login-auth-button--disabled': loading || locked || cooldownSeconds > 0 }"
+					:disabled="loading || locked || cooldownSeconds > 0"
 					@click="$emit('login')"
 				>
 					<view class="wechat-login-icon">
 						<view class="wechat-login-bubble wechat-login-bubble--primary"></view>
 						<view class="wechat-login-bubble wechat-login-bubble--secondary"></view>
 					</view>
-					<text>{{ retrying ? '正在重试...' : loading ? '登录中...' : '微信一键登录' }}</text>
+					<text>{{ cooldownSeconds > 0 ? `${cooldownSeconds}秒后重试` : retrying ? '正在重试...' : loading ? '登录中...' : '微信一键登录' }}</text>
 				</button>
 
 				<view class="login-consent-check tap" @click="$emit('toggle-agreement')">
@@ -48,7 +48,9 @@ import { cicadaAssets } from '@/config/cicada-assets'
 defineProps({
 	loading: { type: Boolean, default: false },
 	retrying: { type: Boolean, default: false },
-	agreed: { type: Boolean, default: false }
+	agreed: { type: Boolean, default: false },
+	locked: { type: Boolean, default: false },
+	cooldownSeconds: { type: Number, default: 0 }
 })
 
 defineEmits(['back', 'login', 'toggle-agreement', 'open-policy'])

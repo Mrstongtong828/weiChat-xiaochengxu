@@ -4,6 +4,8 @@
 			:loading="loading"
 			:retrying="retrying"
 			:agreed="agreed"
+			:locked="loginClickLocked"
+			:cooldown-seconds="loginCooldownSeconds"
 			@back="goBack"
 			@login="onLoginButtonTap"
 			@toggle-agreement="toggleAgreement"
@@ -14,17 +16,30 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onUnmounted, ref } from 'vue'
 import { wechatLogin } from '@/api/user.js'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
 import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 import { saveAuthSession } from '@/utils/storage.js'
+import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
+import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
 
 const agreed = ref(false)
 const loading = ref(false)
 const retrying = ref(false)
+const loginClickLocked = ref(false)
+const loginCooldownSeconds = ref(0)
+const pcLoginGuard = createPcLoginGuard({
+	enabled: isPcWebViewEnvironment(),
+	onLockChange: (locked) => {
+		loginClickLocked.value = locked
+	},
+	onCountdown: (seconds) => {
+		loginCooldownSeconds.value = seconds
+	}
+})
 
 const openPolicy = (type) => {
 	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
@@ -79,8 +94,9 @@ const applyLoginSuccess = (res = {}, message = '') => {
 }
 
 // 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
-const doWechatLogin = async () => {
+const doWechatLogin = async ({ automatic = false } = {}) => {
 	if (loading.value) return
+	if (!pcLoginGuard.beginAttempt({ automatic })) return
 	retrying.value = false
 	loading.value = true
 
@@ -95,10 +111,18 @@ const doWechatLogin = async () => {
 		applyLoginSuccess(res, '登录成功')
 	} catch (error) {
 		if (isLoginCancelledError(error)) return
+		if (pcLoginGuard.handleRateLimit(error, automatic ? undefined : () => doWechatLogin({ automatic: true }))) {
+			showLoginError(automatic ? getLoginErrorMessage(error) : '操作过于频繁，15秒后自动重试')
+			return
+		}
 		showLoginError(getLoginErrorMessage(error))
 	} finally {
 		loading.value = false
 		retrying.value = false
 	}
 }
+
+onUnmounted(() => {
+	pcLoginGuard.dispose()
+})
 </script>

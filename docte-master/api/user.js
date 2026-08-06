@@ -1,6 +1,7 @@
 import { unwrapCloudResult } from './cloudHelpers.js'
 import { importCloudObject } from '@/utils/cloud.js'
 import request from '@/utils/request.js'
+import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
 
 const viteEnv = import.meta.env || {}
 const processEnv = typeof process !== 'undefined' && process.env ? process.env : {}
@@ -10,6 +11,7 @@ const loginEndpoint =
 	'/cloud/cicada-client-user/login'
 const LOGIN_CONFIG_MESSAGE = '管理员正在配置登录密钥，请稍后尝试'
 const LOGIN_CONFIG_PATTERN = /WX_APPID|WX_SECRET|WECHAT_APPID|WECHAT_SECRET|小程序密钥|登录密钥|服务未部署|云端登录方法未部署|云对象.*(?:未部署|不存在)|cicada-client-user.*(?:未部署|不存在)|method.*(?:not found|not deployed)|function.*not found/i
+const PC_LOGIN_CLIENT_ID_KEY = 'cicada_pc_login_client_id'
 
 let userCloudObject = null
 
@@ -35,24 +37,44 @@ const normalizeLoginError = (error) => {
 	return normalized
 }
 
-const loginWithHttp = (code) => request({
+const createLoginClientId = () => [
+	Date.now().toString(36),
+	Math.random().toString(36).slice(2),
+	Math.random().toString(36).slice(2)
+].join('-')
+
+export const getPcLoginClientId = () => {
+	if (!isPcWebViewEnvironment()) return ''
+	try {
+		const saved = String(uni.getStorageSync(PC_LOGIN_CLIENT_ID_KEY) || '').trim()
+		if (saved) return saved
+		const clientId = createLoginClientId()
+		uni.setStorageSync(PC_LOGIN_CLIENT_ID_KEY, clientId)
+		return clientId
+	} catch (error) {
+		return createLoginClientId()
+	}
+}
+
+const loginWithHttp = (code, clientId) => request({
 	url: loginEndpoint,
 	method: 'POST',
-	data: { code },
+	data: { code, ...(clientId ? { clientId } : {}) },
 	auth: false,
 	timeout: 30000
 }).then(unwrapCloudResult)
 
 export const wechatLogin = async (params = {}) => {
 	const code = String((typeof params === 'string' ? params : params.code) || '').trim()
+	const clientId = String((typeof params === 'object' && params.clientId) || getPcLoginClientId()).trim()
 	if (!code) throw new Error('获取微信登录凭证失败，请重试')
 
 	try {
 		const cloudObject = getUserCloudObject()
 		if (cloudObject && typeof cloudObject.login === 'function') {
-			return await cloudObject.login({ code }).then(unwrapCloudResult)
+			return await cloudObject.login({ code, ...(clientId ? { clientId } : {}) }).then(unwrapCloudResult)
 		}
-		return await loginWithHttp(code)
+		return await loginWithHttp(code, clientId)
 	} catch (error) {
 		throw normalizeLoginError(error)
 	}

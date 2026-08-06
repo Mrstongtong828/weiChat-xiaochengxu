@@ -1400,6 +1400,8 @@
 					:loading="loginSubmitting"
 					:retrying="loginRetrying"
 					:agreed="loginAgreementChecked"
+					:locked="loginClickLocked"
+					:cooldown-seconds="loginCooldownSeconds"
 					@back="returnFromModule"
 					@login="onLoginButtonTap"
 					@toggle-agreement="toggleLoginAgreement"
@@ -1936,6 +1938,8 @@ import homeTopBackground from '@/static/home-top-background.jpg'
 import maintenanceW201lCover from '@/static/maintenance-w201l-cover.jpg'
 import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
+import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
+import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
 import {
 	getContact,
 	getCustomerService,
@@ -2133,8 +2137,20 @@ const feedbackImages = ref([])
 const surveySubmitting = ref(false)
 const loginSubmitting = ref(false)
 const loginRetrying = ref(false)
+const loginClickLocked = ref(false)
+const loginCooldownSeconds = ref(0)
 const loginPrivacyReady = ref(false)
 const loginAgreementChecked = ref(false)
+const isPcWebView = isPcWebViewEnvironment()
+const pcLoginGuard = createPcLoginGuard({
+	enabled: isPcWebView,
+	onLockChange: (locked) => {
+		loginClickLocked.value = locked
+	},
+	onCountdown: (seconds) => {
+		loginCooldownSeconds.value = seconds
+	}
+})
 const surveyConfig = ref({
 	enabled: true,
 	title: '售后服务调研表',
@@ -2502,6 +2518,7 @@ const customerService = ref({
 })
 
 const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
+const CICADA_SERVICE_ACCOUNT_USERNAME = 'wx804d58edd988829d'
 const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
 
 const wechatInfo = ref({
@@ -6367,8 +6384,9 @@ const submitFeedback = async () => {
 }
 
 // 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
-const doWechatLogin = async () => {
+const doWechatLogin = async ({ automatic = false } = {}) => {
 	if (loginSubmitting.value) return
+	if (!pcLoginGuard.beginAttempt({ automatic })) return
 	loginRetrying.value = false
 	loginSubmitting.value = true
 
@@ -6385,6 +6403,13 @@ const doWechatLogin = async () => {
 	} catch (error) {
 		console.warn('wechat login failed:', error)
 		if (isLoginCancelledError(error)) return
+		if (pcLoginGuard.handleRateLimit(error, automatic ? undefined : () => doWechatLogin({ automatic: true }))) {
+			uni.showToast({
+				title: automatic ? getLoginErrorMessage(error) : '操作过于频繁，15秒后自动重试',
+				icon: 'none'
+			})
+			return
+		}
 		const message = getLoginErrorMessage(error)
 		if (message) uni.showToast({ title: message, icon: 'none' })
 	} finally {
@@ -6678,8 +6703,15 @@ const openOfficialAccountProfile = () => {
 }
 
 const openCicadaServiceAccountProfile = () => {
+	if (!isPcWebView) {
+		showOfficial.value = true
+		return
+	}
 	showOfficial.value = false
-	launchOfficialAccountProfile(OFFICIAL_ACCOUNT_USERNAME)
+	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
+		fallbackToQr: false,
+		fallbackMessage: '当前电脑端暂不支持直接打开服务号'
+	})
 }
 
 const makePhoneCall = () => {
@@ -6827,6 +6859,7 @@ onMounted(() => {
 
 onUnmounted(() => {
 	uni.$off('wechatPrivacyReady', syncLoginPrivacyReady)
+	pcLoginGuard.dispose()
 })
 </script>
 

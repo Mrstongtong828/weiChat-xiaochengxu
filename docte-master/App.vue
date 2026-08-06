@@ -1,9 +1,11 @@
 <script>
 	import { setupWechatPrivacyAuthorization } from '@/utils/wechat-privacy.js'
+	import { disableRuntimeVConsole } from '@/utils/runtime-environment.js'
 
 	export default {
 		onLaunch: function() {
 			console.log('App Launch')
+			disableRuntimeVConsole()
 			// #ifdef MP-WEIXIN
 			setupWechatPrivacyAuthorization((resolve) => {
 				if (typeof uni !== 'undefined' && typeof uni.$emit === 'function') {
@@ -14,6 +16,7 @@
 		},
 		onShow: function() {
 			console.log('App Show')
+			disableRuntimeVConsole()
 		},
 		onHide: function() {
 			console.log('App Hide')
