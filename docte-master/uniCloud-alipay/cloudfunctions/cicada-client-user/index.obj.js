@@ -7,8 +7,8 @@ const RATE_LIMITS = {
   // 登录按稳定客户端分桶，同时保留共享出口 IP 总量保护。
   login: { windowMs: 60 * 1000, max: 20 },
   login_network: { windowMs: 60 * 1000, max: 120 },
-  feedback: { windowMs: 60 * 1000, max: 10 },
-  feedback_day: { windowMs: 24 * 60 * 60 * 1000, max: 30 }
+  feedback_submit: { windowMs: 60 * 1000, max: 20 },
+  feedback_day: { windowMs: 24 * 60 * 60 * 1000, max: 100 }
 }
 
 function genToken() {
@@ -564,14 +564,14 @@ module.exports = {
   async submitFeedback({ token, type, content, images = [], contact_type = '', contact_value = '', rel_order_no = '' }) {
     try {
       const user = await verifyUserToken(token)
-      await checkRateLimit('feedback', user._id)
-      await checkRateLimit('feedback_day', user._id, RATE_LIMITS.feedback_day)
       const feedbackType = normalizeText(type)
       const feedbackContent = normalizeText(content)
       const feedbackImages = normalizeFeedbackImages(images)
       if (!['投诉', '建议'].includes(feedbackType)) return { code: -1, msg: '反馈类型不正确' }
       if (!feedbackContent) return { code: -1, msg: '反馈内容不能为空' }
       if (feedbackContent.length > 500) return { code: -1, msg: '反馈内容不能超过500字' }
+      await checkRateLimit('feedback_submit', user._id, RATE_LIMITS.feedback_submit)
+      await checkRateLimit('feedback_day', user._id, RATE_LIMITS.feedback_day)
       const linkedOrderNo = normalizeText(rel_order_no).slice(0, 50)
       if (linkedOrderNo) {
         const orderRes = await db.collection('cicada_orders')
