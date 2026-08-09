@@ -1,5 +1,5 @@
 export const REPAIR_PRODUCT_MODEL_OTHER_VALUE = '__other_model__'
-export const REPAIR_PRODUCT_MODEL_OTHER_LABEL = '其他（手写）'
+export const REPAIR_PRODUCT_MODEL_OTHER_LABEL = '其他'
 
 export const splitRepairProductModels = (value = '') => {
 	const values = Array.isArray(value) ? value : String(value || '').split(/[、，,；;\n]+/)

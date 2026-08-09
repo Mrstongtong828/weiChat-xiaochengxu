@@ -15,6 +15,11 @@ test('保修政策和收费指南保留旧版完整本地兜底', () => {
 	assert.match(source, /免费检测：所有寄修设备均享免费检测/)
 	assert.match(source, /hasRenderablePolicyDocument/)
 	assert.match(source, /content: String\(remoteContent \|\| ''\)\.trim\(\) \? remoteContent : \(fallback\.content \|\| ''\)/)
+	const warrantyTemplate = source.slice(source.indexOf("activeModule === 'warranty'"), source.indexOf('v-else-if="isDocModule"'))
+	const documentTemplate = source.slice(source.indexOf('v-else-if="isDocModule"'), source.indexOf("activeModule === 'products'"))
+	assert.doesNotMatch(warrantyTemplate, /warranty-hero/)
+	assert.doesNotMatch(documentTemplate, /fees-hero|收费公开透明|免费检测 · 先报后修 · 无隐形消费/)
+	assert.match(documentTemplate, /v-if="activeModule !== 'fees'" class="doc-hero"/)
 })
 
 test('首页保养视频在接口空值和异常时回退到原始视频', () => {
@@ -29,8 +34,10 @@ test('首页两个跳转继续严格分离，历史修复保持不变', () => {
 	assert.match(source, /const PRODUCT_VIDEO_LINK = 'https:\/\/mp\.weixin\.qq\.com\/mp\/homepage\?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'/)
 	assert.match(source, /openProductVideoLink[\s\S]*?pages-sub\/webview/)
 	assert.match(source, /const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'/)
-	assert.match(source, /const CICADA_SERVICE_ACCOUNT_USERNAME = 'wx804d58edd988829d'/)
-	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?if \(!isPcWebView\)[\s\S]*?showOfficial\.value = true[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{/)
+	assert.match(source, /const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'/)
+	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{/)
+	assert.match(source, /wx\.openOfficialAccountProfile\(\{[\s\S]*?username: targetUsername/)
+	assert.doesNotMatch(source, /v-if="showOfficial"|fallbackToQr|showOfficial\.value/)
 	assert.doesNotMatch(source, /CICADA 服务号暂时无法打开/)
 
 	const serialField = source.slice(source.indexOf('<text><text class="required-star">*</text>产品序列号</text>'), source.indexOf('<!-- SN 识别结果 -->'))
@@ -39,6 +46,21 @@ test('首页两个跳转继续严格分离，历史修复保持不变', () => {
 	assert.match(loginSource, /<text class="login-brand-title">售后服务中心<\/text>/)
 	assert.match(loginSource, /:disabled="loading \|\| locked \|\| cooldownSeconds > 0"/)
 	assert.doesNotMatch(loginSource, /class="login-error"|props[^]*error/)
+})
+
+test('报修产品名称和型号支持其他手写并同步到提交字段', () => {
+	assert.match(source, /<text>{{ repairProductOtherOption\.label }}<\/text>/)
+	assert.match(source, /v-if="isOtherRepairProduct\(product\)" class="repair-field"[\s\S]*?v-model\.trim="product\.name"/)
+	assert.match(source, /if \(isOther\) \{[\s\S]*?product\.productId = ''[\s\S]*?product\.name = ''[\s\S]*?product\.isCustomName = true/)
+	assert.match(source, /product\.productId = value[\s\S]*?product\.name = label[\s\S]*?product\.isCustomName = false/)
+	assert.match(source, /isOtherRepairProduct\(products\[i\]\)[\s\S]*?请填写其他产品名称/)
+	assert.match(source, /v-model="product\.customModel"/)
+	assert.match(source, /@input="syncCustomRepairModel\(index, \$event\.detail\.value\)"/)
+	assert.match(source, /const syncCustomRepairModel = \(index, value = '', shouldTrim = false\) =>/)
+	assert.match(source, /selected === REPAIR_PRODUCT_MODEL_OTHER_LABEL[\s\S]*?product\.isCustomModel = true/)
+	assert.match(source, /productName: \(item\.name \|\| getRepairProductModelValue\(item\) \|\| '维修产品'\)\.trim\(\)/)
+	assert.match(source, /productModel: getRepairProductModelValue\(item\)/)
+	assert.match(source, /请填写自定义产品型号/)
 })
 
 test('PC 登录入口使用防重复点击和限流倒计时，页面初始化不自动请求登录', () => {

@@ -91,7 +91,14 @@
 								</view>
 								<view v-if="isOtherRepairModel(product)" class="repair-field repair-custom-model-field">
 									<text><text class="required-star">*</text>其他型号</text>
-									<input v-model.trim="product.model" maxlength="80" placeholder="请输入产品型号" placeholder-class="input-placeholder" />
+									<input
+										v-model="product.customModel"
+										maxlength="80"
+										placeholder="请输入自定义产品型号"
+										placeholder-class="input-placeholder"
+										@input="syncCustomRepairModel(index, $event.detail.value)"
+										@blur="syncCustomRepairModel(index, $event.detail.value, true)"
+									/>
 								</view>
 							</template>
 							<view class="repair-field">
@@ -304,7 +311,7 @@
 						<view v-else class="choice-empty">没有匹配的产品</view>
 						<view v-if="!repairProductLoading" class="choice-row choice-row-product choice-row-other tap" @click="selectRepairProduct(repairProductOtherOption)">
 							<view>
-								<text>其他</text>
+								<text>{{ repairProductOtherOption.label }}</text>
 								<text>自行填写产品名称</text>
 							</view>
 							<view v-if="isOtherRepairProduct(activeRepairProduct)" class="mini-icon mini-check"></view>
@@ -1128,11 +1135,6 @@
 			</view>
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
-				<view class="warranty-hero">
-					<view class="glyph glyph-shield"><view class="glyph-extra"></view></view>
-					<text>{{ warrantyDoc.title || '三重保修承诺' }}</text>
-					<text>{{ warrantyDoc.lead || '原厂配件 · 工艺质保 · 终身咨询' }}</text>
-				</view>
 				<PolicyDocumentViewer
 					v-if="warrantyHasPolicyDocument"
 					:policy-document="warrantyDoc.policyDocument"
@@ -1177,12 +1179,7 @@
 			</view>
 
 			<view v-else-if="isDocModule" class="module-content">
-				<view v-if="activeModule === 'fees'" class="doc-hero fees-hero">
-					<view class="glyph glyph-money"><view class="glyph-extra"></view></view>
-					<text>收费公开透明</text>
-					<text>免费检测 · 先报后修 · 无隐形消费</text>
-				</view>
-				<view v-else class="doc-hero">
+				<view v-if="activeModule !== 'fees'" class="doc-hero">
 					<view :class="['glyph', 'glyph-' + activeDoc.icon]"><view class="glyph-extra"></view></view>
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
@@ -1836,18 +1833,6 @@
 			</view>
 		</view>
 
-		<view v-if="showOfficial" class="modal-mask">
-			<view class="official-modal" @click.stop>
-				<text class="modal-close tap" @click="showOfficial = false">×</text>
-				<view class="qr-image-wrap company-qr">
-					<image class="qr-image" :src="wechatInfo.qrcodeUrl || cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
-				</view>
-				<text class="follow-title">了解产品与售后支持</text>
-				<text class="follow-desc">当前环境暂不支持直接打开公众号，可长按识别二维码关注官方公众号。</text>
-				<official-account class="official-account-btn"></official-account>
-			</view>
-		</view>
-
 		<view v-if="showQr" class="modal-mask" @click="showQr = false">
 			<view class="qr-modal" @click.stop>
 				<text class="modal-close tap" @click="showQr = false">×</text>
@@ -2027,7 +2012,7 @@ import {
 } from './composables/orderFormatters'
 import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
 import { createOrderDetailView } from './composables/orderDetail'
-import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import { createRepairProduct as defaultRepairProduct, defaultRepairForm, getRepairProductModelValue } from './composables/repairForm'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 import {
 	createRepairStatusMeta,
@@ -2069,7 +2054,6 @@ const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootS
 
 const copied = ref('')
 const showQr = ref(false)
-const showOfficial = ref(false)
 const showRepairTools = ref(false)
 const uploadPrivacyVisible = ref(false)
 const uploadPrivacyHtml = ref('')
@@ -2518,7 +2502,7 @@ const customerService = ref({
 })
 
 const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
-const CICADA_SERVICE_ACCOUNT_USERNAME = 'wx804d58edd988829d'
+const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
 const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
 
 const wechatInfo = ref({
@@ -2768,7 +2752,7 @@ const isOtherRepairProduct = (product = {}) => Boolean(product && product.isCust
 const isOtherRepairModel = (product = {}) => Boolean(product && product.isCustomModel)
 const repairProductNameText = (product = {}) => {
 	if (product.name) return product.name
-	return isOtherRepairProduct(product) ? '其他（请填写）' : '请选择产品名称'
+	return isOtherRepairProduct(product) ? repairProductOtherOption.label : '请选择产品名称'
 }
 
 const findRepairProductOption = (product = {}) => repairProductOptions.value.find((item = {}) => (
@@ -2797,8 +2781,17 @@ const isConfiguredRepairProductModel = (product = {}, model = '') => {
 }
 
 const repairProductModelText = (product = {}) => {
-	if (product.model) return product.model
-	return isOtherRepairModel(product) ? '其他（请填写）' : '请选择产品型号'
+	const model = getRepairProductModelValue(product)
+	if (model) return model
+	return isOtherRepairModel(product) ? REPAIR_PRODUCT_MODEL_OTHER_LABEL : '请选择产品型号'
+}
+
+const syncCustomRepairModel = (index, value = '', shouldTrim = false) => {
+	const product = repairProducts.value[index]
+	if (!product || !product.isCustomModel) return
+	const nextValue = shouldTrim ? String(value || '').trim() : String(value || '')
+	product.customModel = nextValue
+	product.model = nextValue
 }
 
 const activeRepairModelOptions = computed(() => {
@@ -2845,8 +2838,10 @@ const selectRepairProductModel = (item = {}) => {
 		return
 	}
 	if (selected === REPAIR_PRODUCT_MODEL_OTHER_LABEL) {
+		const customModel = String(product.customModel || (product.isCustomModel ? product.model : '') || '').trim()
 		product.isCustomModel = true
-		product.model = ''
+		product.customModel = customModel
+		product.model = customModel
 	} else {
 		product.isCustomModel = false
 		product.model = selected
@@ -2879,6 +2874,7 @@ const selectRepairProduct = (item = {}) => {
 		product.model = ''
 		product.isCustomName = true
 		product.isCustomModel = true
+		product.customModel = ''
 		product.modelPickerOptions = [REPAIR_PRODUCT_MODEL_OTHER_LABEL]
 		closeProductPicker()
 		return
@@ -2892,6 +2888,7 @@ const selectRepairProduct = (item = {}) => {
 		const models = splitRepairProductModels(item.model)
 		product.model = models.length === 1 ? models[0] : ''
 		product.isCustomModel = false
+		product.customModel = ''
 	}
 	closeProductPicker()
 }
@@ -4529,6 +4526,7 @@ const reRepair = (order = {}) => {
 	product.name = order.productName || ''
 	product.model = order.productModel || ''
 	product.isCustomModel = Boolean(product.model && !isConfiguredRepairProductModel(product, product.model))
+	product.customModel = product.isCustomModel ? product.model : ''
 	syncRepairProductModelPickerOptions(product)
 	product.serial = order.productSerial || order.serial || ''
 	repairProducts.value = [product]
@@ -4991,7 +4989,6 @@ const openModule = (id, type) => {
 	if (id === 'repair' && !hasLoginToken()) {
 		previousModule.value = activeModule.value
 		activeModule.value = id
-		showOfficial.value = false
 		showQr.value = false
 		repairStep.value = 1
 		prefillRepairAddress()
@@ -5002,7 +4999,6 @@ const openModule = (id, type) => {
 
 	previousModule.value = activeModule.value
 	activeModule.value = id
-	showOfficial.value = false
 	showQr.value = false
 
 	if (policyDocKeys.has(id)) {
@@ -5182,26 +5178,32 @@ const syncRepairSeeds = () => {
 const normalizeRepairProducts = (products = []) => {
 	if (!Array.isArray(products) || !products.length) return [defaultRepairProduct()]
 
-	return products.map((item, index) => ({
-		id: Number(item.id) || index + 1,
-		productId: item.productId || item.product_id || '',
-		isCustomName: item.isCustomName === undefined
+	return products.map((item, index) => {
+		const isCustomName = item.isCustomName === undefined
 			? Boolean(item.name && !findRepairProductOption(item))
-			: Boolean(item.isCustomName),
-		isCustomModel: item.isCustomModel === undefined
+			: Boolean(item.isCustomName)
+		const isCustomModel = item.isCustomModel === undefined
 			? Boolean(item.model && !isConfiguredRepairProductModel(item, item.model))
-			: Boolean(item.isCustomModel),
-		modelPickerOptions: repairProductModelPickerOptions(item),
-		name: item.name || '',
-		category: item.category || '',
-		model: item.model || '',
-		serial: item.serial || '',
-		buyDate: item.buyDate || '',
-		voucher: item.voucher || '',
-		voucherList: Array.isArray(item.voucherList) ? item.voucherList : [],
-		faultDesc: item.faultDesc || '',
-		media: Array.isArray(item.media) ? item.media : []
-	}))
+			: Boolean(item.isCustomModel)
+		const customModel = String(item.customModel || (isCustomModel ? item.model : '') || '')
+		return {
+			id: Number(item.id) || index + 1,
+			productId: item.productId || item.product_id || '',
+			isCustomName,
+			isCustomModel,
+			customModel,
+			modelPickerOptions: repairProductModelPickerOptions(item),
+			name: item.name || '',
+			category: item.category || '',
+			model: isCustomModel ? customModel : (item.model || ''),
+			serial: item.serial || '',
+			buyDate: item.buyDate || '',
+			voucher: item.voucher || '',
+			voucherList: Array.isArray(item.voucherList) ? item.voucherList : [],
+			faultDesc: item.faultDesc || '',
+			media: Array.isArray(item.media) ? item.media : []
+		}
+	})
 }
 
 const restoreRepairDraft = () => {
@@ -5322,7 +5324,7 @@ const buildRepairNoteTemplate = () => {
 	const contactPhone = form.senderPhone || form.receiverPhone
 	const products = (repairProducts.value || []).map((product, index) => {
 		const name = repairNoteValue(product.name || product.category)
-		const model = repairNoteValue(product.model)
+		const model = repairNoteValue(getRepairProductModelValue(product))
 		const serial = repairNoteValue(product.serial)
 		const fault = repairNoteValue(product.faultDesc)
 		return [
@@ -5648,8 +5650,8 @@ const buildRepairPayload = () => {
 		customerType: repairForm.value.customerType,
 		customer_type: repairForm.value.customerType,
 		productId: product.productId || '',
-		productName: (product.name || product.model || '维修产品').trim(),
-		productModel: String(product.model || '').trim(),
+		productName: (product.name || getRepairProductModelValue(product) || '维修产品').trim(),
+		productModel: getRepairProductModelValue(product),
 		productSerial: String(product.serial || '').trim(),
 		faultType: product.faultType || product.faultDesc || '待检测',
 		faultDesc: String(product.faultDesc || '').trim(),
@@ -5672,9 +5674,9 @@ const buildRepairPayload = () => {
 			return {
 				productId: item.productId || '',
 				product_id: item.productId || '',
-				productName: (item.name || item.model || '维修产品').trim(),
+				productName: (item.name || getRepairProductModelValue(item) || '维修产品').trim(),
 				productCategory: String(item.category || '').trim(),
-				productModel: String(item.model || '').trim(),
+				productModel: getRepairProductModelValue(item),
 				productSerial: String(item.serial || '').trim(),
 				buyDate: item.buyDate,
 				voucher: item.voucher,
@@ -5702,8 +5704,13 @@ const validateRepairStep = (step) => {
 				})
 				return false
 			}
-			if (!String(products[i].model || '').trim()) {
-				uni.showToast({ title: `第 ${i + 1} 个产品请填写产品型号`, icon: 'none' })
+			if (!getRepairProductModelValue(products[i])) {
+				uni.showToast({
+					title: isOtherRepairModel(products[i])
+						? `第 ${i + 1} 个产品请填写自定义产品型号`
+						: `第 ${i + 1} 个产品请填写产品型号`,
+					icon: 'none'
+				})
 				return false
 			}
 			if (!String(products[i].serial || '').trim()) {
@@ -5800,6 +5807,7 @@ const doRecognizeSn = async (index, sn) => {
 			if (info.model && !product.isCustomModel && !String(product.model || '').trim()) {
 				product.model = info.model
 				product.isCustomModel = !isConfiguredRepairProductModel(product, info.model)
+				product.customModel = product.isCustomModel ? info.model : ''
 			}
 			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
 		} else {
@@ -5903,9 +5911,9 @@ const validateRepairForm = () => {
 			uni.showToast({ title: isOtherRepairProduct(product) ? `${label}请填写其他产品名称` : `${label}请选择产品名称`, icon: 'none' })
 			return false
 		}
-		if (!String(product.model || '').trim()) {
+		if (!getRepairProductModelValue(product)) {
 			openRepairSection('products')
-			uni.showToast({ title: `${label}请填写产品型号`, icon: 'none' })
+			uni.showToast({ title: isOtherRepairModel(product) ? `${label}请填写自定义产品型号` : `${label}请填写产品型号`, icon: 'none' })
 			return false
 		}
 		if (!String(product.serial || '').trim()) {
@@ -6662,12 +6670,10 @@ const openCustomerService = () => {
 const normalizeOfficialAccountUsername = (value) => String(value || '').trim()
 
 const launchOfficialAccountProfile = (username, options = {}) => {
-	const fallbackToQr = options.fallbackToQr !== false
 	const fallbackMessage = options.fallbackMessage || '当前版本暂不支持直接打开公众号'
 	const targetUsername = normalizeOfficialAccountUsername(username)
 	if (!targetUsername) {
-		if (fallbackToQr) showOfficial.value = true
-		else uni.showToast({ title: fallbackMessage, icon: 'none' })
+		uni.showToast({ title: fallbackMessage, icon: 'none' })
 		return
 	}
 	// #ifdef MP-WEIXIN
@@ -6678,39 +6684,24 @@ const launchOfficialAccountProfile = (username, options = {}) => {
 				const errMsg = String(error.errMsg || error.message || error || '')
 				console.warn('open official account failed:', error)
 				if (/cancel/i.test(errMsg)) return
-				if (!fallbackToQr) {
-					uni.showToast({ title: fallbackMessage, icon: 'none' })
-					return
-				}
-				showOfficial.value = true
+				uni.showToast({ title: fallbackMessage, icon: 'none' })
 			}
 		})
 		return
 	}
 	// #endif
 
-	if (!fallbackToQr) {
-		uni.showToast({ title: fallbackMessage, icon: 'none' })
-		return
-	}
-	showOfficial.value = true
+	uni.showToast({ title: fallbackMessage, icon: 'none' })
 }
 
 const openOfficialAccountProfile = () => {
 	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
-	showOfficial.value = false
 	launchOfficialAccountProfile(username)
 }
 
 const openCicadaServiceAccountProfile = () => {
-	if (!isPcWebView) {
-		showOfficial.value = true
-		return
-	}
-	showOfficial.value = false
 	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
-		fallbackToQr: false,
-		fallbackMessage: '当前电脑端暂不支持直接打开服务号'
+		fallbackMessage: isPcWebView ? '当前电脑端暂不支持直接打开服务号' : '当前版本暂不支持直接打开服务号'
 	})
 }
 
@@ -14116,7 +14107,6 @@ onUnmounted(() => {
 	color: #94A3B8;
 }
 
-.warranty-hero,
 .doc-hero {
 	padding: 36rpx;
 	border-radius: 28rpx;
@@ -14126,20 +14116,12 @@ onUnmounted(() => {
 	box-sizing: border-box;
 }
 
-.warranty-hero {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-start;
-}
-
-.warranty-hero .glyph,
 .doc-hero .glyph {
 	width: 72rpx;
 	height: 72rpx;
 	color: #FFFFFF;
 }
 
-.warranty-hero text:nth-child(2),
 .doc-hero > text:first-child,
 .doc-hero > text:nth-child(2),
 .doc-hero > view text:first-child {
@@ -14149,7 +14131,6 @@ onUnmounted(() => {
 	color: #FFFFFF;
 }
 
-.warranty-hero text:last-child,
 .doc-hero > text:last-child,
 .doc-hero > view text:last-child {
 	margin-top: 12rpx;
