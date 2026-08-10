@@ -1,5 +1,8 @@
 const CORPORATE_TRANSFER_METHODS = ['offline_transfer', 'bank_transfer']
 const CONFIRMED_PAYMENT_STATUSES = ['paid', '已付款', '已支付', '已核款', '核款通过', '付款已确认']
+const COMPLETED_ORDER_STATUSES = ['completed', '已完成']
+const INVOICE_TAX_CATEGORY = '修理修配劳务'
+const INVOICE_ITEM_NAME = '牙科设备检修服务费'
 
 function normalizeText(value) {
   return String(value == null ? '' : value).trim()
@@ -9,9 +12,18 @@ function isCorporateTransferPayment(value) {
   return CORPORATE_TRANSFER_METHODS.includes(normalizeText(value))
 }
 
+function isCompletedOrder(order = {}) {
+  return [order.statusKey, order.status_en, order.statusEn, order.status]
+    .map(normalizeText)
+    .some(status => COMPLETED_ORDER_STATUSES.includes(status))
+}
+
 function getInvoiceRequestBlockReason(order = {}) {
   if (!isCorporateTransferPayment(order.payment_method || order.paymentMethod)) {
     return '仅对公转账订单支持申请开票'
+  }
+  if (!isCompletedOrder(order)) {
+    return '检修服务完成并结单后才能申请开票'
   }
   const paymentStatus = normalizeText(order.payment_status || order.paymentStatus)
   if (!CONFIRMED_PAYMENT_STATUSES.includes(paymentStatus)) {
@@ -26,6 +38,10 @@ function getInvoiceRequestBlockReason(order = {}) {
 module.exports = {
   CORPORATE_TRANSFER_METHODS,
   CONFIRMED_PAYMENT_STATUSES,
+  COMPLETED_ORDER_STATUSES,
+  INVOICE_ITEM_NAME,
+  INVOICE_TAX_CATEGORY,
   getInvoiceRequestBlockReason,
+  isCompletedOrder,
   isCorporateTransferPayment
 }

@@ -24,6 +24,8 @@
               <div class="invoice-detail-block">
                 <h4>开票资料</h4>
                 <p><span>发票类型</span><strong>{{ row.invoice_type || '电子普通发票' }}</strong></p>
+                <p><span>税收分类</span><strong>{{ row.tax_category || '修理修配劳务' }}</strong></p>
+                <p><span>发票项目</span><strong>{{ row.item_name || '牙科设备检修服务费' }}</strong></p>
                 <p><span>抬头</span><strong>{{ row.title || '待填写' }}</strong></p>
                 <p><span>税号</span><strong>{{ row.tax_no || '待填写' }}</strong></p>
                 <p><span>邮箱</span><strong>{{ row.email || '待填写' }}</strong></p>
@@ -42,7 +44,9 @@
                 <h4>开具与寄送</h4>
                 <p><span>发票号码</span><strong>{{ row.invoice_no || '待同步' }}</strong></p>
                 <p><span>开票日期</span><strong>{{ row.invoice_date || '待同步' }}</strong></p>
-                <p><span>PDF/链接</span><strong>{{ row.invoice_url || row.pdf_url || '待同步' }}</strong></p>
+                <p><span>开票模式</span><strong>人工开票并登记</strong></p>
+                <p><span>归档工单</span><strong>{{ row.archive_order_no || row.order_no }}</strong></p>
+                <p><span>原件归档</span><strong>{{ row.pdf_url ? '已存入项目云存储' : '未上传' }}</strong></p>
                 <p v-if="isPaperSpecial(row)"><span>专票物流</span><strong>{{ row.mail_no ? `${row.mail_company || '物流'} ${row.mail_no}` : '待寄出' }}</strong></p>
                 <p v-if="isPaperSpecial(row)"><span>寄出日期</span><strong>{{ row.mail_time || '待同步' }}</strong></p>
                 <p v-if="isPaperSpecial(row)"><span>签收日期</span><strong>{{ row.received_time || '待签收' }}</strong></p>
@@ -67,10 +71,10 @@
         <el-table-column prop="tax_no" label="税号" min-width="150" show-overflow-tooltip />
         <el-table-column prop="invoice_no" label="发票号码" min-width="160" show-overflow-tooltip />
         <el-table-column prop="invoice_date" label="开票日期" width="120" />
-        <el-table-column label="发票PDF" width="80">
+        <el-table-column label="原件归档" width="100">
           <template #default="{ row }">
-            <el-link v-if="row.invoice_url" type="primary" :href="row.invoice_url" target="_blank">查看</el-link>
-            <span v-else class="im-muted">—</span>
+            <el-tag v-if="row.pdf_url" size="small" type="success">已归档</el-tag>
+            <span v-else class="im-muted">未上传</span>
           </template>
         </el-table-column>
         <el-table-column label="专票邮寄" min-width="150">
@@ -92,7 +96,7 @@
       </div>
     </el-card>
 
-    <!-- 登记开票（含发票PDF上传） -->
+    <!-- 登记开票（电子票原件只归档到项目云存储，不展示外部链接） -->
     <el-dialog v-model="issueDialog" title="登记开票" width="480px">
       <el-form :model="issueForm" label-width="92px">
         <el-form-item label="工单号"><el-input v-model="issueForm.order_no" disabled /></el-form-item>
@@ -103,11 +107,11 @@
         </el-form-item>
         <el-form-item label="发票号码"><el-input v-model="issueForm.invoice_no" placeholder="电子/纸质发票号码" /></el-form-item>
         <el-form-item label="开票日期"><el-date-picker v-model="issueForm.invoice_date" type="date" value-format="YYYY-MM-DD" placeholder="选择开票日期" style="width: 100%" /></el-form-item>
-        <el-form-item label="发票PDF">
+        <el-form-item label="原件归档">
           <div class="im-pdf-row">
-            <el-input v-model="issueForm.invoice_url" placeholder="可填链接，或点右侧上传 PDF" />
-            <el-upload :show-file-list="false" :auto-upload="false" accept=".pdf" :on-change="onPickPdf">
-              <el-button :loading="uploadingPdf" size="small"><el-icon><Upload /></el-icon>上传PDF</el-button>
+            <span class="im-archive-status">{{ issuePdfName || (issueForm.pdf_url ? '已保存云存储原件' : '选填，最大 20MB') }}</span>
+            <el-upload :show-file-list="false" :auto-upload="false" accept="application/pdf,.pdf" :on-change="onPickPdf">
+              <el-button :loading="uploadingPdf" size="small"><el-icon><Upload /></el-icon>{{ issueForm.pdf_url ? '替换 PDF' : '上传 PDF' }}</el-button>
             </el-upload>
           </div>
         </el-form-item>
@@ -144,7 +148,7 @@
       <el-upload drag :show-file-list="false" :auto-upload="false" accept=".xlsx,.xls" :on-change="onPickImport">
         <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
         <div class="el-upload__text">拖拽 Excel 到此处，或<em>点击选择</em></div>
-        <template #tip><div class="el-upload__tip">请使用「导入模板」格式，按工单号回填发票号/日期/链接</div></template>
+        <template #tip><div class="el-upload__tip">请使用「导入模板」格式，按工单号回填发票号和日期；链接列仅兼容历史数据</div></template>
       </el-upload>
       <p v-if="importRows.length" class="im-import-tip">已解析 <strong>{{ importRows.length }}</strong> 条，确认后写入。</p>
       <div v-if="importSummary" class="im-import-summary">
@@ -211,25 +215,33 @@ const applyRouteFilter = () => {
   filters.status = requested === 'pending' ? '待开票' : (STATUS_OPTIONS.includes(requested) ? requested : '')
 }
 
-// ===== 登记开票 + PDF 上传 =====
+// ===== 登记开票 + 云存储原件归档 =====
 const issueDialog = ref(false)
-const issueForm = reactive({ _id: '', order_no: '', status: '已开具', invoice_no: '', invoice_date: '', invoice_url: '' })
+const issueForm = reactive({ _id: '', order_no: '', status: '已开具', invoice_no: '', invoice_date: '', pdf_url: '' })
+const issuePdfName = ref('')
 const uploadingPdf = ref(false)
 const openIssue = (row) => {
   Object.assign(issueForm, {
     _id: row._id, order_no: row.order_no, status: row.status === '无需开票' ? '已开具' : row.status,
-    invoice_no: row.invoice_no || '', invoice_date: row.invoice_date || '', invoice_url: row.invoice_url || ''
+    invoice_no: row.invoice_no || '', invoice_date: row.invoice_date || '', pdf_url: row.pdf_url || ''
   })
+  issuePdfName.value = row.pdf_url ? '已保存云存储原件' : ''
   issueDialog.value = true
 }
 const onPickPdf = async (uploadFile) => {
   const raw = uploadFile && uploadFile.raw
   if (!raw) return
+  if (raw.type !== 'application/pdf' || !/\.pdf$/i.test(raw.name || '')) {
+    ElMessage.warning('电子发票原件仅支持 PDF 文件')
+    return
+  }
   uploadingPdf.value = true
   try {
-    const { fileUrl } = await uploadFileToCloud(raw, 'invoice/', 20 * 1024 * 1024)
-    issueForm.invoice_url = fileUrl
-    ElMessage.success('发票PDF已上传')
+    const orderKey = String(issueForm.order_no || issueForm._id || 'order').replace(/[^a-zA-Z0-9_-]/g, '_')
+    const { fileUrl } = await uploadFileToCloud(raw, `invoice/${orderKey}/`, 20 * 1024 * 1024)
+    issueForm.pdf_url = fileUrl
+    issuePdfName.value = raw.name
+    ElMessage.success('电子发票原件已上传到云存储')
   } catch (e) {
     ElMessage.error(e.message || 'PDF上传失败')
   } finally {
@@ -240,7 +252,7 @@ const saveIssue = async () => {
   saving.value = true
   try {
     await updateInvoiceStatus(getToken(), issueForm._id, issueForm.status, {
-      invoice_no: issueForm.invoice_no, invoice_date: issueForm.invoice_date, invoice_url: issueForm.invoice_url
+      fulfillment_mode: 'manual', invoice_no: issueForm.invoice_no, invoice_date: issueForm.invoice_date, pdf_url: issueForm.pdf_url
     })
     ElMessage.success('已保存开票登记')
     issueDialog.value = false
@@ -329,6 +341,7 @@ watch(() => route.query.status, () => { applyRouteFilter(); reload() })
 .im-muted { color: #c0c4cc; }
 .im-export-hint { font-size: 12px; color: #909399; cursor: help; padding: 0 4px; }
 .im-pdf-row { display: flex; gap: 8px; width: 100%; }
+.im-archive-status { min-width: 0; flex: 1; color: #606266; font-size: 12px; line-height: 32px; overflow-wrap: anywhere; }
 .invoice-detail-panel { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 8px 22px 14px; background: #f7f9fc; }
 .invoice-detail-block { min-width: 0; padding: 14px; border-radius: 10px; background: #fff; border: 1px solid #edf1f7; }
 .invoice-detail-block h4 { margin: 0 0 10px; color: #1f2d3d; font-size: 14px; }

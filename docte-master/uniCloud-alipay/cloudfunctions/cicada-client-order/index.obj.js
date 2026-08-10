@@ -5,7 +5,7 @@ const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 const { getMiniStatusBucket } = require('./order-status')
-const { getInvoiceRequestBlockReason, isCorporateTransferPayment } = loadInvoicePolicyModule()
+const { getInvoiceRequestBlockReason, INVOICE_ITEM_NAME, INVOICE_TAX_CATEGORY } = loadInvoicePolicyModule()
 const {
   PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES,
   PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES,
@@ -1921,7 +1921,7 @@ module.exports = {
         fixing: 0, shipped: 0, completed: 0, cancelled: 0
       }
       const miniStatusBuckets = { pending: 0, fixing: 0, shipped: 0 }
-      const todo = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
+      const todo = { unfinished: 0, payment: 0, receipt: 0, invoice: 0, invoiceVisible: 0 }
       ;(res.data || []).forEach(order => {
         const status = String(order.status || '').trim()
         if (Object.prototype.hasOwnProperty.call(byStatus, status)) byStatus[status] += 1
@@ -1934,8 +1934,12 @@ module.exports = {
         if (status === 'shipped') todo.receipt += 1
         const invoiceInfo = order.invoice_info || {}
         const invoiceStatus = normalizeText(invoiceInfo.status)
+        const invoiceIssued = Boolean(invoiceInfo.invoice_no) || ['已开具', '已寄出', '已签收'].includes(invoiceStatus)
+        if (invoiceIssued || (!getInvoiceRequestBlockReason(order) && invoiceStatus !== '无需开票')) {
+          todo.invoiceVisible += 1
+        }
         const invoiceClosed = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收'].includes(invoiceStatus)
-        if (hasPayableAmount && isCorporateTransferPayment(order.payment_method) && isPaymentConfirmedStatus(paymentStatus) && !invoiceInfo.need_invoice && !invoiceClosed) {
+        if (!getInvoiceRequestBlockReason(order) && !invoiceInfo.need_invoice && !invoiceClosed) {
           todo.invoice += 1
         }
       })
@@ -1980,6 +1984,12 @@ module.exports = {
           orderStatus: order.status || '',
           paymentStatus: order.payment_status || '',
           invoiceType: info.invoice_type || '',
+          taxCategory: info.tax_category || INVOICE_TAX_CATEGORY,
+          itemName: info.item_name || INVOICE_ITEM_NAME,
+          deliveryMethod: info.delivery_method || (info.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+          fulfillmentMode: info.fulfillment_mode || 'manual',
+          archiveStatus: info.archive_status || 'pending',
+          archiveOrderNo: info.archive_order_no || order.order_no || '',
           titleType: info.title_type || '',
           title: info.title || '',
           taxNo: info.tax_no || '',
@@ -2787,6 +2797,16 @@ module.exports = {
         need_invoice: true,
         status: '待开票',
         invoice_type: invoiceKind,
+        tax_category: INVOICE_TAX_CATEGORY,
+        item_name: INVOICE_ITEM_NAME,
+        delivery_method: isPaperSpecial ? 'postal' : 'electronic',
+        fulfillment_mode: 'manual',
+        archive_status: 'pending',
+        archive_order_id: order._id,
+        archive_order_no: order.order_no || '',
+        service_completed_time: order.completed_time || order.complete_time || order.update_time || now,
+        settlement_time: order.payment_paid_time || order.update_time || now,
+        expected_delivery_days: isPaperSpecial ? '7-15' : '1-3',
         title_type: invoiceTitleType,
         title: invoiceTitle,
         tax_no: invoiceTaxNo,
@@ -2811,7 +2831,7 @@ module.exports = {
           ...timeline,
           {
             title: '客户已提交开票申请',
-            desc: `${invoiceInfo.invoice_type}：${invoiceInfo.title}`,
+            desc: `${invoiceInfo.invoice_type}：${invoiceInfo.title}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}`,
             time: now,
             done: true
           }

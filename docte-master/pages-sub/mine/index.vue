@@ -135,7 +135,7 @@ import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 const logged = ref(false)
 const currentUser = ref({})
 const repairCounts = ref({ all: 0, pending: 0, fixing: 0, shipped: 0 })
-const statsTodo = ref({ unfinished: 0, payment: 0, receipt: 0, invoice: 0 })
+const statsTodo = ref({ unfinished: 0, payment: 0, receipt: 0, invoice: 0, invoiceVisible: 0 })
 const productCount = ref(0)
 const REPAIR_STATS_REFRESH_MS = 30000
 let repairStatsRefreshTimer = null
@@ -160,7 +160,7 @@ const syncLoginState = () => {
 	} else {
 		avatarDisplayUrl.value = ''
 		repairCounts.value = { all: 0, pending: 0, fixing: 0, shipped: 0 }
-		statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
+		statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0, invoiceVisible: 0 }
 		productCount.value = 0
 	}
 }
@@ -331,8 +331,8 @@ const menus = computed(() => [
 	{ icon: 'pin', title: '收货地址管理', desc: '多地址 · 默认回寄地址', go: 'address' },
 	{ icon: 'edit', title: '投诉和建议', desc: '问题反馈 / 改进建议', go: 'feedback' },
 	{ icon: 'box', title: '我的产品', desc: `${productCount.value} 件设备档案`, go: 'products' },
-	{ icon: 'invoice', title: '发票与开票', desc: '申请开票 / 下载电子发票', go: 'invoices' }
-])
+	{ icon: 'invoice', title: '发票与开票', desc: '对公开票 / 查看发票信息', go: 'invoices' }
+].filter((item) => item.go !== 'invoices' || Number(statsTodo.value.invoiceVisible) > 0))
 
 const tabs = [
 	{ id: 'home', label: '首页', icon: 'home' },
@@ -369,7 +369,7 @@ const toggleLogin = () => {
 				}
 				currentUser.value = {}
 				repairCounts.value = { all: 0, pending: 0, fixing: 0, shipped: 0 }
-				statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
+				statsTodo.value = { unfinished: 0, payment: 0, receipt: 0, invoice: 0, invoiceVisible: 0 }
 				productCount.value = 0
 				avatarDisplayUrl.value = ''
 				logged.value = false

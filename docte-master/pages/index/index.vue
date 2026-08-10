@@ -506,7 +506,7 @@
 					<view class="invoice-hero-icon"><view class="glyph glyph-invoice"><view class="glyph-extra"></view></view></view>
 					<view>
 						<text>对公转账开票申请</text>
-						<text>对公款项核销后可提交开票资料，财务人工开具并登记发票信息。</text>
+						<text>检修完成且对公款项核销后可申请；微信支付订单不提供开票。</text>
 					</view>
 				</view>
 				<view class="invoice-status-board">
@@ -536,6 +536,10 @@
 								<text>{{ item.label }}</text>
 								<text>{{ item.desc }}</text>
 							</view>
+						</view>
+						<view class="invoice-service-item">
+							<view><text>税收分类</text><text>修理修配劳务</text></view>
+							<view><text>发票项目</text><text>牙科设备检修服务费</text></view>
 						</view>
 						<view class="invoice-type-row">
 							<view v-for="item in invoiceTitleTypes" :key="item.value" class="tap" :class="{ on: invoiceForm.titleType === item.value, disabled: isPaperInvoice && item.value !== 'company' }" @click="selectInvoiceTitleType(item.value)">
@@ -592,8 +596,8 @@
 						</view>
 					</view>
 					<view class="invoice-tip">
-						<text v-if="isPaperInvoice">纸质专用发票仅支持企业抬头，财务审核开具后邮寄到收票地址，请确保收票信息准确无误。</text>
-						<text v-else>电子普通发票开具后可复制链接查看，同时会发送到接收邮箱。若需纸质专用发票，请切换上方发票类型。</text>
+						<text v-if="isPaperInvoice">纸质专用发票仅支持企业抬头，预计 7-15 个工作日寄出，请确保收票信息准确无误。</text>
+						<text v-else>电子普通发票预计 1-3 个工作日开具，小程序会同步号码、日期、抬头和金额等信息。</text>
 					</view>
 					<view class="primary-button tap save-button" :class="{ disabled: invoiceSubmitting }" @click="submitInvoiceApply">{{ invoiceSubmitting ? '提交中...' : '确认提交' }}</view>
 				</view>
@@ -617,7 +621,7 @@
 							<view><text>维修金额</text><text>{{ order.price }}</text></view>
 							<view><text>报修日期</text><text>{{ order.date }}</text></view>
 							<view><text>开票阶段</text><text>{{ getInvoiceMeta(order).stage }}</text></view>
-							<view><text>电子链接</text><text>{{ order.invoiceUrl ? '已生成' : '待开具' }}</text></view>
+							<view><text>用户查看</text><text>开具后小程序展示</text></view>
 						</view>
 						<view class="invoice-order-actions">
 							<view class="ghost-button tap" @click="openOrderDetail(order)">查看工单</view>
@@ -642,9 +646,11 @@
 						<view class="invoice-issued-info">
 							<view><text>发票号码</text><text>{{ order.invoiceNo || '待同步' }}</text></view>
 							<view><text>开票日期</text><text>{{ order.invoiceDate || '待同步' }}</text></view>
+							<view><text>税收分类</text><text>{{ order.invoiceTaxCategory || '修理修配劳务' }}</text></view>
+							<view><text>发票项目</text><text>{{ order.invoiceItemName || '牙科设备检修服务费' }}</text></view>
 							<view><text>开票状态</text><text>{{ order.invoiceType === '纸质专用发票' ? (order.invoiceStatus || getInvoiceMeta(order).stage) : getInvoiceMeta(order).stage }}</text></view>
 							<view v-if="order.invoiceType === '纸质专用发票'"><text>邮寄快递</text><text>{{ order.invoiceMailCompany || '待寄出' }}</text></view>
-							<view v-else><text>电子链接</text><text>{{ order.invoiceUrl ? '已生成' : '待同步' }}</text></view>
+							<view v-else><text>电子凭证</text><text>发票信息已同步</text></view>
 							<view v-if="order.invoiceType === '纸质专用发票' && order.invoiceMailNo"><text>邮寄单号</text><text>{{ order.invoiceMailNo }}</text></view>
 						</view>
 						<view class="invoice-order-actions">
@@ -652,7 +658,7 @@
 							<view v-if="order.invoiceType === '纸质专用发票'" class="primary-button tap" :class="{ disabled: !order.invoiceMailNo }" @click="copyInvoiceMailNo(order)">
 								{{ order.invoiceMailNo ? (copied === 'invMail-' + order.id ? '已复制邮寄单号' : '复制邮寄单号') : '待财务寄出' }}
 							</view>
-							<view v-else class="primary-button tap" @click="copyInvoiceLink(order)">复制发票链接</view>
+							<view v-else class="primary-button tap" @click="copyInvoiceInfo(order)">复制发票信息</view>
 						</view>
 					</view>
 					<view v-if="!invoiceIssuedOrders.length" class="empty-hint compact">暂无已开具的发票。</view>
@@ -1741,7 +1747,7 @@
 						<text>服务与设置</text>
 					</view>
 					<view class="settings-card">
-						<view v-for="(item, index) in menus" :key="item.title" class="menu-row tap" :class="{ last: index === menus.length - 1 }" @click="go(item.go)">
+						<view v-for="(item, index) in accountMenus" :key="item.title" class="menu-row tap" :class="{ last: index === accountMenus.length - 1 }" @click="go(item.go)">
 							<view class="menu-icon">
 								<view :class="['glyph', 'glyph-' + item.icon]"><view class="glyph-extra"></view></view>
 							</view>
@@ -1954,7 +1960,7 @@ import {
 	getMyDevices,
 	updateRepairOutboundLogistics
 } from '@/api/repair'
-import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
+import { formatInvoiceDisplayText, getInvoiceMeta, getInvoiceStatusKey, invoiceFlow, shouldShowInvoiceEntry } from './composables/invoiceFlow'
 import { downloadCloudFile, getCloudTempFileURL } from '@/utils/cloud.js'
 import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { normalizePolicyHtml } from '@/utils/policyHtml.js'
@@ -2995,6 +3001,11 @@ const normalizeOrder = (item = {}) => {
 		invoiceRemark: merged.invoiceRemark || merged.invoice_remark || invoiceInfo.remark,
 		invoiceNo: merged.invoiceNo || merged.invoice_no || invoiceInfo.invoice_no,
 		invoiceDate: merged.invoiceDate || merged.invoice_date || invoiceInfo.invoice_date || formatDateTime(invoiceInfo.issued_time || invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
+		invoiceTaxCategory: merged.invoiceTaxCategory || merged.taxCategory || merged.tax_category || invoiceInfo.tax_category || '修理修配劳务',
+		invoiceItemName: merged.invoiceItemName || merged.itemName || merged.item_name || invoiceInfo.item_name || '牙科设备检修服务费',
+		invoiceDeliveryMethod: merged.invoiceDeliveryMethod || merged.deliveryMethod || merged.delivery_method || invoiceInfo.delivery_method || '',
+		invoiceFulfillmentMode: merged.invoiceFulfillmentMode || merged.fulfillmentMode || merged.fulfillment_mode || invoiceInfo.fulfillment_mode || 'manual',
+		invoiceArchiveStatus: merged.invoiceArchiveStatus || merged.archiveStatus || merged.archive_status || invoiceInfo.archive_status || '',
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
 		quoteStatus,
 		needsReturn: merged.needsReturn === true || merged.needs_return === true,
@@ -3330,6 +3341,7 @@ const orderTabs = computed(() => [
 
 const invoiceTodoOrders = computed(() => orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))))
 const invoiceIssuedOrders = computed(() => orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued'))
+const accountMenus = computed(() => menus.filter((item) => item.go !== 'invoices' || shouldShowInvoiceEntry(orderList.value)))
 const invoiceTabs = computed(() => [
 	`待开票 ${invoiceTodoOrders.value.length}`,
 	`已开票 ${invoiceIssuedOrders.value.length}`
@@ -4594,8 +4606,8 @@ const resetInvoiceForm = (order = {}) => {
 
 // 发票种类双选：电子普票 / 纸质专票（专票强制企业抬头，后端同规则）
 const invoiceKindOptions = [
-	{ value: '电子普通发票', label: '电子普通发票', desc: '开具快，链接+邮箱接收' },
-	{ value: '纸质专用发票', label: '纸质专用发票', desc: '可抵扣，财务审核后邮寄' }
+	{ value: '电子普通发票', label: '电子普通发票', desc: '数电票，预计 1-3 个工作日' },
+	{ value: '纸质专用发票', label: '纸质专用发票', desc: '财务审核，预计 7-15 个工作日寄出' }
 ]
 
 const isPaperInvoice = computed(() => invoiceForm.value.invoiceType === '纸质专用发票')
@@ -4746,16 +4758,16 @@ const submitInvoiceApply = async () => {
 	}
 }
 
-const copyInvoiceLink = (order = {}) => {
+const copyInvoiceInfo = (order = {}) => {
 	const sourceOrder = resolveOrderRecord(order)
-	const invoiceLink = sourceOrder.invoiceUrl
-	if (!invoiceLink) {
-		uni.showToast({ title: '暂无电子发票链接', icon: 'none' })
+	const invoiceText = formatInvoiceDisplayText(sourceOrder)
+	if (!invoiceText) {
+		uni.showToast({ title: '发票信息尚未同步', icon: 'none' })
 		return
 	}
 	uni.setClipboardData({
-		data: invoiceLink,
-		success: () => uni.showToast({ title: '发票链接已复制', icon: 'success' }),
+		data: invoiceText,
+		success: () => uni.showToast({ title: '发票信息已复制', icon: 'success' }),
 		fail: () => uni.showToast({ title: '复制失败', icon: 'none' })
 	})
 }
@@ -4765,7 +4777,9 @@ const handleInvoiceAction = (order = {}) => {
 	const status = getInvoiceStatusKey(sourceOrder)
 
 	if (status === 'issued') {
-		copyInvoiceLink(sourceOrder)
+		activeInvoiceOrderId.value = ''
+		activeModule.value = 'invoices'
+		activeInvoiceTab.value = '已开票'
 		return
 	}
 
@@ -12301,6 +12315,35 @@ onUnmounted(() => {
 
 .invoice-form-card {
 	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+}
+
+.invoice-service-item {
+	padding: 22rpx 28rpx;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 18rpx;
+	border-bottom: 2rpx solid #F1F5FB;
+	background: #F8FBFF;
+	box-sizing: border-box;
+}
+
+.invoice-service-item > view {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.invoice-service-item text:first-child {
+	font-size: 21rpx;
+	color: #6B7C97;
+}
+
+.invoice-service-item text:last-child {
+	font-size: 25rpx;
+	font-weight: 700;
+	line-height: 1.45;
+	color: #0F1F3A;
 }
 
 .invoice-type-row {

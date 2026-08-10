@@ -82,7 +82,7 @@ export const menus = [
 	{ icon: 'pin', title: '收货地址管理', desc: '多地址 · 默认回寄地址', go: 'address' },
 	{ icon: 'edit', title: '投诉和建议', desc: '问题反馈 / 改进建议', go: 'feedback' },
 	{ icon: 'box', title: '我的产品', desc: '登录后查看已登记设备', go: 'products' },
-	{ icon: 'invoice', title: '发票与开票', desc: '申请开票 / 下载电子发票', go: 'invoices' }
+	{ icon: 'invoice', title: '发票与开票', desc: '对公开票 / 查看发票信息', go: 'invoices' }
 ]
 
 export const tabs = [
