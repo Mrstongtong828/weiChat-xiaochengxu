@@ -133,11 +133,12 @@ export const updateOrderQuote = (token, orderId, quote = {}) => {
 }
 
 // 更新付款核销状态
-export const updatePaymentStatus = (token, orderId, status) => {
+export const updatePaymentStatus = (token, orderId, status, options = {}) => {
   return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
     token,
     order_id: orderId,
-    status
+    status,
+    payment_method: options.paymentMethod || ''
   })
 }
 

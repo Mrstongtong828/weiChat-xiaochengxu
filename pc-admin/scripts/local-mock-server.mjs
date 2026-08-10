@@ -106,7 +106,7 @@ const orders = [
   {
     _id: 'order002',
     order_no: 'WX20260609002',
-    status: 'fixing',
+    status: 'received',
     user_id: 'user002',
     create_time: now - 86400000,
     update_time: now - 1200000,
@@ -155,6 +155,7 @@ const orders = [
     labor_fee: 80,
     total_price: 340,
     payment_status: 'uploaded',
+    payment_method: 'offline_transfer',
     payment_proofs: [{ url: '', name: 'transfer-proof.png', time: now - 600000 }],
     timeline: [
       { title: 'Received', desc: 'Device arrived at service center', time: now - 80000000 },
@@ -439,6 +440,43 @@ const handleAdminOrder = (method, body) => {
       deviceModels: [...new Set(orders.flatMap(order => (order.itemsList || []).map(item => item.product_model).filter(Boolean)))]
     })
   }
+  if (method === 'getSettlementList') {
+    const keyword = String(body.keyword || '').trim().toLowerCase()
+    const paymentMethod = String(body.paymentMethod || '').trim()
+    let list = orders.filter(item => Number(item.total_price || 0) > 0)
+    if (body.paymentStatus) list = list.filter(item => item.payment_status === body.paymentStatus)
+    if (paymentMethod === 'corporate') {
+      list = list.filter(item => ['offline_transfer', 'bank_transfer'].includes(item.payment_method))
+    } else if (paymentMethod === 'wechat_pay') {
+      list = list.filter(item => item.payment_method === 'wechat_pay')
+    }
+    if (keyword) list = list.filter(item => JSON.stringify(item).toLowerCase().includes(keyword))
+
+    const page = Number(body.page || 1)
+    const pageSize = Number(body.pageSize || 20)
+    const start = (page - 1) * pageSize
+    const rows = list.slice(start, start + pageSize).map(item => ({
+      _id: item._id,
+      order_no: item.order_no,
+      customer_name: item.ship_back_info?.unit || item.ship_back_info?.name || '',
+      contact_phone: item.ship_back_info?.phone || '',
+      quote_status: item.quote_status || 'pending',
+      status: item.status || '',
+      payment_status: item.payment_status || 'pending',
+      payment_method: item.payment_method || '',
+      payment_proofs: item.payment_proofs || [],
+      payment_paid_time: item.payment_paid_time || 0,
+      total_price: Number(item.total_price || 0),
+      parts_fee: Number(item.parts_fee || 0),
+      labor_fee: Number(item.labor_fee || 0),
+      invoice_info: item.invoice_info || {},
+      inventory_deducted: Boolean(item.inventory_deducted),
+      wechat_transaction_id: item.wechat_pay_transaction_id || '',
+      logistics_no_out: item.ship_out_info?.logistics_no || '',
+      logistics_no_back: item.ship_back_info?.logistics_no || ''
+    }))
+    return ok({ list: rows, total: list.length, page, pageSize })
+  }
 
   const orderId = body.order_id || body.orderId
   const order = orders.find(item => item._id === orderId)
@@ -474,8 +512,15 @@ const handleAdminOrder = (method, body) => {
     return ok(order)
   }
   if (method === 'updatePaymentStatus' && order) {
+    if (order.payment_method === 'wechat_pay') return fail('微信支付需由支付结果自动确认，不能手动标记到账')
+    if (!['pending', 'uploaded', 'rejected', 'paid'].includes(order.payment_status || 'pending')) {
+      return fail('当前付款状态不可人工确认到账')
+    }
     order.payment_status = body.status || 'paid'
-    order.update_time = Date.now()
+    order.payment_method = body.payment_method || order.payment_method || 'offline_transfer'
+    order.payment_paid_time = Date.now()
+    if (['received', 'inspecting'].includes(order.status)) order.status = 'fixing'
+    order.update_time = order.payment_paid_time
     return ok(order)
   }
   if (method === 'addTimeline' && order) {

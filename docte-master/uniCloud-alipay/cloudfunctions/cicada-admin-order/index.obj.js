@@ -6,6 +6,12 @@ const expressProvider = loadExpressProvider()
 const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
 const { buildLogisticsReadiness } = require('./logistics-readiness')
 const { reconcileTrackCache } = require('./logistics-policy')
+const {
+  MANUAL_CONFIRMABLE_PAYMENT_STATUSES,
+  assertManualPaymentConfirmationAllowed,
+  getPaymentConfirmationStatusUpdate,
+  resolveManualPaymentMethod
+} = require('./payment-confirmation-policy')
 const { getInvoiceRequestBlockReason } = loadInvoicePolicyModule()
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
@@ -149,7 +155,8 @@ function createWorkflowFallback() {
     getOrderStatusLabel,
     getWorkflowConfigForRole,
     hasRolePermission,
-    isKnownRole
+    isKnownRole,
+    canTransitionOrderStatus
   }
 }
 
@@ -172,7 +179,8 @@ const {
   getOrderStatusLabel,
   getWorkflowConfigForRole,
   hasRolePermission,
-  isKnownRole
+  isKnownRole,
+  canTransitionOrderStatus
 } = loadWorkflowModule()
 
 async function verifyAdminToken(token) {
@@ -1910,12 +1918,13 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
       flows.push({ ...flow, _id: addRes.id })
     }
 
+    const completedAt = Date.now()
     await db.collection('cicada_orders').doc(order._id).update({
       inventory_deducted: true,
-      inventory_deduct_time: now,
+      inventory_deduct_time: completedAt,
       inventory_status: 'outbound',
       inventory_processing_at: 0,
-      update_time: now
+      update_time: completedAt
     })
   } catch (error) {
     for (const item of deducted.reverse()) {
@@ -4064,7 +4073,7 @@ module.exports = {
   async updatePaymentStatus(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'confirm_payment')
-      const { order_id, status, reason = '' } = pickParam(this, params)
+      const { order_id, status, reason = '', payment_method = '' } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const paymentStatus = normalizeText(status || 'paid')
       if (!PAYMENT_STATUS.includes(paymentStatus)) return { code: -1, msg: '付款状态不正确' }
@@ -4078,13 +4087,10 @@ module.exports = {
       if (paymentStatus === 'rejected' && !rejectReason) {
         return { code: -1, msg: '驳回转账凭证时必须填写原因' }
       }
-
-      let inventoryResult = null
+      let confirmedPaymentMethod = ''
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
-        inventoryResult = await outboundOrderInventory(order, currentAdmin, now)
-        if (inventoryResult && inventoryResult.skipped && /正在进行/.test(inventoryResult.reason || '')) {
-          throw new Error('配件出库仍在处理中，请先完成库存恢复或重试后再确认付款')
-        }
+        assertManualPaymentConfirmationAllowed(order)
+        confirmedPaymentMethod = resolveManualPaymentMethod(order, payment_method)
       }
 
       const updateData = {
@@ -4094,7 +4100,11 @@ module.exports = {
       }
 
       if (paymentStatus === 'paid') {
-        updateData.payment_paid_time = now
+        if (order.payment_status !== 'paid') {
+          updateData.payment_method = confirmedPaymentMethod
+          updateData.payment_paid_time = now
+          Object.assign(updateData, getPaymentConfirmationStatusUpdate(order, now, canTransitionOrderStatus))
+        }
         updateData.payment_reject_reason = ''
         updateData.payment_reject_time = 0
       }
@@ -4111,7 +4121,9 @@ module.exports = {
           paymentStatus === 'paid'
             ? {
                 title: '付款已核销',
-                desc: '后台已确认客户付款到账。',
+                desc: updateData.status === 'fixing'
+                  ? '财务已确认对公付款到账，工单已进入处理中。'
+                  : '财务已确认对公付款到账。',
                 time: now,
                 done: true
               }
@@ -4124,14 +4136,51 @@ module.exports = {
         ]
       }
 
-      const res = await db.collection('cicada_orders').doc(order_id).update(updateData)
-      if (!res.updated) return { code: -1, msg: '工单不存在' }
+      const isNewPaymentConfirmation = paymentStatus === 'paid' && order.payment_status !== 'paid'
+      const updateMatch = {
+        _id: order_id,
+        status: order.status,
+        payment_status: dbCmd.in(MANUAL_CONFIRMABLE_PAYMENT_STATUSES)
+      }
+      if (order.update_time) updateMatch.update_time = order.update_time
+      const res = isNewPaymentConfirmation
+        ? await db.collection('cicada_orders').where(updateMatch).update(updateData)
+        : await db.collection('cicada_orders').doc(order_id).update(updateData)
+      if (!res.updated) {
+        return {
+          code: -1,
+          msg: isNewPaymentConfirmation ? '工单状态已变化，请刷新后重新确认收款' : '工单不存在'
+        }
+      }
+
+      let inventoryResult = null
+      if (isNewPaymentConfirmation) {
+        try {
+          inventoryResult = await outboundOrderInventory({ ...order, ...updateData }, currentAdmin, Date.now())
+        } catch (inventoryError) {
+          inventoryResult = {
+            skipped: true,
+            warning: true,
+            reason: `付款已确认，但配件未自动出库：${inventoryError.message || '请到库存管理核对'}`,
+            flows: []
+          }
+        }
+      }
       await logOrderEvent({
         order,
         action: paymentStatus === 'rejected' ? 'reject_payment_proof' : 'confirm_payment',
         actor: currentAdmin,
-        before: { payment_status: order.payment_status || 'pending' },
-        after: { payment_status: paymentStatus, reason: rejectReason }
+        before: {
+          payment_status: order.payment_status || 'pending',
+          payment_method: order.payment_method || '',
+          status: order.status || ''
+        },
+        after: {
+          payment_status: paymentStatus,
+          payment_method: updateData.payment_method || order.payment_method || '',
+          status: updateData.status || order.status || '',
+          reason: rejectReason
+        }
       })
 
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
@@ -4419,6 +4468,7 @@ module.exports = {
         customer_name: (order.ship_back_info && (order.ship_back_info.unit || order.ship_back_info.name)) || '',
         contact_phone: (order.ship_back_info && order.ship_back_info.phone) || '',
         quote_status: order.quote_status || 'pending',
+        status: order.status || '',
         payment_status: order.payment_status || 'pending',
         payment_proofs: order.payment_proofs || [],
         total_price: Number(order.total_price || 0),

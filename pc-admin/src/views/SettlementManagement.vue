@@ -79,8 +79,17 @@
       <el-table-column label="发票号码" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">{{ row.invoice_info?.invoice_no || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="150" align="right" fixed="right">
+      <el-table-column label="操作" width="210" align="right" fixed="right">
         <template #default="{ row }">
+          <el-button
+            v-if="canConfirmCorporatePayment(row)"
+            type="success"
+            link
+            :loading="confirmingOrderId === row._id"
+            @click="confirmCorporatePayment(row)"
+          >
+            确认收款
+          </el-button>
           <el-button type="primary" link @click="goWorkOrder(row)">去工单处理</el-button>
         </template>
       </el-table-column>
@@ -101,8 +110,9 @@
 <script setup>
 import { reactive, ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSettlementList } from '../api/settlement.js'
+import { updatePaymentStatus } from '../api/order.js'
 import { getSettings } from '../api/admin.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 import { getPaymentMethodLabel, resolveCorporateAccount } from '../config/corporateAccount.js'
@@ -110,6 +120,7 @@ import { getPaymentMethodLabel, resolveCorporateAccount } from '../config/corpor
 const router = useRouter()
 const rows = ref([])
 const loading = ref(false)
+const confirmingOrderId = ref('')
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
@@ -151,7 +162,52 @@ const loadSettlements = async () => {
 const goWorkOrder = (row) => {
   router.push({ path: '/workorder', query: { keyword: row.order_no } })
 }
-// 付款核销/确认已统一到工单详情（单一真相入口），此处仅展示与跳转
+
+const canConfirmCorporatePayment = (row = {}) => {
+  return ['pending', 'uploaded', 'rejected'].includes(row.payment_status || 'pending')
+    && row.payment_method !== 'wechat_pay'
+}
+
+const confirmCorporatePayment = async (row) => {
+  const proofTip = (row.payment_proofs || []).length
+    ? '请确认已核对客户凭证与银行对公流水。'
+    : '该工单没有付款凭证，请确认已直接核对银行对公流水。'
+  try {
+    await ElMessageBox.confirm(
+      `${proofTip}确认后将标记为“对公支付 · 已付款”，已签收或检测中的工单会直接进入“处理中”。`,
+      '确认收款',
+      {
+        confirmButtonText: '确认已到账',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '确认收款已取消')
+    return
+  }
+
+  confirmingOrderId.value = row._id
+  try {
+    const result = await updatePaymentStatus(getToken(), row._id, 'paid', { paymentMethod: 'offline_transfer' })
+    Object.assign(row, {
+      payment_status: result.payment_status || 'paid',
+      payment_method: result.payment_method || 'offline_transfer',
+      payment_paid_time: result.payment_paid_time || Date.now(),
+      status: result.status || row.status
+    })
+    const successText = result.status === 'fixing' ? '收款已确认，工单已进入处理中' : '收款已确认'
+    if (result.inventoryResult?.warning) {
+      ElMessage.warning(`${successText}；${result.inventoryResult.reason || '配件未自动出库，请到库存管理核对'}`)
+    } else {
+      ElMessage.success(successText)
+    }
+  } catch (error) {
+    if (!error.__displayed) ElMessage.error(error.message || '确认收款失败')
+  } finally {
+    confirmingOrderId.value = ''
+  }
+}
 
 const loadCorporateAccount = async () => {
   try {

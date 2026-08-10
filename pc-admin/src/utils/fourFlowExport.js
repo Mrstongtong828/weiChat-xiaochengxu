@@ -12,7 +12,12 @@ const fmtTime = (ts) => {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
-const payMethod = (r) => (r.payment_method === 'wechat_pay' ? '微信支付' : (r.payment_method || ''))
+const PAYMENT_METHOD_LABELS = {
+  wechat_pay: '微信支付',
+  offline_transfer: '对公支付',
+  bank_transfer: '对公支付'
+}
+const payMethod = (r) => PAYMENT_METHOD_LABELS[r.payment_method] || r.payment_method || '未选择'
 
 // 导出四流台账（订单 / 物流 / 支付 / 发票 合一）
 export const exportFourFlowLedger = async (list = []) => {

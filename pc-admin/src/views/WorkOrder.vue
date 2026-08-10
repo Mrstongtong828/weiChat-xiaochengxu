@@ -3777,7 +3777,11 @@ const markPaymentPaid = async () => {
     const token = localStorage.getItem('adminToken')
     const orderId = currentOrder.value._id
     const result = await updatePaymentStatus(token, orderId, 'paid')
-    ElMessage.success('付款已标记为到账')
+    if (result.inventoryResult?.warning) {
+      ElMessage.warning(`付款已标记为到账；${result.inventoryResult.reason || '配件未自动出库，请到库存管理核对'}`)
+    } else {
+      ElMessage.success('付款已标记为到账')
+    }
     await loadOrders()
     const fresh = orders.value.find(item => item._id === orderId)
     if (fresh) {
