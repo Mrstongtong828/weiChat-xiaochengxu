@@ -182,6 +182,10 @@ export const getRepairProgressNodes = (order = {}) => {
 	if (reached === undefined) reached = cnBaseMap[order.status]
 	if (reached === undefined) reached = 0
 	if (['issued', 'confirmed', 'rejected'].includes(order.quoteStatus)) reached = Math.max(reached, 1)
+	if (
+		['paid', 'not_required'].includes(order.paymentStatus) ||
+		['paid', 'not_required'].includes(order.payment_status)
+	) reached = Math.max(reached, 2)
 	const completed = order.statusKey === 'completed' || order.status === '已完成'
 	const repairProgressNodeLabels = ['报修已提交', '检测与报价', '维修处理', '设备回寄']
 	return repairProgressNodeLabels.map((label, index) => ({

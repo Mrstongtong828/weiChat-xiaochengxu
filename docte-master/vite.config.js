@@ -45,7 +45,7 @@ const uni = resolveUniPlugin()
 const assetSources = [
 	'brand-cicada-tooth-blue.png',
 	'brand-cicada-tooth-blue-original.png',
-	'cicada-boot-logo.jpg',
+	'cicada-boot-logo-white.png',
 	'cicada-logo-compact.png',
 	'cicada-logo-header.png',
 	'cicada-wordmark.png',
@@ -62,6 +62,7 @@ const assetSources = [
 	'logo-banner.jpg',
 	'logo-cicada-full.jpg',
 	'logo-cicada-mark.jpg',
+	'maintenance-w201l-cover.jpg',
 	'new-logo.png',
 	'photo-building.jpg',
 	'photo-factory.jpg',
@@ -69,6 +70,7 @@ const assetSources = [
 	'product-prevention.jpg',
 	'product-restoration.jpg',
 	'product-root-canal.jpg',
+	'product-video-link-qr.png',
 	'qr-wechat.jpg',
 	'survey-poster.jpg',
 	'survey-qr-wechat.jpg'
@@ -218,5 +220,8 @@ function keepMiniappAssets() {
 }
 
 module.exports = {
-	plugins: [uni(), keepMiniappAssets()]
+	plugins: [uni(), keepMiniappAssets()],
+	build: {
+		minify: false
+	}
 }

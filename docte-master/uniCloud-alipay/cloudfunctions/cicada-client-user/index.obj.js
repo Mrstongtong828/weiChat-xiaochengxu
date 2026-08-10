@@ -4,10 +4,9 @@ const crypto = require('crypto')
 const TOKEN_EXPIRE = 7 * 24 * 3600 * 1000 // 7天
 
 const RATE_LIMITS = {
-  // 登录主限流按 IP，避免用 code 分桶被刷穿 jscode2session
+  // 登录按稳定客户端分桶，同时保留共享出口 IP 总量保护。
   login: { windowMs: 60 * 1000, max: 20 },
-  feedback: { windowMs: 60 * 1000, max: 10 },
-  feedback_day: { windowMs: 24 * 60 * 60 * 1000, max: 30 }
+  login_network: { windowMs: 60 * 1000, max: 120 }
 }
 
 function genToken() {
@@ -212,6 +211,15 @@ function getClientIdentity(ctx, fallback = 'anonymous') {
   return clientInfo.clientIP || clientInfo.ip || clientInfo.userAgent || fallback
 }
 
+function getLoginRateLimitIdentity(ctx, clientId = '') {
+  const clientInfo = ctx && ctx.getClientInfo ? ctx.getClientInfo() : {}
+  const deviceId = String(clientInfo.deviceId || clientInfo.deviceID || '').trim()
+  const providedClientId = String(clientId || '').trim()
+  const stableId = deviceId || (/^[a-zA-Z0-9_-]{12,128}$/.test(providedClientId) ? providedClientId : '')
+  if (!stableId) return `network:${getClientIdentity(ctx)}`
+  return `device:${crypto.createHash('sha256').update(stableId).digest('hex')}`
+}
+
 async function checkRateLimit(scope, identity, options) {
   const config = options || RATE_LIMITS[scope]
   if (!identity || !config) return
@@ -275,13 +283,14 @@ module.exports = {
   _before() {},
 
   // OpenID 是唯一登录身份；报修联系电话不参与账号认领。
-  async login({ code }) {
+  async login({ code, clientId } = {}) {
     try {
       const { appId, secret } = getWechatAppConfig()
       if (!appId || !secret) {
         return { code: -1, message: '请先配置微信小程序 WX_APPID 和 WX_SECRET' }
       }
-      await checkRateLimit('login', getClientIdentity(this))
+      await checkRateLimit('login_network', getClientIdentity(this), RATE_LIMITS.login_network)
+      await checkRateLimit('login', getLoginRateLimitIdentity(this, clientId))
 
       const openid = await getWechatOpenid(appId, secret, code)
 
@@ -553,26 +562,23 @@ module.exports = {
   async submitFeedback({ token, type, content, images = [], contact_type = '', contact_value = '', rel_order_no = '' }) {
     try {
       const user = await verifyUserToken(token)
-      await checkRateLimit('feedback', user._id)
-      await checkRateLimit('feedback_day', user._id, RATE_LIMITS.feedback_day)
       const feedbackType = normalizeText(type)
       const feedbackContent = normalizeText(content)
       const feedbackImages = normalizeFeedbackImages(images)
       if (!['投诉', '建议'].includes(feedbackType)) return { code: -1, msg: '反馈类型不正确' }
       if (!feedbackContent) return { code: -1, msg: '反馈内容不能为空' }
       if (feedbackContent.length > 500) return { code: -1, msg: '反馈内容不能超过500字' }
-      const linkedOrderNo = normalizeText(rel_order_no).slice(0, 50)
-      if (linkedOrderNo) {
+      const requestedOrderNo = normalizeText(rel_order_no).slice(0, 50)
+      let linkedOrderNo = ''
+      if (requestedOrderNo) {
         const orderRes = await db.collection('cicada_orders')
           .where(db.command.or([
-            { order_no: linkedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) },
-            { _id: linkedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) }
+            { order_no: requestedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) },
+            { _id: requestedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) }
           ]))
           .limit(1)
           .get()
-        if (!orderRes.data || !orderRes.data.length) {
-          return { code: -1, msg: '关联工单不存在或无权限' }
-        }
+        if (orderRes.data && orderRes.data.length) linkedOrderNo = requestedOrderNo
       }
       const res = await db.collection('cicada_feedbacks').add({
         user_id: user._id,

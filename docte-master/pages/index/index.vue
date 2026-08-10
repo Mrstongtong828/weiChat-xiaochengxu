@@ -25,13 +25,11 @@
 					<view class="repair-section-toggle"><text>{{ repairSectionOpen.user ? '收起' : (customerTypeLabel(repairForm.customerType) || '展开') }}</text><view class="section-chevron" :class="{ open: repairSectionOpen.user }"></view></view>
 				</view>
 				<view v-show="repairSectionOpen.user" class="repair-form-card">
-					<picker class="native-field-picker" mode="selector" :range="customerTypeOptions" range-key="label" :value="customerTypePickerIndex" @change="onCustomerTypeChange">
-						<view class="repair-field select-row tap">
-							<text><text class="required-star">*</text>用户类型</text>
-							<text class="select-value">{{ customerTypeLabel(repairForm.customerType) || '请选择用户类型' }}</text>
-							<view class="field-arrow"></view>
-						</view>
-					</picker>
+					<view class="repair-field select-row tap" @click="openCustomerTypePicker">
+						<text><text class="required-star">*</text>用户类型</text>
+						<text class="select-value">{{ customerTypeLabel(repairForm.customerType) || '请选择用户类型' }}</text>
+						<view class="field-arrow"></view>
+					</view>
 				</view>
 				<view class="module-section-head repair-section-head tap" @click="toggleRepairSection('products')">
 					<text>产品信息</text>
@@ -58,12 +56,7 @@
 							</view>
 							<view class="repair-field">
 								<text><text class="required-star">*</text>产品序列号</text>
-								<input v-model="product.serial" placeholder="输入或扫码 SN" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
-								<view class="scan-icon tap" @click="scanSn(index)">
-									<view class="scan-corner"></view>
-									<view class="scan-corner"></view>
-									<view class="scan-corner"></view>
-								</view>
+								<input v-model="product.serial" placeholder="输入" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
 							</view>
 							<!-- SN 识别结果 -->
 							<view v-if="product.snLoading" class="sn-result loading"><text>正在识别设备…</text></view>
@@ -91,22 +84,21 @@
 								<input v-model.trim="product.model" maxlength="80" placeholder="请输入产品型号" placeholder-class="input-placeholder" />
 							</view>
 							<template v-else>
-								<picker
-									class="native-field-picker"
-									mode="selector"
-									:range="product.modelPickerOptions"
-									:value="repairProductModelPickerIndex(product)"
-									@change="(event) => onRepairProductModelChange(index, event)"
-								>
-									<view class="repair-field select-row tap">
-										<text><text class="required-star">*</text>产品型号</text>
-										<text class="select-value" :class="{ placeholder: !product.model }">{{ repairProductModelText(product) }}</text>
-										<view class="field-arrow"></view>
-									</view>
-								</picker>
+								<view class="repair-field select-row tap" @click="openRepairModelPicker(index)">
+									<text><text class="required-star">*</text>产品型号</text>
+									<text class="select-value" :class="{ placeholder: !product.model }">{{ repairProductModelText(product) }}</text>
+									<view class="field-arrow"></view>
+								</view>
 								<view v-if="isOtherRepairModel(product)" class="repair-field repair-custom-model-field">
 									<text><text class="required-star">*</text>其他型号</text>
-									<input v-model.trim="product.model" maxlength="80" placeholder="请输入产品型号" placeholder-class="input-placeholder" />
+									<input
+										v-model="product.customModel"
+										maxlength="80"
+										placeholder="请输入自定义产品型号"
+										placeholder-class="input-placeholder"
+										@input="syncCustomRepairModel(index, $event.detail.value)"
+										@blur="syncCustomRepairModel(index, $event.detail.value, true)"
+									/>
 								</view>
 							</template>
 							<view class="repair-field">
@@ -208,13 +200,11 @@
 					</view>
 				</view>
 				<view class="repair-form-card">
-					<picker class="native-field-picker" mode="selector" :range="logisticsList" range-key="label" :value="logisticsPickerIndex" @change="onLogisticsChange">
-						<view class="repair-field select-row tap">
-							<text><text class="required-star">*</text>物流公司</text>
-							<text class="select-value">{{ repairForm.logisticsCompany || '请选择物流公司' }}</text>
-							<view class="field-arrow"></view>
-						</view>
-					</picker>
+					<view class="repair-field select-row tap" @click="openRepairLogisticsPicker">
+						<text><text class="required-star">*</text>物流公司</text>
+						<text class="select-value">{{ repairForm.logisticsCompany || '请选择物流公司' }}</text>
+						<view class="field-arrow"></view>
+					</view>
 					<view class="repair-field">
 						<text><text v-if="!trackingLater" class="required-star">*</text>运单号</text>
 						<input v-model="repairForm.trackingNo" :placeholder="trackingLater ? '可稍后在工单详情补填' : '请输入运单号'" placeholder-class="input-placeholder" />
@@ -264,14 +254,14 @@
 					<view class="bottom-submit tap" :class="{ disabled: repairSubmitting }" @click="submitRepair">{{ repairSubmitting ? '提交中...' : '立即提交报修' }}</view>
 				</view>
 
-				<view v-if="showSavedAddressPicker" class="sheet-mask" @click="showSavedAddressPicker = false"></view>
-				<view v-if="showSavedAddressPicker" class="choice-sheet">
+				<view v-if="showSavedAddressPicker" class="sheet-mask" @click="showSavedAddressPicker = false" @touchmove.stop></view>
+				<view v-if="showSavedAddressPicker" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="showSavedAddressPicker = false">取消</text>
 						<text>选择常用地址</text>
 						<text class="tap" @click="addSavedAddress">新增</text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in savedAddressOptions" :key="item.id || item._id" class="choice-row address-choice-row tap" @click="selectSavedAddress(item)">
 							<view>
 								<text>{{ item.receiver || item.name }}　{{ item.phone }}</text>
@@ -282,14 +272,14 @@
 					</scroll-view>
 				</view>
 
-				<view v-if="showCustomerTypePicker" class="sheet-mask" @click="showCustomerTypePicker = false"></view>
-				<view v-if="showCustomerTypePicker" class="choice-sheet">
+				<view v-if="showCustomerTypePicker" class="sheet-mask" @click="showCustomerTypePicker = false" @touchmove.stop></view>
+				<view v-if="showCustomerTypePicker" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="showCustomerTypePicker = false">取消</text>
 						<text>选择用户类型</text>
 						<text></text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in customerTypeOptions" :key="item.value" class="choice-row tap" @click="selectCustomerType(item)">
 							<text>{{ item.label }}</text>
 							<view v-if="repairForm.customerType === item.value" class="mini-icon mini-check"></view>
@@ -297,8 +287,8 @@
 					</scroll-view>
 				</view>
 
-				<view v-if="showProductPicker" class="sheet-mask" @click="closeProductPicker"></view>
-				<view v-if="showProductPicker" class="choice-sheet">
+				<view v-if="showProductPicker" class="sheet-mask" @click="closeProductPicker" @touchmove.stop></view>
+				<view v-if="showProductPicker" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="closeProductPicker">取消</text>
 						<text>选择产品名称</text>
@@ -308,7 +298,7 @@
 						<view class="glyph glyph-search glyph-search-small"></view>
 						<input v-model.trim="repairProductKeyword" maxlength="60" confirm-type="search" placeholder="产品名称、型号或拼音首字母" placeholder-class="input-placeholder" />
 					</view>
-					<scroll-view class="choice-scroll product-choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll product-choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-if="repairProductLoading && !repairProductOptions.length" class="choice-empty">产品名称加载中...</view>
 						<view v-else-if="filteredRepairProductOptions.length">
 							<view v-for="item in filteredRepairProductOptions" :key="item.value" class="choice-row choice-row-product tap" @click="selectRepairProduct(item)">
@@ -321,10 +311,40 @@
 						<view v-else class="choice-empty">没有匹配的产品</view>
 						<view v-if="!repairProductLoading" class="choice-row choice-row-product choice-row-other tap" @click="selectRepairProduct(repairProductOtherOption)">
 							<view>
-								<text>其他</text>
+								<text>{{ repairProductOtherOption.label }}</text>
 								<text>自行填写产品名称</text>
 							</view>
 							<view v-if="isOtherRepairProduct(activeRepairProduct)" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showRepairModelPicker" class="sheet-mask" @click="closeRepairModelPicker" @touchmove.stop></view>
+				<view v-if="showRepairModelPicker" class="choice-sheet" @touchmove.stop>
+					<view class="choice-head">
+						<text class="tap" @click="closeRepairModelPicker">取消</text>
+						<text>选择产品型号</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
+						<view v-for="item in activeRepairModelOptions" :key="item.value" class="choice-row tap" @click="selectRepairProductModel(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="isActiveRepairModelOption(item)" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showRepairLogisticsPicker" class="sheet-mask" @click="closeRepairLogisticsPicker" @touchmove.stop></view>
+				<view v-if="showRepairLogisticsPicker" class="choice-sheet" @touchmove.stop>
+					<view class="choice-head">
+						<text class="tap" @click="closeRepairLogisticsPicker">取消</text>
+						<text>选择物流公司</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
+						<view v-for="item in logisticsList" :key="item.value" class="choice-row tap" @click="selectRepairLogistics(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="repairForm.logisticsCompany === item.value" class="mini-icon mini-check"></view>
 						</view>
 					</scroll-view>
 				</view>
@@ -646,7 +666,7 @@
 						<text :class="['tag', 'tag-muted-light']">{{ detailOrder.status }}</text>
 					</view>
 					<view class="detail-order-no-row">
-						<text class="detail-order-no" selectable user-select>{{ detailOrder.id }}</text>
+						<text class="detail-order-no" user-select>{{ detailOrder.id }}</text>
 						<view class="detail-order-copy tap" @click="copyOne(detailOrder.id, 'detailOrderNo')">
 							<view v-if="copied === 'detailOrderNo'" class="mini-icon mini-check mini-check-white"></view>
 							<view v-else class="mini-icon mini-copy mini-copy-white"></view>
@@ -668,12 +688,12 @@
 						<view class="detail-field-grid">
 							<view><text>产品分类</text><text>{{ item.category }}</text></view>
 							<view><text>产品型号</text><text>{{ item.model }}</text></view>
-							<view><text>产品序列号</text><text selectable user-select>{{ item.sn }}</text></view>
+							<view><text>产品序列号</text><text user-select>{{ item.sn }}</text></view>
 							<view><text>购买日期</text><text>{{ item.buyDate }}</text></view>
 						</view>
 						<view class="detail-fault-block">
 							<text>故障描述</text>
-							<text selectable user-select>{{ item.faultDesc }}</text>
+							<text user-select>{{ item.faultDesc }}</text>
 						</view>
 						<view v-if="item.vouchers.length || item.images.length || item.videos.length" class="detail-attachment-block">
 							<text>凭证与附件</text>
@@ -704,19 +724,19 @@
 					<view class="detail-shipping-group">
 						<text>寄出信息</text>
 						<view><text>寄件人</text><text>{{ detailView.shipOut.name }}</text></view>
-						<view><text>联系电话</text><text selectable user-select>{{ detailView.shipOut.phone }}</text></view>
-						<view><text>寄出地址</text><text selectable user-select>{{ detailView.shipOut.address }}</text></view>
+						<view><text>联系电话</text><text user-select>{{ detailView.shipOut.phone }}</text></view>
+						<view><text>寄出地址</text><text user-select>{{ detailView.shipOut.address }}</text></view>
 						<view><text>物流公司</text><text>{{ detailView.shipOut.logisticsCompany }}</text></view>
-						<view><text>寄出单号</text><text selectable user-select>{{ detailView.shipOut.logisticsNo }}</text></view>
+						<view><text>寄出单号</text><text user-select>{{ detailView.shipOut.logisticsNo }}</text></view>
 					</view>
 					<view class="detail-shipping-group">
 						<text>回寄信息</text>
 						<view><text>收件单位</text><text>{{ detailView.shipBack.unit }}</text></view>
 						<view><text>收货人</text><text>{{ detailView.shipBack.name }}</text></view>
-						<view><text>手机号码</text><text selectable user-select>{{ detailView.shipBack.phone }}</text></view>
-						<view><text>回寄地址</text><text selectable user-select>{{ detailView.shipBack.address }}</text></view>
+						<view><text>手机号码</text><text user-select>{{ detailView.shipBack.phone }}</text></view>
+						<view><text>回寄地址</text><text user-select>{{ detailView.shipBack.address }}</text></view>
 						<view><text>回寄物流</text><text>{{ detailView.shipBack.logisticsCompany }}</text></view>
-						<view><text>回寄单号</text><text selectable user-select>{{ detailView.shipBack.logisticsNo }}</text></view>
+						<view><text>回寄单号</text><text user-select>{{ detailView.shipBack.logisticsNo }}</text></view>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>维修进度</text></view>
@@ -961,14 +981,14 @@
 					</view>
 				</view>
 
-				<view v-if="showOutboundSheet" class="sheet-mask" @click="showOutboundSheet = false"></view>
-				<view v-if="showOutboundSheet" class="choice-sheet">
+				<view v-if="showOutboundSheet" class="sheet-mask" @click="showOutboundSheet = false" @touchmove.stop></view>
+				<view v-if="showOutboundSheet" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="showOutboundSheet = false">取消</text>
 						<text>选择物流公司</text>
 						<text></text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in logisticsList" :key="item.value" class="choice-row tap" @click="selectOutboundLogistics(item)">
 							<text>{{ item.label }}</text>
 							<view v-if="outboundForm.company === item.value" class="mini-icon mini-check"></view>
@@ -1098,14 +1118,14 @@
 					</view>
 				</view>
 				<view v-else class="empty-hint">{{ diagEmptyText }}</view>
-				<view v-if="diagOpen" class="sheet-mask" @click="diagOpen = ''"></view>
-				<view v-if="diagOpen" class="choice-sheet">
+				<view v-if="diagOpen" class="sheet-mask" @click="diagOpen = ''" @touchmove.stop></view>
+				<view v-if="diagOpen" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="diagOpen = ''">取消</text>
 						<text>{{ diagOpen === 'product' ? '选择产品类型' : '选择故障现象' }}</text>
 						<text></text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in diagSheetOptions" :key="item.id" class="choice-row tap" @click="selectDiagOption(item)">
 							<text>{{ item.title }}</text>
 							<view v-if="item.active" class="mini-icon mini-check"></view>
@@ -1116,11 +1136,22 @@
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
 				<PolicyDocumentViewer
+					v-if="warrantyHasPolicyDocument"
 					:policy-document="warrantyDoc.policyDocument"
-					:fallback-sections="warrantySections"
-					:fallback-content="warrantyDoc.content"
-					empty-text="暂无保修政策内容"
 				/>
+				<view v-else-if="warrantyDoc.content" class="doc-paper">
+					<rich-text :nodes="warrantyDoc.content"></rich-text>
+				</view>
+				<view v-if="!warrantyHasPolicyDocument && !warrantyDoc.content" class="doc-paper warranty-paper">
+					<text class="paper-title">保修政策</text>
+					<view v-for="section in warrantyTerms" :key="section.title" class="paper-section">
+						<text class="paper-section-title">{{ section.title }}</text>
+						<view v-for="(line, index) in section.lines" :key="line" class="paper-line">
+							<text>{{ index + 1 }})</text>
+							<text>{{ line }}</text>
+						</view>
+					</view>
+				</view>
 				<view class="dual-actions">
 					<view class="primary-button tap" @click="go('repair')">立即报修</view>
 				</view>
@@ -1132,10 +1163,8 @@
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
 				<PolicyDocumentViewer
-					v-if="activeModule === 'fees'"
+					v-if="activeModule === 'fees' && activeDocHasPolicyDocument"
 					:policy-document="activeDoc.policyDocument"
-					:fallback-content="activeDoc.content"
-					empty-text="暂无收费办法内容"
 				/>
 				<view v-else-if="activeDoc.content" class="doc-paper">
 					<rich-text :nodes="activeDoc.content"></rich-text>
@@ -1347,7 +1376,8 @@
 					:loading="loginSubmitting"
 					:retrying="loginRetrying"
 					:agreed="loginAgreementChecked"
-					:error="loginError"
+					:locked="loginClickLocked"
+					:cooldown-seconds="loginCooldownSeconds"
 					@back="returnFromModule"
 					@login="onLoginButtonTap"
 					@toggle-agreement="toggleLoginAgreement"
@@ -1464,12 +1494,12 @@
 				<view v-if="homeIntroVideo" class="section maintenance-video-wrap">
 					<view class="maintenance-video-list">
 						<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
-							<text class="maintenance-video-title">产品安装及维护保养视频</text>
+							<text class="maintenance-video-title">{{ homeIntroVideo.title || '产品安装及维护保养视频' }}</text>
 							<view class="maintenance-video-cover">
 								<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
 								<view v-else class="maintenance-video-placeholder">
 									<text class="maintenance-video-brand">CICADA Dental</text>
-									<text class="maintenance-video-placeholder-title">产品安装及维护保养视频</text>
+									<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '产品安装及维护保养视频' }}</text>
 								</view>
 								<view class="maintenance-video-shade"></view>
 								<view class="maintenance-play-badge"><text>▶</text></view>
@@ -1526,7 +1556,7 @@
 								<view class="receiver-line">
 									<view class="receiver-text">
 										<text class="receiver-label">{{ item.label }}</text>
-										<text class="receiver-value" selectable user-select>{{ item.value }}</text>
+										<text class="receiver-value" user-select>{{ item.value }}</text>
 									</view>
 									<view class="copy-button tap" @click="copyOne(item.value, item.label)">
 										<view v-if="copied === item.label" class="mini-icon mini-check"></view>
@@ -1746,7 +1776,7 @@
 			</view>
 		</view>
 
-		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="openOfficialAccountProfile">
+		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="openCicadaServiceAccountProfile">
 			<view class="vi-side-wordmark">
 				<image class="vi-side-logo-img" :src="cicadaAssets.wordmarkRegisteredWhite" mode="aspectFit"></image>
 			</view>
@@ -1786,24 +1816,12 @@
 			</view>
 		</view>
 
-		<view v-if="showOfficial" class="modal-mask">
-			<view class="official-modal" @click.stop>
-				<text class="modal-close tap" @click="showOfficial = false">×</text>
-				<view class="qr-image-wrap company-qr">
-					<image class="qr-image" :src="wechatInfo.qrcodeUrl || cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
-				</view>
-				<text class="follow-title">了解产品与售后支持</text>
-				<text class="follow-desc">当前环境暂不支持直接打开公众号，可长按识别二维码关注官方公众号。</text>
-				<official-account class="official-account-btn"></official-account>
-			</view>
-		</view>
-
 		<view v-if="showQr" class="modal-mask" @click="showQr = false">
 			<view class="qr-modal" @click.stop>
 				<text class="modal-close tap" @click="showQr = false">×</text>
 				<image class="qr-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-				<text class="qr-title">关注官方公众号</text>
-				<text class="qr-subtitle">获取最新维修指南 / 售后政策</text>
+				<text class="qr-title">CICADA 服务号</text>
+				<text class="qr-subtitle">微信扫码关注，获取维修指南与售后支持</text>
 				<view class="qr-image-wrap">
 					<image
 						class="qr-image"
@@ -1886,8 +1904,11 @@ import PolicyDocumentViewer from '@/components/PolicyDocumentViewer.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
 import homeTopBackground from '@/static/home-top-background.jpg'
 import companyIntroHeader from '@/static/company-intro-header-v2.jpg'
-import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
+import maintenanceW201lCover from '@/static/maintenance-w201l-cover.jpg'
+import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
+import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
+import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
 import {
 	getContact,
 	getCustomerService,
@@ -1975,7 +1996,7 @@ import {
 } from './composables/orderFormatters'
 import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
 import { createOrderDetailView } from './composables/orderDetail'
-import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import { createRepairProduct as defaultRepairProduct, defaultRepairForm, getRepairProductModelValue } from './composables/repairForm'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 import {
 	createRepairStatusMeta,
@@ -2010,18 +2031,26 @@ import {
 	repairProductOtherOption,
 	splitRepairProductModels
 } from '@/config/repair-products.js'
+import { defaultFaultTypes } from '@/config/fault-diagnostics.js'
 
 const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
 
 const copied = ref('')
 const showQr = ref(false)
-const showOfficial = ref(false)
 const showRepairTools = ref(false)
 const uploadPrivacyVisible = ref(false)
 const uploadPrivacyHtml = ref('')
 const surveyPosterUrl = cicadaAssets.surveyPoster
-const maintenanceVideos = ref([])
+const maintenanceVideoFallback = Object.freeze({
+	id: 'w201l-maintenance-fallback',
+	title: '牙科种植手机W201L保养维护',
+	desc: '牙科种植手机W201L保养维护',
+	videoUrl: 'https://cicada-video-prod.oss-cn-beijing.aliyuncs.com/home-intro-video/1783392116334_a6e54770be052_0.mp4',
+	videoName: '0.mp4',
+	coverUrl: maintenanceW201lCover
+})
+const maintenanceVideos = ref([{ ...maintenanceVideoFallback }])
 const homeIntroVideo = computed(() => maintenanceVideos.value[0] || null)
 const moduleHeadPaddingTop = ref(72)
 const pageBootReady = ref(false)
@@ -2031,6 +2060,7 @@ const activeModule = ref('')
 const previousModule = ref('')
 const logged = ref(Boolean(uni.getStorageSync('token')))
 const currentUser = ref(uni.getStorageSync('userInfo') || {})
+const repairLoginPending = ref(false)
 const diagProduct = ref('')
 const diagFault = ref('')
 const diagOpen = ref('')
@@ -2075,9 +2105,20 @@ const feedbackImages = ref([])
 const surveySubmitting = ref(false)
 const loginSubmitting = ref(false)
 const loginRetrying = ref(false)
-const loginError = ref('')
+const loginClickLocked = ref(false)
+const loginCooldownSeconds = ref(0)
 const loginPrivacyReady = ref(false)
 const loginAgreementChecked = ref(false)
+const isPcWebView = isPcWebViewEnvironment()
+const pcLoginGuard = createPcLoginGuard({
+	enabled: isPcWebView,
+	onLockChange: (locked) => {
+		loginClickLocked.value = locked
+	},
+	onCountdown: (seconds) => {
+		loginCooldownSeconds.value = seconds
+	}
+})
 const surveyConfig = ref({
 	enabled: true,
 	title: '售后服务调研表',
@@ -2172,6 +2213,9 @@ const outboundForm = ref({ company: '', trackingNo: '' })
 const showCustomerTypePicker = ref(false)
 const showProductPicker = ref(false)
 const activeProductPickerIndex = ref(-1)
+const showRepairModelPicker = ref(false)
+const activeRepairModelPickerIndex = ref(-1)
+const showRepairLogisticsPicker = ref(false)
 const repairProductLoading = ref(false)
 const repairProductOptions = ref(defaultRepairProductOptions.map((item) => ({ ...item })))
 const repairProductKeyword = ref('')
@@ -2224,6 +2268,7 @@ const addressForm = ref({
 	def: false
 })
 const repairDraftKey = 'repairDraft'
+const repairLoginReturnKey = 'repairLoginReturn'
 const feedbackRecordKey = 'feedbackRecords'
 const surveyRecordKey = 'afterSalesSurveyRecords'
 const repairForm = ref(defaultRepairForm())
@@ -2232,18 +2277,6 @@ const submittedOrderId = ref('')
 const submittedRepairSummary = ref({ logisticsCompany: '', trackingNo: '', trackingPending: false })
 const repairProducts = ref([defaultRepairProduct()])
 const repairSectionOpen = ref({ user: true, products: true, sender: true, receiver: true })
-const customerTypePickerIndex = computed(() => Math.max(0, customerTypeOptions.findIndex((item) => item.value === repairForm.value.customerType)))
-const logisticsPickerIndex = computed(() => Math.max(0, logisticsList.findIndex((item) => item.value === repairForm.value.logisticsCompany)))
-
-const onCustomerTypeChange = (event) => {
-	const item = customerTypeOptions[Number(event.detail.value)]
-	if (item) repairForm.value.customerType = item.value
-}
-
-const onLogisticsChange = (event) => {
-	const item = logisticsList[Number(event.detail.value)]
-	if (item) repairForm.value.logisticsCompany = item.value
-}
 
 let repairProductSeed = 1
 let repairMediaSeed = 1
@@ -2312,16 +2345,59 @@ const maybeShowHomeGuidePopup = async () => {
 	}
 }
 
-const docModuleIds = ['fees', 'guide-quick', 'guide-repair']
+const warrantyTerms = [
+	{
+		title: '一、保修时间计算方式：',
+		lines: [
+			'客户提供购买凭证，以凭证上的购买时间计算，凭证无售出单位盖章或填写信息不完整的不予保修。',
+			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
+			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
+			'如不能提供任何凭证，则以出厂时间加 1 个月来计算。',
+			'保修期限以产品说明书中所述为准。'
+		]
+	},
+	{
+		title: '二、以下状况不属于保修范围：',
+		lines: [
+			'未按说明书进行安装、操作和维修。',
+			'错误使用配件或使用非公司配件造成损坏。',
+			'非正常的化学、电力、电解损坏及摔、碰伤。',
+			'过度使用或用于牙科以外的其它科目。',
+			'因使用、维护、保管不当造成损坏。',
+			'不适当的操作或非制造商认可的人员对手机进行错误的维修。'
+		]
+	},
+	{
+		title: '三、不提供售后服务情形',
+		lines: [
+			'产品序列号被人为故意破坏、假标签、仿制等产品。',
+			'在淘宝网、拼多多、微店等平台上购买的「思科达产品」且未授权的商家销售的产品。',
+			'针对以上情形，本公司不提供任何技术支持及售后服务。'
+		]
+	},
+	{ title: '四、维修续保', lines: ['所有维修品，同一故障问题，更换同样的零件，非人为因素，续保三个月。'] }
+]
+
+const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-invoice']
 
 const docFallbacks = {
+	warranty: {
+		title: '三重保修承诺',
+		lead: '原厂配件 · 工艺质保 · 终身咨询',
+		content: '',
+		sections: []
+	},
 	fees: {
 		title: '收费指南',
 		icon: 'money',
-		lead: '',
-		paperTitle: '',
+		lead: '价格透明，先报价后维修，全程无隐形消费。',
+		paperTitle: '思科达维修收费指南',
 		content: '',
-		sections: []
+		sections: [
+			{ title: '一、收费构成', lines: ['配件费：按照思科达原厂配件官方指导价收取。', '工时费：根据维修难度及工程师等级核算，公开透明。', '物流费：保修期内非人为故障往返运费由我司承担（顺丰到付）。'] },
+			{ title: '二、核心原则', lines: ['免费检测：所有寄修设备均享免费检测，未维修不收取任何检测费用。', '先报后修：工程师检测后出具正式报价单，经客户在线确认后方动工维修。', '拒绝隐形消费：所有收费项目均在报价单中列明，无额外附加费。'] },
+			{ title: '三、质保说明', lines: ['所有维修更换的配件（非人为因素）均享受 90 天的质保续期服务。'], marker: '' }
+		]
 	},
 	'guide-quick': {
 		title: '快速指南',
@@ -2347,9 +2423,20 @@ const docFallbacks = {
 			{ title: '确认并提交', desc: '核对报修信息无误后，点击提交完成申请。' }
 		]
 	},
+	'guide-invoice': {
+		title: '开票指南',
+		icon: 'invoice',
+		lead: '支持多种发票类型，在线申请，极速送达。',
+		paperTitle: '思科达自助开票指南',
+		sections: [
+			{ title: '一、开票申请流程', lines: ['维修完成并支付后，在「维修订单」中选择对应订单。', '点击「申请开票」按钮，选择发票类型（电子普票/纸质专票）。', '录入单位抬头、税号及接收邮箱/地址，确认提交。'] },
+			{ title: '二、发票类型说明', lines: ['增值税普通发票：默认开具电子发票，发送至您的预留邮箱。', '增值税专用发票：需上传开票资料，纸质发票将于 3 个工作日内寄出。'] },
+			{ title: '三、开票时效', lines: ['电子发票申请后 24 小时内开具；纸质发票每周二、周五统一邮寄。'], marker: '' }
+		]
+	}
 }
 
-;['guide-quick', 'guide-repair'].forEach((key) => {
+;['guide-quick', 'guide-repair', 'guide-invoice'].forEach((key) => {
 	if (docFallbacks[key]) {
 		docFallbacks[key].content = ''
 		docFallbacks[key].fileName = ''
@@ -2385,6 +2472,8 @@ const customerService = ref({
 })
 
 const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
+const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'
+const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
 
 const wechatInfo = ref({
 	qrcodeUrl: cicadaAssets.qrWechat,
@@ -2423,22 +2512,41 @@ const normalizeTrackingNo = (value = '') => String(value || '').replace(/\s/g, '
 const isValidPhone = (value = '') => phoneRegex.test(normalizePhone(value))
 const isValidTrackingNo = (value = '') => trackingNoRegex.test(normalizeTrackingNo(value))
 
+const hasRenderablePolicyDocument = (document) => Boolean(
+	String(document?.mobileHtml || '').trim()
+	|| (Array.isArray(document?.original?.pagePreviewUrls) && document.original.pagePreviewUrls.some(Boolean))
+	|| String(document?.original?.pdfPreviewUrl || '').trim()
+	|| String(document?.source?.previewUrl || '').trim()
+)
+
 const normalizeDoc = (doc, fallback = {}) => {
 	if (!doc) return fallback
-	const content = doc.content || doc.html || ''
+	const remoteContent = doc.content || doc.html || ''
+	const policyDocument = hasRenderablePolicyDocument(doc.policyDocument)
+		? doc.policyDocument
+		: (hasRenderablePolicyDocument(fallback.policyDocument) ? fallback.policyDocument : null)
+	const hasRemotePayload = Boolean(
+		String(remoteContent || '').trim()
+		|| policyDocument
+		|| (Array.isArray(doc.sections) && doc.sections.length)
+		|| (Array.isArray(doc.steps) && doc.steps.length)
+		|| (Array.isArray(doc.media) && doc.media.length)
+		|| doc.fileUrl
+		|| doc.file_url
+	)
 
 	return {
 		...fallback,
-		title: doc.title || fallback.title,
-		lead: doc.description || doc.summary || fallback.lead,
-		paperTitle: doc.paperTitle || doc.title || fallback.paperTitle || fallback.title,
-		content,
+		title: hasRemotePayload ? (doc.title || fallback.title) : (fallback.title || doc.title),
+		lead: hasRemotePayload ? (doc.description || doc.summary || fallback.lead) : fallback.lead,
+		paperTitle: doc.paperTitle || (hasRemotePayload ? doc.title : '') || fallback.paperTitle || fallback.title,
+		content: String(remoteContent || '').trim() ? remoteContent : (fallback.content || ''),
 		updateTime: doc.updateTime || fallback.updateTime,
 		fileName: doc.fileName || doc.file_name || fallback.fileName || '',
 		fileUrl: doc.fileUrl || doc.file_url || fallback.fileUrl || '',
 		fileType: doc.fileType || doc.file_type || fallback.fileType || '',
-		policyDocument: doc.policyDocument || null,
-		media: Array.isArray(doc.media) ? doc.media : fallback.media || [],
+		policyDocument,
+		media: Array.isArray(doc.media) && doc.media.length ? doc.media : fallback.media || [],
 		sections: Array.isArray(doc.sections) && doc.sections.length ? doc.sections : fallback.sections || [],
 		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps || []
 	}
@@ -2521,12 +2629,53 @@ const chooseWechatAddress = async (target) => {
 	})
 }
 
-const selectCustomerType = (item) => {
-	repairForm.value.customerType = item.value
+const openCustomerTypePicker = () => {
+	if (!Array.isArray(customerTypeOptions) || !customerTypeOptions.length) {
+		uni.showToast({ title: '用户类型暂不可选，请稍后重试', icon: 'none' })
+		return
+	}
+	showCustomerTypePicker.value = true
+}
+
+const selectCustomerType = (item = {}) => {
+	const value = String(item.value || '').trim()
+	if (!value || !customerTypeOptions.some((option) => option.value === value)) {
+		uni.showToast({ title: '用户类型选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	repairForm.value.customerType = value
 	showCustomerTypePicker.value = false
 }
 
-const activeRepairProduct = computed(() => repairProducts.value[activeProductPickerIndex.value] || null)
+const openRepairLogisticsPicker = () => {
+	if (!Array.isArray(logisticsList) || !logisticsList.length) {
+		uni.showToast({ title: '物流公司暂不可选，请稍后重试', icon: 'none' })
+		return
+	}
+	showRepairLogisticsPicker.value = true
+}
+
+const closeRepairLogisticsPicker = () => {
+	showRepairLogisticsPicker.value = false
+}
+
+const selectRepairLogistics = (item = {}) => {
+	const value = String(item.value || item.label || '').trim()
+	const selected = logisticsList.find((option) => option.value === value || option.label === value)
+	if (!selected) {
+		uni.showToast({ title: '物流公司选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	repairForm.value.logisticsCompany = selected.value || selected.label
+	closeRepairLogisticsPicker()
+}
+
+const activeRepairProduct = computed(() => {
+	const index = activeProductPickerIndex.value >= 0
+		? activeProductPickerIndex.value
+		: activeRepairModelPickerIndex.value
+	return repairProducts.value[index] || null
+})
 const normalizedRepairProductKeyword = computed(() => String(repairProductKeyword.value || '').trim().toLowerCase())
 const filteredRepairProductOptions = computed(() => {
 	const keyword = normalizedRepairProductKeyword.value
@@ -2553,6 +2702,10 @@ const loadRepairProductOptions = async () => {
 }
 
 const openProductPicker = (index) => {
+	if (!repairProducts.value[index]) {
+		uni.showToast({ title: '产品信息无效，请重试', icon: 'none' })
+		return
+	}
 	activeProductPickerIndex.value = index
 	repairProductKeyword.value = ''
 	showProductPicker.value = true
@@ -2569,7 +2722,7 @@ const isOtherRepairProduct = (product = {}) => Boolean(product && product.isCust
 const isOtherRepairModel = (product = {}) => Boolean(product && product.isCustomModel)
 const repairProductNameText = (product = {}) => {
 	if (product.name) return product.name
-	return isOtherRepairProduct(product) ? '其他（请填写）' : '请选择产品名称'
+	return isOtherRepairProduct(product) ? repairProductOtherOption.label : '请选择产品名称'
 }
 
 const findRepairProductOption = (product = {}) => repairProductOptions.value.find((item = {}) => (
@@ -2597,34 +2750,73 @@ const isConfiguredRepairProductModel = (product = {}, model = '') => {
 	return splitRepairProductModels(option && option.model).includes(String(model || '').trim())
 }
 
-const repairProductModelPickerIndex = (product = {}) => {
-	const options = Array.isArray(product.modelPickerOptions) && product.modelPickerOptions.length
-		? product.modelPickerOptions
-		: [REPAIR_PRODUCT_MODEL_OTHER_LABEL]
-	if (isOtherRepairModel(product)) return Math.max(0, options.length - 1)
-	const index = options.indexOf(String(product.model || '').trim())
-	return index >= 0 ? index : 0
-}
-
 const repairProductModelText = (product = {}) => {
-	if (product.model) return product.model
-	return isOtherRepairModel(product) ? '其他（请填写）' : '请选择产品型号'
+	const model = getRepairProductModelValue(product)
+	if (model) return model
+	return isOtherRepairModel(product) ? REPAIR_PRODUCT_MODEL_OTHER_LABEL : '请选择产品型号'
 }
 
-const onRepairProductModelChange = (productIndex, event) => {
-	const product = repairProducts.value[productIndex]
-	if (!product) return
-	const options = Array.isArray(product.modelPickerOptions) ? product.modelPickerOptions : []
-	const selected = options[Number(event && event.detail && event.detail.value)]
-	if (!selected) return
-	if (selected === REPAIR_PRODUCT_MODEL_OTHER_LABEL) {
-		if (product.isCustomModel) return
-		product.isCustomModel = true
-		product.model = ''
+const syncCustomRepairModel = (index, value = '', shouldTrim = false) => {
+	const product = repairProducts.value[index]
+	if (!product || !product.isCustomModel) return
+	const nextValue = shouldTrim ? String(value || '').trim() : String(value || '')
+	product.customModel = nextValue
+	product.model = nextValue
+}
+
+const activeRepairModelOptions = computed(() => {
+	const product = activeRepairProduct.value
+	const options = product && Array.isArray(product.modelPickerOptions) ? product.modelPickerOptions : []
+	return options
+		.map((label) => String(label || '').trim())
+		.filter(Boolean)
+		.map((label) => ({ label, value: label }))
+})
+
+const isActiveRepairModelOption = (item = {}) => {
+	const product = activeRepairProduct.value
+	if (!product) return false
+	return product.model === item.value
+		|| (item.value === REPAIR_PRODUCT_MODEL_OTHER_LABEL && product.isCustomModel)
+}
+
+const openRepairModelPicker = (index) => {
+	const product = repairProducts.value[index]
+	if (!product) {
+		uni.showToast({ title: '产品信息无效，请重试', icon: 'none' })
 		return
 	}
-	product.isCustomModel = false
-	product.model = selected
+	if (!Array.isArray(product.modelPickerOptions) || !product.modelPickerOptions.some((item) => String(item || '').trim())) {
+		uni.showToast({ title: '产品型号暂不可选，请先选择产品名称', icon: 'none' })
+		return
+	}
+	activeProductPickerIndex.value = -1
+	activeRepairModelPickerIndex.value = index
+	showRepairModelPicker.value = true
+}
+
+const closeRepairModelPicker = () => {
+	showRepairModelPicker.value = false
+	activeRepairModelPickerIndex.value = -1
+}
+
+const selectRepairProductModel = (item = {}) => {
+	const product = activeRepairProduct.value
+	const selected = String(item.value || item.label || '').trim()
+	if (!product || !selected || !activeRepairModelOptions.value.some((option) => option.value === selected)) {
+		uni.showToast({ title: '产品型号选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	if (selected === REPAIR_PRODUCT_MODEL_OTHER_LABEL) {
+		const customModel = String(product.customModel || (product.isCustomModel ? product.model : '') || '').trim()
+		product.isCustomModel = true
+		product.customModel = customModel
+		product.model = customModel
+	} else {
+		product.isCustomModel = false
+		product.model = selected
+	}
+	closeRepairModelPicker()
 }
 
 const isActiveRepairProduct = (item = {}) => {
@@ -2634,8 +2826,15 @@ const isActiveRepairProduct = (item = {}) => {
 
 const selectRepairProduct = (item = {}) => {
 	const product = activeRepairProduct.value
-	if (!product) return
-	if (item.value === REPAIR_PRODUCT_OTHER_VALUE) {
+	const value = String(item.value || '').trim()
+	const label = String(item.label || item.name || '').trim()
+	const isOther = value === REPAIR_PRODUCT_OTHER_VALUE
+	const optionExists = repairProductOptions.value.some((option) => String(option.value || '').trim() === value)
+	if (!product || !value || (!isOther && (!label || !optionExists))) {
+		uni.showToast({ title: '产品名称选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	if (isOther) {
 		if (product.isCustomName) {
 			closeProductPicker()
 			return
@@ -2645,19 +2844,21 @@ const selectRepairProduct = (item = {}) => {
 		product.model = ''
 		product.isCustomName = true
 		product.isCustomModel = true
+		product.customModel = ''
 		product.modelPickerOptions = [REPAIR_PRODUCT_MODEL_OTHER_LABEL]
 		closeProductPicker()
 		return
 	}
-	const productChanged = product.productId !== (item.value || '') || product.name !== (item.label || item.name || '')
-	product.productId = item.value || ''
-	product.name = item.label || item.name || ''
+	const productChanged = product.productId !== value || product.name !== label
+	product.productId = value
+	product.name = label
 	product.isCustomName = false
 	syncRepairProductModelPickerOptions(product, item)
 	if (productChanged) {
 		const models = splitRepairProductModels(item.model)
 		product.model = models.length === 1 ? models[0] : ''
 		product.isCustomModel = false
+		product.customModel = ''
 	}
 	closeProductPicker()
 }
@@ -3053,14 +3254,15 @@ const refreshFaultTypes = async ({ forceRefresh = false, silent = false } = {}) 
 
 	try {
 		const list = await getFaultTypes({ forceRefresh })
+		if (!Array.isArray(list) || !list.length) throw new Error('故障知识库暂无可用数据')
 		applyFaultTypes(list)
 		return list
 	} catch (error) {
 		console.warn('fault types fallback:', error)
-		diagErrorText.value = faultRecords.value.length
-			? '最新知识库同步失败，当前显示上一次数据。'
-			: '故障知识库加载失败，请稍后重试。'
-		return faultRecords.value
+		applyFaultTypes(defaultFaultTypes)
+		diagErrorText.value = '故障知识库加载失败，当前显示内置数据。'
+		if (!silent) uni.showToast({ title: '加载失败，已显示本地故障选项', icon: 'none' })
+		return defaultFaultTypes
 	} finally {
 		if (!silent) diagLoading.value = false
 	}
@@ -3191,10 +3393,10 @@ const diagSheetOptions = computed(() => {
 	}
 	return diagFaultOptions.value.map((title) => ({ id: title, title, active: title === diagFault.value }))
 })
-const warrantyDoc = computed(() => docMap.value.warranty || {})
-// 保修政策分块（后台可编辑）：无配置时模板回退整段富文本
-const warrantySections = computed(() => (Array.isArray(warrantyDoc.value.sections) ? warrantyDoc.value.sections : []))
+const warrantyDoc = computed(() => docMap.value.warranty || docFallbacks.warranty)
+const warrantyHasPolicyDocument = computed(() => hasRenderablePolicyDocument(warrantyDoc.value.policyDocument))
 const activeDoc = computed(() => docMap.value[activeModule.value] || docFallbacks[activeModule.value] || docFallbacks['guide-repair'] || {})
+const activeDocHasPolicyDocument = computed(() => hasRenderablePolicyDocument(activeDoc.value.policyDocument))
 const isDocModule = computed(() => docModuleIds.includes(activeModule.value))
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
@@ -3442,6 +3644,7 @@ const openGuideFromHome = async (id) => {
 
 const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '产品视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
 const clientGuideAudiences = new Set(['', 'client', 'public', 'all'])
+const isRenderableGuideUrl = (value = '') => /^(https?:\/\/|wxfile:\/\/|\/static\/)/i.test(String(value || '').trim())
 
 const normalizeMaintenanceVideos = async (list = []) => {
 	const picked = (Array.isArray(list) ? list : []).filter((item = {}) => {
@@ -3466,12 +3669,13 @@ const normalizeMaintenanceVideos = async (list = []) => {
 		}
 		if (!video) continue
 		const cover = media.find((item) => item && item.type === 'image' && item.url)
-		let coverUrl = ''
+		let coverUrl = maintenanceVideoFallback.coverUrl
 		if (cover && cover.url) {
 			try {
-				coverUrl = await resolveGuideFileUrl(cover.url)
+				const resolvedCoverUrl = await resolveGuideFileUrl(cover.url)
+				if (isRenderableGuideUrl(resolvedCoverUrl)) coverUrl = resolvedCoverUrl
 			} catch (error) {
-				coverUrl = cover.url
+				console.warn('maintenance cover fallback:', error)
 			}
 		}
 		result.push({
@@ -3489,9 +3693,11 @@ const normalizeMaintenanceVideos = async (list = []) => {
 const loadMaintenanceVideos = async () => {
 	try {
 		const list = await getGuides({ forceRefresh: true })
-		maintenanceVideos.value = await normalizeMaintenanceVideos(list)
+		const normalized = await normalizeMaintenanceVideos(list)
+		maintenanceVideos.value = normalized.length ? normalized : [{ ...maintenanceVideoFallback }]
 	} catch (error) {
 		console.warn('maintenance videos fallback:', error)
+		maintenanceVideos.value = [{ ...maintenanceVideoFallback }]
 	}
 }
 
@@ -3503,12 +3709,20 @@ const openMaintenanceVideo = async (item = {}) => {
 	try {
 		uni.showLoading({ title: '打开中' })
 		const url = await resolveGuideFileUrl(item.videoUrl)
+		if (!isRenderableGuideUrl(url)) throw new Error('视频地址不可用')
 		uni.hideLoading()
 		if (uni.previewMedia) {
-			uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+			uni.previewMedia({
+				sources: [{ url, type: 'video' }],
+				current: 0,
+				fail: (error) => {
+					console.warn('preview maintenance video failed:', error)
+					uni.showToast({ title: '视频播放失败，请稍后重试', icon: 'none' })
+				}
+			})
 			return
 		}
-		uni.navigateTo && uni.navigateTo({ url: `/pages/index/index?video=${encodeURIComponent(url)}`, fail: () => {} })
+		uni.showToast({ title: '当前微信版本不支持视频预览', icon: 'none' })
 	} catch (error) {
 		console.warn('open maintenance video failed:', error)
 		uni.hideLoading()
@@ -3591,12 +3805,14 @@ const getDetailAttachmentUrl = (attachment = {}) => {
 	return getPreviewUrl(attachment)
 }
 
-// 产品视频位于公众号主页。小程序 web-view 不支持打开公众号主页链接（真机上会白屏/提示无法打开），
-// 这里改用官方 API 直接打开公众号主页，失败时回退到长按二维码关注公众号。
 const openProductVideoLink = () => {
-	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
-	showOfficial.value = false
-	launchOfficialAccountProfile(username)
+	uni.navigateTo({
+		url: `/pages-sub/webview/index?title=${encodeURIComponent('产品视频')}&url=${encodeURIComponent(PRODUCT_VIDEO_LINK)}`,
+		fail: (error) => {
+			console.warn('open product video page failed:', error)
+			uni.showToast({ title: '产品视频暂时无法打开', icon: 'none' })
+		}
+	})
 }
 
 const getDetailAttachmentCoverUrl = (attachment = {}) => (
@@ -3712,7 +3928,9 @@ let copyTimer = null
 
 const initModuleSafeArea = () => {
 	try {
-		const systemInfo = uni.getSystemInfoSync()
+		const systemInfo = typeof uni.getWindowInfo === 'function'
+			? uni.getWindowInfo()
+			: { windowWidth: 375, statusBarHeight: 24 }
 		const menuRect = uni.getMenuButtonBoundingClientRect ? uni.getMenuButtonBoundingClientRect() : null
 		const pixelRatio = 750 / (systemInfo.windowWidth || 375)
 
@@ -4133,7 +4351,13 @@ const canConfirmReceipt = (order = {}) => Boolean(order.id && (order.statusKey =
 const canFillOutboundTracking = (order = {}) => Boolean(order.id && order.statusKey === 'pending' && !order.trackingNo)
 
 const selectOutboundLogistics = (item = {}) => {
-	outboundForm.value.company = item.value || item.label || ''
+	const value = String(item.value || item.label || '').trim()
+	const selected = logisticsList.find((option) => option.value === value || option.label === value)
+	if (!selected) {
+		uni.showToast({ title: '物流公司选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	outboundForm.value.company = selected.value || selected.label
 	showOutboundSheet.value = false
 }
 
@@ -4272,6 +4496,7 @@ const reRepair = (order = {}) => {
 	product.name = order.productName || ''
 	product.model = order.productModel || ''
 	product.isCustomModel = Boolean(product.model && !isConfiguredRepairProductModel(product, product.model))
+	product.customModel = product.isCustomModel ? product.model : ''
 	syncRepairProductModelPickerOptions(product)
 	product.serial = order.productSerial || order.serial || ''
 	repairProducts.value = [product]
@@ -4731,10 +4956,19 @@ const openModule = (id, type) => {
 		openAddressPage()
 		return
 	}
+	if (id === 'repair' && !hasLoginToken()) {
+		previousModule.value = activeModule.value
+		activeModule.value = id
+		showQr.value = false
+		repairStep.value = 1
+		prefillRepairAddress()
+		loadRepairProductOptions()
+		beginRepairLogin()
+		return
+	}
 
 	previousModule.value = activeModule.value
 	activeModule.value = id
-	showOfficial.value = false
 	showQr.value = false
 
 	if (policyDocKeys.has(id)) {
@@ -4779,6 +5013,14 @@ const openModule = (id, type) => {
 }
 
 const closeModule = () => {
+	if (activeModule.value === 'login' && previousModule.value === 'repair' && repairLoginPending.value) {
+		activeModule.value = 'repair'
+		previousModule.value = ''
+		repairLoginPending.value = false
+		clearRepairLoginReturn()
+		restoreRepairDraft()
+		return
+	}
 	if (activeModule.value === 'order-detail' && (previousModule.value === 'track' || previousModule.value === 'orders' || previousModule.value === 'invoices')) {
 		activeModule.value = previousModule.value
 		previousModule.value = ''
@@ -4853,7 +5095,7 @@ const savedAddressText = (item = {}) => {
 
 const openSavedAddressPicker = async (target) => {
 	if (!hasLoginToken()) {
-		openModule('login')
+		beginRepairLogin({ prompt: false })
 		uni.showToast({ title: '请先登录后选择常用地址', icon: 'none' })
 		return
 	}
@@ -4906,26 +5148,32 @@ const syncRepairSeeds = () => {
 const normalizeRepairProducts = (products = []) => {
 	if (!Array.isArray(products) || !products.length) return [defaultRepairProduct()]
 
-	return products.map((item, index) => ({
-		id: Number(item.id) || index + 1,
-		productId: item.productId || item.product_id || '',
-		isCustomName: item.isCustomName === undefined
+	return products.map((item, index) => {
+		const isCustomName = item.isCustomName === undefined
 			? Boolean(item.name && !findRepairProductOption(item))
-			: Boolean(item.isCustomName),
-		isCustomModel: item.isCustomModel === undefined
+			: Boolean(item.isCustomName)
+		const isCustomModel = item.isCustomModel === undefined
 			? Boolean(item.model && !isConfiguredRepairProductModel(item, item.model))
-			: Boolean(item.isCustomModel),
-		modelPickerOptions: repairProductModelPickerOptions(item),
-		name: item.name || '',
-		category: item.category || '',
-		model: item.model || '',
-		serial: item.serial || '',
-		buyDate: item.buyDate || '',
-		voucher: item.voucher || '',
-		voucherList: Array.isArray(item.voucherList) ? item.voucherList : [],
-		faultDesc: item.faultDesc || '',
-		media: Array.isArray(item.media) ? item.media : []
-	}))
+			: Boolean(item.isCustomModel)
+		const customModel = String(item.customModel || (isCustomModel ? item.model : '') || '')
+		return {
+			id: Number(item.id) || index + 1,
+			productId: item.productId || item.product_id || '',
+			isCustomName,
+			isCustomModel,
+			customModel,
+			modelPickerOptions: repairProductModelPickerOptions(item),
+			name: item.name || '',
+			category: item.category || '',
+			model: isCustomModel ? customModel : (item.model || ''),
+			serial: item.serial || '',
+			buyDate: item.buyDate || '',
+			voucher: item.voucher || '',
+			voucherList: Array.isArray(item.voucherList) ? item.voucherList : [],
+			faultDesc: item.faultDesc || '',
+			media: Array.isArray(item.media) ? item.media : []
+		}
+	})
 }
 
 const restoreRepairDraft = () => {
@@ -4960,6 +5208,75 @@ const persistRepairDraft = () => {
 	}
 }
 
+const readRepairLoginReturn = () => {
+	try {
+		const value = uni.getStorageSync(repairLoginReturnKey)
+		const timestamp = Number(value && value.time)
+		if (!timestamp) {
+			if (value) uni.removeStorageSync(repairLoginReturnKey)
+			return false
+		}
+		if (timestamp && Date.now() - timestamp > 30 * 60 * 1000) {
+			uni.removeStorageSync(repairLoginReturnKey)
+			return false
+		}
+		return Boolean(value)
+	} catch (error) {
+		console.warn('read repair login return fallback:', error)
+		return false
+	}
+}
+
+const markRepairLoginReturn = () => {
+	try {
+		uni.setStorageSync(repairLoginReturnKey, { time: Date.now() })
+	} catch (error) {
+		console.warn('persist repair login return fallback:', error)
+	}
+}
+
+const clearRepairLoginReturn = () => {
+	try {
+		uni.removeStorageSync(repairLoginReturnKey)
+	} catch (error) {
+		console.warn('clear repair login return fallback:', error)
+	}
+}
+
+const beginRepairLogin = ({ prompt = true } = {}) => {
+	if (repairLoginPending.value) return
+	repairLoginPending.value = true
+	persistRepairDraft()
+	markRepairLoginReturn()
+	if (!prompt) {
+		openModule('login')
+		return
+	}
+	try {
+		uni.showModal({
+			title: '请先登录',
+			content: '进入立即报修前，请先完成微信登录。',
+			confirmText: '去登录',
+			cancelText: '取消',
+			success: ({ confirm }) => {
+				if (confirm) {
+					openModule('login')
+					return
+				}
+				repairLoginPending.value = false
+				clearRepairLoginReturn()
+			},
+			fail: (error) => {
+				console.warn('show repair login prompt failed:', error)
+				openModule('login')
+			}
+		})
+	} catch (error) {
+		console.warn('show repair login prompt failed:', error)
+		openModule('login')
+	}
+}
+
 const saveRepairDraft = () => {
 	if (persistRepairDraft()) {
 		showRepairTools.value = false
@@ -4977,7 +5294,7 @@ const buildRepairNoteTemplate = () => {
 	const contactPhone = form.senderPhone || form.receiverPhone
 	const products = (repairProducts.value || []).map((product, index) => {
 		const name = repairNoteValue(product.name || product.category)
-		const model = repairNoteValue(product.model)
+		const model = repairNoteValue(getRepairProductModelValue(product))
 		const serial = repairNoteValue(product.serial)
 		const fault = repairNoteValue(product.faultDesc)
 		return [
@@ -5303,8 +5620,8 @@ const buildRepairPayload = () => {
 		customerType: repairForm.value.customerType,
 		customer_type: repairForm.value.customerType,
 		productId: product.productId || '',
-		productName: (product.name || product.model || '维修产品').trim(),
-		productModel: String(product.model || '').trim(),
+		productName: (product.name || getRepairProductModelValue(product) || '维修产品').trim(),
+		productModel: getRepairProductModelValue(product),
 		productSerial: String(product.serial || '').trim(),
 		faultType: product.faultType || product.faultDesc || '待检测',
 		faultDesc: String(product.faultDesc || '').trim(),
@@ -5327,9 +5644,9 @@ const buildRepairPayload = () => {
 			return {
 				productId: item.productId || '',
 				product_id: item.productId || '',
-				productName: (item.name || item.model || '维修产品').trim(),
+				productName: (item.name || getRepairProductModelValue(item) || '维修产品').trim(),
 				productCategory: String(item.category || '').trim(),
-				productModel: String(item.model || '').trim(),
+				productModel: getRepairProductModelValue(item),
 				productSerial: String(item.serial || '').trim(),
 				buyDate: item.buyDate,
 				voucher: item.voucher,
@@ -5357,8 +5674,13 @@ const validateRepairStep = (step) => {
 				})
 				return false
 			}
-			if (!String(products[i].model || '').trim()) {
-				uni.showToast({ title: `第 ${i + 1} 个产品请填写产品型号`, icon: 'none' })
+			if (!getRepairProductModelValue(products[i])) {
+				uni.showToast({
+					title: isOtherRepairModel(products[i])
+						? `第 ${i + 1} 个产品请填写自定义产品型号`
+						: `第 ${i + 1} 个产品请填写产品型号`,
+					icon: 'none'
+				})
 				return false
 			}
 			if (!String(products[i].serial || '').trim()) {
@@ -5455,6 +5777,7 @@ const doRecognizeSn = async (index, sn) => {
 			if (info.model && !product.isCustomModel && !String(product.model || '').trim()) {
 				product.model = info.model
 				product.isCustomModel = !isConfiguredRepairProductModel(product, info.model)
+				product.customModel = product.isCustomModel ? info.model : ''
 			}
 			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
 		} else {
@@ -5558,9 +5881,9 @@ const validateRepairForm = () => {
 			uni.showToast({ title: isOtherRepairProduct(product) ? `${label}请填写其他产品名称` : `${label}请选择产品名称`, icon: 'none' })
 			return false
 		}
-		if (!String(product.model || '').trim()) {
+		if (!getRepairProductModelValue(product)) {
 			openRepairSection('products')
-			uni.showToast({ title: `${label}请填写产品型号`, icon: 'none' })
+			uni.showToast({ title: isOtherRepairModel(product) ? `${label}请填写自定义产品型号` : `${label}请填写产品型号`, icon: 'none' })
 			return false
 		}
 		if (!String(product.serial || '').trim()) {
@@ -5649,7 +5972,7 @@ const validateRepairForm = () => {
 const submitRepair = async () => {
 	if (repairSubmitting.value) return
 	if (!hasLoginToken()) {
-		openModule('login')
+		beginRepairLogin({ prompt: false })
 		uni.showToast({ title: '请先登录后再提交报修', icon: 'none' })
 		return
 	}
@@ -5673,7 +5996,7 @@ const submitRepair = async () => {
 	} catch (error) {
 		if (isAuthError(error)) {
 			logoutLocal()
-			openModule('login')
+			beginRepairLogin({ prompt: false })
 			uni.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
 			return
 		}
@@ -5729,7 +6052,11 @@ const loadFaultResult = async () => {
 	}
 }
 
-const selectDiagOption = (item) => {
+const selectDiagOption = (item = {}) => {
+	if (!item.id || !item.title || !diagSheetOptions.value.some((option) => option.id === item.id)) {
+		uni.showToast({ title: '选项无效，请重新选择', icon: 'none' })
+		return
+	}
 	diagErrorText.value = ''
 	if (diagOpen.value === 'product') {
 		diagProduct.value = item.id
@@ -6035,9 +6362,9 @@ const submitFeedback = async () => {
 }
 
 // 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
-const doWechatLogin = async () => {
+const doWechatLogin = async ({ automatic = false } = {}) => {
 	if (loginSubmitting.value) return
-	loginError.value = ''
+	if (!pcLoginGuard.beginAttempt({ automatic })) return
 	loginRetrying.value = false
 	loginSubmitting.value = true
 
@@ -6046,18 +6373,23 @@ const doWechatLogin = async () => {
 			retries: 1,
 			onRetry: () => {
 				loginRetrying.value = true
-				loginError.value = '微信登录失败，正在自动重试...'
 			}
 		})
 		if (applyLoginSession(res)) {
-			loginError.value = ''
 			uni.showToast({ title: res.offline ? '体验登录成功' : '登录成功', icon: 'success' })
 		}
 	} catch (error) {
 		console.warn('wechat login failed:', error)
+		if (isLoginCancelledError(error)) return
+		if (pcLoginGuard.handleRateLimit(error, automatic ? undefined : () => doWechatLogin({ automatic: true }))) {
+			uni.showToast({
+				title: automatic ? getLoginErrorMessage(error) : '操作过于频繁，15秒后自动重试',
+				icon: 'none'
+			})
+			return
+		}
 		const message = getLoginErrorMessage(error)
-		loginError.value = message
-		uni.showToast({ title: message, icon: 'none' })
+		if (message) uni.showToast({ title: message, icon: 'none' })
 	} finally {
 		loginSubmitting.value = false
 		loginRetrying.value = false
@@ -6071,7 +6403,6 @@ const syncLoginPrivacyReady = () => {
 const toggleLoginAgreement = async () => {
 	const nextValue = !loginAgreementChecked.value
 	loginAgreementChecked.value = nextValue
-	loginError.value = ''
 }
 
 const onLoginButtonTap = () => {
@@ -6083,17 +6414,11 @@ const onLoginButtonTap = () => {
 }
 
 const onLoginDisabledTap = () => {
-	loginError.value = ''
 	uni.showToast({ title: '请勾选同意《用户协议》和《隐私政策》后再登录', icon: 'none' })
 }
 
 const openLoginPolicy = (type) => {
 	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
-}
-
-const showLoginError = (message) => {
-	loginError.value = message
-	uni.showToast({ title: message, icon: 'none' })
 }
 
 const ensureWechatPrivacyForAction = async () => {
@@ -6198,14 +6523,33 @@ const applyLoginSession = (res = {}) => {
 		return false
 	}
 
-	uni.setStorageSync('token', res.token)
-	uni.setStorageSync('userInfo', res.userInfo || {})
-	uni.setStorageSync('isLoggedIn', true)
+	try {
+		uni.setStorageSync('token', res.token)
+		uni.setStorageSync('userInfo', res.userInfo || {})
+		uni.setStorageSync('isLoggedIn', true)
+	} catch (error) {
+		console.warn('persist login session failed:', error)
+		uni.showToast({ title: '登录信息保存失败，请重试', icon: 'none' })
+		return false
+	}
+
+	const returnToRepair = repairLoginPending.value || readRepairLoginReturn()
 	currentUser.value = res.userInfo || {}
 	logged.value = true
 	resolveAvatarDisplay(currentUser.value.avatar)
-	activeModule.value = ''
-	activeTab.value = 'mine'
+	if (returnToRepair) {
+		repairLoginPending.value = false
+		clearRepairLoginReturn()
+		restoreRepairDraft()
+		previousModule.value = ''
+		activeModule.value = 'repair'
+		activeTab.value = 'home'
+		prefillRepairAddress()
+		loadRepairProductOptions()
+	} else {
+		activeModule.value = ''
+		activeTab.value = 'mine'
+	}
 	// 登录后立即拉工单/设备，避免角标与列表空到下次 onShow
 	loadRemoteContent().catch((error) => console.warn('load after login failed:', error))
 	return true
@@ -6295,31 +6639,44 @@ const openCustomerService = () => {
 
 const normalizeOfficialAccountUsername = (value) => String(value || '').trim()
 
-const launchOfficialAccountProfile = (username) => {
+const launchOfficialAccountProfile = (username, options = {}) => {
+	const fallbackMessage = options.fallbackMessage || '当前版本暂不支持直接打开公众号'
+	const targetUsername = normalizeOfficialAccountUsername(username)
+	if (!targetUsername) {
+		uni.showToast({ title: fallbackMessage, icon: 'none' })
+		return
+	}
 	// #ifdef MP-WEIXIN
 	if (typeof wx !== 'undefined' && typeof wx.openOfficialAccountProfile === 'function') {
 		wx.openOfficialAccountProfile({
-			username,
+			username: targetUsername,
 			fail: (error = {}) => {
 				const errMsg = String(error.errMsg || error.message || error || '')
 				console.warn('open official account failed:', error)
 				if (/cancel/i.test(errMsg)) return
-				showOfficial.value = true
-				uni.showToast({ title: '请长按二维码关注公众号', icon: 'none' })
+				uni.showToast({ title: fallbackMessage, icon: 'none' })
 			}
 		})
 		return
 	}
 	// #endif
 
-	showOfficial.value = true
-	uni.showToast({ title: '当前版本暂不支持直接打开公众号', icon: 'none' })
+	uni.showToast({ title: fallbackMessage, icon: 'none' })
 }
 
 const openOfficialAccountProfile = () => {
 	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
-	showOfficial.value = false
 	launchOfficialAccountProfile(username)
+}
+
+const openCicadaServiceAccountProfile = () => {
+	if (isPcWebView) {
+		showQr.value = true
+		return
+	}
+	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
+		fallbackMessage: '当前版本暂不支持直接打开服务号'
+	})
 }
 
 const makePhoneCall = () => {
@@ -6342,6 +6699,7 @@ onLoad((options = {}) => {
 	const routeType = Number.isInteger(type) ? type : undefined
 
 	if (options.module && moduleMap[options.module]) {
+		if (options.module === 'repair') restoreRepairDraft()
 		openModule(options.module, routeType)
 		return
 	}
@@ -6466,6 +6824,7 @@ onMounted(() => {
 
 onUnmounted(() => {
 	uni.$off('wechatPrivacyReady', syncLoginPrivacyReady)
+	pcLoginGuard.dispose()
 })
 </script>
 
@@ -6618,6 +6977,7 @@ onUnmounted(() => {
 .boot-logo {
 	width: 208rpx;
 	height: 208rpx;
+	background: #FFFFFF;
 	animation: bootLogoBounce 760ms cubic-bezier(0.22, 1.18, 0.36, 1) both;
 }
 
@@ -9855,8 +10215,6 @@ onUnmounted(() => {
 .repair-form-card,
 .select-card,
 .timeline-card,
-.white-list-card,
-.text-card,
 .doc-paper,
 .step-card,
 .feedback-card,
@@ -13616,6 +13974,7 @@ onUnmounted(() => {
 	right: 0;
 	bottom: 0;
 	z-index: 100;
+	height: 70vh;
 	max-height: 70vh;
 	display: flex;
 	flex-direction: column;
@@ -13679,10 +14038,16 @@ onUnmounted(() => {
 }
 
 .choice-scroll {
+	height: calc(70vh - 92rpx);
+	flex: 1;
+	min-height: 0;
 	max-height: calc(70vh - 92rpx);
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
 }
 
 .product-choice-scroll {
+	height: calc(70vh - 192rpx);
 	max-height: calc(70vh - 192rpx);
 }
 
@@ -13734,6 +14099,7 @@ onUnmounted(() => {
 	line-height: 1.5;
 	color: #94A3B8;
 }
+
 .doc-hero {
 	padding: 36rpx;
 	border-radius: 28rpx;
@@ -13779,112 +14145,24 @@ onUnmounted(() => {
 	flex-direction: column;
 }
 
-.white-list-card,
-.text-card,
+.fees-hero {
+	margin-bottom: 24rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
 .doc-paper,
 .step-card {
 	overflow: hidden;
 }
 
-.list-row {
-	min-height: 92rpx;
-	padding: 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 20rpx;
-	border-bottom: 2rpx solid #F1F5FB;
-	box-sizing: border-box;
-}
-
-.list-row:last-child {
-	border-bottom: none;
-}
-
-.list-row text:first-child {
-	font-size: 28rpx;
-	font-weight: 600;
-	color: #0F1F3A;
-}
-
-.list-row text:last-child {
-	font-size: 24rpx;
-	font-weight: 600;
-	color: #0A4FB8;
-	text-align: right;
-}
-
-.text-card {
-	padding: 24rpx 28rpx;
-}
-
-.number-line {
-	padding: 12rpx 0;
-	display: flex;
-	align-items: flex-start;
-	gap: 20rpx;
-	font-size: 26rpx;
-	line-height: 1.7;
-	color: #324563;
-}
-
-.number-line text:first-child {
-	width: 36rpx;
-	height: 36rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	border-radius: 999rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
-	font-size: 22rpx;
-	font-weight: 700;
-}
-
-.service-line {
-	padding: 28rpx;
-	display: flex;
-	align-items: center;
-	gap: 24rpx;
-	border-bottom: 2rpx solid #F1F5FB;
-}
-
-.service-line:last-child {
-	border-bottom: none;
-}
-
-.service-line-icon {
-	width: 72rpx;
-	height: 72rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	border-radius: 20rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
-}
-
-.service-line > view:last-child {
-	display: flex;
-	flex-direction: column;
-	gap: 4rpx;
-}
-
-.service-line > view:last-child text:first-child {
-	font-size: 27rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-}
-
-.service-line > view:last-child text:last-child {
-	font-size: 23rpx;
-	color: #6B7C97;
-}
-
 .doc-paper {
 	padding: 32rpx;
+}
+
+.warranty-paper {
+	margin-top: 32rpx;
 }
 
 .policy-rich-content {
@@ -13894,20 +14172,6 @@ onUnmounted(() => {
 	line-height: 1.8;
 	color: #1F2A3D;
 	word-break: break-word;
-}
-
-.warranty-section-card {
-	margin-top: 20rpx;
-	padding: 8rpx 26rpx 26rpx;
-	border-radius: 24rpx;
-	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
-	box-sizing: border-box;
-}
-
-.warranty-section-content {
-	padding: 8rpx 4rpx 8rpx;
-	font-size: 26rpx;
 }
 
 .warranty-module .dual-actions {
@@ -15164,7 +15428,6 @@ onUnmounted(() => {
 	text-align: center;
 }
 
-.login-error,
 .login-image-error {
 	width: 100%;
 	padding: 0;

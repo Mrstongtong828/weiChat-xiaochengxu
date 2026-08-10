@@ -44,3 +44,11 @@ test('原始状态统计不受旧版汇总字段影响', () => {
     shipped: 0
   })
 })
+
+test('paid and warranty-free orders advance to the repair stage', () => {
+  const paidNodes = getRepairProgressNodes({ id: 'R002', statusKey: 'inspecting', paymentStatus: 'paid' })
+  const warrantyNodes = getRepairProgressNodes({ id: 'R003', statusKey: 'inspecting', payment_status: 'not_required' })
+
+  assert.equal(paidNodes[2].state, 'current')
+  assert.equal(warrantyNodes[2].state, 'current')
+})

@@ -1,8 +1,8 @@
 <template>
 	<view class="payment-method-selector">
 		<view class="payment-method-heading">
-			<text>付款方式</text>
-			<text>请选择一种方式</text>
+			<text class="payment-method-title">付款方式</text>
+			<text class="payment-method-hint">请选择一种方式</text>
 		</view>
 		<view class="payment-option-list" aria-role="radiogroup" aria-label="付款方式">
 			<view
@@ -62,13 +62,13 @@ const selectMethod = (value) => {
 	gap: 20rpx;
 }
 
-.payment-method-heading text:first-child {
+.payment-method-title {
 	font-size: 27rpx;
 	font-weight: 800;
 	color: #0F1F3A;
 }
 
-.payment-method-heading text:last-child {
+.payment-method-hint {
 	font-size: 22rpx;
 	color: #8A97AA;
 }

@@ -19,6 +19,7 @@ export const createRepairProduct = (id = 1) => ({
 	productId: '',
 	isCustomName: false,
 	isCustomModel: false,
+	customModel: '',
 	modelPickerOptions: [REPAIR_PRODUCT_MODEL_OTHER_LABEL],
 	name: '',
 	category: '',
@@ -32,3 +33,7 @@ export const createRepairProduct = (id = 1) => ({
 	snInfo: null,
 	snLoading: false
 })
+
+export const getRepairProductModelValue = (product = {}) => String(
+	product.isCustomModel ? (product.customModel || product.model) : product.model
+).trim()
