@@ -261,7 +261,12 @@ function getDirectTodoMatchCond(todoType = '') {
   if (!type) return {}
   if (type === 'inbound') return { status: dbCmd.in(['pending', 'sent']) }
   if (type === 'payment') return { payment_status: 'uploaded', total_price: dbCmd.gt(0) }
-  if (type === 'return') return { status: dbCmd.in(['fixing', 'inspecting']), payment_status: 'paid' }
+  if (type === 'return') {
+    return {
+      status: dbCmd.in(['fixing', 'inspecting']),
+      quote_status: dbCmd.in(['issued', 'confirmed', 'rejected'])
+    }
+  }
   return null
 }
 
@@ -855,8 +860,8 @@ function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
   if (next === 'shipped' && ['inspecting', 'fixing'].includes(currentStatus)) {
     const returned = getOrderShipInfo(order, 'back')
     if (!returned.trackingNo) return '请先录入回寄物流单号，再标记为已回寄'
-    const unpaidReason = blockShipUnpaidReason(order)
-    if (unpaidReason) return unpaidReason
+    const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
+    if (shipmentBlockReason) return shipmentBlockReason
   }
   return ''
 }
@@ -924,9 +929,8 @@ function attachVerifiedTrackCache(updateData, order, segment, trackCheck) {
   }
 }
 
-// 回寄发货前置校验：需付费工单（有金额且非免费/在保）必须已确认到账才能录入发货。
-// 免费/在保（total_price=0 或 charge_type='free'）无需付款，放行。返回拦截原因或 ''。
-function blockShipUnpaidReason(order = {}) {
+// 回寄业务策略集中在此。付款核销与实物维修流程独立，未付款不阻止后台回寄。
+function getReturnShipmentPolicyBlockReason(order = {}) {
   return getReturnShipmentBlockReason(order)
 }
 
@@ -1285,7 +1289,10 @@ function matchesTodoType(order = {}, todoType = '') {
   if (type === 'quote') return ['received', 'inspecting', 'fixing'].includes(status) && !['issued', 'confirmed'].includes(quoteStatus)
   if (type === 'payment') return totalPrice > 0 && paymentStatus === 'uploaded'
   if (type === 'invoice') return Boolean(invoiceInfo.need_invoice) && ['待开票', '开具中', '未发票'].includes(invoiceInfo.status || '待开票')
-  if (type === 'return') return ['fixing', 'inspecting'].includes(status) && paymentStatus === 'paid'
+  if (type === 'return') {
+    return ['fixing', 'inspecting'].includes(status)
+      && ['issued', 'confirmed', 'rejected'].includes(quoteStatus)
+  }
   if (type === 'exception') return status !== 'cancelled' && Boolean(order.admin_exception || order.exception_reason)
   return true
 }
@@ -3341,10 +3348,10 @@ module.exports = {
           continue
         }
         if (importType === 'return') {
-          const unpaidReason = getReturnShipmentBlockReason(order)
-          if (unpaidReason) {
+          const shipmentBlockReason = getReturnShipmentBlockReason(order)
+          if (shipmentBlockReason) {
             summary.fail += 1
-            summary.errors.push({ orderNo: item.orderNo, reason: unpaidReason })
+            summary.errors.push({ orderNo: item.orderNo, reason: shipmentBlockReason })
             continue
           }
         }
@@ -3477,10 +3484,10 @@ module.exports = {
           results.push({ ...item, success: false, reason: '已完成工单的回寄单号已锁定，不可修改' })
           continue
         }
-        // 未支付拦截：需付费工单必须先确认到账才能录入发货物流
-        const unpaidReason = blockShipUnpaidReason(order)
-        if (unpaidReason) {
-          results.push({ ...item, success: false, reason: unpaidReason })
+        // 集中校验回寄业务策略；付款状态不作为后台发货前置条件。
+        const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
+        if (shipmentBlockReason) {
+          results.push({ ...item, success: false, reason: shipmentBlockReason })
           continue
         }
         // 录入源头防错：单号格式 + 快递公司一致性校验，不符直接拦截该行
@@ -3626,11 +3633,11 @@ module.exports = {
           summary.errors.push({ orderNo: item.orderNo, reason: '已完成工单的回寄单号已锁定，不可修改' })
           continue
         }
-        // 未支付拦截：需付费工单必须先确认到账才能录入发货物流
-        const unpaidReason = blockShipUnpaidReason(order)
-        if (unpaidReason) {
+        // 集中校验回寄业务策略；付款状态不作为后台发货前置条件。
+        const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
+        if (shipmentBlockReason) {
           summary.fail += 1
-          summary.errors.push({ orderNo: item.orderNo, reason: unpaidReason })
+          summary.errors.push({ orderNo: item.orderNo, reason: shipmentBlockReason })
           continue
         }
         // 录入源头防错：单号格式 + 快递公司一致性校验
@@ -4648,7 +4655,7 @@ module.exports = {
         { key: 'quote', title: '待报价', desc: '已签收/处理中但未发布报价', count: 0 },
         { key: 'payment', title: '待核销', desc: '客户已上传付款凭证', count: 0 },
         { key: 'invoice', title: '待开票', desc: '客户已提交发票申请', count: 0 },
-        { key: 'return', title: '待回寄', desc: '已付款但尚未回寄', count: 0 },
+        { key: 'return', title: '待回寄', desc: '已报价或拒修且尚未回寄', count: 0 },
         { key: 'exception', title: '异常工单', desc: '需要人工介入处理', count: 0 }
       ]
 

@@ -192,7 +192,7 @@ const fallbackTodoGroups = [
   { key: 'quote', title: '待报价', desc: '已签收/处理中但未发布报价', count: 0 },
   { key: 'payment', title: '待核销', desc: '客户已上传付款凭证', count: 0 },
   { key: 'invoice', title: '待开票', desc: '客户已提交发票申请', count: 0 },
-  { key: 'return', title: '待回寄', desc: '已付款但尚未回寄', count: 0 },
+  { key: 'return', title: '待回寄', desc: '已报价或拒修且尚未回寄', count: 0 },
   { key: 'exception', title: '异常工单', desc: '需要人工介入处理', count: 0 }
 ]
 
@@ -202,7 +202,7 @@ const todoTextMap = {
   quote: { title: '待报价', desc: '已签收/处理中但未发布报价' },
   payment: { title: '待核销', desc: '客户已上传付款凭证' },
   invoice: { title: '待开票', desc: '客户已提交发票申请' },
-  return: { title: '待回寄', desc: '已付款但尚未回寄' },
+  return: { title: '待回寄', desc: '已报价或拒修且尚未回寄' },
   exception: { title: '异常工单', desc: '需要人工介入处理' }
 }
 

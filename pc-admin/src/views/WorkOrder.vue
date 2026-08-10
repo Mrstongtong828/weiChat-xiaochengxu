@@ -1827,19 +1827,28 @@ const getSlaText = (order = {}) => {
 const getNextAction = (order = {}) => {
   if (order.status === '已取消') return { label: '已作废', desc: '无需处理', type: 'info' }
   if (order.status === '已完成') return { label: '已结案', desc: '流程完成', type: 'success' }
+  if (order.status === '已回寄' || order.returnNo) return { label: '待结案', desc: '确认完成归档', type: 'success' }
   if (['已提交', '运输中'].includes(order.status)) return { label: '待签收', desc: '确认寄入设备', type: 'warning' }
   const quoteStatus = order.quoteStatus || order.quote_status || ''
   const paymentStatus = resolvePaymentStatus(order)
-  if (order.status === '已签收' && ['pending', 'draft', 'rejected', ''].includes(quoteStatus)) {
+  if (quoteStatus === 'rejected') {
+    return { label: '拒修待回寄', desc: '无需付款，可直接安排设备回寄', type: 'warning' }
+  }
+  if (order.status === '已签收' && ['pending', 'draft', ''].includes(quoteStatus)) {
     return { label: '待报价', desc: '检测并发布报价', type: 'primary' }
   }
-  if (['pending', 'draft', 'rejected'].includes(quoteStatus)) {
+  if (['pending', 'draft'].includes(quoteStatus)) {
     return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
   }
   if (order.chargeType === 'free' && ['issued', 'confirmed'].includes(quoteStatus)) {
     return order.authorizationStatus === 'confirmed'
       ? { label: '质保维修', desc: '客户已确认，无需付款', type: 'success' }
       : { label: '待确认', desc: '等待客户确认质保维修', type: 'success' }
+  }
+  if (!order.returnNo && ['issued', 'confirmed'].includes(quoteStatus)) {
+    if (paymentStatus === 'paid') return { label: '待回寄', desc: '继续维修并录入回寄物流', type: 'warning' }
+    if (paymentStatus === 'uploaded') return { label: '维修待处理', desc: '可先维修，付款凭证待审核', type: 'primary' }
+    return { label: '维修待处理', desc: '可先维修或回寄，付款继续跟进', type: 'primary' }
   }
   if (paymentStatus === 'uploaded') return { label: '待审核', desc: '核对对公流水', type: 'warning' }
   if (paymentStatus === 'rejected') return { label: '已驳回', desc: '等待客户重传凭证', type: 'danger' }
@@ -1853,17 +1862,15 @@ const drawerWorkflowStages = [
   { key: 'intake', label: '受理' },
   { key: 'diagnosis', label: '检测' },
   { key: 'quote', label: '报价' },
-  { key: 'payment', label: '收款' },
   { key: 'repair', label: '维修' },
   { key: 'return', label: '回寄' }
 ]
 
 const getDrawerStageIndex = (order = {}) => {
-  if (order.status === '已完成' || order.returnNo || order.status === '已回寄') return 5
-  const paymentStatus = resolvePaymentStatus(order)
-  if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 4
+  if (order.status === '已完成' || order.returnNo || order.status === '已回寄') return 4
+  if (['处理中', '维修中'].includes(order.status)) return 3
   const quoteStatus = order.quoteStatus || order.quote_status || ''
-  if (['issued', 'confirmed'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 3
+  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 2
   if (['已签收', '处理中', '维修中'].includes(order.status)) return 1
   return 0
 }
@@ -1872,8 +1879,9 @@ const getRecommendedDrawerTab = (order = {}) => {
   const quoteStatus = order.quoteStatus || order.quote_status || ''
   const paymentStatus = resolvePaymentStatus(order)
   const invoiceState = normalizeInvoiceStatus(order)
-  if (['pending', 'draft', 'rejected', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
-  if (Number(order.totalPrice || 0) > 0 && !['paid', 'not_required'].includes(paymentStatus)) return 'payment'
+  if (['pending', 'draft', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
+  if (order.status === '已回寄' || order.returnNo) return 'service'
+  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) && ['已签收', '处理中', '维修中'].includes(order.status)) return 'service'
   if (order.needInvoice && paymentStatus === 'paid' && !['已发票', '已寄出', '已签收'].includes(invoiceState)) return 'invoice'
   if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 'service'
   return 'base'
@@ -4277,7 +4285,7 @@ const confirmExportExcel = async () => {
 .drawer-next-step-copy strong { color: #17212f; font-size: 16px; }
 .drawer-next-step-copy > span:last-child { color: #52637a; font-size: 13px; }
 .drawer-next-step-button { flex: none; }
-.drawer-workflow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0 2px; }
+.drawer-workflow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0 2px; }
 .drawer-workflow-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #98a2b3; font-size: 12px; line-height: 1.2; }
 .drawer-workflow-stage::before { content: ''; position: absolute; top: 9px; left: -50%; width: 100%; height: 2px; background: #e5e9ef; }
 .drawer-workflow-stage:first-child::before { display: none; }
@@ -4552,7 +4560,7 @@ const confirmExportExcel = async () => {
   .drawer-next-step { align-items: flex-start; }
   .drawer-next-step-copy { grid-template-columns: 1fr; }
   .drawer-next-step-eyebrow { grid-row: auto; }
-  .drawer-workflow { margin-inline: 0; grid-template-columns: repeat(6, minmax(52px, 1fr)); padding: 2px 0 4px; overflow-x: auto; }
+  .drawer-workflow { margin-inline: 0; grid-template-columns: repeat(5, minmax(52px, 1fr)); padding: 2px 0 4px; overflow-x: auto; }
   .drawer-tabs :deep(.el-tabs__item) { padding: 0 10px; }
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
