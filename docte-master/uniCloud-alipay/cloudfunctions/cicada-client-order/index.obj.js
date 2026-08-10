@@ -120,6 +120,8 @@ function projectClientOrder(order = {}, extras = {}) {
     order_no: order.order_no || '',
     status: order.status || '',
     mini_status_bucket: getMiniStatusBucket(order.status),
+    needs_return: order.needs_return === true,
+    archive_status: order.archive_status || '',
     customer_type: order.customer_type || '',
     ship_out_info: order.ship_out_info || {},
     ship_back_info: order.ship_back_info || {},
@@ -671,7 +673,7 @@ function getShipInfo(order = {}, type = 'out') {
   const info = type === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
   return {
     company: info.logistics_company || info.logisticsCompany || info.returnCompany || info.return_company || '',
-    trackingNo: info.logistics_no || info.logisticsNo || info.returnNo || info.return_no || '',
+    trackingNo: info.logistics_no || info.logisticsNo || info.tracking_no || info.trackingNo || info.returnNo || info.return_no || '',
     shippedAt: info.shipped_at || info.shippedAt || order.create_time || ''
   }
 }
@@ -2256,10 +2258,9 @@ module.exports = {
       const now = Date.now()
       const reasonText = normalizeText(reason)
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
-      // 归档路径：设备尚未拆检（pending/sent/received）→ 直接取消归档；
-      // 已进入检测/维修（inspecting/fixing）→ 设备在维修中心，标记待回寄，由售后安排原路寄回后再结案。
-      const returnableEarly = ['pending', 'sent', 'received']
-      const canArchiveNow = returnableEarly.includes(order.status)
+      // 只有尚未寄出的报修可以直接取消；已有寄入物流或已进入运输/入库/处理流程时必须安排回寄。
+      const hasInboundShipment = Boolean(getShipInfo(order, 'out').trackingNo)
+      const canArchiveNow = order.status === 'pending' && !hasInboundShipment
       const archiveNote = canArchiveNow
         ? '客户拒绝维修报价，工单已自动取消归档。'
         : '客户拒绝维修报价，设备将原路寄回，售后将尽快为您安排回寄后归档。'
@@ -2287,7 +2288,8 @@ module.exports = {
         updateData.archive_status = 'pending_return'
       }
 
-      await db.collection('cicada_orders').doc(order._id).update(updateData)
+      const updateRes = await db.collection('cicada_orders').doc(order._id).update(updateData)
+      if (!updateRes.updated) return { code: -1, msg: '工单更新失败，请刷新后重试' }
       await logOrderEvent({
         order,
         action: 'reject_quote',
@@ -2319,6 +2321,9 @@ module.exports = {
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
       const updateData = {
         status: 'completed',
+        ...(order.archive_status || order.quote_status === 'rejected'
+          ? { needs_return: false, archive_status: 'archived' }
+          : {}),
         received_confirm_time: now,
         update_time: now,
         timeline: [

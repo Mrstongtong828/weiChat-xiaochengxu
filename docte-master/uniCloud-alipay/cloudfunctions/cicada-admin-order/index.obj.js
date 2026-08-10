@@ -63,7 +63,7 @@ function createWorkflowFallback() {
   const ORDER_STATUS_TRANSITIONS = {
     pending: ['sent', 'received', 'cancelled'],
     sent: ['received', 'cancelled'],
-    received: ['inspecting', 'fixing', 'cancelled'],
+    received: ['inspecting', 'fixing', 'shipped', 'cancelled'],
     inspecting: ['fixing', 'shipped', 'cancelled'],
     fixing: ['shipped', 'completed', 'cancelled'],
     shipped: ['completed'],
@@ -261,12 +261,8 @@ function getDirectTodoMatchCond(todoType = '') {
   if (!type) return {}
   if (type === 'inbound') return { status: dbCmd.in(['pending', 'sent']) }
   if (type === 'payment') return { payment_status: 'uploaded', total_price: dbCmd.gt(0) }
-  if (type === 'return') {
-    return {
-      status: dbCmd.in(['fixing', 'inspecting']),
-      quote_status: dbCmd.in(['issued', 'confirmed', 'rejected'])
-    }
-  }
+  // 待回寄包含“已签收拒修”和“处理中待发货”两类，无法用单个 AND 条件等价表达，走 JS 精确筛选。
+  if (type === 'return') return null
   return null
 }
 
@@ -277,7 +273,7 @@ function getTodoCountMatchCond(todoType = '') {
   if (type === 'quote') {
     return {
       status: dbCmd.in(['received', 'inspecting', 'fixing']),
-      quote_status: dbCmd.in(['pending', 'draft', 'rejected'])
+      quote_status: dbCmd.in(['pending', 'draft'])
     }
   }
   if (type === 'invoice') {
@@ -430,6 +426,12 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
 
 async function countOrdersByMatch(matchCond, todoType = '') {
   try {
+    if (normalizeText(todoType) === 'return') {
+      const orders = await fetchOrderBatches({
+        status: dbCmd.in(['received', 'inspecting', 'fixing'])
+      }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT })
+      return orders.filter(order => matchesTodoType(order, todoType)).length
+    }
     const res = await db.collection('cicada_orders').where(withActiveOrderFilter(matchCond)).count()
     return res.total || 0
   } catch (e) {
@@ -793,7 +795,7 @@ function getOrderShipInfo(order = {}, segment = 'out') {
   const info = segment === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
   return {
     company: normalizeText(info.logistics_company || info.logisticsCompany || info.return_company || info.returnCompany),
-    trackingNo: normalizeText(info.logistics_no || info.logisticsNo || info.return_no || info.returnNo),
+    trackingNo: normalizeText(info.logistics_no || info.logisticsNo || info.tracking_no || info.trackingNo || info.return_no || info.returnNo),
     phone: normalizeText(info.phone || info.mobile || info.receiver_phone || info.receiverPhone || info.recipient_phone)
   }
 }
@@ -857,7 +859,7 @@ function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
     if (!inbound.trackingNo) return '请先录入寄入物流单号，再确认设备入库'
     if (arrivalState === 'pending') return '请先完成设备入库确认，不能直接修改为已签收'
   }
-  if (next === 'shipped' && ['inspecting', 'fixing'].includes(currentStatus)) {
+  if (next === 'shipped' && ['received', 'inspecting', 'fixing'].includes(currentStatus)) {
     const returned = getOrderShipInfo(order, 'back')
     if (!returned.trackingNo) return '请先录入回寄物流单号，再标记为已回寄'
     const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
@@ -872,8 +874,12 @@ async function validateTrackingNoBeforeSave(order, rawNo, company, segment = 'ba
   const conflictFields = [
     { field: 'ship_out_info.logistics_no', segment: 'out' },
     { field: 'ship_out_info.logisticsNo', segment: 'out' },
+    { field: 'ship_out_info.tracking_no', segment: 'out' },
+    { field: 'ship_out_info.trackingNo', segment: 'out' },
     { field: 'ship_back_info.logistics_no', segment: 'back' },
     { field: 'ship_back_info.logisticsNo', segment: 'back' },
+    { field: 'ship_back_info.tracking_no', segment: 'back' },
+    { field: 'ship_back_info.trackingNo', segment: 'back' },
     { field: 'ship_back_info.return_no', segment: 'back' },
     { field: 'ship_back_info.returnNo', segment: 'back' }
   ]
@@ -931,6 +937,12 @@ function attachVerifiedTrackCache(updateData, order, segment, trackCheck) {
 
 // 回寄业务策略集中在此。付款核销与实物维修流程独立，未付款不阻止后台回寄。
 function getReturnShipmentPolicyBlockReason(order = {}) {
+  if (normalizeText(order.status) === 'received'
+    && order.needs_return !== true
+    && normalizeText(order.archive_status) !== 'pending_return'
+    && normalizeText(order.quote_status) !== 'rejected') {
+    return '普通已签收工单需先进入检测或处理，只有拒修工单可以直接回寄'
+  }
   return getReturnShipmentBlockReason(order)
 }
 
@@ -1286,10 +1298,15 @@ function matchesTodoType(order = {}, todoType = '') {
   const totalPrice = Number(order.total_price || 0)
 
   if (type === 'inbound') return ['pending', 'sent'].includes(status)
-  if (type === 'quote') return ['received', 'inspecting', 'fixing'].includes(status) && !['issued', 'confirmed'].includes(quoteStatus)
+  if (type === 'quote') return ['received', 'inspecting', 'fixing'].includes(status) && ['pending', 'draft'].includes(quoteStatus)
   if (type === 'payment') return totalPrice > 0 && paymentStatus === 'uploaded'
   if (type === 'invoice') return Boolean(invoiceInfo.need_invoice) && ['待开票', '开具中', '未发票'].includes(invoiceInfo.status || '待开票')
   if (type === 'return') {
+    if (status === 'received') {
+      return order.needs_return === true
+        || order.archive_status === 'pending_return'
+        || quoteStatus === 'rejected'
+    }
     return ['fixing', 'inspecting'].includes(status)
       && ['issued', 'confirmed', 'rejected'].includes(quoteStatus)
   }
@@ -1342,6 +1359,17 @@ function buildReturnShippingInfo(order, item, now) {
     logistics_no: item.returnNo,
     shipped_at: now
   }
+}
+
+function buildArchiveStatusUpdate(order = {}, nextStatus = '') {
+  const isRejectReturn = order.needs_return === true
+    || order.archive_status === 'pending_return'
+    || order.archive_status === 'returned'
+    || order.quote_status === 'rejected'
+  if (!isRejectReturn) return {}
+  if (nextStatus === 'shipped') return { needs_return: false, archive_status: 'returned' }
+  if (nextStatus === 'completed') return { needs_return: false, archive_status: 'archived' }
+  return {}
 }
 
 function normalizeLogisticsImportRows(rows, type = 'return') {
@@ -1421,6 +1449,7 @@ function buildLogisticsImportUpdate(order, item, type, now, importDate = '') {
     updateData.ship_out_info = buildShipOutImportInfo(order, item, eventTime)
   } else {
     updateData.ship_back_info = buildShipBackImportInfo(order, item, eventTime)
+    Object.assign(updateData, buildArchiveStatusUpdate(order, 'shipped'))
   }
 
   if (shouldAppendTimeline) {
@@ -2680,7 +2709,7 @@ module.exports = {
         //           绝不能下推可能误删有效行的条件（keyword/设备型号/SLA/发票状态默认值等仍留在 JS）。
         // 1) 在保状态：独立等值字段，系统写入值规范，直接下推
         if (normalizedWarrantyStatus) fallbackMatchCond.warranty_status = normalizedWarrantyStatus
-        // 2) 直接型待办(inbound/payment/return)的 DB 条件与 matchesTodoType 完全等价；
+        // 2) 直接型待办(inbound/payment)的 DB 条件与 matchesTodoType 完全等价；
         //    仅在未显式指定 status 时下推，避免与 status 参数的交集语义冲突（该冲突场景交给 JS 兜底）
         if (!status) {
           const directTodoCond = getDirectTodoMatchCond(todoType)
@@ -3207,6 +3236,7 @@ module.exports = {
       const res = await db.collection('cicada_orders').doc(order_id).update({
         status,
         ...buildStatusTimestampUpdate(order, status, now),
+        ...buildArchiveStatusUpdate(order, status),
         update_time: now
       })
       if (!res.updated) return { code: -1, msg: '工单不存在' }
@@ -3505,6 +3535,7 @@ module.exports = {
           ship_back_info: shipBackInfo,
           status: 'shipped',
           ...buildStatusTimestampUpdate(order, 'shipped', now),
+          ...buildArchiveStatusUpdate(order, 'shipped'),
           timeline: [
             ...timeline,
             {
@@ -3656,6 +3687,7 @@ module.exports = {
         let updateData = {
           status: 'shipped',
           ...buildStatusTimestampUpdate(order, 'shipped', now),
+          ...buildArchiveStatusUpdate(order, 'shipped'),
           ship_back_info: buildReturnShippingInfo(order, item, now),
           timeline: [
             ...timeline,
@@ -4053,6 +4085,8 @@ module.exports = {
         updateData.payment_status = isWarrantyFree
           ? 'not_required'
           : (order.payment_status === 'paid' ? 'paid' : 'pending')
+        updateData.needs_return = false
+        updateData.archive_status = 'active'
       }
 
       if (quoteData.quote_status === 'issued') {

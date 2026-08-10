@@ -52,3 +52,8 @@ test('paid and warranty-free orders advance to the repair stage', () => {
   assert.equal(paidNodes[2].state, 'current')
   assert.equal(warrantyNodes[2].state, 'current')
 })
+
+test('客户拒绝报价后显示待回寄而不是待付款或维修中', () => {
+  assert.equal(deriveDisplayStatus({ status: 'received', quoteStatus: 'rejected' }), '拒修待回寄')
+  assert.equal(deriveDisplayStatus({ status: 'fixing', quote_status: 'rejected' }), '拒修待回寄')
+})

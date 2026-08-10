@@ -14,7 +14,7 @@ const ORDER_STATUS_LABELS = {
 const ORDER_STATUS_TRANSITIONS = {
   pending: ['sent', 'received', 'cancelled'],
   sent: ['received', 'cancelled'],
-  received: ['inspecting', 'fixing', 'cancelled'],
+  received: ['inspecting', 'fixing', 'shipped', 'cancelled'],
   inspecting: ['fixing', 'shipped', 'cancelled'],
   fixing: ['shipped', 'completed', 'cancelled'],
   shipped: ['completed'],

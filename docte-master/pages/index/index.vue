@@ -2925,9 +2925,9 @@ const normalizeOrder = (item = {}) => {
 	const shipOutInfo = merged.ship_out_info || merged.shipOutInfo || {}
 	const shipBackInfo = merged.ship_back_info || merged.shipBackInfo || {}
 	const logisticsCompany = shipOutInfo.logistics_company || shipOutInfo.logisticsCompany || merged.logisticsCompany || ''
-	const trackingNo = shipOutInfo.logistics_no || shipOutInfo.logisticsNo || merged.trackingNo || merged.logisticsNo || merged.expressNo || ''
+	const trackingNo = shipOutInfo.logistics_no || shipOutInfo.logisticsNo || shipOutInfo.tracking_no || shipOutInfo.trackingNo || merged.trackingNo || merged.logisticsNo || merged.expressNo || ''
 	const returnLogisticsCompany = shipBackInfo.logistics_company || shipBackInfo.logisticsCompany || ''
-	const returnLogisticsNo = shipBackInfo.logistics_no || shipBackInfo.logisticsNo || shipBackInfo.return_no || shipBackInfo.returnNo || ''
+	const returnLogisticsNo = shipBackInfo.logistics_no || shipBackInfo.logisticsNo || shipBackInfo.tracking_no || shipBackInfo.trackingNo || shipBackInfo.return_no || shipBackInfo.returnNo || ''
 	const cardTitle = productName || productModel || (productSerial ? `SN ${productSerial}` : '') || '设备信息待同步'
 	const cardMeta = [
 		productModel && productModel !== cardTitle ? `型号 ${productModel}` : '',
@@ -2997,6 +2997,8 @@ const normalizeOrder = (item = {}) => {
 		invoiceDate: merged.invoiceDate || merged.invoice_date || invoiceInfo.invoice_date || formatDateTime(invoiceInfo.issued_time || invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
 		quoteStatus,
+		needsReturn: merged.needsReturn === true || merged.needs_return === true,
+		archiveStatus: merged.archiveStatus || merged.archive_status || '',
 		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',
 		authorizationTime: merged.authorizationTime || merged.authorization_time || '',
 		paymentStatus,
@@ -4069,15 +4071,22 @@ watch(
 	{ immediate: true }
 )
 
+const getRejectedQuoteFlowDesc = (order = {}) => {
+	if (order.statusKey === 'cancelled') return '您已拒绝该维修报价，工单已取消。'
+	if (['shipped', 'completed'].includes(order.statusKey) || order.returnLogisticsNo) return '您已拒绝该维修报价，设备已回寄。'
+	return '您已拒绝该维修报价，售后将安排设备回寄。'
+}
+
 const getQuoteMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
+	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: getRejectedQuoteFlowDesc(order) }
 	if ((!Array.isArray(order.quoteItems) || !order.quoteItems.length) && !order.quoteDetail) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
-	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: '客户暂未同意该维修报价。' }
 	if (order.authorizationStatus === 'confirmed') return { label: '已确认', tone: 'ok', desc: '报价已确认，工程师可继续维修。' }
 	return { label: '待确认', tone: 'warn', desc: '请确认维修项目、配件、工时和总价后再授权维修。' }
 }
 
 const getAuthorizationMeta = (order = {}) => {
+	if (order.quoteStatus === 'rejected') return { label: '无需授权', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 不再进入授权维修流程。` }
 	if (isWarrantyFreeOrder(order)) {
 		return order.authorizationStatus === 'confirmed'
 			? { label: '已授权', tone: 'ok', desc: order.authorizationTime ? `客户已于 ${order.authorizationTime} 确认质保维修。` : '客户已确认质保维修。' }
@@ -4090,6 +4099,7 @@ const getAuthorizationMeta = (order = {}) => {
 
 const getPaymentMeta = (order = {}) => {
 	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
+	if (order.quoteStatus === 'rejected') return { label: '无需付款', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 无需支付维修费用。` }
 	if (isWarrantyFreeOrder(order)) return { label: '质保免收费', tone: 'ok', desc: '本次维修费用由质保承担，无需微信支付或上传付款凭证。' }
 	if (!getQuoteTotal(order)) return { label: '待报价', tone: 'muted', desc: '报价金额确认后，可微信支付；企业客户也可上传对公转账凭证。' }
 	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
@@ -4101,6 +4111,7 @@ const getPaymentMeta = (order = {}) => {
 const getBillingAmountText = (order = {}) => {
 	const total = getQuoteTotal(order)
 	if (isWarrantyFreeOrder(order)) return '¥0.00（质保免收费）'
+	if (order.quoteStatus === 'rejected') return total ? `${formatMoney(total)}（已拒绝）` : '报价已拒绝'
 	return total ? formatMoney(total) : '待售后报价'
 }
 
@@ -4108,6 +4119,7 @@ const getBillingMeta = (order = {}) => {
 	const quoteTotal = getQuoteTotal(order)
 	const invoiceMeta = getInvoiceMeta(resolveOrderRecord(order))
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
+	if (order.quoteStatus === 'rejected') return { label: '无需付款', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 当前无需付款。` }
 	if (isWarrantyFreeOrder(order)) {
 		return order.authorizationStatus === 'confirmed'
 			? { label: '质保已确认', tone: 'ok', desc: '本次维修免收费，已进入后续维修流程。' }

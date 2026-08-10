@@ -133,10 +133,10 @@ export const transformOrder = (order) => {
     senderUnit: shipOut.unit || '',
     senderAddress: `${shipOut.region || ''} ${shipOut.detail || ''}`.trim(),
     returnAddress: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
-    logisticsCompany: shipOut.logistics_company || '',
-    logisticsNo: shipOut.logistics_no || '',
-    returnCompany: shipBack.logistics_company || '',
-    returnNo: shipBack.logistics_no || '',
+    logisticsCompany: shipOut.logistics_company || shipOut.logisticsCompany || '',
+    logisticsNo: shipOut.logistics_no || shipOut.logisticsNo || shipOut.tracking_no || shipOut.trackingNo || '',
+    returnCompany: shipBack.logistics_company || shipBack.logisticsCompany || shipBack.return_company || shipBack.returnCompany || '',
+    returnNo: shipBack.logistics_no || shipBack.logisticsNo || shipBack.tracking_no || shipBack.trackingNo || shipBack.return_no || shipBack.returnNo || '',
 
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
@@ -159,6 +159,8 @@ export const transformOrder = (order) => {
     // 状态
     status: toChineseStatus(order.status),
     statusEn: order.status,
+    needsReturn: order.needs_return === true || order.needsReturn === true,
+    archiveStatus: order.archive_status || order.archiveStatus || '',
     slaInfo: order.sla_info || order.slaInfo || null,
 
     // 在保快照（下单时判定，后台 SN 回填后可重算）

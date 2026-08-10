@@ -10,8 +10,8 @@ function getTrackingSegments(order = {}, trackingNo = '') {
   const out = order.ship_out_info || {}
   const back = order.ship_back_info || {}
   const segments = []
-  if ([out.logistics_no, out.logisticsNo].some(value => String(value || '').trim() === no)) segments.push('out')
-  if ([back.logistics_no, back.logisticsNo, back.return_no, back.returnNo].some(value => String(value || '').trim() === no)) segments.push('back')
+  if ([out.logistics_no, out.logisticsNo, out.tracking_no, out.trackingNo].some(value => String(value || '').trim() === no)) segments.push('out')
+  if ([back.logistics_no, back.logisticsNo, back.tracking_no, back.trackingNo, back.return_no, back.returnNo].some(value => String(value || '').trim() === no)) segments.push('back')
   return segments
 }
 

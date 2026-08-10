@@ -77,6 +77,20 @@
         "cancelled"
       ]
     },
+    "needs_return": {
+      "bsonType": "bool",
+      "description": "设备是否需要由售后安排回寄；客户拒绝报价且设备已寄入时为 true"
+    },
+    "archive_status": {
+      "bsonType": "string",
+      "enum": [
+        "active",
+        "pending_return",
+        "returned",
+        "archived"
+      ],
+      "description": "拒修归档进度：待回寄、已回寄、已归档；重新报价后恢复 active"
+    },
     "in_warranty": {
       "bsonType": "bool",
       "description": "下单或报价时派生的是否在保快照"

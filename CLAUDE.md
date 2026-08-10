@@ -55,7 +55,7 @@ Cloud functions live in `docte-master/uniCloud-alipay/cloudfunctions/`, organize
 A shared module (required by admin functions) that is the **single source of truth** for the order state machine and RBAC. It exports `ORDER_STATUS`, `ORDER_STATUS_LABELS`, `ORDER_STATUS_TRANSITIONS`, `ROLE_LABELS`, `ALL_ROLES`, and the `PERMISSIONS` map. When changing statuses, transitions, roles, or who-can-do-what, edit this module — do not hardcode these in individual functions.
 
 **Order status machine** (`ORDER_STATUS_TRANSITIONS`):
-`pending → sent/received/cancelled`, `sent → received/cancelled`, `received → inspecting/fixing/cancelled`, `inspecting → fixing/shipped/cancelled`, `fixing → shipped/completed/cancelled`, `shipped → completed`, `completed`/`cancelled` are terminal.
+`pending → sent/received/cancelled`, `sent → received/cancelled`, `received → inspecting/fixing/shipped/cancelled`, `inspecting → fixing/shipped/cancelled`, `fixing → shipped/completed/cancelled`, `shipped → completed`, `completed`/`cancelled` are terminal. The direct `received → shipped` path is restricted by the admin prerequisite to rejected-quote returns, and return logistics is still required.
 
 ### RBAC model (this is `feat/rbac-enhancements`'s focus)
 

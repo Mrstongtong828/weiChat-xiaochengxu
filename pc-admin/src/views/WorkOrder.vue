@@ -1892,7 +1892,7 @@ const getNextStepButtonText = (order = {}) => {
     quote: '去报价',
     payment: resolvePaymentStatus(order) === 'uploaded' ? '审核付款' : '查看收款',
     invoice: '去开票',
-    service: order.returnNo ? '查看回寄' : '继续维修'
+    service: order.returnNo ? '查看回寄' : ((order.quoteStatus || order.quote_status) === 'rejected' ? '安排回寄' : '继续维修')
   }
   return labels[getRecommendedDrawerTab(order)] || '查看详情'
 }
@@ -2372,6 +2372,12 @@ const getAllowedStatusOptions = (order = {}) => {
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
   return adminActionStatusOptions.filter(status => {
     const targetStatus = toEnglishStatus(status)
+    if (currentStatus === 'received' && targetStatus === 'shipped') {
+      const isRejectReturn = order.quoteStatus === 'rejected'
+        || order.needsReturn === true
+        || order.archiveStatus === 'pending_return'
+      if (!isRejectReturn) return false
+    }
     return targetStatus !== currentStatus && transitions.includes(targetStatus)
   })
 }
@@ -2944,7 +2950,10 @@ const openDrawer = (row) => {
   Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
   Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
   Object.keys(snLookupTimers).forEach((k) => { clearTimeout(snLookupTimers[k]); delete snLookupTimers[k] })
-  newStatus.value = getAllowedStatusOptions(row)[0] || row.status
+  const allowedStatuses = getAllowedStatusOptions(row)
+  newStatus.value = (row.quoteStatus === 'rejected' && allowedStatuses.includes('已回寄'))
+    ? '已回寄'
+    : (allowedStatuses[0] || row.status)
   invoiceStatus.value = normalizeInvoiceStatus(row)
   invoiceForm.invoiceType = row.invoiceType || '电子普通发票'
   invoiceForm.title = row.invoiceTitle || ''

@@ -294,6 +294,8 @@ test('订单和幂等锁字段已声明在数据库 schema', () => {
   const rateLimitSchema = require('../../database/cicada_rate_limits.schema.json')
 
   assert.equal(orderSchema.properties.request_fingerprint.bsonType, 'string')
+  assert.equal(orderSchema.properties.needs_return.bsonType, 'bool')
+  assert.deepEqual(orderSchema.properties.archive_status.enum, ['active', 'pending_return', 'returned', 'archived'])
   assert.equal(rateLimitSchema.properties.lock_token.bsonType, 'string')
   assert.deepEqual(rateLimitSchema.properties.state.enum, ['pending', 'completed'])
 })

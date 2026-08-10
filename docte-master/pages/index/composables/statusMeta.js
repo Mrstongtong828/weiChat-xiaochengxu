@@ -106,6 +106,7 @@ export const deriveDisplayStatus = (order = {}) => {
 	if (key === 'completed') return (order.review || order.reviewTime || order.review_time) ? '已评价' : '已完成'
   if (key === 'shipped') return '已回寄'
   if (order.arrivalConfirmStatus === 'pending' || order.arrival_confirm_status === 'pending') return '已到达，待入库'
+	if (quote === 'rejected' && ['received', 'inspecting', 'fixing'].includes(key)) return '拒修待回寄'
 	if (key === 'pending') return '待寄出'
 	if (key === 'sent') return '运输中'
 	if (key === 'received') return '已签收'

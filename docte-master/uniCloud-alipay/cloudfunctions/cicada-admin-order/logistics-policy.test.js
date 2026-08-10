@@ -37,3 +37,8 @@ test('跨工单或跨物流段复用运单号会被识别为冲突', () => {
   assert.equal(findTrackingConflict([otherOrder], 'SF1234567890', 'order-1', 'back'), otherOrder)
   assert.equal(findTrackingConflict([sameOrderOtherSegment], 'SF1234567890', 'order-1', 'back'), sameOrderOtherSegment)
 })
+
+test('历史 tracking_no 字段同样参与运单冲突检测', () => {
+  const historicalOrder = { _id: 'order-2', ship_out_info: { tracking_no: 'SF1234567890' } }
+  assert.equal(findTrackingConflict([historicalOrder], 'SF1234567890', 'order-1', 'back'), historicalOrder)
+})
