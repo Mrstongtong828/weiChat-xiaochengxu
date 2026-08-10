@@ -859,7 +859,12 @@
                   <span>付款状态</span>
                   <strong>{{ getPaymentStatusText(currentOrder) }}</strong>
                 </div>
+                <div>
+                  <span>付款方式</span>
+                  <strong>{{ getPaymentMethodLabel(currentOrder.paymentMethod) }}</strong>
+                </div>
               </div>
+              <CorporateAccountDetails v-if="currentOrder.paymentMethod !== 'wechat_pay'" class="payment-account" :account="corporateAccount" />
               <div v-if="resolvePaymentStatus(currentOrder) === 'uploaded' && canPerformOrderAction('view_payment_proof') && currentOrder.paymentProofs && currentOrder.paymentProofs.length" class="payment-proof-list">
                 <div v-for="(proof, index) in currentOrder.paymentProofs" :key="proof.id || proof.url || proof.fileID || index" class="payment-proof-card">
                   <el-image
@@ -964,7 +969,7 @@
               <div class="drawer-section-head">
                 <div>
                   <p class="drawer-section-title">发票处理</p>
-                  <p class="section-helper">先确认到账，再登记或开具发票。</p>
+                  <p class="section-helper">仅已核销的对公转账进入发票流程，由财务人工开具并登记结果。</p>
                 </div>
                 <el-tag :type="getInvoiceType(normalizeInvoiceStatus(currentOrder))" size="small">{{ normalizeInvoiceStatus(currentOrder) }}</el-tag>
               </div>
@@ -974,20 +979,29 @@
                 <div><span>开票状态</span><strong>{{ normalizeInvoiceStatus(currentOrder) }}</strong></div>
               </div>
               <el-alert
-                v-if="currentOrder.needInvoice && resolvePaymentStatus(currentOrder) !== 'paid'"
-                title="客户已申请发票，但当前尚未确认到账"
-                description="完成微信支付查单或对公付款核销后，才能开具发票。"
+                v-if="!isCorporateTransferPayment(currentOrder.paymentMethod) && !currentOrder.needInvoice"
+                title="微信支付订单不进入发票流程"
+                description="本系统仅处理对公转账订单的开票申请；微信支付完成后直接进入后续维修流程。"
+                type="info"
+                :closable="false"
+                show-icon
+                class="invoice-alert"
+              ></el-alert>
+              <el-alert
+                v-else-if="currentOrder.needInvoice && resolvePaymentStatus(currentOrder) !== 'paid'"
+                title="客户已申请发票，但对公款项尚未核销"
+                description="财务确认银行对公款项到账后，才能人工开具并登记发票。"
                 type="warning"
                 :closable="false"
                 show-icon
                 class="invoice-alert"
               ></el-alert>
-              <div v-if="!currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
+              <div v-if="isCorporateTransferPayment(currentOrder.paymentMethod) && resolvePaymentStatus(currentOrder) === 'paid' && !currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
                 <strong>本单暂不需要发票</strong>
                 <span>如果客户补充开票需求，可在这里登记发票信息。</span>
                 <el-button v-if="canPerformOrderAction('update_invoice')" size="small" plain @click="invoiceEditorExpanded = true">登记发票</el-button>
               </div>
-              <template v-else>
+              <template v-else-if="isCorporateTransferPayment(currentOrder.paymentMethod) || currentOrder.needInvoice">
                 <div class="invoice-editor-heading">
                   <strong>发票信息</strong>
                   <span>带 * 的信息用于开票和客户接收</span>
@@ -1001,7 +1015,7 @@
               </template>
               <el-divider border-style="dashed"></el-divider>
               <p class="drawer-section-title">发票登记</p>
-              <el-form label-position="top" size="small" class="invoice-form">
+              <el-form label-position="top" size="small" class="invoice-form" :disabled="!canPerformOrderAction('update_invoice') || !canManuallyRegisterInvoice">
                 <div class="invoice-form-grid">
                 <el-form-item label="发票状态 *">
                   <el-select v-model="invoiceStatus" :disabled="!canPerformOrderAction('update_invoice')" style="width:100%;">
@@ -1087,11 +1101,8 @@
                 </details>
               </el-form>
               <div class="invoice-actions">
-              <el-tooltip v-if="canPerformOrderAction('update_invoice')" content="保存后会更新该工单的财务开票状态，列表发票状态同步变化" placement="top">
+              <el-tooltip v-if="canPerformOrderAction('update_invoice') && canManuallyRegisterInvoice" content="财务线下开具后，在这里人工登记状态、号码和发票链接" placement="top">
                 <el-button type="primary" size="small" @click="saveInvoiceStatus">保存发票信息</el-button>
-              </el-tooltip>
-              <el-tooltip v-if="canPerformOrderAction('update_invoice') && autoInvoiceEnabled" content="需先确认到账。点此调用开票服务商自动开票并回填链接/号码/日期（未对接服务商前会提示未配置）" placement="top">
-                <el-button type="success" plain size="small" :loading="invoiceIssuing" @click="onIssueInvoice">一键开票</el-button>
               </el-tooltip>
               </div>
               </template>
@@ -1600,7 +1611,7 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -1611,6 +1622,8 @@ import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
+import { getPaymentMethodLabel, isCorporateTransferPayment, resolveCorporateAccount } from '../config/corporateAccount.js'
+import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
 const route = useRoute()
 const isMobile = ref(window.innerWidth <= 768)
@@ -2549,6 +2562,7 @@ const drawerVisible = ref(false)
 const currentOrder = ref(null)
 const activeDrawerTab = ref('base')
 const invoiceEditorExpanded = ref(false)
+const corporateAccount = ref(resolveCorporateAccount())
 // SN 回填：每个工单项的查询结果与 loading 状态（按下标）
 const snLookupResults = reactive({})
 const snLookupLoading = reactive({})
@@ -2580,10 +2594,11 @@ const invoiceForm = reactive({
   mailNo: '',
   mailTime: ''
 })
-const invoiceIssuing = ref(false)
-// 一键开票（自动开票）开关：默认隐藏；对接好开票服务商后，在 pc-admin/.env.local 设
-// VITE_ENABLE_AUTO_INVOICE=1 并重新构建即可显示「一键开票」按钮。人工阶段保持隐藏。
-const autoInvoiceEnabled = import.meta.env.VITE_ENABLE_AUTO_INVOICE === '1'
+const canManuallyRegisterInvoice = computed(() => (
+  Boolean(currentOrder.value)
+  && isCorporateTransferPayment(currentOrder.value.paymentMethod)
+  && resolvePaymentStatus(currentOrder.value) === 'paid'
+))
 const remarkSaving = ref(false)
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
@@ -3619,35 +3634,14 @@ const confirmStatus = async () => {
   }
 }
 
-// 一键开票：财务确认到账后，调用开票服务商自动开票并回填
-const onIssueInvoice = async () => {
-  if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_invoice')) {
-    ElMessage.error('当前角色无权开票')
-    return
-  }
-  try {
-    await ElMessageBox.confirm('确认该工单已收款到账，并自动开具电子发票？', '一键开票', { type: 'warning' })
-  } catch (e) { return }
-  invoiceIssuing.value = true
-  try {
-    const token = localStorage.getItem('adminToken')
-    await issueInvoice(token, currentOrder.value._id)
-    ElMessage.success('开票成功，已回填发票信息')
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) currentOrder.value = fresh
-  } catch (error) {
-    if (!error?.__displayed) ElMessage.error(error?.message || '开票失败')
-  } finally {
-    invoiceIssuing.value = false
-  }
-}
-
 const saveInvoiceStatus = async () => {
   if (!currentOrder.value) return
   if (!canPerformOrderAction('update_invoice')) {
     ElMessage.error('当前角色无权更新发票状态')
+    return
+  }
+  if (!canManuallyRegisterInvoice.value) {
+    ElMessage.error('仅已核销的对公转账订单可登记发票')
     return
   }
   loading.value = true
@@ -4026,12 +4020,14 @@ const loadPrintConfig = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
+    corporateAccount.value = resolveCorporateAccount(data)
     const templates = parsePrintTemplates(data && data.print_templates, data && data.print_config)
     await Promise.all(Object.values(templates).map(template => resolvePrintLogo(template)))
     printSettingsRaw.value = { ...(data || {}), print_templates: templates }
     printConfig.value = templates.repair_order
     feeTiers.value = parseSettingsArray(data && data.fee_tier_templates)
   } catch (error) {
+    corporateAccount.value = resolveCorporateAccount()
     const templates = parsePrintTemplates()
     printSettingsRaw.value = { print_templates: templates }
     printConfig.value = templates.repair_order
@@ -4404,7 +4400,8 @@ const confirmExportExcel = async () => {
 .quote-final-row :deep(.el-input-number) { width: 100%; }
 .quote-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 .quote-actions :deep(.el-button) { min-width: 112px; min-height: 40px; font-size: 15px; font-weight: 600; }
-.payment-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.payment-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.payment-account { margin-bottom: 12px; }
 .payment-guide { min-height: 78px; display: flex; flex-direction: column; justify-content: center; gap: 4px; margin-top: 12px; padding: 14px 16px; border-radius: 8px; border: 1px dashed #cfd7e3; background: #fafbfc; }
 .payment-guide strong { color: #17212f; font-size: 14px; }
 .payment-guide span { color: #6b778c; font-size: 12px; line-height: 1.55; }

@@ -6,6 +6,7 @@ const expressProvider = loadExpressProvider()
 const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
 const { buildLogisticsReadiness } = require('./logistics-readiness')
 const { reconcileTrackCache } = require('./logistics-policy')
+const { getInvoiceRequestBlockReason } = loadInvoicePolicyModule()
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
@@ -736,6 +737,14 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+function loadInvoicePolicyModule() {
+  try {
+    return require('cicada-invoice-policy')
+  } catch (packageError) {
+    return require('../common/cicada-invoice-policy')
+  }
+}
+
 function withActiveOrderFilter(matchCond = {}) {
   return { ...matchCond, is_deleted: dbCmd.neq(true) }
 }
@@ -944,36 +953,6 @@ function getReturnShipmentPolicyBlockReason(order = {}) {
     return '普通已签收工单需先进入检测或处理，只有拒修工单可以直接回寄'
   }
   return getReturnShipmentBlockReason(order)
-}
-
-// ============ 一键开票适配层（对接微信电子发票 / 开票服务商）============
-// 拿到服务商 API 凭证后，只需在 callInvoiceProvider 内实现"开票+查结果"，其余闭环已就绪。
-// 未配置时抛出明确错误：「一键开票」按钮会提示"开票服务商未配置"，绝不会误判为成功。
-function getInvoiceProviderConfig() {
-  return {
-    provider: getEnvValue('INVOICE_PROVIDER'),             // 服务商标识，如 nuonuo / baiwang
-    appKey: getEnvValue('INVOICE_PROVIDER_APP_KEY'),
-    appSecret: getEnvValue('INVOICE_PROVIDER_APP_SECRET'),
-    apiBase: getEnvValue('INVOICE_PROVIDER_API_BASE'),
-    sellerTaxNo: getEnvValue('INVOICE_SELLER_TAX_NO'),     // 销方税号
-    taxCode: getEnvValue('INVOICE_TAX_CODE'),              // 商品税收分类编码（维修服务）
-    taxRate: getEnvValue('INVOICE_TAX_RATE'),              // 税率，如 0.06
-    pushWechat: getEnvValue('INVOICE_PUSH_WECHAT') === '1' // 是否推送到微信电子发票卡包
-  }
-}
-
-// 调用开票服务商：开票 + 查结果，约定返回 { invoice_no, invoice_date, invoice_url }
-// TODO[发票服务商]：按所签服务商（诺诺/百望等）API 文档在此实现下单开票 + 轮询/回调取版式文件URL。
-async function callInvoiceProvider(req) {
-  const cfg = getInvoiceProviderConfig()
-  if (!cfg.provider || !cfg.appKey || !cfg.appSecret || !cfg.apiBase) {
-    throw new Error('开票服务商未配置：请先配置环境变量 INVOICE_PROVIDER / INVOICE_PROVIDER_APP_KEY / INVOICE_PROVIDER_APP_SECRET / INVOICE_PROVIDER_API_BASE，并在 callInvoiceProvider 内对接服务商开票接口')
-  }
-  // ↓↓↓ 在此实现：1) 调服务商开票接口下单（带 req.title/tax_no/amount/cfg.taxCode 等）
-  //              2) 轮询或回调查开票结果，拿到版式文件URL / 发票号码 / 开票日期
-  //              3) 如 cfg.pushWechat，调用微信电子发票推送到客户卡包 ↓↓↓
-  throw new Error(`开票服务商[${cfg.provider}]开票接口待对接（callInvoiceProvider 未实现）`)
-  // 实现完成后返回：return { invoice_no, invoice_date, invoice_url }
 }
 
 // SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
@@ -3905,6 +3884,10 @@ module.exports = {
       const found = await db.collection('cicada_orders').doc(order_id).get()
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
+      if (nextStatus !== '无需开票') {
+        const invoiceBlockReason = getInvoiceRequestBlockReason(order)
+        if (invoiceBlockReason) return { code: -1, msg: invoiceBlockReason }
+      }
       const oldInvoice = order.invoice_info || {}
       const nextInvoiceType = normalizeText(invoice.invoice_type || invoice.invoiceType) || oldInvoice.invoice_type || '电子普通发票'
       const nextMailCompany = normalizeText(invoice.mail_company || invoice.mailCompany)
@@ -3987,69 +3970,6 @@ module.exports = {
       await logOrderEvent({
         order,
         action: 'update_invoice',
-        actor: currentAdmin,
-        before: { invoice_info: oldInvoice },
-        after: { invoice_info: invoiceInfo }
-      })
-      return { code: 0, data: invoiceInfo }
-    } catch (e) {
-      return { code: -1, msg: e.message }
-    }
-  },
-
-  // 一键开票：财务确认到账后，调用开票服务商 API 自动开票并回填（对接微信电子发票/服务商）
-  async issueInvoice(params) {
-    try {
-      const currentAdmin = requireAdminPermission(this, 'update_invoice')
-      const { order_id } = pickParam(this, params)
-      if (!order_id) return { code: -1, msg: '缺少工单ID' }
-      const found = await db.collection('cicada_orders').doc(order_id).get()
-      const order = found.data && found.data[0]
-      if (!order) return { code: -1, msg: '工单不存在' }
-      const oldInvoice = order.invoice_info || {}
-
-      // 业务前置校验
-      if (!oldInvoice.need_invoice) return { code: -1, msg: '该工单尚无开票申请' }
-      if (oldInvoice.status === '已开具') return { code: -1, msg: '该工单发票已开具' }
-      // ⭐ 必须财务先确认到账，才能开票
-      if (order.payment_status !== 'paid') {
-        return { code: -1, msg: '需财务先确认到账（payment_status=paid）后才能开票' }
-      }
-
-      // 组装开票请求（抬头/税号来自客户申请，金额取工单结算/报价金额）
-      const req = {
-        order_no: order.order_no || '',
-        invoice_type: oldInvoice.invoice_type || '电子普通发票',
-        title_type: oldInvoice.title_type || 'company',
-        title: normalizeText(oldInvoice.title),
-        tax_no: normalizeText(oldInvoice.tax_no),
-        email: normalizeText(oldInvoice.email),
-        amount: Number(order.total_price || 0)
-      }
-      if (!req.title) return { code: -1, msg: '缺少发票抬头，无法开票' }
-      if (req.title_type === 'company' && !req.tax_no) return { code: -1, msg: '企业抬头缺少税号' }
-      if (!(req.amount > 0)) return { code: -1, msg: '开票金额需大于 0，请先发布报价/确认结算金额' }
-
-      // 调用服务商开票（未对接时抛错，不会误判成功）
-      const result = await callInvoiceProvider(req)
-
-      const now = Date.now()
-      const invoiceInfo = {
-        ...oldInvoice,
-        need_invoice: true,
-        status: '已开具',
-        invoice_no: normalizeText(result && result.invoice_no) || oldInvoice.invoice_no || '',
-        invoice_date: normalizeText(result && result.invoice_date) || oldInvoice.invoice_date || '',
-        invoice_url: normalizeText(result && (result.invoice_url || result.pdf_url)) || oldInvoice.invoice_url || '',
-        issued_time: now,
-        issued_channel: 'provider',
-        update_time: now
-      }
-      const upd = await db.collection('cicada_orders').doc(order_id).update({ invoice_info: invoiceInfo, update_time: now })
-      if (!upd.updated) return { code: -1, msg: '工单更新失败' }
-      await logOrderEvent({
-        order,
-        action: 'issue_invoice',
         actor: currentAdmin,
         before: { invoice_info: oldInvoice },
         after: { invoice_info: invoiceInfo }
@@ -4456,7 +4376,7 @@ module.exports = {
   async getSettlementList(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'view_settlement')
-      const { paymentStatus = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
+      const { paymentStatus = '', paymentMethod = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
       const matchCond = {
@@ -4464,6 +4384,11 @@ module.exports = {
         quote_status: dbCmd.in(['issued', 'confirmed', 'rejected'])
       }
       if (paymentStatus) matchCond.payment_status = paymentStatus
+      if (paymentMethod === 'corporate') {
+        matchCond.payment_method = dbCmd.in(['offline_transfer', 'bank_transfer'])
+      } else if (paymentMethod === 'wechat_pay') {
+        matchCond.payment_method = 'wechat_pay'
+      }
       const fallback = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
       // 整批一次换取凭证临时链接，避免每单一次 getTempFileURL 的 N+1
       const settlementProofIds = []
@@ -5073,6 +4998,8 @@ module.exports = {
         const order = await findOrderByNo(orderNo)
         if (!order) { summary.fail += 1; summary.errors.push({ orderNo, reason: '工单不存在' }); continue }
         if (order.status === 'cancelled') { summary.fail += 1; summary.errors.push({ orderNo, reason: '已取消工单不可开票' }); continue }
+        const invoiceBlockReason = getInvoiceRequestBlockReason(order)
+        if (invoiceBlockReason) { summary.fail += 1; summary.errors.push({ orderNo, reason: invoiceBlockReason }); continue }
         const oldInvoice = order.invoice_info || {}
         const invoiceInfo = {
           ...oldInvoice,

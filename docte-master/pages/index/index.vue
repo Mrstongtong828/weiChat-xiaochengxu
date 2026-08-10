@@ -505,8 +505,8 @@
 				<view class="invoice-hero">
 					<view class="invoice-hero-icon"><view class="glyph glyph-invoice"><view class="glyph-extra"></view></view></view>
 					<view>
-						<text>电子发票自助办理</text>
-						<text>维修完成后可在线申请，支持查看申请、审核、开票状态与电子发票链接。</text>
+						<text>对公转账开票申请</text>
+						<text>对公款项核销后可提交开票资料，财务人工开具并登记发票信息。</text>
 					</view>
 				</view>
 				<view class="invoice-status-board">
@@ -3002,6 +3002,7 @@ const normalizeOrder = (item = {}) => {
 		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',
 		authorizationTime: merged.authorizationTime || merged.authorization_time || '',
 		paymentStatus,
+		paymentMethod: merged.paymentMethod || merged.payment_method || '',
 		paymentRejectReason: merged.paymentRejectReason || merged.payment_reject_reason || '',
 		quoteDetail,
 		quoteItems,
@@ -4102,7 +4103,11 @@ const getPaymentMeta = (order = {}) => {
 	if (order.quoteStatus === 'rejected') return { label: '无需付款', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 无需支付维修费用。` }
 	if (isWarrantyFreeOrder(order)) return { label: '质保免收费', tone: 'ok', desc: '本次维修费用由质保承担，无需微信支付或上传付款凭证。' }
 	if (!getQuoteTotal(order)) return { label: '待报价', tone: 'muted', desc: '报价金额确认后，可微信支付；企业客户也可上传对公转账凭证。' }
-	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
+	if (order.paymentStatus === 'paid') {
+		return ['offline_transfer', 'bank_transfer'].includes(order.paymentMethod)
+			? { label: '已核销', tone: 'ok', desc: '对公款项已由财务确认到账，可提交开票资料。' }
+			: { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
+	}
 	if (order.paymentStatus === 'rejected') return { label: '已驳回', tone: 'warn', desc: order.paymentRejectReason ? `转账凭证被驳回：${order.paymentRejectReason}` : '转账凭证被驳回，请核对后重新上传。' }
 	if (proofs.length || order.paymentStatus === 'uploaded') return { label: '待核销', tone: 'warn', desc: '凭证已留痕，等待财务核对到账。' }
 	return { label: '待支付', tone: 'warn', desc: '可直接微信支付；企业客户可走对公转账并上传凭证。' }

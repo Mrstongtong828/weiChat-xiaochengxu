@@ -5,6 +5,7 @@ const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 const { getMiniStatusBucket } = require('./order-status')
+const { getInvoiceRequestBlockReason, isCorporateTransferPayment } = loadInvoicePolicyModule()
 const {
   PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES,
   PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES,
@@ -110,6 +111,14 @@ function loadPaymentProofModule() {
     return require('cicada-payment-proof')
   } catch (packageError) {
     return require('../common/cicada-payment-proof')
+  }
+}
+
+function loadInvoicePolicyModule() {
+  try {
+    return require('cicada-invoice-policy')
+  } catch (packageError) {
+    return require('../common/cicada-invoice-policy')
   }
 }
 
@@ -1903,7 +1912,7 @@ module.exports = {
       const user = await verifyUserToken(token)
       const res = await db.collection('cicada_orders')
         .where({ user_id: user._id, is_deleted: db.command.neq(true) })
-        .field({ status: true, total_price: true, payment_status: true, invoice_info: true })
+        .field({ status: true, total_price: true, payment_status: true, payment_method: true, invoice_info: true })
         .limit(1000)
         .get()
 
@@ -1926,7 +1935,7 @@ module.exports = {
         const invoiceInfo = order.invoice_info || {}
         const invoiceStatus = normalizeText(invoiceInfo.status)
         const invoiceClosed = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收'].includes(invoiceStatus)
-        if (hasPayableAmount && isPaymentConfirmedStatus(paymentStatus) && !invoiceInfo.need_invoice && !invoiceClosed) {
+        if (hasPayableAmount && isCorporateTransferPayment(order.payment_method) && isPaymentConfirmedStatus(paymentStatus) && !invoiceInfo.need_invoice && !invoiceClosed) {
           todo.invoice += 1
         }
       })
@@ -2742,10 +2751,8 @@ module.exports = {
       const order = await findOwnedOrder(user._id, targetOrderId)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (order.status === 'cancelled') return { code: -1, msg: '已取消工单不可申请开票' }
-      const billable = Number(order.total_price || 0) > 0 && isPaymentConfirmedStatus(order.payment_status)
-      if (!billable) {
-        return { code: -1, msg: '仅已付款或已核款工单可申请开票' }
-      }
+      const invoiceBlockReason = getInvoiceRequestBlockReason(order)
+      if (invoiceBlockReason) return { code: -1, msg: invoiceBlockReason }
       const oldInvoiceStatus = normalizeText((order.invoice_info || {}).status)
       if (['开具中', '已开具', '已寄出', '已签收'].includes(oldInvoiceStatus)) {
         return { code: -1, msg: '发票已进入开具流程，如需修改请联系客服' }

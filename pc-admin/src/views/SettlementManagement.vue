@@ -10,6 +10,8 @@
       </div>
     </div>
 
+    <CorporateAccountDetails class="settlement-account" :account="corporateAccount" />
+
     <div class="settlement-toolbar">
       <el-input v-model="filters.keyword" clearable placeholder="搜索工单号 / 客户 / 手机号" style="width: 260px;" @keyup.enter="loadSettlements"></el-input>
       <el-select v-model="filters.paymentStatus" placeholder="付款状态" style="width: 150px;">
@@ -18,6 +20,11 @@
         <el-option label="待核销" value="uploaded"></el-option>
         <el-option label="已付款" value="paid"></el-option>
         <el-option label="已退款" value="refunded"></el-option>
+      </el-select>
+      <el-select v-model="filters.paymentMethod" placeholder="付款方式" style="width: 150px;">
+        <el-option label="全部方式" value=""></el-option>
+        <el-option label="微信支付" value="wechat_pay"></el-option>
+        <el-option label="对公支付" value="corporate"></el-option>
       </el-select>
       <el-button type="primary" plain @click="loadSettlements">查询</el-button>
       <el-tooltip content="对账/开票数据已统一到「财务中心 · 四流台账导出」" placement="top">
@@ -42,7 +49,7 @@
         <template #default="{ row }">¥{{ Number(row.total_price || 0).toFixed(2) }}</template>
       </el-table-column>
       <el-table-column label="付款方式" width="120">
-        <template #default="{ row }">{{ (row.payment_proofs || []).length ? '对公凭证' : '微信/待付款' }}</template>
+        <template #default="{ row }">{{ getPaymentMethodLabel(row.payment_method) }}</template>
       </el-table-column>
       <el-table-column label="凭证数" width="90" align="center">
         <template #default="{ row }">{{ (row.payment_proofs || []).length }}</template>
@@ -96,6 +103,9 @@ import { reactive, ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getSettlementList } from '../api/settlement.js'
+import { getSettings } from '../api/admin.js'
+import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
+import { getPaymentMethodLabel, resolveCorporateAccount } from '../config/corporateAccount.js'
 
 const router = useRouter()
 const rows = ref([])
@@ -103,7 +113,8 @@ const loading = ref(false)
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-const filters = reactive({ keyword: '', paymentStatus: '' })
+const filters = reactive({ keyword: '', paymentStatus: '', paymentMethod: '' })
+const corporateAccount = ref(resolveCorporateAccount())
 const getToken = () => localStorage.getItem('adminToken')
 
 const paymentText = (status = 'pending') => ({ pending: '待付款', uploaded: '待核销', paid: '已付款', refunded: '已退款' }[status] || '待付款')
@@ -124,6 +135,7 @@ const loadSettlements = async () => {
     const data = await getSettlementList(getToken(), {
       keyword: filters.keyword,
       paymentStatus: filters.paymentStatus,
+      paymentMethod: filters.paymentMethod,
       page: page.value,
       pageSize: pageSize.value
     })
@@ -141,12 +153,24 @@ const goWorkOrder = (row) => {
 }
 // 付款核销/确认已统一到工单详情（单一真相入口），此处仅展示与跳转
 
+const loadCorporateAccount = async () => {
+  try {
+    corporateAccount.value = resolveCorporateAccount(await getSettings(getToken()))
+  } catch (error) {
+    corporateAccount.value = resolveCorporateAccount()
+  }
+}
+
 watch([page, pageSize], loadSettlements)
-onMounted(loadSettlements)
+onMounted(() => {
+  loadCorporateAccount()
+  loadSettlements()
+})
 </script>
 
 <style scoped>
 .settlement-page { min-height: 520px; }
+.settlement-account { margin-top: 16px; }
 .settlement-toolbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 18px; flex-wrap: wrap; }
 .settlement-export-hint { font-size: 12px; color: #909399; cursor: help; padding: 0 4px; }
 .pager { margin-top: 16px; justify-content: flex-end; }
