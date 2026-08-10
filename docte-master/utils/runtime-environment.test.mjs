@@ -5,6 +5,7 @@ import { disableRuntimeVConsole, isPcWebViewEnvironment } from './runtime-enviro
 
 test('PC WebView detection excludes real mobile devices', () => {
 	assert.equal(isPcWebViewEnvironment({ platform: 'devtools', deviceType: 'pc' }, {}), true)
+	assert.equal(isPcWebViewEnvironment({ platform: 'devtools', deviceType: 'phone', system: 'iOS 19' }, {}), false)
 	assert.equal(isPcWebViewEnvironment({ platform: 'windows', deviceType: 'pc' }, {}), true)
 	assert.equal(isPcWebViewEnvironment({ platform: 'android', deviceType: 'phone', system: 'Android 15' }, {}), false)
 	assert.equal(isPcWebViewEnvironment({ platform: 'ios', deviceType: 'phone', system: 'iOS 19' }, {}), false)

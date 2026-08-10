@@ -17,7 +17,9 @@ export const isPcWebViewEnvironment = (systemInfo = getRuntimeSystemInfo(), glob
 	const hostEnvironment = normalizeRuntimeValue(systemInfo.host && systemInfo.host.env)
 	const userAgent = normalizeRuntimeValue(globalObject && globalObject.navigator && globalObject.navigator.userAgent)
 
-	if (/devtools/.test(`${platform} ${hostEnvironment}`)) return true
+	if (/devtools/.test(`${platform} ${hostEnvironment}`)) {
+		return !/^(phone|pad|tablet)$/.test(deviceType)
+	}
 	if (/^(pc|desktop)$/.test(deviceType)) return true
 	if (/windows|macos|mac os|linux/.test(`${platform} ${system}`)) return true
 	return Boolean(userAgent) && !/android|iphone|ipad|ipod|mobile/.test(userAgent)

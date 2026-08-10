@@ -1142,27 +1142,6 @@
 				<view v-else-if="warrantyDoc.content" class="doc-paper">
 					<rich-text :nodes="warrantyDoc.content"></rich-text>
 				</view>
-				<view class="module-section-head single"><text>保修期限</text></view>
-				<view class="white-list-card">
-					<view v-for="item in warrantyDurations" :key="item.name" class="list-row">
-						<text>{{ item.name }}</text>
-						<text>{{ item.duration }}</text>
-					</view>
-				</view>
-				<view class="module-section-head single"><text>保修范围</text></view>
-				<view class="text-card">
-					<view v-for="(item, index) in warrantyRanges" :key="item" class="number-line">
-						<text>{{ index + 1 }}</text>
-						<text>{{ item }}</text>
-					</view>
-				</view>
-				<view class="module-section-head single"><text>增值服务</text></view>
-				<view class="white-list-card">
-					<view v-for="item in warrantyServices" :key="item.title" class="service-line">
-						<view class="service-line-icon"><view :class="['glyph', 'glyph-' + item.icon]"><view class="glyph-extra"></view></view></view>
-						<view><text>{{ item.title }}</text><text>{{ item.desc }}</text></view>
-					</view>
-				</view>
 				<view v-if="!warrantyHasPolicyDocument && !warrantyDoc.content" class="doc-paper warranty-paper">
 					<text class="paper-title">保修政策</text>
 					<view v-for="section in warrantyTerms" :key="section.title" class="paper-section">
@@ -1837,8 +1816,8 @@
 			<view class="qr-modal" @click.stop>
 				<text class="modal-close tap" @click="showQr = false">×</text>
 				<image class="qr-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-				<text class="qr-title">关注官方公众号</text>
-				<text class="qr-subtitle">获取最新维修指南 / 售后政策</text>
+				<text class="qr-title">CICADA 服务号</text>
+				<text class="qr-subtitle">微信扫码关注，获取维修指南与售后支持</text>
 				<view class="qr-image-wrap">
 					<image
 						class="qr-image"
@@ -2361,27 +2340,6 @@ const maybeShowHomeGuidePopup = async () => {
 	}
 }
 
-const warrantyDurations = [
-	{ name: '综合治疗椅', duration: '整机 1 年 · 主气路 3 年' },
-	{ name: '高速/低速手机', duration: '机芯 6 个月 · 外壳 1 年' },
-	{ name: '超声洁牙机', duration: '整机 1 年' },
-	{ name: '根管马达', duration: '整机 2 年' },
-	{ name: '光固化机', duration: '整机 1 年 · 灯头 6 个月' }
-]
-
-const warrantyRanges = [
-	'在保修期内，因产品自身材料、工艺或装配缺陷导致的故障，免费维修。',
-	'人为损坏（摔砸/进液/拆改）不在保修范围。',
-	'已超出保修期的，按照配件成本与工时收费，价格表事先确认。',
-	'所有维修配件均为原厂部件，确保品质一致。'
-]
-
-const warrantyServices = [
-	{ icon: 'truck', title: '全国寄修', desc: '顺丰到付 · 全程可追踪' },
-	{ icon: 'phone', title: '1 对 1 工程师', desc: '专属服务 · 售后无忧' },
-	{ icon: 'invoice', title: '发票协助', desc: '增值税普通 / 专用发票' }
-]
-
 const warrantyTerms = [
 	{
 		title: '一、保修时间计算方式：',
@@ -2502,7 +2460,7 @@ const customerService = ref({
 })
 
 const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
-const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
+const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'
 const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
 
 const wechatInfo = ref({
@@ -6700,8 +6658,12 @@ const openOfficialAccountProfile = () => {
 }
 
 const openCicadaServiceAccountProfile = () => {
+	if (isPcWebView) {
+		showQr.value = true
+		return
+	}
 	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
-		fallbackMessage: isPcWebView ? '当前电脑端暂不支持直接打开服务号' : '当前版本暂不支持直接打开服务号'
+		fallbackMessage: '当前版本暂不支持直接打开服务号'
 	})
 }
 
@@ -10220,8 +10182,6 @@ onUnmounted(() => {
 .repair-form-card,
 .select-card,
 .timeline-card,
-.white-list-card,
-.text-card,
 .doc-paper,
 .step-card,
 .feedback-card,
@@ -14159,108 +14119,9 @@ onUnmounted(() => {
 	align-items: flex-start;
 }
 
-.white-list-card,
-.text-card,
 .doc-paper,
 .step-card {
 	overflow: hidden;
-}
-
-.list-row {
-	min-height: 92rpx;
-	padding: 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 20rpx;
-	border-bottom: 2rpx solid #F1F5FB;
-	box-sizing: border-box;
-}
-
-.list-row:last-child {
-	border-bottom: none;
-}
-
-.list-row text:first-child {
-	font-size: 28rpx;
-	font-weight: 600;
-	color: #0F1F3A;
-}
-
-.list-row text:last-child {
-	font-size: 24rpx;
-	font-weight: 600;
-	color: #0A4FB8;
-	text-align: right;
-}
-
-.text-card {
-	padding: 24rpx 28rpx;
-}
-
-.number-line {
-	padding: 12rpx 0;
-	display: flex;
-	align-items: flex-start;
-	gap: 20rpx;
-	font-size: 26rpx;
-	line-height: 1.7;
-	color: #324563;
-}
-
-.number-line text:first-child {
-	width: 36rpx;
-	height: 36rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	border-radius: 999rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
-	font-size: 22rpx;
-	font-weight: 700;
-}
-
-.service-line {
-	padding: 28rpx;
-	display: flex;
-	align-items: center;
-	gap: 24rpx;
-	border-bottom: 2rpx solid #F1F5FB;
-}
-
-.service-line:last-child {
-	border-bottom: none;
-}
-
-.service-line-icon {
-	width: 72rpx;
-	height: 72rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	border-radius: 20rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
-}
-
-.service-line > view:last-child {
-	display: flex;
-	flex-direction: column;
-	gap: 4rpx;
-}
-
-.service-line > view:last-child text:first-child {
-	font-size: 27rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-}
-
-.service-line > view:last-child text:last-child {
-	font-size: 23rpx;
-	color: #6B7C97;
 }
 
 .doc-paper {
@@ -14278,20 +14139,6 @@ onUnmounted(() => {
 	line-height: 1.8;
 	color: #1F2A3D;
 	word-break: break-word;
-}
-
-.warranty-section-card {
-	margin-top: 20rpx;
-	padding: 8rpx 26rpx 26rpx;
-	border-radius: 24rpx;
-	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
-	box-sizing: border-box;
-}
-
-.warranty-section-content {
-	padding: 8rpx 4rpx 8rpx;
-	font-size: 26rpx;
 }
 
 .warranty-module .dual-actions {

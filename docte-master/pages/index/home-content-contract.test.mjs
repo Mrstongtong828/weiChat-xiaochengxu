@@ -8,7 +8,6 @@ const standaloneLoginSource = readFileSync(new URL('../login/index.vue', import.
 
 test('保修政策和收费指南保留旧版完整本地兜底', () => {
 	assert.match(source, /三重保修承诺/)
-	assert.match(source, /const warrantyDurations = \[/)
 	assert.match(source, /const warrantyTerms = \[/)
 	assert.match(source, /四、维修续保/)
 	assert.match(source, /paperTitle: '思科达维修收费指南'/)
@@ -18,6 +17,8 @@ test('保修政策和收费指南保留旧版完整本地兜底', () => {
 	const warrantyTemplate = source.slice(source.indexOf("activeModule === 'warranty'"), source.indexOf('v-else-if="isDocModule"'))
 	const documentTemplate = source.slice(source.indexOf('v-else-if="isDocModule"'), source.indexOf("activeModule === 'products'"))
 	assert.doesNotMatch(warrantyTemplate, /warranty-hero/)
+	assert.doesNotMatch(warrantyTemplate, /保修期限|保修范围|增值服务|warrantyDurations|warrantyRanges|warrantyServices|white-list-card|text-card|service-line/)
+	assert.doesNotMatch(source, /const warrantyDurations = \[|const warrantyRanges = \[|const warrantyServices = \[/)
 	assert.doesNotMatch(documentTemplate, /fees-hero|收费公开透明|免费检测 · 先报后修 · 无隐形消费/)
 	assert.match(documentTemplate, /v-if="activeModule !== 'fees'" class="doc-hero"/)
 })
@@ -34,9 +35,11 @@ test('首页两个跳转继续严格分离，历史修复保持不变', () => {
 	assert.match(source, /const PRODUCT_VIDEO_LINK = 'https:\/\/mp\.weixin\.qq\.com\/mp\/homepage\?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'/)
 	assert.match(source, /openProductVideoLink[\s\S]*?pages-sub\/webview/)
 	assert.match(source, /const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'/)
-	assert.match(source, /const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'/)
-	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{/)
+	assert.match(source, /const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'/)
+	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?if \(isPcWebView\) \{[\s\S]*?showQr\.value = true[\s\S]*?return[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{/)
 	assert.match(source, /wx\.openOfficialAccountProfile\(\{[\s\S]*?username: targetUsername/)
+	assert.match(source, /<text class="qr-title">CICADA 服务号<\/text>/)
+	assert.match(source, /:src="cicadaAssets\.qrWechat"[\s\S]*?show-menu-by-longpress/)
 	assert.doesNotMatch(source, /v-if="showOfficial"|fallbackToQr|showOfficial\.value/)
 	assert.doesNotMatch(source, /CICADA 服务号暂时无法打开/)
 
@@ -46,6 +49,14 @@ test('首页两个跳转继续严格分离，历史修复保持不变', () => {
 	assert.match(loginSource, /<text class="login-brand-title">售后服务中心<\/text>/)
 	assert.match(loginSource, /:disabled="loading \|\| locked \|\| cooldownSeconds > 0"/)
 	assert.doesNotMatch(loginSource, /class="login-error"|props[^]*error/)
+})
+
+test('投诉建议仅在请求进行中防止重复点击，不使用提交频次限制', () => {
+	const block = source.slice(source.indexOf('const submitFeedback = async'), source.indexOf('const doWechatLogin'))
+	assert.match(block, /if \(feedbackSubmitting\.value\) return/)
+	assert.match(block, /feedbackSubmitting\.value = true/)
+	assert.match(block, /finally \{[\s\S]*?feedbackSubmitting\.value = false/)
+	assert.doesNotMatch(block, /操作过于频繁|cooldown|rateLimit|throttl|debounc/i)
 })
 
 test('报修产品名称和型号支持其他手写并同步到提交字段', () => {
