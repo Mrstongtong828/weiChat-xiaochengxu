@@ -6,9 +6,7 @@ const TOKEN_EXPIRE = 7 * 24 * 3600 * 1000 // 7天
 const RATE_LIMITS = {
   // 登录按稳定客户端分桶，同时保留共享出口 IP 总量保护。
   login: { windowMs: 60 * 1000, max: 20 },
-  login_network: { windowMs: 60 * 1000, max: 120 },
-  feedback_submit: { windowMs: 60 * 1000, max: 20 },
-  feedback_day: { windowMs: 24 * 60 * 60 * 1000, max: 100 }
+  login_network: { windowMs: 60 * 1000, max: 120 }
 }
 
 function genToken() {
@@ -570,20 +568,17 @@ module.exports = {
       if (!['投诉', '建议'].includes(feedbackType)) return { code: -1, msg: '反馈类型不正确' }
       if (!feedbackContent) return { code: -1, msg: '反馈内容不能为空' }
       if (feedbackContent.length > 500) return { code: -1, msg: '反馈内容不能超过500字' }
-      await checkRateLimit('feedback_submit', user._id, RATE_LIMITS.feedback_submit)
-      await checkRateLimit('feedback_day', user._id, RATE_LIMITS.feedback_day)
-      const linkedOrderNo = normalizeText(rel_order_no).slice(0, 50)
-      if (linkedOrderNo) {
+      const requestedOrderNo = normalizeText(rel_order_no).slice(0, 50)
+      let linkedOrderNo = ''
+      if (requestedOrderNo) {
         const orderRes = await db.collection('cicada_orders')
           .where(db.command.or([
-            { order_no: linkedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) },
-            { _id: linkedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) }
+            { order_no: requestedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) },
+            { _id: requestedOrderNo, user_id: user._id, is_deleted: db.command.neq(true) }
           ]))
           .limit(1)
           .get()
-        if (!orderRes.data || !orderRes.data.length) {
-          return { code: -1, msg: '关联工单不存在或无权限' }
-        }
+        if (orderRes.data && orderRes.data.length) linkedOrderNo = requestedOrderNo
       }
       const res = await db.collection('cicada_feedbacks').add({
         user_id: user._id,
