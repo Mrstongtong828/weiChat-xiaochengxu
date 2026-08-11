@@ -731,7 +731,8 @@ module.exports = {
         userId: user._id,
         role: user.role,
         mustChangePassword: Boolean(user.must_change_password),
-        isAdmin: user.role === 'admin',
+        // Legacy clients use isAdmin for administrator-level actions; superadmin has the same access.
+        isAdmin: ['admin', 'superadmin'].includes(user.role),
         isEngineer: user.role === 'engineer',
         isFinance: user.role === 'finance',
         isSupport: user.role === 'support',

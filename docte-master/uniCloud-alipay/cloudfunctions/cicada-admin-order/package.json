@@ -6,6 +6,7 @@
     "cicada-express-provider": "file:../common/cicada-express-provider",
     "cicada-invoice-policy": "file:../common/cicada-invoice-policy",
     "cicada-order-workflow": "file:../common/cicada-order-workflow",
+    "cicada-warranty-policy": "file:../common/cicada-warranty-policy",
     "cicada-subscription-message": "file:../common/cicada-subscription-message",
     "cicada-wechat-pay-crypto": "file:../common/cicada-wechat-pay-crypto"
   },

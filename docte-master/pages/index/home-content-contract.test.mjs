@@ -9,7 +9,7 @@ const standaloneLoginSource = readFileSync(new URL('../login/index.vue', import.
 test('保修政策和收费指南保留旧版完整本地兜底', () => {
 	assert.match(source, /三重保修承诺/)
 	assert.match(source, /const warrantyTerms = \[/)
-	assert.match(source, /四、维修续保/)
+	assert.match(source, /五、维修续保/)
 	assert.match(source, /paperTitle: '思科达维修收费指南'/)
 	assert.match(source, /免费检测：所有寄修设备均享免费检测/)
 	assert.match(source, /hasRenderablePolicyDocument/)
@@ -31,17 +31,15 @@ test('首页保养视频在接口空值和异常时回退到原始视频', () =>
 	assert.ok(existsSync(new URL('../../static/maintenance-w201l-cover.jpg', import.meta.url)))
 })
 
-test('首页两个跳转继续严格分离，历史修复保持不变', () => {
-	assert.match(source, /const PRODUCT_VIDEO_LINK = 'https:\/\/mp\.weixin\.qq\.com\/mp\/homepage\?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'/)
-	assert.match(source, /openProductVideoLink[\s\S]*?pages-sub\/webview/)
+test('首页公众号与产品视频优先使用官方能力，PC 失败时降级到二维码', () => {
 	assert.match(source, /const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'/)
 	assert.match(source, /const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'/)
-	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?if \(isPcWebView\) \{[\s\S]*?showQr\.value = true[\s\S]*?return[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{/)
+	assert.match(source, /openProductVideoLink[\s\S]*?openCicadaServiceAccountProfile\(\)/)
+	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{[\s\S]*?onFallback:/)
 	assert.match(source, /wx\.openOfficialAccountProfile\(\{[\s\S]*?username: targetUsername/)
-	assert.match(source, /<text class="qr-title">CICADA 服务号<\/text>/)
-	assert.match(source, /:src="cicadaAssets\.qrWechat"[\s\S]*?show-menu-by-longpress/)
-	assert.doesNotMatch(source, /v-if="showOfficial"|fallbackToQr|showOfficial\.value/)
-	assert.doesNotMatch(source, /CICADA 服务号暂时无法打开/)
+	assert.match(source, /if \(!isPcWebView\) return false[\s\S]*?showOfficialAccountQr\.value = true/)
+	assert.match(source, /v-if="showOfficialAccountQr"[\s\S]*?电脑端暂不支持直接打开，请使用微信扫码进入服务号/)
+	assert.doesNotMatch(source, /PRODUCT_VIDEO_LINK|pages-sub\/webview/)
 
 	const serialField = source.slice(source.indexOf('<text><text class="required-star">*</text>产品序列号</text>'), source.indexOf('<!-- SN 识别结果 -->'))
 	assert.match(serialField, /<input v-model="product\.serial"/)

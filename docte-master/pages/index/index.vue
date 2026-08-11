@@ -140,7 +140,7 @@
 									<text>{{ product.media.length }}/3</text>
 								</view>
 								<view class="media-grid">
-									<view v-for="media in product.media" :key="media.id" class="media-thumb">
+									<view v-for="media in product.media" :key="media.id" class="media-thumb tap" @click="previewRepairMedia(index, media)">
 										<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
 										<view v-else class="media-video">
 											<image v-if="media.coverPath" class="media-image" :src="media.coverPath" mode="aspectFill"></image>
@@ -1822,23 +1822,14 @@
 			</view>
 		</view>
 
-		<view v-if="showQr" class="modal-mask" @click="showQr = false">
-			<view class="qr-modal" @click.stop>
-				<text class="modal-close tap" @click="showQr = false">×</text>
-				<image class="qr-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-				<text class="qr-title">CICADA 服务号</text>
-				<text class="qr-subtitle">微信扫码关注，获取维修指南与售后支持</text>
-				<view class="qr-image-wrap">
-					<image
-						class="qr-image"
-						:src="cicadaAssets.qrWechat"
-						mode="aspectFill"
-						show-menu-by-longpress
-					></image>
+		<view v-if="showOfficialAccountQr" class="service-account-qr-mask" @click="showOfficialAccountQr = false">
+			<view class="service-account-qr-modal" @click.stop>
+				<text class="service-account-qr-close tap" @click="showOfficialAccountQr = false">×</text>
+				<text class="service-account-qr-title">CICADA 服务号</text>
+				<view class="service-account-qr-image-wrap">
+					<image class="service-account-qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill"></image>
 				</view>
-				<view class="qr-hint">
-					<text>长按图片即可识别二维码或保存图片</text>
-				</view>
+				<text class="service-account-qr-note">电脑端暂不支持直接打开，请使用微信扫码进入服务号</text>
 			</view>
 		</view>
 
@@ -1911,7 +1902,7 @@ import { cicadaAssets } from '@/config/cicada-assets'
 import homeTopBackground from '@/static/home-top-background.jpg'
 import companyIntroHeader from '@/static/company-intro-header-v2.jpg'
 import maintenanceW201lCover from '@/static/maintenance-w201l-cover.jpg'
-import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
+import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid, requestWechatLoginCode } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
 import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
@@ -1960,7 +1951,7 @@ import {
 	getMyDevices,
 	updateRepairOutboundLogistics
 } from '@/api/repair'
-import { formatInvoiceDisplayText, getInvoiceMeta, getInvoiceStatusKey, invoiceFlow, shouldShowInvoiceEntry } from './composables/invoiceFlow'
+import { formatInvoiceDisplayText, getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
 import { downloadCloudFile, getCloudTempFileURL } from '@/utils/cloud.js'
 import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { normalizePolicyHtml } from '@/utils/policyHtml.js'
@@ -2043,7 +2034,7 @@ const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
 
 const copied = ref('')
-const showQr = ref(false)
+const showOfficialAccountQr = ref(false)
 const showRepairTools = ref(false)
 const uploadPrivacyVisible = ref(false)
 const uploadPrivacyHtml = ref('')
@@ -2355,33 +2346,37 @@ const warrantyTerms = [
 	{
 		title: '一、保修时间计算方式：',
 		lines: [
-			'客户提供购买凭证，以凭证上的购买时间计算，凭证无售出单位盖章或填写信息不完整的不予保修。',
-			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
-			'客户在思科达售后小程序有产品注册，以注册填写的购买凭证时间来计算。',
-			'如不能提供任何凭证，则以出厂时间加 1 个月来计算。',
-			'保修期限以产品说明书中所述为准。'
+			'全品类整机统一质保12个月。优先以有效购机发票签收日期作为起算日。',
+			'无法提供有效发票时，以SN对应出厂日期顺延30天作为起算日。',
+			'后台录入的质保截止日期优先于月数推算，系统会保留起算依据供售后追溯。'
 		]
 	},
 	{
-		title: '二、以下状况不属于保修范围：',
+		title: '二、质保期内免费维修范围：',
 		lines: [
-			'未按说明书进行安装、操作和维修。',
-			'错误使用配件或使用非公司配件造成损坏。',
-			'非正常的化学、电力、电解损坏及摔、碰伤。',
-			'过度使用或用于牙科以外的其它科目。',
-			'因使用、维护、保管不当造成损坏。',
-			'不适当的操作或非制造商认可的人员对手机进行错误的维修。'
+			'申请免费维修须同时满足：设备仍在12个月质保有效期内，且检测确认属于原厂生产、装配或硬件质量故障。',
+			'免费范围包括工厂检测费、工时费、故障原厂配件及维修完成后的单程回寄运费。'
 		]
 	},
 	{
-		title: '三、不提供售后服务情形',
+		title: '三、以下状况不属于保修范围：',
 		lines: [
-			'产品序列号被人为故意破坏、假标签、仿制等产品。',
-			'在淘宝网、拼多多、微店等平台上购买的「思科达产品」且未授权的商家销售的产品。',
-			'针对以上情形，本公司不提供任何技术支持及售后服务。'
+			'摔落、磕碰、进水、液体浸泡、消毒不当、电压不稳或违规接电造成的损坏。',
+			'长期超负荷打磨、违规夹持非标准车针或使用非原厂配件造成的损坏。',
+			'用户私自拆解、第三方维修、替换非原厂认证核心部件。',
+			'原厂防伪保修标签或SN被撕毁、磨损、篡改，导致产品身份无法核验。',
+			'雷击、水灾、火灾等不可抗力，以及运输途中未保价造成的破损或丢失。'
 		]
 	},
-	{ title: '四、维修续保', lines: ['所有维修品，同一故障问题，更换同样的零件，非人为因素，续保三个月。'] }
+	{
+		title: '四、寄修物流及运费权责',
+		lines: [
+			'质保期内免费维修：客户承担寄往厂家的运费，厂家承担修复后寄回用户的单程运费。',
+			'过保或人为损坏：维修产生的双向往返快递运费由客户承担。',
+			'贵重设备建议寄送时选择保价；未保价运输造成的破损或丢失由快递公司理赔。'
+		]
+	},
+	{ title: '五、维修续保', lines: ['付费维修更换的全新原厂配件，同一故障、同一更换件且非人为因素，单独续保三个月。'] }
 ]
 
 const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-invoice']
@@ -2400,7 +2395,7 @@ const docFallbacks = {
 		paperTitle: '思科达维修收费指南',
 		content: '',
 		sections: [
-			{ title: '一、收费构成', lines: ['配件费：按照思科达原厂配件官方指导价收取。', '工时费：根据维修难度及工程师等级核算，公开透明。', '物流费：保修期内非人为故障往返运费由我司承担（顺丰到付）。'] },
+			{ title: '一、收费构成', lines: ['配件费：按照思科达原厂配件官方指导价收取。', '工时费：根据维修难度及工程师等级核算，公开透明。', '物流费：保修期内非人为质量故障由客户承担寄入厂家运费，厂家承担维修完成后的单程回寄运费；过保或人为损坏的往返运费由客户承担。'] },
 			{ title: '二、核心原则', lines: ['免费检测：所有寄修设备均享免费检测，未维修不收取任何检测费用。', '先报后修：工程师检测后出具正式报价单，经客户在线确认后方动工维修。', '拒绝隐形消费：所有收费项目均在报价单中列明，无额外附加费。'] },
 			{ title: '三、质保说明', lines: ['所有维修更换的配件（非人为因素）均享受 90 天的质保续期服务。'], marker: '' }
 		]
@@ -2479,7 +2474,6 @@ const customerService = ref({
 
 const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
 const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'
-const PRODUCT_VIDEO_LINK = 'https://mp.weixin.qq.com/mp/homepage?__biz=MzIwNzYyNTI2Nw==&hid=40&sn=d1cbc102c21504684064130ba9fb7bd6&scene=18'
 
 const wechatInfo = ref({
 	qrcodeUrl: cicadaAssets.qrWechat,
@@ -3341,7 +3335,7 @@ const orderTabs = computed(() => [
 
 const invoiceTodoOrders = computed(() => orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))))
 const invoiceIssuedOrders = computed(() => orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued'))
-const accountMenus = computed(() => menus.filter((item) => item.go !== 'invoices' || shouldShowInvoiceEntry(orderList.value)))
+const accountMenus = computed(() => menus)
 const invoiceTabs = computed(() => [
 	`待开票 ${invoiceTodoOrders.value.length}`,
 	`已开票 ${invoiceIssuedOrders.value.length}`
@@ -3820,16 +3814,6 @@ const getDetailAttachmentUrl = (attachment = {}) => {
 	return getPreviewUrl(attachment)
 }
 
-const openProductVideoLink = () => {
-	uni.navigateTo({
-		url: `/pages-sub/webview/index?title=${encodeURIComponent('产品视频')}&url=${encodeURIComponent(PRODUCT_VIDEO_LINK)}`,
-		fail: (error) => {
-			console.warn('open product video page failed:', error)
-			uni.showToast({ title: '产品视频暂时无法打开', icon: 'none' })
-		}
-	})
-}
-
 const getDetailAttachmentCoverUrl = (attachment = {}) => (
 	attachment.coverUrl || attachment.cover_url || attachment.coverPath || attachment.thumbTempFilePath || ''
 )
@@ -4264,8 +4248,8 @@ const payRepairQuote = (order = {}) => {
 	uni.showModal({
 		title: '确认并支付',
 		content: `确认维修报价 ${formatMoney(getQuoteTotal(order))}，并使用微信支付？`,
-		confirmText: '去支付',
-		cancelText: '再看看',
+		confirmText: '继续支付',
+		cancelText: '确认取消',
 		success: async ({ confirm }) => {
 			if (!confirm) return
 			let loadingShown = false
@@ -4275,7 +4259,9 @@ const payRepairQuote = (order = {}) => {
 				paymentSubmitting.value = true
 				uni.showLoading({ title: '创建支付' })
 				loadingShown = true
-				const paymentOrder = await createRepairWechatPay(order.recordId || order.id)
+				// 临时 code 对应当前操作微信的 openid，避免用历史登录态为另一账号下预支付单。
+				const payerCode = await requestWechatLoginCode()
+				const paymentOrder = await createRepairWechatPay(order.recordId || order.id, payerCode)
 				const paymentParams = paymentOrder.payment || {}
 				if (!paymentParams.timeStamp || !paymentParams.nonceStr || !paymentParams.package || !paymentParams.paySign) {
 					throw new Error('暂时无法支付，请稍后重试')
@@ -4990,7 +4976,6 @@ const openModule = (id, type) => {
 	if (id === 'repair' && !hasLoginToken()) {
 		previousModule.value = activeModule.value
 		activeModule.value = id
-		showQr.value = false
 		repairStep.value = 1
 		prefillRepairAddress()
 		loadRepairProductOptions()
@@ -5000,7 +4985,6 @@ const openModule = (id, type) => {
 
 	previousModule.value = activeModule.value
 	activeModule.value = id
-	showQr.value = false
 
 	if (policyDocKeys.has(id)) {
 		refreshPolicyDocument(id).catch((error) => console.warn(`${id} policy refresh failed:`, error))
@@ -5613,6 +5597,40 @@ const uploadRepairVideo = async (index) => {
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
+}
+
+const previewRepairMedia = (productIndex, media = {}) => {
+	const product = repairProducts.value[productIndex]
+	if (!product) return
+
+	const url = getPreviewUrl(media)
+	if (!url) {
+		uni.showToast({ title: '附件暂不可预览', icon: 'none' })
+		return
+	}
+
+	if (media.type === 'image') {
+		const urls = product.media
+			.filter((item) => item.type === 'image')
+			.map(getPreviewUrl)
+			.filter(Boolean)
+		uni.previewImage({ current: url, urls })
+		return
+	}
+
+	if (media.type === 'video' && uni.previewMedia) {
+		uni.previewMedia({
+			sources: [{ url, type: 'video' }],
+			current: 0,
+			fail: (error) => {
+				console.warn('preview repair video failed:', error)
+				uni.showToast({ title: '视频播放失败，请稍后重试', icon: 'none' })
+			}
+		})
+		return
+	}
+
+	uni.showToast({ title: '当前微信版本暂不支持视频预览', icon: 'none' })
 }
 
 const addRepairMedia = (index) => {
@@ -6672,9 +6690,13 @@ const normalizeOfficialAccountUsername = (value) => String(value || '').trim()
 
 const launchOfficialAccountProfile = (username, options = {}) => {
 	const fallbackMessage = options.fallbackMessage || '当前版本暂不支持直接打开公众号'
+	const handleFallback = () => {
+		if (typeof options.onFallback === 'function' && options.onFallback()) return
+		uni.showToast({ title: fallbackMessage, icon: 'none' })
+	}
 	const targetUsername = normalizeOfficialAccountUsername(username)
 	if (!targetUsername) {
-		uni.showToast({ title: fallbackMessage, icon: 'none' })
+		handleFallback()
 		return
 	}
 	// #ifdef MP-WEIXIN
@@ -6685,14 +6707,14 @@ const launchOfficialAccountProfile = (username, options = {}) => {
 				const errMsg = String(error.errMsg || error.message || error || '')
 				console.warn('open official account failed:', error)
 				if (/cancel/i.test(errMsg)) return
-				uni.showToast({ title: fallbackMessage, icon: 'none' })
+				handleFallback()
 			}
 		})
 		return
 	}
 	// #endif
 
-	uni.showToast({ title: fallbackMessage, icon: 'none' })
+	handleFallback()
 }
 
 const openOfficialAccountProfile = () => {
@@ -6701,13 +6723,18 @@ const openOfficialAccountProfile = () => {
 }
 
 const openCicadaServiceAccountProfile = () => {
-	if (isPcWebView) {
-		showQr.value = true
-		return
-	}
 	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
-		fallbackMessage: '当前版本暂不支持直接打开服务号'
+		fallbackMessage: '当前版本暂不支持直接打开服务号',
+		onFallback: () => {
+			if (!isPcWebView) return false
+			showOfficialAccountQr.value = true
+			return true
+		}
 	})
+}
+
+const openProductVideoLink = () => {
+	openCicadaServiceAccountProfile()
 }
 
 const makePhoneCall = () => {
@@ -9532,7 +9559,7 @@ onUnmounted(() => {
 	text-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.1);
 }
 
-.modal-mask {
+.service-account-qr-mask {
 	position: fixed;
 	inset: 0;
 	z-index: 75;
@@ -9544,20 +9571,53 @@ onUnmounted(() => {
 	box-sizing: border-box;
 }
 
-.official-modal,
-.qr-modal {
+.service-account-qr-modal {
 	position: relative;
-	width: 600rpx;
-	border-radius: 36rpx;
+	width: 560rpx;
+	max-width: 100%;
+	padding: 52rpx 40rpx 40rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	border-radius: 24rpx;
 	background: #FFFFFF;
 	box-sizing: border-box;
 }
 
-.official-modal {
-	padding: 48rpx 36rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
+.service-account-qr-close {
+	position: absolute;
+	top: 18rpx;
+	right: 24rpx;
+	font-size: 40rpx;
+	line-height: 1;
+	color: #94A3B8;
+}
+
+.service-account-qr-title {
+	font-size: 32rpx;
+	font-weight: 700;
+	line-height: 1.3;
+	color: #0F1F3A;
+}
+
+.service-account-qr-image-wrap {
+	margin: 28rpx 0 24rpx;
+	padding: 16rpx;
+	border-radius: 16rpx;
+	background: #F3F8FF;
+}
+
+.service-account-qr-image {
+	display: block;
+	width: 360rpx;
+	height: 360rpx;
+	border-radius: 8rpx;
+}
+
+.service-account-qr-note {
+	font-size: 22rpx;
+	line-height: 1.5;
+	color: #6B7280;
 	text-align: center;
 }
 
@@ -9581,71 +9641,6 @@ onUnmounted(() => {
 	margin-top: 32rpx;
 }
 
-.qr-modal {
-	padding: 48rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-}
-
-.modal-close {
-	position: absolute;
-	top: 20rpx;
-	right: 28rpx;
-	z-index: 2;
-	font-size: 44rpx;
-	font-weight: 300;
-	line-height: 1;
-	color: #94A3B8;
-}
-
-.modal-btn {
-	height: 84rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999rpx;
-	font-size: 26rpx;
-	font-weight: 600;
-	box-sizing: border-box;
-}
-
-.modal-btn-ghost {
-	flex: 1;
-	border: 2rpx solid #BFD6F7;
-	background: #FFFFFF;
-	color: #324563;
-}
-
-.modal-btn-primary {
-	flex: 1.5;
-	gap: 10rpx;
-	background: linear-gradient(180deg, #3A86FF 0%, #1E6FE0 100%);
-	color: #FFFFFF;
-	font-weight: 700;
-}
-
-.qr-logo {
-	width: 380rpx;
-	height: 114rpx;
-	margin-bottom: 28rpx;
-}
-
-.qr-title {
-	font-size: 28rpx;
-	font-weight: 700;
-	line-height: 1.25;
-	color: #0F1F3A;
-}
-
-.qr-subtitle {
-	margin-top: 8rpx;
-	font-size: 23rpx;
-	line-height: 1.3;
-	color: #94A3B8;
-}
-
 .qr-image-wrap {
 	margin: 32rpx auto;
 	padding: 20rpx;
@@ -9659,32 +9654,6 @@ onUnmounted(() => {
 	width: 360rpx;
 	height: 360rpx;
 	border-radius: 12rpx;
-}
-
-.qr-hint {
-	margin-top: 20rpx;
-	padding: 20rpx 32rpx;
-	background: #F3F8FF;
-	border-radius: 16rpx;
-}
-
-.qr-hint text {
-	font-size: 24rpx;
-	color: #6B7280;
-}
-
-.qr-action {
-	width: 100%;
-	height: 84rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999rpx;
-	background: linear-gradient(180deg, #3A86FF 0%, #1E6FE0 100%);
-	color: #FFFFFF;
-	font-size: 28rpx;
-	font-weight: 600;
-	box-sizing: border-box;
 }
 
 .glyph,

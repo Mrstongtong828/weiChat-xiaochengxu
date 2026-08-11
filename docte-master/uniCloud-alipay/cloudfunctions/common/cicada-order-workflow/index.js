@@ -57,6 +57,25 @@ const PERMISSIONS = {
   handle_feedback: ['admin', 'support']
 }
 
+function getRepairStartBlockReason(order = {}) {
+  const quoteStatus = normalizeStatus(order.quote_status || order.quoteStatus)
+  const authorizationStatus = normalizeStatus(order.authorization_status || order.authorizationStatus)
+  const paymentStatus = normalizeStatus(order.payment_status || order.paymentStatus)
+  const chargeType = normalizeStatus(order.charge_type || order.chargeType)
+  const warrantyStatus = normalizeStatus(order.warranty_status || order.warrantyStatus)
+  const total = Number(order.total_price || order.totalPrice || 0) || 0
+  if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
+  if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
+  if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
+  if (total <= 0 && (
+    paymentStatus !== 'not_required'
+    || chargeType !== 'free'
+    || order.in_warranty !== true
+    || !['in_warranty', 'extended'].includes(warrantyStatus)
+  )) return '零元维修必须先完成质保免收费核验'
+  return ''
+}
+
 function normalizeRole(role = '') {
   return String(role || '').trim()
 }
@@ -156,5 +175,6 @@ module.exports = {
   getAllowedStatusTransitions,
   canTransitionOrderStatus,
   assertOrderStatusTransition,
-  getWorkflowConfigForRole
+  getWorkflowConfigForRole,
+  getRepairStartBlockReason
 }

@@ -1,6 +1,7 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
-const { assertOrderStatusTransition, canTransitionOrderStatus } = loadWorkflowModule()
+const { assertOrderStatusTransition, canTransitionOrderStatus, getRepairStartBlockReason } = loadWorkflowModule()
+const warrantyPolicy = loadWarrantyPolicyModule()
 const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
@@ -106,6 +107,14 @@ function sanitizeOrderItemInput(item = {}) {
   return data
 }
 
+function loadWarrantyPolicyModule() {
+  try {
+    return require('cicada-warranty-policy')
+  } catch (packageError) {
+    return require('../common/cicada-warranty-policy')
+  }
+}
+
 function loadPaymentProofModule() {
   try {
     return require('cicada-payment-proof')
@@ -170,6 +179,33 @@ function getWechatAppConfig() {
   const secret = getEnvValue('WX_SECRET', 'WECHAT_SECRET')
   if (!appId || !secret) throw new Error('未配置 WX_APPID/WX_SECRET')
   return { appId, secret }
+}
+
+function buildWechatSessionErrorMessage(data = {}) {
+  const errcode = Number(data.errcode || 0)
+  const errmsg = normalizeText(data.errmsg)
+  const suffix = errcode ? `（${errcode}${errmsg ? `：${errmsg}` : ''}）` : ''
+  if ([40013, 40125].includes(errcode)) return `微信小程序 AppID 或 Secret 配置不正确${suffix}`
+  if ([40029, 40163].includes(errcode)) return `微信支付身份凭证已失效，请重新支付${suffix}`
+  if (errcode === 45011) return `微信身份校验过于频繁，请稍后再试${suffix}`
+  return errmsg || '无法确认当前微信支付账号'
+}
+
+async function getWechatPaymentPayerOpenid(code, payConfig) {
+  const payerCode = normalizeText(code)
+  if (!payerCode) throw new Error('无法确认当前微信支付账号，请重新进入小程序后再试')
+  const appConfig = getWechatAppConfig()
+  if (appConfig.appId !== payConfig.appId) {
+    throw new Error('微信登录 AppID 与支付 AppID 配置不一致，请联系客服')
+  }
+  const response = await uniCloud.httpclient.request(
+    `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appConfig.appId)}&secret=${encodeURIComponent(appConfig.secret)}&js_code=${encodeURIComponent(payerCode)}&grant_type=authorization_code`,
+    { method: 'GET', dataType: 'json' }
+  )
+  const data = response.data || {}
+  const openid = normalizeText(data.openid)
+  if (!openid) throw new Error(buildWechatSessionErrorMessage(data))
+  return openid
 }
 
 async function getWechatAccessToken() {
@@ -471,44 +507,14 @@ function buildRepairRequestFingerprint(request = {}) {
     .digest('hex')
 }
 
-// 将 YYYY-MM-DD 加上 N 个月，返回 YYYY-MM-DD；无效输入返回空串
-function addMonthsToDateStr(dateStr, months) {
-  const s = normalizeText(dateStr)
-  const m = Number(months)
-  if (!s || !Number.isFinite(m) || m <= 0) return ''
-  const d = new Date(`${s}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return ''
-  d.setMonth(d.getMonth() + m)
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${day}`
-}
-
-// 推算质保到期日：优先已存截止日；否则仅在明确填写月数时由购机日期推算。
-function deriveWarrantyExpire(device = {}) {
-  const stored = normalizeText(device.warranty_expire)
-  if (stored) return stored
-  const months = Number(device.warranty_months)
-  if (!Number.isFinite(months) || months <= 0) return ''
-  return addMonthsToDateStr(device.buy_date || device.buyDate, months)
-}
-
-// 计算在保状态，返回 { inWarranty, warrantyStatus }
-function computeWarrantyStatus(expireStr, extWarranty) {
-  let inWarranty = false
-  let warrantyStatus = 'unknown'
-  const expire = normalizeText(expireStr)
-  if (expire) {
-    const expireTs = new Date(`${expire}T23:59:59`).getTime()
-    if (!Number.isNaN(expireTs)) {
-      inWarranty = Date.now() <= expireTs
-      warrantyStatus = inWarranty
-        ? (Array.isArray(extWarranty) && extWarranty.length ? 'extended' : 'in_warranty')
-        : 'expired'
-    }
+// 统一质保口径：发票签收日优先，无发票时使用 SN 出厂日 + 30 天；旧数据继续兼容采购日期。
+function computeWarrantyState(source = {}) {
+  const state = warrantyPolicy.computeWarrantyState(source)
+  return {
+    expire: state.expire,
+    inWarranty: state.in_warranty,
+    warrantyStatus: state.warranty_status
   }
-  return { inWarranty, warrantyStatus }
 }
 
 function formatTimelineTime(value) {
@@ -1428,7 +1434,8 @@ async function markOrderWechatPaid(order = {}, transaction = {}) {
   }
 
   // 支付成功优先落账；仅当状态机允许时才推进到 fixing，避免 pending/sent 支付后整单失败
-  if (canTransitionOrderStatus(order.status, 'fixing') && order.status !== 'fixing') {
+  const repairStartBlockReason = getRepairStartBlockReason({ ...order, payment_status: 'paid' })
+  if (!repairStartBlockReason && canTransitionOrderStatus(order.status, 'fixing') && order.status !== 'fixing') {
     updateData.status = 'fixing'
   }
 
@@ -1527,10 +1534,14 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
   if (!userId || !Array.isArray(items) || !items.length) return
   const now = Date.now()
   const customerId = normalizeText(orderMeta.customer_id)
+  const warrantyOrder = orderMeta.warranty_order || null
   for (const item of items) {
     const sn = normalizeText(item && (item.sn || item.serial))
     if (!sn) continue // 无 SN 不沉淀，避免脏档案
     const snKey = normalizeSn(sn)
+    const warrantyExtension = warrantyOrder
+      ? warrantyPolicy.buildRepairWarrantyExtension(warrantyOrder, [item], now)
+      : null
     try {
       // 优先按规范化键匹配（容错横杠/大小写/空格）；存量未回填时回退精确 SN
       let existRes = await db.collection('cicada_user_devices')
@@ -1562,6 +1573,9 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
           sn_normalized: snKey,
           repair_count: Number(existing.repair_count || 0) + (orderMeta.countRepair ? 1 : 0)
         }
+        if (warrantyExtension) {
+          updatePayload.ext_warranty = warrantyPolicy.appendWarrantyExtension(existing.ext_warranty, warrantyExtension)
+        }
         // 回填 customer_id，让小程序设备与后台 CRM 设备台账合流
         if (customerId && !normalizeText(existing.customer_id)) updatePayload.customer_id = customerId
         await db.collection('cicada_user_devices').doc(existing._id).update(updatePayload)
@@ -1574,17 +1588,38 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
           ...baseFields,
           ...trackFields,
           repair_count: orderMeta.countRepair ? 1 : 0,
+          ...(warrantyExtension ? { ext_warranty: [warrantyExtension] } : {}),
           source: 'mini_repair',
           create_time: now
         })
       }
     } catch (e) {
-      // 忽略单条设备沉淀失败
+      if (warrantyExtension && orderMeta.strict_warranty_extension === true) throw e
+      // 普通报修登记时，单条设备沉淀失败不阻断主流程。
     }
   }
 }
 
-// 下单时计算订单级质保结论：逐个 SN 优先查已建档设备，其次由提交的购机日期推算。
+async function applyClientRepairWarrantyExtension(user = {}, order = {}) {
+  let customerId = normalizeText(order.customer_id)
+  if (!customerId) {
+    try { customerId = await ensureCustomerForUser(user) } catch (customerErr) { customerId = '' }
+  }
+  const itemKeys = [order._id, order.order_no].filter(Boolean)
+  const itemsRes = itemKeys.length
+    ? await db.collection('cicada_order_items').where({ order_id: db.command.in(itemKeys) }).get()
+    : { data: [] }
+  await upsertUserDevicesFromItems(user, itemsRes.data || [], {
+    order_no: order.order_no,
+    order_id: order._id,
+    status: 'completed',
+    customer_id: customerId,
+    warranty_order: order,
+    strict_warranty_extension: true
+  })
+}
+
+// 下单时计算订单级质保结论：只信任已建档设备上的服务端质保资料。
 // 返回 { in_warranty, warranty_status, charge_type }；charge_type 仅为默认建议，
 // 人为损坏等不在保情形由工程师在报价时最终判定（可覆盖）。
 async function computeOrderWarranty(userId, items = []) {
@@ -1605,16 +1640,13 @@ async function computeOrderWarranty(userId, items = []) {
         device = null
       }
     }
-    // 已建档设备用其质保数据；客户端不可伪造 warranty_expire/months。
-    // 未建档时仅保留购机日期，质保期限等待后台/CRM 补录。
-    const source = device || {
-      buy_date: item && item.buy_date
-    }
-    const expire = deriveWarrantyExpire(source)
-    if (!expire) continue
+    // 客户端提交的购机日期只作登记信息，不能作为自动判保凭证。
+    // 历史采购日期兼容仅适用于已建档、由服务端维护的设备资料。
+    const source = device || {}
+    const warrantyState = computeWarrantyState(source)
+    if (!warrantyState.expire) continue
     anyEvaluated = true
-    const { inWarranty } = computeWarrantyStatus(expire, source.ext_warranty)
-    if (inWarranty) anyInWarranty = true
+    if (warrantyState.inWarranty) anyInWarranty = true
   }
   if (!anyEvaluated) {
     return { in_warranty: false, warranty_status: 'unknown', charge_type: 'pending' }
@@ -2146,8 +2178,7 @@ module.exports = {
       }
 
       // 优先用已存到期日；无则由购机日期+质保月数推算，使仅有购机日期的设备也能判定在保
-      const expireRaw = device ? deriveWarrantyExpire(device) : ''
-      const { inWarranty, warrantyStatus } = computeWarrantyStatus(expireRaw, device && device.ext_warranty)
+      const warrantyState = device ? computeWarrantyState(device) : { expire: '', inWarranty: false, warrantyStatus: 'unknown' }
 
       return {
         code: 0,
@@ -2158,9 +2189,12 @@ module.exports = {
           productCategory: device ? (device.product_category || '') : '',
           model: device ? (device.model || '') : '',
           buyDate: device ? (device.buy_date || '') : '',
-          warrantyExpire: expireRaw || '',
-          warrantyStatus,
-          inWarranty,
+          warrantyStartDate: device ? (device.warranty_start_date || '') : '',
+          invoiceReceivedDate: device ? (device.invoice_received_date || '') : '',
+          manufactureDate: device ? (device.manufacture_date || '') : '',
+          warrantyExpire: warrantyState.expire || '',
+          warrantyStatus: warrantyState.warrantyStatus,
+          inWarranty: warrantyState.inWarranty,
           maintenanceCycle: device ? (device.maintenance_cycle || '') : '',
           history
         }
@@ -2329,6 +2363,7 @@ module.exports = {
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (order.status === 'completed') {
+        await applyClientRepairWarrantyExtension(user, order)
         return { code: 0, data: { status: 'completed', ...exposeQuoteFields(order) } }
       }
       if (order.status !== 'shipped') {
@@ -2360,18 +2395,8 @@ module.exports = {
         after: { status: updateData.status }
       })
 
-      // 维修完成即沉淀/更新设备档案，带上 customer_id（旧单缺失时即时回填）
-      let customerId = normalizeText(order.customer_id)
-      if (!customerId) {
-        try { customerId = await ensureCustomerForUser(user) } catch (customerErr) { customerId = '' }
-      }
-      const itemKeys = [order._id, order.order_no].filter(Boolean)
-      const itemsRes = itemKeys.length
-        ? await db.collection('cicada_order_items').where({ order_id: db.command.in(itemKeys) }).get()
-        : { data: [] }
-      await upsertUserDevicesFromItems(user, itemsRes.data || [], {
-        order_no: order.order_no, order_id: order._id, status: 'completed', customer_id: customerId
-      })
+      // 维修完成即沉淀设备档案；写入失败会显式返回，重复确认时按工单ID幂等补写。
+      await applyClientRepairWarrantyExtension(user, order)
 
       // 与 admin 标记完成保持一致，只发送一次工单完成提醒。
       await sendOrderSubscription({ ...order, ...updateData }, 'order_completed', '维修已完成')
@@ -2461,20 +2486,8 @@ module.exports = {
           .get()
       ])
 
-      const now = Date.now()
       const list = (listRes.data || []).map(device => {
-        let warrantyStatus = 'unknown'
-        let inWarranty = false
-        const expireRaw = device.warranty_expire || ''
-        if (expireRaw) {
-          const expireTs = new Date(`${expireRaw}T23:59:59`).getTime()
-          if (!Number.isNaN(expireTs)) {
-            inWarranty = now <= expireTs
-            warrantyStatus = inWarranty
-              ? (Array.isArray(device.ext_warranty) && device.ext_warranty.length ? 'extended' : 'in_warranty')
-              : 'expired'
-          }
-        }
+        const warrantyState = computeWarrantyState(device)
         return {
           id: device._id,
           sn: device.sn || '',
@@ -2482,9 +2495,12 @@ module.exports = {
           productCategory: device.product_category || '',
           model: device.model || '',
           buyDate: device.buy_date || '',
-          warrantyExpire: expireRaw,
-          warrantyStatus,
-          inWarranty,
+          warrantyStartDate: device.warranty_start_date || '',
+          invoiceReceivedDate: device.invoice_received_date || '',
+          manufactureDate: device.manufacture_date || '',
+          warrantyExpire: warrantyState.expire,
+          warrantyStatus: warrantyState.warrantyStatus,
+          inWarranty: warrantyState.inWarranty,
           lastOrderNo: device.last_order_no || '',
           lastRepairStatus: device.last_repair_status || '',
           lastRepairTime: device.last_repair_time || 0,
@@ -2499,13 +2515,12 @@ module.exports = {
   },
 
   // 微信小程序支付：确认报价并创建预支付订单
-  async createWechatPayPayment({ token, order_id }) {
+  async createWechatPayPayment({ token, order_id, payer_code = '' }) {
     try {
       const user = await verifyUserToken(token)
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       assertOrderPayable(order)
-      if (!user.openid) return { code: -1, msg: '当前用户缺少微信 openid，请重新登录后再支付' }
       if (!['issued', 'confirmed'].includes(order.quote_status)) {
         return { code: -1, msg: '当前工单暂无可支付报价' }
       }
@@ -2520,12 +2535,15 @@ module.exports = {
       if (amountFen <= 0) return { code: -1, msg: '当前工单暂无待支付金额' }
 
       const payConfig = getWechatPayConfig()
+      const payerOpenid = await getWechatPaymentPayerOpenid(payer_code, payConfig)
       const existingOutTradeNo = normalizeOutTradeNo(order.wechat_pay_out_trade_no)
       const existingPrepayId = normalizeText(order.wechat_pay_prepay_id)
+      const existingPayerOpenid = normalizeText(order.wechat_pay_payer_openid)
       const existingAmountFen = Number(order.wechat_pay_amount || 0) || 0
       const existingCreatedAt = Number(order.wechat_pay_create_time || 0) || 0
       const existingPayAlive = existingOutTradeNo &&
         existingPrepayId &&
+        existingPayerOpenid === payerOpenid &&
         existingAmountFen === amountFen &&
         Date.now() - existingCreatedAt < 90 * 60 * 1000
       if (existingPayAlive) {
@@ -2552,7 +2570,7 @@ module.exports = {
           currency: 'CNY'
         },
         payer: {
-          openid: user.openid
+          openid: payerOpenid
         }
       }, payConfig)
 
@@ -2573,6 +2591,7 @@ module.exports = {
         payment_status: 'pending',
         wechat_pay_out_trade_no: outTradeNo,
         wechat_pay_prepay_id: data.prepay_id,
+        wechat_pay_payer_openid: payerOpenid,
         wechat_pay_amount: amountFen,
         wechat_pay_create_time: now,
         update_time: now

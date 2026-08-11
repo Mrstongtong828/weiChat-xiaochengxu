@@ -285,8 +285,10 @@
           <strong>质保信息（可后补）</strong>
           <el-tag :type="deviceWarrantyPreview.type" size="small">{{ deviceWarrantyPreview.label }}</el-tag>
         </div>
-        <p>质保月数和截止日期任选一种填写。填写采购日期 + 质保月数后系统自动计算；直接填写截止日期时以截止日期为准。</p>
-        <el-form-item label="质保月数"><el-input-number v-model="deviceForm.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" style="width:100%;" /></el-form-item>
+        <p>有效发票签收日优先；无发票时按SN出厂日期顺延30天起算。质保月数未填时统一按12个月计算。</p>
+        <el-form-item label="发票签收日"><el-date-picker v-model="deviceForm.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期" clearable style="width:100%;" /></el-form-item>
+        <el-form-item label="SN出厂日"><el-date-picker v-model="deviceForm.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时填写" clearable style="width:100%;" /></el-form-item>
+        <el-form-item label="整机质保"><span>统一12个月</span></el-form-item>
         <el-form-item label="质保到期"><el-date-picker v-model="deviceForm.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接选择截止日期" clearable style="width:100%;" /></el-form-item>
         <div class="warranty-preview">{{ deviceWarrantyPreview.detail }}</div>
       </div>
@@ -414,12 +416,13 @@ const hasCustomerPermission = (action, fallback) => {
   if (permissions && Object.prototype.hasOwnProperty.call(permissions, action)) return !!permissions[action]
   return fallback
 }
-const canCreate = computed(() => hasCustomerPermission('create', ['admin', 'support'].includes(currentRole)))
-const canEdit = computed(() => hasCustomerPermission('edit', ['admin', 'support'].includes(currentRole)))
-const canCancel = computed(() => hasCustomerPermission('cancel', currentRole === 'admin'))
-const canViewPhone = computed(() => hasCustomerPermission('view_phone', currentRole === 'admin'))
-const canDevice = computed(() => hasCustomerPermission('device', ['admin', 'engineer', 'support'].includes(currentRole)))
-const canExport = computed(() => hasCustomerPermission('export', currentRole === 'admin'))
+const hasFallbackRole = (...roles) => currentRole === 'superadmin' || roles.includes(currentRole)
+const canCreate = computed(() => hasCustomerPermission('create', hasFallbackRole('admin', 'support')))
+const canEdit = computed(() => hasCustomerPermission('edit', hasFallbackRole('admin', 'support')))
+const canCancel = computed(() => hasCustomerPermission('cancel', hasFallbackRole('admin')))
+const canViewPhone = computed(() => hasCustomerPermission('view_phone', hasFallbackRole('admin')))
+const canDevice = computed(() => hasCustomerPermission('device', hasFallbackRole('admin', 'engineer', 'support')))
+const canExport = computed(() => hasCustomerPermission('export', hasFallbackRole('admin')))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -595,13 +598,26 @@ const loadLogs = async () => { tabLoading.value = true; try { logs.value = await
 
 // ===== 设备弹窗 =====
 const deviceVisible = ref(false)
-const deviceForm = reactive({ _id: null, product_category: '', product_name: '', model: '', sn: '', purchase_channel: '', dealer_name: '', buy_date: '', warranty_months: null, warranty_expire: '', maintenance_cycle: '' })
+const deviceForm = reactive({ _id: null, product_category: '', product_name: '', model: '', sn: '', purchase_channel: '', dealer_name: '', buy_date: '', warranty_start_date: '', invoice_received_date: '', manufacture_date: '', warranty_months: null, warranty_expire: '', maintenance_cycle: '' })
 const addMonthsToDate = (dateStr, months) => {
   const amount = Number(months)
   if (!dateStr || !Number.isFinite(amount) || amount <= 0) return ''
   const date = new Date(`${dateStr}T00:00:00`)
   if (Number.isNaN(date.getTime())) return ''
+  const day = date.getDate()
+  date.setDate(1)
   date.setMonth(date.getMonth() + amount)
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(day, lastDay))
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+const addDaysToDate = (dateStr, days) => {
+  if (!dateStr) return ''
+  const date = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return ''
+  date.setDate(date.getDate() + Number(days || 0))
+  const pad = (value) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
@@ -614,10 +630,13 @@ const openWarrantyAlert = async (alert) => {
   openDevice(device)
 }
 const deviceWarrantyPreview = computed(() => {
-  const expire = deviceForm.warranty_expire || addMonthsToDate(deviceForm.buy_date, deviceForm.warranty_months)
+  const startDate = deviceForm.invoice_received_date
+    || (deviceForm.manufacture_date ? addDaysToDate(deviceForm.manufacture_date, 30) : '')
+    || deviceForm.warranty_start_date
+    || deviceForm.buy_date
+  const expire = deviceForm.warranty_expire || addMonthsToDate(startDate, 12)
   if (!expire) {
-    const missingDate = deviceForm.warranty_months && !deviceForm.buy_date
-    return { type: 'warning', label: '待补充', detail: missingDate ? '已填写质保月数，请再填写采购日期；也可以直接填写质保到期日。' : '当前不会自动判定保内或保外，后续可随时补充。' }
+    return { type: 'warning', label: '待补充', detail: '请填写发票签收日；无发票时填写SN出厂日，系统会顺延30天起算。' }
   }
   const active = Date.now() <= new Date(`${expire}T23:59:59`).getTime()
   return { type: active ? 'success' : 'danger', label: active ? '预计在保' : '预计过保', detail: `系统判定依据：质保截止 ${expire}` }
@@ -632,6 +651,9 @@ const openDevice = (row) => {
     purchase_channel: row ? (row.purchase_channel || '') : '',
     dealer_name: row ? (row.dealer_name || '') : '',
     buy_date: row ? (row.buy_date || '') : '',
+    warranty_start_date: row ? (row.warranty_start_date || '') : '',
+    invoice_received_date: row ? (row.invoice_received_date || '') : '',
+    manufacture_date: row ? (row.manufacture_date || '') : '',
     warranty_months: row && Number(row.warranty_months) > 0 ? Number(row.warranty_months) : null,
     warranty_expire: row ? (row.warranty_expire || '') : '',
     maintenance_cycle: row ? (row.maintenance_cycle || '') : ''
@@ -642,7 +664,7 @@ const saveDevice = async () => {
   if (!deviceForm.product_name) { ElMessage.warning('请填写设备名称'); return }
   saving.value = true
   try {
-    await saveCustomerDevice(detail._id, { ...deviceForm, warranty_months: Number(deviceForm.warranty_months) > 0 ? Number(deviceForm.warranty_months) : 0 })
+    await saveCustomerDevice(detail._id, { ...deviceForm, warranty_months: 12 })
     ElMessage.success('已保存')
     deviceVisible.value = false
     loadDevices()

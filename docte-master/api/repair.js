@@ -133,8 +133,11 @@ export const uploadRepairPaymentProof = (id, proof = {}) => {
   return getCloudObject().uploadPaymentProof(withToken({ ...normalizeOrderId(id), proof })).then(unwrapCloudResult)
 }
 
-export const createRepairWechatPay = (id) => {
-  return getCloudObject().createWechatPayPayment(withToken(normalizeOrderId(id))).then(unwrapCloudResult)
+export const createRepairWechatPay = (id, payerCode = '') => {
+  return getCloudObject().createWechatPayPayment(withToken({
+    ...normalizeOrderId(id),
+    payer_code: payerCode
+  })).then(unwrapCloudResult)
 }
 
 export const syncRepairWechatPay = (id, outTradeNo = '') => {

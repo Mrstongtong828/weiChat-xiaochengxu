@@ -54,9 +54,21 @@
       "bsonType": "string",
       "description": "采购/购买日期 YYYY-MM-DD"
     },
+    "warranty_start_date": {
+      "bsonType": "string",
+      "description": "保修起算日 YYYY-MM-DD，优先使用有效发票签收日"
+    },
+    "invoice_received_date": {
+      "bsonType": "string",
+      "description": "有效购机发票签收日期 YYYY-MM-DD"
+    },
+    "manufacture_date": {
+      "bsonType": "string",
+      "description": "SN 对应出厂日期 YYYY-MM-DD；无发票时起算日为出厂日+30天"
+    },
     "warranty_months": {
       "bsonType": "int",
-      "description": "可选整机质保月数；无默认值，与购买日期同时存在时可推算截止日"
+      "description": "整机质保月数；未填写时按统一12个月政策计算"
     },
     "warranty_expire": {
       "bsonType": "string",
@@ -72,7 +84,7 @@
     },
     "ext_warranty": {
       "bsonType": "array",
-      "description": "延保记录：[{months,order_no,new_expire,create_time}]"
+      "description": "延保记录：[{months,order_no,order_id,scope,fault_desc,part_codes,part_names,start_date,new_expire,create_time}]；维修延保 scope=同故障同更换件"
     },
     "create_time": {
       "bsonType": "timestamp"

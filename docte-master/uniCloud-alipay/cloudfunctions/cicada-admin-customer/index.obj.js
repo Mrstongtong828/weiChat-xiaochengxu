@@ -1,12 +1,21 @@
 const db = uniCloud.database()
 const dbCmd = db.command
 const { createAdminAuthError, toAdminErrorResponse, normalizeAdminAuthResult, isAdminTokenExpired } = loadAdminAuthModule()
+const warrantyPolicy = loadWarrantyPolicyModule()
 
 function loadAdminAuthModule() {
   try {
     return require('cicada-admin-auth')
   } catch (packageError) {
     return require('../common/cicada-admin-auth')
+  }
+}
+
+function loadWarrantyPolicyModule() {
+  try {
+    return require('cicada-warranty-policy')
+  } catch (packageError) {
+    return require('../common/cicada-warranty-policy')
   }
 }
 
@@ -136,38 +145,10 @@ function toTimestamp(dateStr) {
   return Number.isFinite(t) ? t : 0
 }
 
-// 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串
-function addMonthsToDateStr(dateStr, months) {
-  const s = normalizeText(dateStr)
-  const m = Number(months)
-  if (!s || !Number.isFinite(m) || m <= 0) return ''
-  const d = new Date(`${s}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return ''
-  d.setMonth(d.getMonth() + m)
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${day}`
-}
-
-// 计算设备实际质保到期（取基础质保与所有延保中的最晚值）与状态。
-// 仅在明确填写质保月数时才由采购日期推算；资料缺失保持 unknown，避免误判收费。
+// 计算设备实际质保到期与状态，和工单/小程序共用同一套起算及延保规则。
 function computeWarranty(device) {
-  let expire = normalizeText(device.warranty_expire)
-  const months = Number(device.warranty_months)
-  if (!expire && normalizeText(device.buy_date) && Number.isFinite(months) && months > 0) {
-    expire = addMonthsToDateStr(device.buy_date, months)
-  }
-  let expireTs = toTimestamp(expire)
-  const exts = Array.isArray(device.ext_warranty) ? device.ext_warranty : []
-  for (const ext of exts) {
-    const ts = toTimestamp(ext && ext.new_expire)
-    if (ts > expireTs) { expireTs = ts; expire = normalizeText(ext.new_expire) }
-  }
-  let status = 'unknown'
-  if (expireTs > 0) status = Date.now() <= expireTs ? 'in_warranty' : 'expired'
-  if (exts.length > 0 && status === 'in_warranty') status = 'extended'
-  return { effective_expire: expire, warranty_state: status }
+  const state = warrantyPolicy.computeWarrantyState(device)
+  return { effective_expire: state.expire, warranty_state: state.warranty_status }
 }
 
 async function writeLog(ctx, operator, action, target, detail) {
@@ -333,6 +314,9 @@ function buildWarrantyAlert(device, customer, now) {
     model: device.model || '',
     sn: device.sn || '',
     buy_date: device.buy_date || '',
+    warranty_start_date: device.warranty_start_date || '',
+    invoice_received_date: device.invoice_received_date || '',
+    manufacture_date: device.manufacture_date || '',
     warranty_months: Number(device.warranty_months || 0) || 0,
     warranty_expire: device.warranty_expire || '',
     effective_expire: warranty.effective_expire,
@@ -662,6 +646,9 @@ module.exports = {
         purchase_channel: d.purchase_channel || '',
         dealer_name: d.dealer_name || '',
         buy_date: d.buy_date || '',
+        warranty_start_date: d.warranty_start_date || '',
+        invoice_received_date: d.invoice_received_date || '',
+        manufacture_date: d.manufacture_date || '',
         warranty_months: Number(d.warranty_months || 0) || 0,
         warranty_expire: d.warranty_expire || '',
         maintenance_cycle: d.maintenance_cycle || '',
@@ -724,6 +711,15 @@ module.exports = {
         if (dup.data.length) return { code: -1, msg: `SN[${sn}]已被其他设备占用` }
       }
 
+      let existingDevice = null
+      if (dv._id) {
+        const existingDeviceRes = await db.collection('cicada_user_devices').doc(dv._id).get()
+        existingDevice = existingDeviceRes.data && existingDeviceRes.data[0]
+        if (!existingDevice || normalizeText(existingDevice.customer_id) !== customerId) {
+          return { code: -1, msg: '设备不存在或不属于当前客户' }
+        }
+      }
+
       const data = {
         product_category: normalizeText(dv.product_category),
         product_name: productName,
@@ -733,10 +729,15 @@ module.exports = {
         purchase_channel: normalizeText(dv.purchase_channel),
         dealer_name: normalizeText(dv.dealer_name),
         buy_date: normalizeText(dv.buy_date),
-        warranty_months: Number(dv.warranty_months || 0) || 0,
+        warranty_start_date: normalizeText(dv.warranty_start_date),
+        invoice_received_date: normalizeText(dv.invoice_received_date),
+        manufacture_date: normalizeText(dv.manufacture_date),
+        warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
         warranty_expire: normalizeText(dv.warranty_expire),
         maintenance_cycle: normalizeText(dv.maintenance_cycle),
-        ext_warranty: Array.isArray(dv.ext_warranty) ? dv.ext_warranty : [],
+        ext_warranty: Array.isArray(dv.ext_warranty)
+          ? dv.ext_warranty
+          : (Array.isArray(existingDevice && existingDevice.ext_warranty) ? existingDevice.ext_warranty : []),
         update_time: Date.now()
       }
 
@@ -846,6 +847,9 @@ module.exports = {
           productCategory: device ? (device.product_category || '') : '',
           model: device ? (device.model || '') : '',
           buyDate: device ? (device.buy_date || '') : '',
+          warrantyStartDate: device ? (device.warranty_start_date || '') : '',
+          invoiceReceivedDate: device ? (device.invoice_received_date || '') : '',
+          manufactureDate: device ? (device.manufacture_date || '') : '',
           warrantyMonths: device ? (Number(device.warranty_months || 0) || 0) : 0,
           warrantyExpire: warranty.effective_expire || '',
           warrantyStatus: warranty.warranty_state,

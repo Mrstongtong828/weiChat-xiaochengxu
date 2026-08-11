@@ -87,19 +87,18 @@
     </div>
 
     <div class="attention-strip">
-      <span class="attention-label">需要关注</span>
-      <div class="sla-board">
+      <span class="attention-label">处理状态</span>
+      <div class="status-summary-board">
       <el-button
-        v-for="item in slaCards"
+        v-for="item in statusSummaryCards"
         :key="item.key"
         text
-        class="sla-card"
-        :class="[`sla-card--${item.tone}`, { active: slaFilter === item.filter }]"
-        @click="applySlaFilter(item.filter)"
+        class="status-summary-card"
+        :class="[`status-summary-card--${item.tone}`, { active: wo.filter === item.filter }]"
+        @click="applyStatusFilter(item.filter)"
       >
         <span>{{ item.label }}</span>
         <strong>{{ item.count }}</strong>
-        <small>{{ item.desc }}</small>
       </el-button>
       </div>
     </div>
@@ -202,48 +201,43 @@
         <el-table-column v-if="isTableColumnVisible('adminRemark')" prop="adminRemark" label="内部备注" min-width="180" show-overflow-tooltip></el-table-column>
         <el-table-column v-if="isTableColumnVisible('printRemark')" prop="printRemark" label="随件留言" min-width="180" show-overflow-tooltip></el-table-column>
 
-        <el-table-column v-if="isTableColumnVisible('nextAction')" width="126">
+        <el-table-column v-if="isTableColumnVisible('progress')" width="180">
           <template #header>
-            <el-tooltip content="按当前状态、报价、付款和物流自动判断后台下一步要做什么" placement="top">
-              <span class="table-header-help">下一步动作</span>
+            <el-tooltip content="上方是系统建议动作；下方是当前工单状态，点击后仅显示允许流转到的状态" placement="top">
+              <span class="table-header-help">进度与下一步</span>
             </el-tooltip>
           </template>
           <template #default="{row}">
-            <div class="next-action-cell">
-              <el-tag :type="getNextAction(row).type" effect="light" round size="small">
-                {{ getNextAction(row).label }}
-              </el-tag>
-              <span>{{ getNextAction(row).desc }}</span>
-            </div>
-          </template>
-        </el-table-column>
-
-        <el-table-column v-if="isTableColumnVisible('status')" width="130">
-          <template #header>
-            <el-tooltip content="可点击状态标签快速推进工单进度" placement="top">
-              <span class="table-header-help">处理状态</span>
-            </el-tooltip>
-          </template>
-          <template #default="{row}">
-            <el-dropdown trigger="click" :disabled="!getAllowedStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
-              <span class="status-dropdown-trigger">
-                <el-tag
-                  :class="'status-tag status-' + row.status"
-                  :type="getStatusType(row.status)"
-                  effect="light"
-                  round
-                  size="small">
-                  {{ row.status }} <span v-if="getAllowedStatusOptions(row).length" class="status-dropdown-caret">▾</span>
+            <div class="progress-cell">
+              <div class="progress-next-action">
+                <el-tag :type="getNextAction(row).type" effect="light" round size="small">
+                  {{ getNextAction(row).label }}
                 </el-tag>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item v-for="status in getAllowedStatusOptions(row)" :key="status" :command="status">{{ status }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <div class="update-time" :class="{ 'is-overdue': getStatusDwell(row).level === 'warning' }">
-              {{ getStatusDwell(row).text }}
+                <span>{{ getNextAction(row).desc }}</span>
+              </div>
+              <div class="progress-current-status">
+                <span class="progress-current-label">当前</span>
+                <el-dropdown trigger="click" :disabled="!getAllowedStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
+                  <span class="status-dropdown-trigger">
+                    <el-tag
+                      :class="'status-tag status-' + row.status"
+                      :type="getStatusType(row.status)"
+                      effect="light"
+                      round
+                      size="small">
+                      {{ row.status }} <span v-if="getAllowedStatusOptions(row).length" class="status-dropdown-caret">▾</span>
+                    </el-tag>
+                  </span>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="status in getAllowedStatusOptions(row)" :key="status" :command="status">{{ status }}</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <span class="update-time" :class="{ 'is-overdue': getStatusDwell(row).level === 'warning' }">
+                  {{ getStatusDwell(row).text }}
+                </span>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -282,7 +276,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="128" fixed="right" align="right">
+        <el-table-column label="操作" width="136" fixed="right" align="right" class-name="operation-column" label-class-name="operation-column">
           <template #default="{row}">
             <div class="operation-actions">
               <el-tooltip content="打开工单详情，处理报价、付款、物流、发票和结案" placement="top">
@@ -569,6 +563,7 @@
                             target="_blank"
                             rel="noreferrer"
                             class="video-link"
+                            @click.prevent="openOrderVideo(video)"
                           >视频 {{ index + 1 }}</a>
                         </div>
                       </template>
@@ -618,12 +613,20 @@
                   </div>
                   <div class="warranty-entry-row">
                     <div>
-                      <span>质保月数（可选）</span>
-                      <el-input-number v-model="item.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" />
+                      <span>发票签收日</span>
+                      <el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期" clearable style="width:100%;" />
                     </div>
                     <div>
-                      <span>质保截止（可选）</span>
-                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="以此日期为准" clearable style="width:100%;" />
+                      <span>SN出厂日</span>
+                      <el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时使用" clearable style="width:100%;" />
+                    </div>
+                    <div>
+                      <span>质保月数</span>
+                      <span>统一12个月</span>
+                    </div>
+                    <div>
+                      <span>质保截止</span>
+                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接指定" clearable style="width:100%;" />
                     </div>
                     <p>{{ itemWarrantyPreview(item).detail }}</p>
                   </div>
@@ -667,7 +670,7 @@
                   <template v-if="item.video_urls && item.video_urls.length">
                     <p class="attachment-title">故障视频</p>
                     <div class="attachment-list">
-                      <a v-for="(video, index) in item.video_urls" :key="`video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" class="video-link">视频 {{ index + 1 }}</a>
+                      <a v-for="(video, index) in item.video_urls" :key="`video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" class="video-link" @click.prevent="openOrderVideo(video)">视频 {{ index + 1 }}</a>
                     </div>
                   </template>
                   <template v-if="item.media_urls && item.media_urls.length">
@@ -754,6 +757,10 @@
                     <el-tag effect="plain" :type="getQuotePartStockType(item)">库存 {{ item.stock ?? '-' }}</el-tag>
                     <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
                     <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
+                    <el-select v-model="item.deviceSn" :disabled="!canPerformOrderAction('issue_quote')" clearable placeholder="关联设备SN">
+                      <el-option v-for="sn in quoteDeviceSnOptions" :key="sn" :label="sn" :value="sn" />
+                    </el-select>
+                    <el-checkbox v-model="item.warrantyEligible" :disabled="!canPerformOrderAction('issue_quote')">全新原厂更换件</el-checkbox>
                     <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
                     <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote') || quoteForm.parts.length <= 1" @click="removeQuoteRow('parts', index)">删除</el-button>
                   </div>
@@ -803,7 +810,7 @@
                   <div class="quote-terms-grid">
                     <div class="quote-final-row">
                       <span>维修质保(月)</span>
-                      <el-input-number v-model="quoteForm.warrantyMonths" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :max="60" :step="1" controls-position="right" placeholder="0=沿用全局质保政策"></el-input-number>
+                      <span>符合条件的全新原厂更换件固定3个月</span>
                     </div>
                     <div class="quote-final-row">
                       <span>付款期限(天)</span>
@@ -1277,6 +1284,48 @@
     </template>
   </el-drawer>
 
+  <el-dialog
+    v-model="orderVideoDialogVisible"
+    title="故障视频"
+    width="min(720px, 92vw)"
+    align-center
+    destroy-on-close
+    class="order-video-dialog"
+    @closed="resetOrderVideo"
+  >
+    <div class="order-video-player-wrap">
+      <video
+        v-if="activeOrderVideoUrl"
+        :key="activeOrderVideoUrl"
+        :src="activeOrderVideoUrl"
+        class="order-video-player"
+        controls
+        autoplay
+        playsinline
+        preload="metadata"
+        @error="handleOrderVideoError"
+      ></video>
+      <el-alert
+        v-if="orderVideoError"
+        :title="orderVideoError"
+        type="warning"
+        show-icon
+        :closable="false"
+      ></el-alert>
+    </div>
+    <template #footer>
+      <a
+        v-if="activeOrderVideoUrl"
+        :href="activeOrderVideoUrl"
+        target="_blank"
+        rel="noreferrer"
+        download
+        class="video-download-link"
+      >视频无法播放时可下载原文件</a>
+      <el-button @click="orderVideoDialogVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="quickShipDialogVisible" title="快捷发货" width="400px" align-center @closed="resetQuickShipDialog">
     <el-form label-width="86px">
       <el-form-item label="物流公司" required>
@@ -1606,9 +1655,13 @@
               <el-form-item label="购买日期">
                 <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
               </el-form-item>
-              <el-form-item label="质保月数">
-                <el-input-number v-model="item.warranty_months" :min="0" :max="120" controls-position="right"></el-input-number>
+              <el-form-item label="发票签收日">
+                <el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期"></el-date-picker>
               </el-form-item>
+              <el-form-item label="SN出厂日">
+                <el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时填写"></el-date-picker>
+              </el-form-item>
+                <el-form-item label="整机质保"><span>统一12个月</span></el-form-item>
               <el-form-item label="质保到期日">
                 <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
               </el-form-item>
@@ -1642,7 +1695,7 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -2000,6 +2053,9 @@ const createManualOrderItem = () => ({
   product_model: '',
   sn: '',
   buy_date: '',
+  warranty_start_date: '',
+  invoice_received_date: '',
+  manufacture_date: '',
   warranty_months: 0,
   warranty_expire: '',
   fault_desc: '',
@@ -2142,6 +2198,9 @@ const lookupCreateOrderItemBySn = async (item) => {
     item.product_category = result.productCategory || item.product_category
     item.product_model = result.model || item.product_model
     item.buy_date = result.buyDate || item.buy_date
+    item.warranty_start_date = result.warrantyStartDate || item.warranty_start_date
+    item.invoice_received_date = result.invoiceReceivedDate || item.invoice_received_date
+    item.manufacture_date = result.manufactureDate || item.manufacture_date
     item.warranty_months = Number(result.warrantyMonths || item.warranty_months || 0) || 0
     item.warranty_expire = result.warrantyExpire || item.warranty_expire
     if (result.customerId && !createOrderForm.customer.customer_id) {
@@ -2203,13 +2262,13 @@ const submitCreateOrder = async () => {
       status: createOrderForm.status,
       ship_out_info: { ...createOrderForm.ship_out_info },
       ship_back_info: { ...createOrderForm.ship_back_info },
-      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item })),
+      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item, warranty_months: 12 })),
       admin_remark: createOrderForm.admin_remark
     }
     const result = await createAdminOrder(token, payload)
     createOrderDialogVisible.value = false
     wo.page = 1
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     ElMessage.success(`工单 ${result.order_no || ''} 创建成功`)
   } catch (error) {
     if (!error.__displayed) ElMessage.error(error.message || '新建工单失败')
@@ -2260,7 +2319,7 @@ const exportableFields = [
 
 const tableColumnStorageKey = 'pc-admin:work-order-visible-columns'
 const tableColumnStorageVersionKey = 'pc-admin:work-order-visible-columns-version'
-const tableColumnStorageVersion = '2'
+const tableColumnStorageVersion = '3'
 const tableColumnOptions = [
   { key: 'id', label: '工单号' },
   { key: 'reporter', label: '报修方信息' },
@@ -2284,12 +2343,11 @@ const tableColumnOptions = [
   { key: 'logistics', label: '物流信息' },
   { key: 'adminRemark', label: '内部备注' },
   { key: 'printRemark', label: '随件留言' },
-  { key: 'nextAction', label: '下一步动作' },
-  { key: 'status', label: '处理状态' },
+  { key: 'progress', label: '进度与下一步' },
   { key: 'invoice', label: '发票状态' },
   { key: 'sla', label: 'SLA' }
 ]
-const defaultTableColumnKeys = ['id', 'reporter', 'productName', 'productModel', 'productCode', 'fault', 'logistics', 'nextAction', 'status', 'invoice', 'sla']
+const defaultTableColumnKeys = ['id', 'reporter', 'productName', 'productModel', 'productCode', 'fault', 'logistics', 'progress', 'invoice', 'sla']
 const availableTableColumnKeys = new Set(tableColumnOptions.map(column => column.key))
 
 const readTableColumnKeys = () => {
@@ -2301,6 +2359,9 @@ const readTableColumnKeys = () => {
     }
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return [...defaultTableColumnKeys]
+    if (!parsed.includes('progress') && (parsed.includes('nextAction') || parsed.includes('status'))) {
+      parsed.push('progress')
+    }
     const visibleKeys = parsed.filter(key => availableTableColumnKeys.has(key))
     if (localStorage.getItem(tableColumnStorageVersionKey) !== tableColumnStorageVersion) {
       if (!visibleKeys.includes('id')) visibleKeys.unshift('id')
@@ -2336,6 +2397,7 @@ const activeLogisticsImportType = ref('return')
 const shipDate = ref(new Date().toISOString().slice(0, 10))
 const searchInvoiceStatus = ref('')
 const slaFilter = ref('')
+const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0, cancelled: 0 })
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
 const expectedBatchDeleteConfirmText = computed(() => `确认删除${selectedOrders.value.length}个工单`)
@@ -2351,20 +2413,46 @@ const loadWorkflowConfig = async () => {
   workflowConfig.value = await getWorkflowConfig(token)
 }
 
-const slaCards = computed(() => {
-  const overdue = orders.value.filter(order => order.slaInfo && order.slaInfo.overdue)
-  const critical = orders.value.filter(order => getSlaLevel(order) === 'critical')
-  const warning = orders.value.filter(order => getSlaLevel(order) === 'warning')
+const statusSummaryCards = computed(() => {
+  const counts = statusBreakdown.value
   return [
-    { key: 'overdue', label: '超时工单', count: overdue.length, desc: '当前页需优先处理', filter: 'overdue', tone: 'danger' },
-    { key: 'critical', label: '严重超时', count: critical.length, desc: '超过阈值 2 倍', filter: 'critical', tone: 'critical' },
-    { key: 'warning', label: '临近超时', count: warning.length, desc: '超过 SLA 阈值', filter: 'warning', tone: 'warning' },
-    { key: 'today', label: '今日待处理', count: orders.value.filter(order => ['已提交', '运输中', '已签收', '处理中'].includes(order.status)).length, desc: '未完成有效工单', filter: '', tone: 'info' }
+    { key: 'pending', label: '已提交', count: counts.pending, filter: '已提交', tone: 'pending' },
+    { key: 'sent', label: '运输中', count: counts.sent, filter: '运输中', tone: 'sent' },
+    { key: 'received', label: '已签收', count: counts.received, filter: '已签收', tone: 'received' },
+    { key: 'processing', label: '处理中', count: counts.inspecting + counts.fixing, filter: '处理中', tone: 'processing' },
+    { key: 'shipped', label: '已回寄', count: counts.shipped, filter: '已回寄', tone: 'shipped' },
+    { key: 'completed', label: '已完成', count: counts.completed, filter: '已完成', tone: 'completed' },
+    { key: 'cancelled', label: '已取消', count: counts.cancelled, filter: '已取消', tone: 'cancelled' }
   ]
 })
 
-const applySlaFilter = (filter) => {
-  slaFilter.value = slaFilter.value === filter ? '' : filter
+const applyStatusFilter = (filter) => {
+  wo.filter = wo.filter === filter ? '' : filter
+}
+
+const loadStatusBreakdown = async () => {
+  const token = localStorage.getItem('adminToken')
+  const data = await getStatistics(token, { includeStatusBreakdown: true })
+  const breakdown = data && data.statusBreakdown
+  if (!breakdown) return
+  statusBreakdown.value = {
+    pending: Number(breakdown.pending || 0),
+    sent: Number(breakdown.sent || 0),
+    received: Number(breakdown.received || 0),
+    inspecting: Number(breakdown.inspecting || 0),
+    fixing: Number(breakdown.fixing || 0),
+    shipped: Number(breakdown.shipped || 0),
+    completed: Number(breakdown.completed || 0),
+    cancelled: Number(breakdown.cancelled || 0)
+  }
+}
+
+const refreshStatusBreakdown = async () => {
+  try {
+    await loadStatusBreakdown()
+  } catch (error) {
+    ElMessage.warning(error.message || '处理状态统计加载失败')
+  }
 }
 
 const canPerformOrderAction = (action) => {
@@ -2419,6 +2507,20 @@ const getAllowedStatusOptions = (order = {}) => {
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
   return adminActionStatusOptions.filter(status => {
     const targetStatus = toEnglishStatus(status)
+    if (targetStatus === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
+      const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
+      const quoteConfirmed = (order.quoteStatus || order.quote_status) === 'confirmed'
+      const authorizationConfirmed = (order.authorizationStatus || order.authorization_status) === 'confirmed'
+      const paymentStatus = order.paymentStatus || order.payment_status
+      const warrantyStatus = order.warrantyStatus || order.warranty_status
+      const paymentReady = total > 0
+        ? paymentStatus === 'paid'
+        : paymentStatus === 'not_required'
+          && (order.chargeType || order.charge_type) === 'free'
+          && Boolean(order.inWarranty || order.in_warranty)
+          && ['in_warranty', 'extended'].includes(warrantyStatus)
+      if (!quoteConfirmed || !authorizationConfirmed || !paymentReady) return false
+    }
     if (currentStatus === 'received' && targetStatus === 'shipped') {
       const isRejectReturn = order.quoteStatus === 'rejected'
         || order.needsReturn === true
@@ -2538,6 +2640,7 @@ onMounted(async () => {
   // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
   if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
   loadOrders()
+  refreshStatusBreakdown()
 })
 
 onBeforeUnmount(() => {
@@ -2594,6 +2697,29 @@ watch(
 
 const drawerVisible = ref(false)
 const currentOrder = ref(null)
+const orderVideoDialogVisible = ref(false)
+const activeOrderVideoUrl = ref('')
+const orderVideoError = ref('')
+
+const openOrderVideo = (videoUrl) => {
+  const url = String(videoUrl || '').trim()
+  if (!url || url.startsWith('cloud://')) {
+    ElMessage.warning('视频地址暂不可用，请刷新工单后重试')
+    return
+  }
+  activeOrderVideoUrl.value = url
+  orderVideoError.value = ''
+  orderVideoDialogVisible.value = true
+}
+
+const handleOrderVideoError = () => {
+  orderVideoError.value = '浏览器未能播放该视频，请尝试下载原文件后查看。'
+}
+
+const resetOrderVideo = () => {
+  activeOrderVideoUrl.value = ''
+  orderVideoError.value = ''
+}
 const activeDrawerTab = ref('base')
 const invoiceEditorExpanded = ref(false)
 const corporateAccount = ref(resolveCorporateAccount())
@@ -2674,6 +2800,8 @@ const createQuoteRow = (item = {}, type = 'services') => ({
   unitPrice: Number(item.unitPrice ?? item.unit_price ?? item.price ?? item.sale_price ?? item.projectPrice ?? item.project_price ?? item.amount ?? 0) || 0,
   quantity: Number(item.quantity ?? item.qty ?? item.count ?? 1) || 1,
   amount: Number(item.amount ?? item.total ?? 0) || 0,
+  deviceSn: item.deviceSn || item.device_sn || '',
+  warrantyEligible: item.warrantyEligible === true || item.warranty_eligible === true,
   remark: item.remark || item.desc || item.description || ''
 })
 
@@ -2685,12 +2813,16 @@ const quoteForm = reactive({
   status: 'pending',
   remark: '',
   finalPrice: 0,
-  warrantyMonths: 0,
   paymentDeadlineDays: 7,
   parts: [createPartRow()],
   services: [createServiceRow()],
   others: []
 })
+const quoteDeviceSnOptions = computed(() => [...new Set(
+  ((currentOrder.value && currentOrder.value.itemsList) || [])
+    .map(item => String(item.sn || '').trim())
+    .filter(Boolean)
+)])
 
 const coverageResultOptions = [
   { value: 'pending', label: '待人工核验' },
@@ -2707,7 +2839,14 @@ const coverageReasonOptions = [
   { value: 'consumable', label: '耗材/易损件' },
   { value: 'water_damage', label: '进水/污染' },
   { value: 'drop_damage', label: '摔落/撞击' },
-  { value: 'missing_proof', label: '凭证不足' },
+  { value: 'improper_disinfection', label: '消毒不当' },
+  { value: 'voltage_damage', label: '电压/违规接电' },
+  { value: 'overload_or_nonstandard_bur', label: '超负荷/非标准车针' },
+  { value: 'unauthorized_repair', label: '私拆/第三方维修' },
+  { value: 'non_oem_parts', label: '非原厂配件' },
+  { value: 'label_or_sn_damage', label: '标签或SN损坏' },
+  { value: 'force_majeure_or_uninsured_transport', label: '不可抗力/未保价运输' },
+  { value: 'repair_warranty', label: '同故障同更换件维修延保' },
   { value: 'other', label: '其他原因' }
 ]
 
@@ -2817,7 +2956,6 @@ const resetQuoteForm = (order = {}) => {
   quoteForm.status = order.quoteStatus || order.quote_status || (totalPrice > 0 ? 'issued' : 'pending')
   quoteForm.remark = remark
   quoteForm.finalPrice = Number(detail.finalPrice ?? detail.final_price ?? totalPrice ?? 0) || 0
-  quoteForm.warrantyMonths = Number(order.quoteWarrantyMonths ?? order.quote_warranty_months ?? 0) || 0
   quoteForm.paymentDeadlineDays = quoteForm.paymentDeadlineDays || 7
 
   if (Array.isArray(detail.parts) || Array.isArray(detail.services) || Array.isArray(detail.others)) {
@@ -2875,6 +3013,8 @@ const buildQuotePayload = (status) => {
           part_id: item.partId || '',
           part_code: (item.partCode || '').trim(),
           model: (item.model || '').trim(),
+          device_sn: (item.deviceSn || '').trim(),
+          warranty_eligible: item.warrantyEligible === true,
           stock: Number(item.stock || 0) || 0
         }
       }
@@ -2931,7 +3071,7 @@ const buildQuotePayload = (status) => {
     remark,
     finalPrice,
     final_price: finalPrice,
-    quote_warranty_months: Math.max(0, Number(quoteForm.warrantyMonths) || 0),
+    quote_warranty_months: 3,
     payment_deadline_days: Math.max(1, Number(quoteForm.paymentDeadlineDays) || 7),
     quote_detail: {
       parts,
@@ -3051,19 +3191,43 @@ const addWarrantyMonths = (dateStr, months) => {
   if (!dateStr || !Number.isFinite(amount) || amount <= 0) return ''
   const date = new Date(`${dateStr}T00:00:00`)
   if (Number.isNaN(date.getTime())) return ''
+  const day = date.getDate()
+  date.setDate(1)
   date.setMonth(date.getMonth() + amount)
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(day, lastDay))
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+const addWarrantyDays = (dateStr, days) => {
+  const date = new Date(`${dateStr}T00:00:00`)
+  if (!dateStr || Number.isNaN(date.getTime())) return ''
+  date.setDate(date.getDate() + Number(days || 0))
   const pad = (value) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 const itemWarrantyPreview = (item = {}) => {
-  const expire = item.warranty_expire || addWarrantyMonths(item.buy_date, item.warranty_months)
+  const startDate = item.invoice_received_date
+    || (item.manufacture_date ? addWarrantyDays(item.manufacture_date, 30) : '')
+    || item.warranty_start_date
+    || item.buy_date
+  const expire = item.warranty_expire || addWarrantyMonths(startDate, 12)
   if (!expire) {
-    const missingDate = Number(item.warranty_months) > 0 && !item.buy_date
-    return { status: 'unknown', detail: missingDate ? '请补采购日期，或直接填写质保截止日期。' : '质保信息待补充，本单暂不自动判定收费。' }
+    return { status: 'unknown', detail: '请填写发票签收日；无发票时填写SN出厂日，系统按出厂日+30天起算。' }
   }
   const active = Date.now() <= new Date(`${expire}T23:59:59`).getTime()
-  return { status: active ? 'in_warranty' : 'expired', detail: `判定依据：质保截止 ${expire}` }
+  const basis = item.invoice_received_date
+    ? `发票签收日 ${item.invoice_received_date}`
+    : item.manufacture_date
+      ? `SN出厂日 ${item.manufacture_date}+30天`
+      : item.warranty_start_date
+        ? `手工起算日 ${item.warranty_start_date}`
+      : item.buy_date
+        ? `历史采购日期 ${item.buy_date}`
+        : '指定质保截止日'
+  return { status: active ? 'in_warranty' : 'expired', detail: `判定依据：${basis}，质保截止 ${expire}` }
 }
 
 // 取某工单项当前在保状态：优先 SN 查询结果，回退工单级快照
@@ -3109,6 +3273,9 @@ const doLookupOrderItemSn = async (itemIndex, sn) => {
       if (info.productCategory && !String(item.product_category || '').trim()) item.product_category = info.productCategory
       if (info.model && !String(item.product_model || '').trim()) item.product_model = info.model
       if (info.buyDate && !String(item.buy_date || '').trim()) item.buy_date = info.buyDate
+      if (info.warrantyStartDate && !String(item.warranty_start_date || '').trim()) item.warranty_start_date = info.warrantyStartDate
+      if (info.invoiceReceivedDate && !String(item.invoice_received_date || '').trim()) item.invoice_received_date = info.invoiceReceivedDate
+      if (info.manufactureDate && !String(item.manufacture_date || '').trim()) item.manufacture_date = info.manufactureDate
       if (Number(info.warrantyMonths) > 0 && !Number(item.warranty_months)) item.warranty_months = Number(info.warrantyMonths)
       if (info.warrantyExpire && !String(item.warranty_expire || '').trim()) item.warranty_expire = info.warrantyExpire
       snLookupResults[itemIndex] = { ...info, sn }
@@ -3150,13 +3317,20 @@ const saveOrderItemsInfo = async () => {
       product_model: it.product_model || '',
       sn: cleanSn(it.sn),
       buy_date: it.buy_date || '',
-      warranty_months: Number(it.warranty_months) > 0 ? Number(it.warranty_months) : 0,
+      warranty_start_date: it.warranty_start_date || '',
+      invoice_received_date: it.invoice_received_date || '',
+      manufacture_date: it.manufacture_date || '',
+      warranty_months: 12,
       warranty_expire: it.warranty_expire || '',
       coverage_result: it.coverage_result || '',
       coverage_reason: it.coverage_reason || '',
       coverage_note: it.coverage_note || ''
     }))
   if (!items.length) { ElMessage.warning('无可保存的产品明细'); return }
+  if (items.some(item => item.coverage_result === 'free' && !['quality_issue', 'repair_warranty'].includes(item.coverage_reason))) {
+    ElMessage.warning('质保免费必须选择“非人为质量问题”或“同故障同更换件维修延保”')
+    return
+  }
   savingOrderItems.value = true
   try {
     const token = localStorage.getItem('adminToken')
@@ -3375,7 +3549,7 @@ const submitBatchDeleteOrders = async () => {
     }
     selectedOrders.value = []
     batchDeleteDialogVisible.value = false
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     if (!isUserCancel(error)) {
       ElMessage.error(error.message || '批量删除失败')
@@ -3487,7 +3661,7 @@ const handleQuickStatusChange = async (row, status) => {
     const token = localStorage.getItem('adminToken')
     await updateOrderStatus(token, row._id, toEnglishStatus(status))
     ElMessage.success('工单状态更新成功')
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     syncCurrentOrderFromList(row)
     return true
   } catch (error) {
@@ -3552,7 +3726,7 @@ const handleBatchProcessing = async () => {
       ElMessage.success(`已批量标记处理中 ${targetOrders.length} 单`)
     }
     selectedOrders.value = []
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     if (!isUserCancel(error)) {
       ElMessage.error(error.message || '批量标记处理中失败')
@@ -3610,7 +3784,7 @@ const handleBatchComplete = async () => {
       ElMessage.success(`已批量结单 ${targetOrders.length} 单`)
     }
     selectedOrders.value = []
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     if (!isUserCancel(error)) {
       ElMessage.error(error.message || '批量结单失败')
@@ -3651,7 +3825,7 @@ const confirmQuickShip = async () => {
     }
     ElMessage.success('快捷发货更新成功')
     quickShipDialogVisible.value = false
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     syncCurrentOrderFromList(currentQuickOrder.value)
   } catch (error) {
     ElMessage.error(error.message || '快捷发货失败')
@@ -3792,11 +3966,28 @@ const saveOrderQuote = async (status = 'draft') => {
     ElMessage.success(status === 'issued' ? '报价已发布' : '报价草稿已保存')
     await loadOrders()
     const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) {
-      currentOrder.value = fresh
-      resetQuoteForm(fresh)
-    } else if (result) {
-      resetQuoteForm({ ...currentOrder.value, ...result })
+    const updatedOrder = fresh || (result
+      ? {
+          ...currentOrder.value,
+          quoteDetail: result.quote_detail ?? result.quoteDetail ?? currentOrder.value.quoteDetail,
+          quoteItems: result.quote_items ?? result.quoteItems ?? currentOrder.value.quoteItems,
+          quoteStatus: result.quote_status ?? result.quoteStatus ?? status,
+          quoteRemark: result.quote_remark ?? result.quoteRemark ?? currentOrder.value.quoteRemark,
+          quoteTime: result.quote_update_time ?? result.quoteTime ?? currentOrder.value.quoteTime,
+          paymentDeadline: result.payment_deadline ?? result.paymentDeadline ?? currentOrder.value.paymentDeadline,
+          partsFee: Number(result.parts_fee ?? result.partsFee ?? currentOrder.value.partsFee ?? 0),
+          laborFee: Number(result.labor_fee ?? result.laborFee ?? currentOrder.value.laborFee ?? 0),
+          totalPrice: Number(result.total_price ?? result.totalPrice ?? currentOrder.value.totalPrice ?? total),
+          paymentStatus: result.payment_status ?? result.paymentStatus ?? currentOrder.value.paymentStatus,
+          needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
+          archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
+          timeline: result.timeline ?? currentOrder.value.timeline
+        }
+      : null)
+    if (updatedOrder) {
+      currentOrder.value = updatedOrder
+      resetQuoteForm(updatedOrder)
+      if (status === 'issued') activeDrawerTab.value = getRecommendedDrawerTab(updatedOrder)
     }
   } catch (error) {
     ElMessage.error(error.message || '报价保存失败')
@@ -3843,7 +4034,7 @@ const markPaymentPaid = async () => {
     } else {
       ElMessage.success('付款已标记为到账')
     }
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     const fresh = orders.value.find(item => item._id === orderId)
     if (fresh) {
       currentOrder.value = fresh
@@ -4188,7 +4379,7 @@ const handleImportFile = async (uploadFile) => {
     importDialogVisible.value = false
     importResultVisible.value = true
     ElMessage.success(`导入完成：成功 ${result.success} 条，失败 ${result.fail} 条`)
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     ElMessage.error(error.message || '导入失败')
   } finally {
@@ -4228,18 +4419,15 @@ const confirmExportExcel = async () => {
 
 .attention-strip { display: flex; align-items: center; gap: 14px; min-height: 48px; margin-bottom: 16px; padding: 7px 10px; border: 1px solid #edf1f7; border-radius: 8px; background: #fff; }
 .attention-label { flex: none; color: #667085; font-size: 12px; font-weight: 700; }
-.sla-board { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); flex: 1; gap: 8px; }
-.sla-card { appearance: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; gap: 0 8px; height: auto; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
-.sla-card:hover, .sla-card.active { border-color: #8bbcf2; background: #f7fbff; }
-.sla-card span { grid-row: 1 / span 2; color: #4e5969; font-size: 12px; }
-.sla-card strong { color: #1d2129; font-size: 16px; line-height: 1; text-align: right; }
-.sla-card small { color: #98a2b3; font-size: 10px; line-height: 1.2; text-align: right; white-space: nowrap; }
-.sla-card--danger, .sla-card--critical { border-color: #ffd0cc; background: #fff7f6; }
-.sla-card--danger strong, .sla-card--critical strong { color: #f56c6c; }
-.sla-card--warning { border-color: #ffe0a3; background: #fffaf0; }
-.sla-card--warning strong { color: #ff9800; }
-.sla-card--info { border-color: #d9ecff; background: #f7fbff; }
-.sla-card--info strong { color: #1890ff; }
+.status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(92px, 1fr)); flex: 1; gap: 8px; }
+.status-summary-card { appearance: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; height: 34px; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.status-summary-card:hover, .status-summary-card.active { border-color: #8bbcf2; background: #f7fbff; }
+.status-summary-card span { min-width: 0; overflow: hidden; color: #4e5969; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.status-summary-card strong { flex: none; color: #1d2129; font-size: 16px; line-height: 1; }
+.status-summary-card--sent strong, .status-summary-card--received strong { color: #b86b00; }
+.status-summary-card--processing strong { color: #1769aa; }
+.status-summary-card--shipped strong, .status-summary-card--completed strong { color: #238636; }
+.status-summary-card--cancelled strong { color: #b42318; }
 
 .table-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
 .table-section-head > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
@@ -4300,11 +4488,13 @@ const confirmExportExcel = async () => {
 .column-config-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .column-config-head strong { color: #1d2129; font-size: 14px; }
 .column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; max-height: min(58vh, 520px); overflow-y: auto; padding-right: 4px; }
-.table-responsive { width: 100%; overflow-x: auto; margin-top: 4px; }
-.modern-table { min-width: 1280px; }
+.table-responsive { width: 100%; overflow: hidden; margin-top: 4px; }
+.modern-table { min-width: 0; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
 .modern-table :deep(th.el-table__cell) { background-color: #f7f8fa !important; color: #4e5969; font-weight: 600; border-bottom: none; font-size: 13px; }
 .modern-table :deep(td.el-table__cell) { border-bottom: 1px solid #f0f2f5; padding: 16px 0; }
+.modern-table :deep(.operation-column) { background: #fff !important; box-shadow: -8px 0 12px -12px rgba(29, 33, 41, 0.45); }
+.modern-table :deep(th.operation-column) { background: #f7f8fa !important; }
 .operation-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
 .operation-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .remark-button { position: relative; }
@@ -4454,7 +4644,7 @@ const confirmExportExcel = async () => {
 .quote-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #1d2129; font-size: 14px; font-weight: 600; }
 .quote-section-head em { margin-left: 4px; color: #8a97aa; font-size: 12px; font-style: normal; font-weight: 400; }
 .quote-row-grid { display: grid; align-items: center; gap: 8px; }
-.quote-row-grid--parts { grid-template-columns: 100px minmax(100px, 1fr) 96px 110px 96px 88px auto; }
+.quote-row-grid--parts { grid-template-columns: 100px minmax(100px, 1fr) 96px 110px 96px 88px minmax(150px, 1fr) 150px auto auto; }
 .quote-row-grid--services { grid-template-columns: minmax(120px, 1.2fr) 96px 110px 96px 88px auto; }
 .quote-row-grid--others { grid-template-columns: minmax(140px, 1fr) 110px 96px 88px auto; }
 .quote-item-list, .quote-section { overflow-x: auto; }
@@ -4523,7 +4713,7 @@ const confirmExportExcel = async () => {
 .sn-edit-input { flex: 1 1 auto; min-width: 0; width: auto; }
 .sn-fields-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 0; }
 .sn-warranty-expire { font-size: 13px; color: #86909c; margin: 2px 0 4px; }
-.warranty-entry-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1fr) minmax(160px, 1.4fr); align-items: end; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
+.warranty-entry-row { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)) minmax(220px, 1.5fr); align-items: end; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
 .warranty-entry-row > div > span { display: block; margin-bottom: 4px; color: #4e5969; font-size: 13px; font-weight: 600; }
 .warranty-entry-row :deep(.el-input-number) { width: 100%; }
 .warranty-entry-row > p { margin: 0; color: #7a5200; font-size: 13px; line-height: 1.45; align-self: center; }
@@ -4542,6 +4732,11 @@ const confirmExportExcel = async () => {
 .attachment-list { display: flex; gap: 6px; flex-wrap: wrap; }
 .attachment-thumb { width: 72px; height: 72px; border-radius: 6px; }
 .video-link { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 6px; background: #e6f4ff; color: #1890ff; font-size: 13px; text-decoration: none; }
+.order-video-player-wrap { display: flex; flex-direction: column; gap: 12px; }
+.order-video-player { display: block; width: 100%; max-height: min(68vh, 720px); aspect-ratio: 16 / 9; background: #000; object-fit: contain; }
+.video-download-link { color: #667085; font-size: 13px; text-decoration: none; }
+.video-download-link:hover { color: #1890ff; }
+.order-video-dialog :deep(.el-dialog__footer) { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
 /* 检测与报价：默认中号控件，字更大、框更高 */
 .product-detail-card :deep(.el-input__wrapper),
 .product-detail-card :deep(.el-select__wrapper),
@@ -4574,14 +4769,17 @@ const confirmExportExcel = async () => {
 
 .logistics-info { font-size: 12px; color: #4e5969; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
 .logistics-label { color: #86909c; font-weight: 500; }
-.next-action-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.next-action-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
+.progress-cell { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
+.progress-next-action { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.progress-next-action > span:last-child { color: #667085; font-size: 11px; line-height: 1.35; }
+.progress-current-status { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.progress-current-label { flex: none; color: #98a2b3; font-size: 10px; }
 .sla-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
 .sla-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
 .sla-cell--warning span:last-child { color: #ff9800; font-weight: 600; }
 .sla-cell--critical span:last-child { color: #f56c6c; font-weight: 600; }
 
-.status-tag { font-weight: 600; font-size: 12px; }
+.status-tag { max-width: 100%; font-weight: 600; font-size: 12px; }
 .status-dropdown-trigger { display: inline-flex; cursor: pointer; outline: none; }
 .status-dropdown-caret { margin-left: 4px; font-size: 10px; }
 .status-已提交, .status-待处理 { background: #e6f4ff !important; color: #1890ff !important; border-color: #91d5ff !important; }
@@ -4590,7 +4788,7 @@ const confirmExportExcel = async () => {
 .status-已回寄, .status-已发货, .status-已完成 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 .status-已取消 { background: #fff1f0 !important; color: #f56c6c !important; border-color: #ffccc7 !important; }
 .status-已处理 { background: #f0f2f5 !important; color: #86909c !important; border-color: #d9d9d9 !important; }
-.update-time { font-size: 11px; color: #86909c; margin-top: 4px; }
+.update-time { max-width: 100%; overflow: hidden; color: #86909c; font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .update-time.is-overdue { color: #f56c6c; font-weight: 600; }
 .inline-muted { color: #86909c; font-size: 12px; margin-left: 6px; }
 .section-helper { color: #86909c; font-size: 12px; line-height: 1.6; margin: 0 0 10px !important; }
@@ -4611,6 +4809,10 @@ const confirmExportExcel = async () => {
 .invoice-未发票 { background: #fff7e6 !important; color: #ff9800 !important; border-color: #ffd666 !important; }
 .invoice-已发票 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 
+@media screen and (max-width: 1200px) {
+  .status-summary-board { grid-template-columns: repeat(4, minmax(92px, 1fr)); }
+}
+
 @media screen and (max-width: 768px) {
   .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
   .page-header-actions { width: 100%; }
@@ -4620,7 +4822,7 @@ const confirmExportExcel = async () => {
   .batch-strip { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
   .selection-count { margin-right: 4px; white-space: nowrap; }
   .attention-strip { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .sla-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status-summary-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .table-section-head > div { align-items: flex-start; flex-direction: column; gap: 2px; }
   .drawer-body { gap: 8px; }

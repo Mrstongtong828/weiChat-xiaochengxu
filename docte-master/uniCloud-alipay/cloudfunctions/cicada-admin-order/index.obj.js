@@ -13,6 +13,7 @@ const {
   resolveManualPaymentMethod
 } = require('./payment-confirmation-policy')
 const { getInvoiceRequestBlockReason, INVOICE_ITEM_NAME, INVOICE_TAX_CATEGORY } = loadInvoicePolicyModule()
+const warrantyPolicy = loadWarrantyPolicyModule()
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
@@ -129,6 +130,24 @@ function createWorkflowFallback() {
     if (!isKnownOrderStatus(from) || !isKnownOrderStatus(to)) return false
     return from === to || getAllowedStatusTransitions(from).includes(to)
   }
+  const getRepairStartBlockReason = (order = {}) => {
+    const quoteStatus = String(order.quote_status || order.quoteStatus || '').trim()
+    const authorizationStatus = String(order.authorization_status || order.authorizationStatus || '').trim()
+    const paymentStatus = String(order.payment_status || order.paymentStatus || '').trim()
+    const chargeType = String(order.charge_type || order.chargeType || '').trim()
+    const warrantyStatus = String(order.warranty_status || order.warrantyStatus || '').trim()
+    const total = Number(order.total_price || order.totalPrice || 0) || 0
+    if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
+    if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
+    if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
+    if (total <= 0 && (
+      paymentStatus !== 'not_required'
+      || chargeType !== 'free'
+      || order.in_warranty !== true
+      || !['in_warranty', 'extended'].includes(warrantyStatus)
+    )) return '零元维修必须先完成质保免收费核验'
+    return ''
+  }
   const assertOrderStatusTransition = (fromStatus = '', toStatus = '') => {
     const from = String(fromStatus || '').trim()
     const to = String(toStatus || '').trim()
@@ -156,7 +175,8 @@ function createWorkflowFallback() {
     getWorkflowConfigForRole,
     hasRolePermission,
     isKnownRole,
-    canTransitionOrderStatus
+    canTransitionOrderStatus,
+    getRepairStartBlockReason
   }
 }
 
@@ -180,7 +200,8 @@ const {
   getWorkflowConfigForRole,
   hasRolePermission,
   isKnownRole,
-  canTransitionOrderStatus
+  canTransitionOrderStatus,
+  getRepairStartBlockReason
 } = loadWorkflowModule()
 
 async function verifyAdminToken(token) {
@@ -368,11 +389,13 @@ function maskPhone(phone) {
 }
 
 // 批量解析工单关联的 CRM 客户（优先 customer_id，回退 user_id），附加客户摘要供列表展示
-// 安全：CRM 主手机号属客户档案敏感信息，仅 admin 可见完整号（与 CRM view_phone=admin-only 对齐），
+// 安全：CRM 主手机号属客户档案敏感信息，仅 admin/superadmin 可见完整号（与 CRM view_phone 对齐），
 // 其余角色（engineer/finance/support）一律脱敏，避免工单列表旁路 CRM 脱敏策略。
 async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
   if (!Array.isArray(orders) || !orders.length) return
-  const canViewFullPhone = String(currentAdmin && currentAdmin.role || '').toLowerCase() === 'admin'
+  const canViewFullPhone = ['admin', 'superadmin'].includes(
+    String(currentAdmin && currentAdmin.role || '').toLowerCase()
+  )
   const customerIds = [...new Set(orders.map(o => normalizeText(o.customer_id)).filter(Boolean))]
   const userIds = [...new Set(orders.filter(o => !normalizeText(o.customer_id)).map(o => normalizeText(o.user_id)).filter(Boolean))]
   const byId = {}
@@ -745,6 +768,14 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+function loadWarrantyPolicyModule() {
+  try {
+    return require('cicada-warranty-policy')
+  } catch (packageError) {
+    return require('../common/cicada-warranty-policy')
+  }
+}
+
 function loadInvoicePolicyModule() {
   try {
     return require('cicada-invoice-policy')
@@ -883,6 +914,10 @@ function buildStatusTimestampUpdate(order = {}, nextStatus = '', now = Date.now(
 function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
   const currentStatus = normalizeText(order.status)
   const next = normalizeText(nextStatus)
+  if (next === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
+    const repairStartBlockReason = getRepairStartBlockReason(order)
+    if (repairStartBlockReason) return repairStartBlockReason
+  }
   if (next === 'received' && ['pending', 'sent'].includes(currentStatus)) {
     const inbound = getOrderShipInfo(order, 'out')
     const arrivalState = normalizeText(order.arrival_confirm_status)
@@ -1021,7 +1056,10 @@ function sanitizeManualOrderItem(item = {}) {
     product_model: normalizeText(item.product_model || item.productModel || item.model).slice(0, 80),
     sn: normalizeText(item.sn || item.serial).slice(0, 80),
     buy_date: normalizeText(item.buy_date || item.buyDate).slice(0, 20),
-    warranty_months: Math.max(0, Number(item.warranty_months || item.warrantyMonths || 0) || 0),
+    warranty_start_date: normalizeText(item.warranty_start_date || item.warrantyStartDate).slice(0, 20),
+    invoice_received_date: normalizeText(item.invoice_received_date || item.invoiceReceivedDate).slice(0, 20),
+    manufacture_date: normalizeText(item.manufacture_date || item.manufactureDate).slice(0, 20),
+    warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
     warranty_expire: normalizeText(item.warranty_expire || item.warrantyExpire).slice(0, 20),
     fault_desc: normalizeText(item.fault_desc || item.faultDesc).slice(0, 2000),
     media_urls: normalizeArray(item.media_urls || item.mediaUrls).slice(0, 12),
@@ -1137,6 +1175,9 @@ async function upsertManualCustomerDevices(customerInfo = {}, items = [], orderM
         sn,
         sn_normalized: snKey,
         buy_date: item.buy_date || (existing && existing.buy_date) || '',
+        warranty_start_date: item.warranty_start_date || (existing && existing.warranty_start_date) || '',
+        invoice_received_date: item.invoice_received_date || (existing && existing.invoice_received_date) || '',
+        manufacture_date: item.manufacture_date || (existing && existing.manufacture_date) || '',
         last_order_no: orderMeta.order_no || (existing && existing.last_order_no) || '',
         last_order_id: orderMeta.order_id || (existing && existing.last_order_id) || '',
         last_repair_status: orderMeta.status || (existing && existing.last_repair_status) || '',
@@ -1146,6 +1187,9 @@ async function upsertManualCustomerDevices(customerInfo = {}, items = [], orderM
       if (!existing || !normalizeText(existing.customer_id) || normalizeText(existing.customer_id) === customerInfo.customer_id) {
         baseFields.customer_id = customerInfo.customer_id
       }
+      if (item.warranty_start_date) baseFields.warranty_start_date = item.warranty_start_date
+      if (item.invoice_received_date) baseFields.invoice_received_date = item.invoice_received_date
+      if (item.manufacture_date) baseFields.manufacture_date = item.manufacture_date
       if (item.warranty_months > 0) baseFields.warranty_months = item.warranty_months
       if (item.warranty_expire) baseFields.warranty_expire = item.warranty_expire
       if (existing) {
@@ -1167,41 +1211,32 @@ async function upsertManualCustomerDevices(customerInfo = {}, items = [], orderM
   }
 }
 
-// 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串（与 client-order 口径一致）
-function addMonthsToDateStr(dateStr, months) {
-  const s = normalizeText(dateStr)
-  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (!m) return ''
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  if (Number.isNaN(d.getTime())) return ''
-  d.setMonth(d.getMonth() + Number(months || 0))
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
-}
-
-// 由设备/工单项推算质保到期日：优先显式截止日，否则仅在明确填写月数时计算。
-function deriveWarrantyExpire(source = {}) {
-  const stored = normalizeText(source.warranty_expire)
-  if (stored) return stored
-  const months = Number(source.warranty_months)
-  if (!Number.isFinite(months) || months <= 0) return ''
-  return addMonthsToDateStr(source.buy_date, months)
+async function applyRepairWarrantyExtension(order = {}, now = Date.now()) {
+  const itemKeys = [order._id, order.order_no].filter(Boolean)
+  if (!itemKeys.length) return
+  const itemsRes = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+  const items = itemsRes.data || []
+  for (const item of items) {
+    const sn = normalizeText(item && item.sn)
+    if (!sn) continue
+    const extension = warrantyPolicy.buildRepairWarrantyExtension(order, [item], now)
+    if (!extension) continue
+    const snKey = normalizeSn(sn)
+    let deviceRes = await db.collection('cicada_user_devices').where({ sn_normalized: snKey }).limit(1).get()
+    if (!deviceRes.data || !deviceRes.data.length) {
+      deviceRes = await db.collection('cicada_user_devices').where({ sn }).limit(1).get()
+    }
+    const device = deviceRes.data && deviceRes.data[0]
+    if (!device) continue
+    const extensions = warrantyPolicy.appendWarrantyExtension(device.ext_warranty, extension)
+    if (extensions.length !== (Array.isArray(device.ext_warranty) ? device.ext_warranty.length : 0)) {
+      await db.collection('cicada_user_devices').doc(device._id).update({ ext_warranty: extensions, update_time: now })
+    }
+  }
 }
 
 function computeWarrantyState(source = {}) {
-  const expire = deriveWarrantyExpire(source)
-  if (!expire) return { warranty_status: 'unknown', in_warranty: false, expire: '' }
-  const expireTs = new Date(`${expire}T23:59:59`).getTime()
-  if (Number.isNaN(expireTs)) return { warranty_status: 'unknown', in_warranty: false, expire: '' }
-  const inWarranty = Date.now() <= expireTs
-  const hasExtended = Array.isArray(source.ext_warranty) && source.ext_warranty.length
-  return {
-    warranty_status: inWarranty ? (hasExtended ? 'extended' : 'in_warranty') : 'expired',
-    in_warranty: inWarranty,
-    expire
-  }
+  return warrantyPolicy.computeWarrantyState(source)
 }
 
 // 重算工单级在保结论：逐个 SN 优先查已建档设备，否则用工单项购机日期推算。
@@ -1227,20 +1262,28 @@ async function computeOrderWarrantyFromItems(items = []) {
       } catch (e) { device = null }
     }
     const hasItemWarranty = Boolean(normalizeText(item && item.warranty_expire))
-      || (Number(item && item.warranty_months) > 0 && Boolean(normalizeText(item && item.buy_date)))
+      || Boolean(normalizeText(item && (item.warranty_start_date || item.invoice_received_date || item.manufacture_date || item.buy_date)))
     const source = hasItemWarranty ? {
       ...(device || {}),
       buy_date: item && item.buy_date,
+      warranty_start_date: item && item.warranty_start_date,
+      invoice_received_date: item && item.invoice_received_date,
+      manufacture_date: item && item.manufacture_date,
       warranty_months: item && item.warranty_months,
-      warranty_expire: item && item.warranty_expire
-    } : (device || {})
+      warranty_expire: item && item.warranty_expire,
+      repair_warranty_match: normalizeText(item && item.coverage_reason) === 'repair_warranty'
+    } : {
+      ...(device || {}),
+      repair_warranty_match: normalizeText(item && item.coverage_reason) === 'repair_warranty'
+    }
     const warrantyState = computeWarrantyState(source)
     if (warrantyState.warranty_status === 'unknown') continue
     if (item) item.warranty_status = warrantyState.warranty_status
     anyEvaluated = true
     if (warrantyState.in_warranty) anyInWarranty = true
     const coverageResult = normalizeText(item && item.coverage_result)
-    const isExplicitFree = coverageResult === 'free'
+    const coverageReason = normalizeText(item && item.coverage_reason)
+    const isExplicitFree = coverageResult === 'free' && warrantyPolicy.isFreeCoverageReason(coverageReason)
     const isExplicitPaid = ['paid', 'partial', 'not_covered'].includes(coverageResult)
     const isPendingCoverage = warrantyState.in_warranty && !coverageResult
     if (isPendingCoverage || coverageResult === 'pending') anyPendingReview = true
@@ -1272,6 +1315,7 @@ async function isOrderWarrantyFreeConfirmed(order = {}) {
   if (!items.length) return false
   return items.every(item =>
     normalizeText(item.coverage_result) === 'free'
+    && warrantyPolicy.isFreeCoverageReason(item.coverage_reason)
     && ['in_warranty', 'extended'].includes(normalizeText(item.warranty_status || order.warranty_status))
   )
 }
@@ -1536,6 +1580,8 @@ function normalizeQuoteDetailRows(rows, type = 'services') {
         part_id: normalizeText(item.part_id || item.partId || item._id),
         part_code: normalizeText(item.part_code || item.partCode || item.code || item.no),
         model: normalizeText(item.model || item.part_model || item.partModel),
+        device_sn: normalizeText(item.device_sn || item.deviceSn),
+        warranty_eligible: item.warranty_eligible === true || item.warrantyEligible === true,
         name: base.name || '配件费用'
       }
     }
@@ -1770,7 +1816,7 @@ function getInvalidPartNumberFields(part = {}) {
   }).map(field => field.label)
 }
 
-// canViewCost：采购成本属敏感商业数据，仅 admin/finance 可见；engineer 等角色不下发成本字段
+// canViewCost：采购成本属敏感商业数据，仅 admin/superadmin/finance 可见；engineer 等角色不下发成本字段
 function mapPartForClient(part = {}, canViewCost = true) {
   const stock = Number(part.stock || 0) || 0
   const warningThreshold = Number(part.warning_threshold || 0) || 0
@@ -2047,10 +2093,11 @@ function buildQuoteData(quote = {}, now, order = {}) {
     throw new Error('请填写有效报价项目和金额')
   }
 
-  // 维修质保期（月），随报价发给客户，0 表示沿用全局质保政策
-  const warrantyMonths = Math.max(0, parseInt(
-    quote.quote_warranty_months ?? quote.warranty_months ?? quote.warrantyMonths ?? 0, 10
-  ) || 0)
+  // 付费且含全新原厂配件更换时，维修件延保固定为三个月。
+  const hasWarrantyEligiblePart = quoteDetail.parts.some(item => item.warranty_eligible === true && item.quantity > 0)
+  const warrantyMonths = totalPrice > 0 && hasWarrantyEligiblePart
+    ? warrantyPolicy.DEFAULT_REPAIR_PART_WARRANTY_MONTHS
+    : 0
 
   return {
     quote_items: quoteItems,
@@ -2070,15 +2117,33 @@ function buildQuoteData(quote = {}, now, order = {}) {
   }
 }
 
+function getMediaUrl(value = '') {
+  if (typeof value === 'string') return value.trim()
+  if (!value || typeof value !== 'object') return ''
+  const candidates = [
+    value.resolvedUrl,
+    value.previewUrl,
+    value.tempFileURL,
+    value.tempUrl,
+    value.url,
+    value.fileUrl,
+    value.fileID,
+    value.fileId,
+    value.path
+  ]
+  const resolved = candidates.find(candidate => typeof candidate === 'string' && candidate.trim())
+  return resolved ? resolved.trim() : ''
+}
+
 function isCloudFileId(value = '') {
-  return String(value || '').startsWith('cloud://')
+  return getMediaUrl(value).startsWith('cloud://')
 }
 
 // 从若干凭证里收集 cloud:// fileID（去重）
 function collectProofCloudFileIds(proofs = []) {
   if (!Array.isArray(proofs)) return []
   return proofs
-    .map((proof = {}) => proof.fileID || proof.fileId || proof.url)
+    .map((proof = {}) => getMediaUrl(proof.fileID || proof.fileId || proof.url))
     .filter(isCloudFileId)
 }
 
@@ -2126,7 +2191,10 @@ function collectItemMediaCloudFileIds(itemsList = []) {
   ;(Array.isArray(itemsList) ? itemsList : []).forEach(item => {
     ITEM_MEDIA_FIELDS.forEach(field => {
       const arr = item && item[field]
-      if (Array.isArray(arr)) arr.forEach(u => { if (isCloudFileId(u)) ids.push(u) })
+      if (Array.isArray(arr)) arr.forEach(value => {
+        const url = getMediaUrl(value)
+        if (isCloudFileId(url)) ids.push(url)
+      })
     })
   })
   return ids
@@ -2140,7 +2208,10 @@ function applyItemMediaUrlMap(itemsList = [], urlMap = {}) {
     const next = { ...item }
     ITEM_MEDIA_FIELDS.forEach(field => {
       if (Array.isArray(next[field])) {
-        next[field] = next[field].map(u => (isCloudFileId(u) && urlMap[u]) ? urlMap[u] : u)
+        next[field] = next[field].map(value => {
+          const url = getMediaUrl(value)
+          return (isCloudFileId(url) && urlMap[url]) ? urlMap[url] : url
+        }).filter(Boolean)
       }
     })
     return next
@@ -3256,6 +3327,9 @@ module.exports = {
       if (sceneMap[status] && order.status !== status) {
         await sendOrderSubscription({ ...order, status }, sceneMap[status])
       }
+      if (status === 'completed') {
+        await applyRepairWarrantyExtension({ ...order, status }, now)
+      }
       return { code: 0 }
     } catch (e) {
       return { code: -1, msg: e.message }
@@ -3807,10 +3881,16 @@ module.exports = {
         if (!owned) return false
         const nextMonths = Math.max(0, Number(item.warranty_months || 0) || 0)
         const nextExpire = normalizeText(item.warranty_expire)
+        const nextStart = normalizeText(item.warranty_start_date)
+        const nextInvoiceDate = normalizeText(item.invoice_received_date)
+        const nextManufactureDate = normalizeText(item.manufacture_date)
         const nextCoverage = normalizeText(item.coverage_result)
         const nextReason = normalizeText(item.coverage_reason)
         return nextMonths !== Math.max(0, Number(owned.warranty_months || 0) || 0)
           || nextExpire !== normalizeText(owned.warranty_expire)
+          || nextStart !== normalizeText(owned.warranty_start_date)
+          || nextInvoiceDate !== normalizeText(owned.invoice_received_date)
+          || nextManufactureDate !== normalizeText(owned.manufacture_date)
           || nextCoverage !== normalizeText(owned.coverage_result)
           || nextReason !== normalizeText(owned.coverage_reason)
       })
@@ -3832,21 +3912,37 @@ module.exports = {
           sn,
           sn_normalized: normalizeSn(sn),
           buy_date: normalizeText(item.buy_date),
-          warranty_months: Math.max(0, Number(item.warranty_months || 0) || 0),
+          warranty_start_date: normalizeText(item.warranty_start_date),
+          invoice_received_date: normalizeText(item.invoice_received_date),
+          manufacture_date: normalizeText(item.manufacture_date),
+          warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
           warranty_expire: normalizeText(item.warranty_expire),
           coverage_result: coverageResult,
           coverage_reason: normalizeText(item.coverage_reason),
           coverage_note: normalizeText(item.coverage_note).slice(0, 500)
         }
+        if (coverageResult === 'free' && !warrantyPolicy.isFreeCoverageReason(patch.coverage_reason)) {
+          return { code: -1, msg: '免费维修必须确认原厂质量缺陷，或确认同故障同更换件的维修延保' }
+        }
         await db.collection('cicada_order_items').doc(itemId).update(patch).catch(() => {})
         Object.assign(owned, patch) // 同步内存副本，供下方在保重算
 
         // 工单内明确补录的质保信息同步回 SN 设备档案，供后续报修复用。
-        const hasExplicitWarranty = Boolean(patch.warranty_expire) || patch.warranty_months > 0
+        const hasExplicitWarranty = Boolean(
+          patch.warranty_expire
+          || patch.warranty_start_date
+          || patch.invoice_received_date
+          || patch.manufacture_date
+          || patch.buy_date
+          || patch.warranty_months > 0
+        )
         if (sn && hasExplicitWarranty) {
           const devicePatch = {
             warranty_months: patch.warranty_months,
             warranty_expire: patch.warranty_expire,
+            warranty_start_date: patch.warranty_start_date,
+            invoice_received_date: patch.invoice_received_date,
+            manufacture_date: patch.manufacture_date,
             update_time: now
           }
           if (patch.buy_date) devicePatch.buy_date = patch.buy_date
@@ -4053,6 +4149,24 @@ module.exports = {
 
       const warrantyFreeConfirmed = await isOrderWarrantyFreeConfirmed(order)
       const quoteData = buildQuoteData(quote, now, { ...order, warranty_free_confirmed: warrantyFreeConfirmed })
+      const warrantyParts = quoteData.quote_detail.parts.filter(item => item.warranty_eligible === true && item.quantity > 0)
+      if (quoteData.quote_status === 'issued' && warrantyParts.length) {
+        const itemKeys = [order._id, order.order_no].filter(Boolean)
+        const itemRes = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+        const deviceSns = [...new Set((itemRes.data || []).map(item => normalizeText(item.sn)).filter(Boolean))]
+        const normalizedDeviceSns = new Map(deviceSns.map(sn => [normalizeSn(sn), sn]))
+        for (const part of warrantyParts) {
+          const assignedKey = normalizeSn(part.device_sn)
+          if (!assignedKey && deviceSns.length === 1) {
+            part.device_sn = deviceSns[0]
+            continue
+          }
+          if (!assignedKey || !normalizedDeviceSns.has(assignedKey)) {
+            return { code: -1, msg: '全新原厂更换件必须关联本工单中的设备SN，才能承诺3个月维修件延保' }
+          }
+          part.device_sn = normalizedDeviceSns.get(assignedKey)
+        }
+      }
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
       const updateData = {
         ...quoteData
@@ -4154,6 +4268,9 @@ module.exports = {
           updateData.payment_method = confirmedPaymentMethod
           updateData.payment_paid_time = now
           Object.assign(updateData, getPaymentConfirmationStatusUpdate(order, now, canTransitionOrderStatus))
+          if (updateData.status === 'fixing' && getRepairStartBlockReason({ ...order, payment_status: 'paid' })) {
+            delete updateData.status
+          }
         }
         updateData.payment_reject_reason = ''
         updateData.payment_reject_time = 0
@@ -4683,21 +4800,32 @@ module.exports = {
   async getStatistics(params) {
     try {
       requireAdminPermission(this, 'get_stats')
+      const { includeStatusBreakdown = false } = pickParam(this, params)
       const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
 
-      const [pendingRes, todayRes] = await Promise.all([
+      const [pendingRes, todayRes, statusResults] = await Promise.all([
         db.collection('cicada_orders').where({
           status: dbCmd.in(['pending', 'sent', 'received']),
           is_deleted: dbCmd.neq(true)
         }).count(),
-        db.collection('cicada_orders').where(withActiveOrderFilter({ create_time: dbCmd.gte(todayStart) })).count()
+        db.collection('cicada_orders').where(withActiveOrderFilter({ create_time: dbCmd.gte(todayStart) })).count(),
+        includeStatusBreakdown
+          ? Promise.all(ORDER_STATUS.map(status => (
+              db.collection('cicada_orders').where(withActiveOrderFilter({ status })).count()
+            )))
+          : Promise.resolve(null)
       ])
+
+      const statusBreakdown = statusResults
+        ? Object.fromEntries(ORDER_STATUS.map((status, index) => [status, Number(statusResults[index].total || 0)]))
+        : undefined
 
       return {
         code: 0,
         data: {
           pendingCount: pendingRes.total,
-          todayCount: todayRes.total
+          todayCount: todayRes.total,
+          ...(statusBreakdown ? { statusBreakdown } : {})
         }
       }
     } catch (e) {

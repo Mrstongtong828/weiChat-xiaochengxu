@@ -332,7 +332,7 @@ const menus = computed(() => [
 	{ icon: 'edit', title: '投诉和建议', desc: '问题反馈 / 改进建议', go: 'feedback' },
 	{ icon: 'box', title: '我的产品', desc: `${productCount.value} 件设备档案`, go: 'products' },
 	{ icon: 'invoice', title: '发票与开票', desc: '对公开票 / 查看发票信息', go: 'invoices' }
-].filter((item) => item.go !== 'invoices' || Number(statsTodo.value.invoiceVisible) > 0))
+])
 
 const tabs = [
 	{ id: 'home', label: '首页', icon: 'home' },

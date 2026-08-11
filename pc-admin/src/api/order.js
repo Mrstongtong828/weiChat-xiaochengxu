@@ -172,8 +172,11 @@ export const addTimeline = (token, orderId, title, desc) => {
 }
 
 // 获取统计数据
-export const getStatistics = (token) => {
-  return request.post(`${API_BASE.adminOrder}/getStatistics`, { token })
+export const getStatistics = (token, options = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getStatistics`, {
+    token,
+    includeStatusBreakdown: options.includeStatusBreakdown === true
+  })
 }
 
 // 获取后台待办中心统计

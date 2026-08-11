@@ -1,6 +1,7 @@
 const path = require('path')
 const fs = require('fs')
 const sharp = require('sharp')
+const esbuild = require('esbuild')
 
 function loadLocalUniCloudSpaces() {
 	if (process.env.UNI_CLOUD_PROVIDER || process.env.UNI_CLOUD_SPACES) {
@@ -76,6 +77,22 @@ const assetSources = [
 	'survey-qr-wechat.jpg'
 ]
 
+const miniappPhotoAssets = new Set([
+	'company-intro-header-v2.jpg',
+	'company-product-black.jpg',
+	'company-product-light.jpg',
+	'company-product-multi-view.jpg',
+	'home-top-background.jpg',
+	'login-auth-bg.jpg',
+	'maintenance-w201l-cover.jpg',
+	'photo-building.jpg',
+	'photo-factory.jpg',
+	'product-implant.jpg',
+	'product-prevention.jpg',
+	'product-restoration.jpg',
+	'product-root-canal.jpg'
+])
+
 function escapeRegex(text) {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -103,6 +120,15 @@ async function writeMiniappAsset(sourcePath, outputPath) {
 	const metadata = await sharp(sourcePath).metadata()
 	const longestEdge = Math.max(metadata.width || 0, metadata.height || 0)
 
+	if (metadata.format === 'jpeg' && miniappPhotoAssets.has(path.basename(sourcePath))) {
+		await sharp(sourcePath)
+			.rotate()
+			.resize({ width: 1280, height: 1280, fit: 'inside', withoutEnlargement: true })
+			.jpeg({ quality: 75, mozjpeg: true })
+			.toFile(outputPath)
+		return
+	}
+
 	if (metadata.format === 'jpeg' && longestEdge > 1440) {
 		await sharp(sourcePath)
 			.rotate()
@@ -113,6 +139,37 @@ async function writeMiniappAsset(sourcePath, outputPath) {
 	}
 
 	fs.copyFileSync(sourcePath, outputPath)
+}
+
+async function minifyMiniappJavaScript(outDir) {
+	const outputRoot = path.resolve(__dirname, outDir)
+	const pendingDirectories = [outputRoot]
+	const files = []
+
+	while (pendingDirectories.length) {
+		const directory = pendingDirectories.pop()
+		fs.readdirSync(directory, { withFileTypes: true }).forEach((entry) => {
+			const entryPath = path.join(directory, entry.name)
+			if (entry.isDirectory()) {
+				pendingDirectories.push(entryPath)
+				return
+			}
+			if (!entry.isFile() || path.extname(entry.name) !== '.js') return
+
+			const relativePath = path.relative(outputRoot, entryPath).split(path.sep).join('/')
+			if (relativePath !== 'app.js') files.push(entryPath)
+		})
+	}
+
+	await Promise.all(files.map(async (file) => {
+		const source = fs.readFileSync(file, 'utf8')
+		const result = await esbuild.transform(source, {
+			loader: 'js',
+			minify: true,
+			target: 'es2018'
+		})
+		fs.writeFileSync(file, result.code)
+	}))
 }
 
 function removeUnreferencedStaticAssets(outDir) {
@@ -208,6 +265,7 @@ async function copyMiniappAssets() {
 
 	removeUnreferencedMiniappAssets(outDir)
 	removeUnreferencedStaticAssets(outDir)
+	await minifyMiniappJavaScript(outDir)
 }
 
 function keepMiniappAssets() {

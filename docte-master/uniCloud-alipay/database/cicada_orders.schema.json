@@ -171,6 +171,10 @@
     "wechat_pay_out_trade_no": {
       "bsonType": "string"
     },
+    "wechat_pay_payer_openid": {
+      "bsonType": "string",
+      "description": "创建当前微信预支付单时绑定的付款人 openid，用于避免跨账号复用 prepay_id"
+    },
     "wechat_pay_transaction_id": {
       "bsonType": "string"
     },

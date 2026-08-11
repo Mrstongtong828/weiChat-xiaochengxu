@@ -258,6 +258,11 @@ const filterOrders = (body) => {
 const orderMetrics = () => {
   const pendingStatuses = new Set(['pending', 'sent', 'received'])
   const repairingStatuses = new Set(['inspecting', 'fixing', 'processing'])
+  const statusBreakdown = ['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled']
+    .reduce((counts, status) => {
+      counts[status] = orders.filter(order => order.status === status).length
+      return counts
+    }, {})
   return {
     pendingCount: orders.filter(order => pendingStatuses.has(order.status)).length,
     todayCount: orders.filter(order => now - order.create_time < 86400000).length,
@@ -271,7 +276,8 @@ const orderMetrics = () => {
     invoicePendingOrders: orders.filter(order => order.invoice_info?.need_invoice && order.invoice_info?.status !== 'issued').length,
     totalOrders: orders.length,
     totalFeedbacks: feedbacks.length,
-    pendingFeedbacks: feedbacks.filter(item => item.status === 'pending').length
+    pendingFeedbacks: feedbacks.filter(item => item.status === 'pending').length,
+    statusBreakdown
   }
 }
 

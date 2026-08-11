@@ -1,5 +1,23 @@
 import { toChineseStatus } from './orderStatus.js'
 
+const resolveUrlValue = (value) => {
+  if (typeof value === 'string') return value.trim()
+  if (!value || typeof value !== 'object') return ''
+  const candidates = [
+    value.resolvedUrl,
+    value.previewUrl,
+    value.tempFileURL,
+    value.tempUrl,
+    value.url,
+    value.fileUrl,
+    value.fileID,
+    value.fileId,
+    value.path
+  ]
+  const resolved = candidates.find(candidate => typeof candidate === 'string' && candidate.trim())
+  return resolved ? resolved.trim() : ''
+}
+
 const normalizeUrlArray = (...values) => {
   return values.reduce((urls, value) => {
     if (Array.isArray(value)) {
@@ -9,7 +27,7 @@ const normalizeUrlArray = (...values) => {
       urls.push(value)
     }
     return urls
-  }, []).filter(Boolean)
+  }, []).map(resolveUrlValue).filter(Boolean)
 }
 
 const normalizeOrderItems = (order) => {

@@ -6,7 +6,7 @@
 					<view class="chevron-left"></view>
 				</view>
 				<text class="nav-title">{{ showForm ? formTitle : '收货地址管理' }}</text>
-				<image class="nav-brand" :src="cicadaAssets.wordmarkWhite" mode="aspectFit"></image>
+				<image class="nav-brand" :src="cicadaAssets.wordmarkRegisteredWhite" mode="aspectFit"></image>
 			</view>
 		</view>
 
