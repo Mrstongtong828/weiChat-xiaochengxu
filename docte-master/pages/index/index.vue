@@ -1678,7 +1678,7 @@
 					</view>
 				</view>
 
-				<view class="follow-card tap" @click="openOfficialAccountProfile">
+				<view class="follow-card">
 					<view class="qr-image-wrap company-qr">
 						<image
 							class="qr-image"
@@ -1688,8 +1688,7 @@
 						></image>
 					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">点击打开官方公众号，获取产品资料、维修保养与售后服务支持。</text>
-					<official-account class="official-account-btn"></official-account>
+					<text class="follow-desc">长按识别二维码关注官方服务号，获取产品资料、维修保养与售后服务支持。</text>
 				</view>
 			</view>
 
@@ -6717,11 +6716,6 @@ const launchOfficialAccountProfile = (username, options = {}) => {
 	handleFallback()
 }
 
-const openOfficialAccountProfile = () => {
-	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
-	launchOfficialAccountProfile(username)
-}
-
 const openCicadaServiceAccountProfile = () => {
 	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
 		fallbackMessage: '当前版本暂不支持直接打开服务号',
@@ -9634,11 +9628,6 @@ onUnmounted(() => {
 	font-size: 24rpx;
 	line-height: 1.6;
 	color: #6B7C97;
-}
-
-.official-account-btn {
-	width: 100%;
-	margin-top: 32rpx;
 }
 
 .qr-image-wrap {
