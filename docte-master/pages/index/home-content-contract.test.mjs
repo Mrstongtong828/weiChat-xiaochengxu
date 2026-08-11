@@ -31,15 +31,15 @@ test('首页保养视频在接口空值和异常时回退到原始视频', () =>
 	assert.ok(existsSync(new URL('../../static/maintenance-w201l-cover.jpg', import.meta.url)))
 })
 
-test('首页公众号与产品视频优先使用官方能力，PC 失败时降级到二维码', () => {
-	assert.match(source, /const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'/)
+test('公司介绍与产品视频统一打开 CICADA 服务号，PC 失败时降级到二维码', () => {
 	assert.match(source, /const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'/)
+	assert.match(source, /<view class="follow-card tap" @click="openCicadaServiceAccountProfile">[\s\S]*?:src="cicadaAssets\.qrWechat"/)
 	assert.match(source, /openProductVideoLink[\s\S]*?openCicadaServiceAccountProfile\(\)/)
 	assert.match(source, /openCicadaServiceAccountProfile[\s\S]*?launchOfficialAccountProfile\(CICADA_SERVICE_ACCOUNT_USERNAME, \{[\s\S]*?onFallback:/)
 	assert.match(source, /wx\.openOfficialAccountProfile\(\{[\s\S]*?username: targetUsername/)
 	assert.match(source, /if \(!isPcWebView\) return false[\s\S]*?showOfficialAccountQr\.value = true/)
 	assert.match(source, /v-if="showOfficialAccountQr"[\s\S]*?电脑端暂不支持直接打开，请使用微信扫码进入服务号/)
-	assert.doesNotMatch(source, /PRODUCT_VIDEO_LINK|pages-sub\/webview/)
+	assert.doesNotMatch(source, /OFFICIAL_ACCOUNT_USERNAME|const openOfficialAccountProfile|@click="openOfficialAccountProfile"|<official-account|PRODUCT_VIDEO_LINK|pages-sub\/webview/)
 
 	const serialField = source.slice(source.indexOf('<text><text class="required-star">*</text>产品序列号</text>'), source.indexOf('<!-- SN 识别结果 -->'))
 	assert.match(serialField, /<input v-model="product\.serial"/)

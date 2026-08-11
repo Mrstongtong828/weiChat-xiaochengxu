@@ -1678,18 +1678,17 @@
 					</view>
 				</view>
 
-				<view class="follow-card tap" @click="openOfficialAccountProfile">
+				<view class="follow-card tap" @click="openCicadaServiceAccountProfile">
 					<view class="qr-image-wrap company-qr">
 						<image
 							class="qr-image"
-							:src="wechatInfo.qrcodeUrl || cicadaAssets.qrWechat"
+							:src="cicadaAssets.qrWechat"
 							mode="aspectFill"
 							show-menu-by-longpress
 						></image>
 					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">点击打开官方公众号，获取产品资料、维修保养与售后服务支持。</text>
-					<official-account class="official-account-btn"></official-account>
+					<text class="follow-desc">点击或长按识别二维码进入 CICADA 思科达服务号，获取产品资料、维修保养与售后服务支持。</text>
 				</view>
 			</view>
 
@@ -1916,7 +1915,6 @@ import {
 	getSurveyConfig,
 	getSubscriptionConfig,
 	applyInvoice,
-	getWechat,
 	getWarrantyPolicy,
 	getHomeGuidePopup,
 	getCompliance,
@@ -2472,15 +2470,7 @@ const customerService = ref({
 	wechat: 'CSD-Service-001'
 })
 
-const OFFICIAL_ACCOUNT_USERNAME = 'gh_efdbbf08eaa1'
 const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'
-
-const wechatInfo = ref({
-	qrcodeUrl: cicadaAssets.qrWechat,
-	name: '思科达售后',
-	description: '获取最新服务指南 / 售后政策',
-	username: OFFICIAL_ACCOUNT_USERNAME
-})
 
 const contactHotlines = ref([
 	{ title: '售后技术', number: '0757-85775667', time: '工作日 08:00-21:00' },
@@ -6717,11 +6707,6 @@ const launchOfficialAccountProfile = (username, options = {}) => {
 	handleFallback()
 }
 
-const openOfficialAccountProfile = () => {
-	const username = normalizeOfficialAccountUsername(wechatInfo.value.username) || OFFICIAL_ACCOUNT_USERNAME
-	launchOfficialAccountProfile(username)
-}
-
 const openCicadaServiceAccountProfile = () => {
 	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
 		fallbackMessage: '当前版本暂不支持直接打开服务号',
@@ -6821,15 +6806,6 @@ const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 				}
 			})
 			.catch((error) => console.warn('customer service fallback:', error)),
-		getWechat()
-			.then((data = {}) => {
-				wechatInfo.value = {
-					...wechatInfo.value,
-					...data,
-					qrcodeUrl: normalizeQrUrl(data.qrcodeUrl)
-				}
-			})
-			.catch((error) => console.warn('wechat fallback:', error)),
 		refreshFaultTypes({ forceRefresh: forceFaultRefresh, silent: true })
 	]
 
@@ -9634,11 +9610,6 @@ onUnmounted(() => {
 	font-size: 24rpx;
 	line-height: 1.6;
 	color: #6B7C97;
-}
-
-.official-account-btn {
-	width: 100%;
-	margin-top: 32rpx;
 }
 
 .qr-image-wrap {
