@@ -1688,7 +1688,7 @@
 						></image>
 					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">长按识别二维码关注官方服务号，获取产品资料、维修保养与售后服务支持。</text>
+					<text class="follow-desc">长按识别二维码，获取产品资料、维修保养与售后服务支持。</text>
 				</view>
 			</view>
 
