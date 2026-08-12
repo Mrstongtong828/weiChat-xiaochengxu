@@ -203,10 +203,19 @@ async function ensureGuideDefaults() {
 
 async function verifyAdminToken(token, allowedRoles = ['admin'], options = {}) {
   if (!token) throw createAdminAuthError('鉴权失败')
-  const res = await db.collection('cicada_users').where({ token }).limit(1).get()
-  const user = res.data[0]
+  // `token` remains the compatibility field for existing deployments.  New logins
+  // are also retained in admin_sessions so a second browser does not invalidate
+  // an operator who is already working in the back office.
+  let res = await db.collection('cicada_users').where({ token }).limit(1).get()
+  if (!res.data || !res.data.length) {
+    res = await db.collection('cicada_users').where({ 'admin_sessions.token': token }).limit(1).get()
+  }
+  const user = res.data && res.data[0]
   if (!user || user.disabled) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
-  if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
+  const session = (Array.isArray(user.admin_sessions) ? user.admin_sessions : [])
+    .find(item => item && item.token === token)
+  const expireAt = session ? session.expire_at : user.token_expire
+  if (isAdminTokenExpired(expireAt)) throw createAdminAuthError('鉴权失败：Token已过期')
   if (user.must_change_password && !options.allowPasswordChange) throw new Error('当前使用临时密码，请先修改密码')
   if (user.role !== 'superadmin' && !allowedRoles.includes(user.role)) throw new Error('无权限')
   return user
@@ -537,9 +546,13 @@ module.exports = {
 
       const token = genToken()
       const tokenExpire = Date.now() + ADMIN_TOKEN_EXPIRE
+      const activeSessions = (Array.isArray(user.admin_sessions) ? user.admin_sessions : [])
+        .filter(item => item && item.token && !isAdminTokenExpired(item.expire_at))
+        .slice(-4)
       const updateData = {
         token,
         token_expire: tokenExpire,
+        admin_sessions: [...activeSessions, { token, expire_at: tokenExpire, create_time: Date.now() }],
         last_login: Date.now(),
         last_login_ip: loginIp,
         failed_login_count: 0
@@ -608,6 +621,7 @@ module.exports = {
         must_change_password: false,
         token: '',
         token_expire: 0,
+        admin_sessions: [],
         update_time: Date.now()
       })
 
@@ -691,6 +705,7 @@ module.exports = {
         must_change_password: true,
         token: '',
         token_expire: 0,
+        admin_sessions: [],
         update_time: Date.now()
       })
 
@@ -739,7 +754,7 @@ module.exports = {
         if (data.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可设置超级管理员角色' }
         if (staff.password) {
           assertPasswordPolicy(staff.password, '登录密码')
-          Object.assign(data, buildPasswordFields(staff.password), { must_change_password: true, token: '', token_expire: 0 })
+          Object.assign(data, buildPasswordFields(staff.password), { must_change_password: true, token: '', token_expire: 0, admin_sessions: [] })
         }
         if (!Object.keys(data).length) return { code: -1, msg: '没有可更新的员工字段' }
         const res = await col.where({ _id: staff._id, role: db.command.in(STAFF_ROLES) }).update(data)

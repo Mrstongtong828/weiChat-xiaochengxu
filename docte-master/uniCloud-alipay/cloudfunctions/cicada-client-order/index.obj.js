@@ -424,13 +424,30 @@ function addMonthsToDateStr(dateStr, months) {
   return `${y}-${mo}-${day}`
 }
 
-// 推算质保到期日：优先已存截止日；否则仅在明确填写月数时由购机日期推算。
+// 推算质保到期日：优先显式截止日；发票签收日优先，缺失时按 SN 出厂日 + 30 天起算。
+// buy_date 是历史字段，继续作为发票签收日兼容，避免旧设备档案失效。
 function deriveWarrantyExpire(device = {}) {
   const stored = normalizeText(device.warranty_expire)
   if (stored) return stored
+  const invoiceDate = normalizeText(device.invoice_signed_date || device.invoice_sign_date || device.invoice_receipt_date || device.buy_date || device.buyDate)
+  const factoryDate = normalizeText(device.sn_factory_date || device.factory_date || device.production_date)
+  const startDate = invoiceDate || addDaysToDateStr(factoryDate, 30)
+  if (!startDate) return ''
   const months = Number(device.warranty_months)
-  if (!Number.isFinite(months) || months <= 0) return ''
-  return addMonthsToDateStr(device.buy_date || device.buyDate, months)
+  return addMonthsToDateStr(startDate, Number.isFinite(months) && months > 0 ? months : 12)
+}
+
+function addDaysToDateStr(dateStr, days) {
+  const s = normalizeText(dateStr)
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (!m) return ''
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(d.getTime())) return ''
+  d.setDate(d.getDate() + Number(days || 0))
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${mo}-${day}`
 }
 
 // 计算在保状态，返回 { inWarranty, warrantyStatus }

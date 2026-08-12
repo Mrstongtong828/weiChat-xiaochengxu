@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countStatusBreakdown, countStatusBuckets, getStatusBucket } from './statusMeta.js'
+import { countStatusBreakdown, countStatusBuckets, getRepairProgressNodes, getStatusBucket } from './statusMeta.js'
 
 test('检测中的工单提醒用户订单正在处理中', () => {
   assert.equal(getStatusBucket({ status: 'inspecting' }), 'fixing')
@@ -38,4 +38,12 @@ test('原始状态统计不受旧版汇总字段影响', () => {
     fixing: 3,
     shipped: 0
   })
+})
+
+test('付费工单在财务确认到账前不提前进入维修进度', () => {
+  const nodes = getRepairProgressNodes({
+    id: 'order-1', statusKey: 'fixing', quoteStatus: 'confirmed', paymentStatus: 'uploaded', totalFee: 100
+  })
+  assert.equal(nodes[1].state, 'current')
+  assert.equal(nodes[2].state, 'pending')
 })

@@ -74,6 +74,7 @@
       </el-table-column>
       <el-table-column label="操作" width="150" align="right" fixed="right">
         <template #default="{ row }">
+          <el-button v-if="row.payment_status === 'uploaded'" type="success" link :loading="confirmingId === row._id" @click="confirmPayment(row)">确认到账</el-button>
           <el-button type="primary" link @click="goWorkOrder(row)">去工单处理</el-button>
         </template>
       </el-table-column>
@@ -94,8 +95,9 @@
 <script setup>
 import { reactive, ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSettlementList } from '../api/settlement.js'
+import { updatePaymentStatus } from '../api/order.js'
 
 const router = useRouter()
 const rows = ref([])
@@ -104,6 +106,7 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const filters = reactive({ keyword: '', paymentStatus: '' })
+const confirmingId = ref('')
 const getToken = () => localStorage.getItem('adminToken')
 
 const paymentText = (status = 'pending') => ({ pending: '待付款', uploaded: '待核销', paid: '已付款', refunded: '已退款' }[status] || '待付款')
@@ -139,7 +142,25 @@ const loadSettlements = async () => {
 const goWorkOrder = (row) => {
   router.push({ path: '/workorder', query: { keyword: row.order_no } })
 }
-// 付款核销/确认已统一到工单详情（单一真相入口），此处仅展示与跳转
+
+const confirmPayment = async (row) => {
+  if (!row?._id || confirmingId.value) return
+  try {
+    await ElMessageBox.confirm(
+      '请确认已核对实际到账流水。确认后将记录本次收款并允许进入后续处理。',
+      '确认客户收款',
+      { type: 'warning', confirmButtonText: '确认到账', cancelButtonText: '取消' }
+    )
+    confirmingId.value = row._id
+    await updatePaymentStatus(getToken(), row._id, 'paid')
+    ElMessage.success('已确认到账')
+    await loadSettlements()
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.message || '确认收款失败')
+  } finally {
+    confirmingId.value = ''
+  }
+}
 
 watch([page, pageSize], loadSettlements)
 onMounted(loadSettlements)

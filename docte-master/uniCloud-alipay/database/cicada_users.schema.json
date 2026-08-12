@@ -36,6 +36,10 @@
     "token_expire": {
       "bsonType": "timestamp"
     },
+    "admin_sessions": {
+      "bsonType": "array",
+      "description": "后台并行登录会话；保留 token/token_expire 兼容旧版，密码重置或停用时统一清空"
+    },
     "role": {
       "bsonType": "string",
       "enum": [

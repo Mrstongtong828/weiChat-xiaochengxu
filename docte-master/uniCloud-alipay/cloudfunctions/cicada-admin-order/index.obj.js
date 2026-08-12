@@ -172,12 +172,16 @@ const {
 
 async function verifyAdminToken(token) {
   if (!token) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
-  const res = await db.collection('cicada_users').where({ token }).limit(1).get()
-  const user = res.data[0]
+  let res = await db.collection('cicada_users').where({ token }).limit(1).get()
+  if (!res.data || !res.data.length) {
+    res = await db.collection('cicada_users').where({ 'admin_sessions.token': token }).limit(1).get()
+  }
+  const user = res.data && res.data[0]
   if (!user || user.disabled || !isKnownRole(user.role)) {
     throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
   }
-  if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
+  const session = (Array.isArray(user.admin_sessions) ? user.admin_sessions : []).find(item => item && item.token === token)
+  if (isAdminTokenExpired(session ? session.expire_at : user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
   return user
 }
 
@@ -917,13 +921,30 @@ function addMonthsToDateStr(dateStr, months) {
   return `${yyyy}-${mm}-${dd}`
 }
 
-// 由设备/工单项推算质保到期日：优先显式截止日，否则仅在明确填写月数时计算。
+// 由设备/工单项推算质保到期日：显式截止日优先；否则按发票签收日，
+// 再回退 SN 出厂日 + 30 天起算。历史 buy_date 继续兼容为发票签收日。
 function deriveWarrantyExpire(source = {}) {
   const stored = normalizeText(source.warranty_expire)
   if (stored) return stored
+  const invoiceDate = normalizeText(source.invoice_signed_date || source.invoice_sign_date || source.invoice_receipt_date || source.buy_date)
+  const factoryDate = normalizeText(source.sn_factory_date || source.factory_date || source.production_date)
+  const startDate = invoiceDate || addDaysToDateStr(factoryDate, 30)
+  if (!startDate) return ''
   const months = Number(source.warranty_months)
-  if (!Number.isFinite(months) || months <= 0) return ''
-  return addMonthsToDateStr(source.buy_date, months)
+  return addMonthsToDateStr(startDate, Number.isFinite(months) && months > 0 ? months : 12)
+}
+
+function addDaysToDateStr(dateStr, days) {
+  const s = normalizeText(dateStr)
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (!m) return ''
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  if (Number.isNaN(d.getTime())) return ''
+  d.setDate(d.getDate() + Number(days || 0))
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
 }
 
 function computeWarrantyState(source = {}) {
