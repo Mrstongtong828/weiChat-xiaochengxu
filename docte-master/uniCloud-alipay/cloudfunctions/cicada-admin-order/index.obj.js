@@ -1311,7 +1311,21 @@ async function isOrderWarrantyFreeConfirmed(order = {}) {
   const res = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
   const items = res.data || []
   const warranty = await computeOrderWarrantyFromItems(items)
-  return warrantyPolicy.isWarrantyFreeItemSet(items, warranty)
+  return isWarrantyFreeItemSet(items, warranty)
+}
+
+function isWarrantyFreeItemSet(items = [], warranty = {}) {
+  if (!(warranty.charge_type === 'free'
+    && Boolean(warranty.in_warranty)
+    && ['in_warranty', 'extended'].includes(normalizeText(warranty.warranty_status)))) {
+    return false
+  }
+  if (!Array.isArray(items) || !items.length) return false
+  return items.every(item =>
+    normalizeText(item && item.coverage_result) === 'free'
+    && warrantyPolicy.isFreeCoverageReason(item && item.coverage_reason)
+    && ['in_warranty', 'extended'].includes(normalizeText(item && item.warranty_status))
+  )
 }
 
 function normalizeInvoiceStatusFilter(value = '') {

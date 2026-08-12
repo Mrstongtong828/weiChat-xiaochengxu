@@ -37,6 +37,7 @@ const requirements = [
   ['paid replacement parts receive a scoped repair extension', warrantyPolicy, /same_fault_same_replaced_part/],
   ['scoped repair warranty requires a manual fault-and-part match', warrantyPolicy, /scope === 'same_fault_same_replaced_part' && source\.repair_warranty_match !== true/],
   ['free repair requires an allowed policy reason', adminOrder, /warrantyPolicy\.isFreeCoverageReason\(patch\.coverage_reason\)/],
+  ['admin validates the full free item set without requiring a newly deployed common-module export', adminOrder, /return isWarrantyFreeItemSet\(items, warranty\)[\s\S]*function isWarrantyFreeItemSet\(items = \[\], warranty = \{\}\)/],
   ['repair warranty duration is fixed to three months', warrantyPolicy, /const months = DEFAULT_REPAIR_PART_WARRANTY_MONTHS/],
   ['mini program states the correct one-way warranty freight policy', miniProgram, /客户承担寄入厂家运费，厂家承担维修完成后的单程回寄运费/],
   ['admin exposes all policy exclusion categories', adminView, /improper_disinfection[\s\S]*voltage_damage[\s\S]*unauthorized_repair[\s\S]*label_or_sn_damage[\s\S]*force_majeure_or_uninsured_transport/]
