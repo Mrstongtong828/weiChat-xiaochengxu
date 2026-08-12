@@ -26,9 +26,11 @@
                 <p><span>发票类型</span><strong>{{ row.invoice_type || '电子普通发票' }}</strong></p>
                 <p><span>税收分类</span><strong>{{ row.tax_category || '修理修配劳务' }}</strong></p>
                 <p><span>发票项目</span><strong>{{ row.item_name || '牙科设备检修服务费' }}</strong></p>
+                <p><span>抬头类型</span><strong>{{ invoiceTitleTypeLabel(row.title_type) }}</strong></p>
                 <p><span>抬头</span><strong>{{ row.title || '待填写' }}</strong></p>
                 <p><span>税号</span><strong>{{ row.tax_no || '待填写' }}</strong></p>
                 <p><span>邮箱</span><strong>{{ row.email || '待填写' }}</strong></p>
+                <p><span>申请备注</span><strong>{{ row.remark || '无' }}</strong></p>
               </div>
               <div v-if="isPaperSpecial(row)" class="invoice-detail-block">
                 <h4>纸质专票信息</h4>
@@ -195,6 +197,7 @@ const pageSize = ref(20)
 const filters = reactive({ keyword: '', status: '' })
 const saving = ref(false)
 const isPaperSpecial = (row = {}) => row.invoice_type === '纸质专用发票'
+const invoiceTitleTypeLabel = (type = '') => ({ company: '企业抬头', personal: '个人抬头' }[type] || type || '待填写')
 
 const load = async () => {
   loading.value = true
