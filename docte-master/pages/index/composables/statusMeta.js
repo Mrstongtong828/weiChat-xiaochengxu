@@ -187,6 +187,12 @@ export const getRepairProgressNodes = (order = {}) => {
 		['paid', 'not_required'].includes(order.paymentStatus) ||
 		['paid', 'not_required'].includes(order.payment_status)
 	) reached = Math.max(reached, 2)
+	// 有应付金额的工单必须等到后端确认到账，才向客户显示已进入维修处理。
+	const paymentStatus = order.paymentStatus || order.payment_status
+	const quoteTotal = Number(order.totalFee ?? order.total_fee ?? order.totalPrice ?? order.total_price ?? 0)
+	if (quoteTotal > 0 && !['paid', 'not_required'].includes(paymentStatus) && !['shipped', 'completed'].includes(order.statusKey)) {
+		reached = Math.min(reached, 1)
+	}
 	const completed = order.statusKey === 'completed' || order.status === '已完成'
 	const repairProgressNodeLabels = ['报修已提交', '检测与报价', '维修处理', '设备回寄']
 	return repairProgressNodeLabels.map((label, index) => ({

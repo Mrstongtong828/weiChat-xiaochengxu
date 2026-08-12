@@ -53,6 +53,15 @@ test('paid and warranty-free orders advance to the repair stage', () => {
   assert.equal(warrantyNodes[2].state, 'current')
 })
 
+test('付费工单在财务确认到账前不提前进入维修进度', () => {
+  const nodes = getRepairProgressNodes({
+    id: 'R004', statusKey: 'fixing', quoteStatus: 'confirmed', paymentStatus: 'uploaded', totalFee: 100
+  })
+
+  assert.equal(nodes[1].state, 'current')
+  assert.equal(nodes[2].state, 'pending')
+})
+
 test('客户拒绝报价后显示待回寄而不是待付款或维修中', () => {
   assert.equal(deriveDisplayStatus({ status: 'received', quoteStatus: 'rejected' }), '拒修待回寄')
   assert.equal(deriveDisplayStatus({ status: 'fixing', quote_status: 'rejected' }), '拒修待回寄')

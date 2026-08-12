@@ -203,12 +203,16 @@ const {
 
 async function verifyAdminToken(token) {
   if (!token) throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
-  const res = await db.collection('cicada_users').where({ token }).limit(1).get()
-  const user = res.data[0]
+  let res = await db.collection('cicada_users').where({ token }).limit(1).get()
+  if (!res.data || !res.data.length) {
+    res = await db.collection('cicada_users').where({ 'admin_sessions.token': token }).limit(1).get()
+  }
+  const user = res.data && res.data[0]
   if (!user || user.disabled || !isKnownRole(user.role)) {
     throw createAdminAuthError('鉴权失败：非管理人员禁止访问该接口')
   }
-  if (isAdminTokenExpired(user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
+  const session = (Array.isArray(user.admin_sessions) ? user.admin_sessions : []).find(item => item && item.token === token)
+  if (isAdminTokenExpired(session ? session.expire_at : user.token_expire)) throw createAdminAuthError('鉴权失败：Token已过期')
   return user
 }
 
