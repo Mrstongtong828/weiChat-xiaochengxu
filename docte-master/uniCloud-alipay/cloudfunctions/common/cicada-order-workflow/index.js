@@ -14,7 +14,7 @@ const ORDER_STATUS_LABELS = {
 const ORDER_STATUS_TRANSITIONS = {
   pending: ['sent', 'received', 'cancelled'],
   sent: ['received', 'cancelled'],
-  received: ['inspecting', 'fixing', 'cancelled'],
+  received: ['inspecting', 'fixing', 'shipped', 'cancelled'],
   inspecting: ['fixing', 'shipped', 'cancelled'],
   fixing: ['shipped', 'completed', 'cancelled'],
   shipped: ['completed'],
@@ -34,9 +34,11 @@ const ALL_ROLES = Object.keys(ROLE_LABELS)
 
 const PERMISSIONS = {
   view_order: ALL_ROLES,
+  create_order: ['admin', 'engineer', 'support'],
   export_order: ALL_ROLES,
   get_stats: ALL_ROLES,
   get_workflow_config: ALL_ROLES,
+  delete_order: ['admin'],
   update_status: ['admin', 'engineer'],
   import_logistics: ['admin', 'engineer'],
   issue_quote: ['admin', 'engineer'],
@@ -53,6 +55,25 @@ const PERMISSIONS = {
   view_audit_log: ['admin', 'finance'],
   view_feedback: ['admin', 'engineer', 'finance', 'support'],
   handle_feedback: ['admin', 'support']
+}
+
+function getRepairStartBlockReason(order = {}) {
+  const quoteStatus = normalizeStatus(order.quote_status || order.quoteStatus)
+  const authorizationStatus = normalizeStatus(order.authorization_status || order.authorizationStatus)
+  const paymentStatus = normalizeStatus(order.payment_status || order.paymentStatus)
+  const chargeType = normalizeStatus(order.charge_type || order.chargeType)
+  const warrantyStatus = normalizeStatus(order.warranty_status || order.warrantyStatus)
+  const total = Number(order.total_price || order.totalPrice || 0) || 0
+  if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
+  if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
+  if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
+  if (total <= 0 && (
+    paymentStatus !== 'not_required'
+    || chargeType !== 'free'
+    || order.in_warranty !== true
+    || !['in_warranty', 'extended'].includes(warrantyStatus)
+  )) return '零元维修必须先完成质保免收费核验'
+  return ''
 }
 
 function normalizeRole(role = '') {
@@ -154,5 +175,6 @@ module.exports = {
   getAllowedStatusTransitions,
   canTransitionOrderStatus,
   assertOrderStatusTransition,
-  getWorkflowConfigForRole
+  getWorkflowConfigForRole,
+  getRepairStartBlockReason
 }

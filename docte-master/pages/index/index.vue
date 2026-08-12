@@ -7,6 +7,12 @@
 					<text class="module-title">{{ moduleInfo.title }}</text>
 					<text class="module-subtitle">{{ moduleInfo.subtitle }}</text>
 				</view>
+				<image
+					v-if="activeModule !== 'repair'"
+					class="module-brand-watermark"
+					:src="cicadaAssets.logoHeader"
+					mode="aspectFit"
+				></image>
 			</view>
 
 			<view v-if="activeModule === 'repair'" class="module-content repair-module">
@@ -19,13 +25,11 @@
 					<view class="repair-section-toggle"><text>{{ repairSectionOpen.user ? '收起' : (customerTypeLabel(repairForm.customerType) || '展开') }}</text><view class="section-chevron" :class="{ open: repairSectionOpen.user }"></view></view>
 				</view>
 				<view v-show="repairSectionOpen.user" class="repair-form-card">
-					<picker class="native-field-picker" mode="selector" :range="customerTypeOptions" range-key="label" :value="customerTypePickerIndex" @change="onCustomerTypeChange">
-						<view class="repair-field select-row tap">
-							<text><text class="required-star">*</text>用户类型</text>
-							<text class="select-value">{{ customerTypeLabel(repairForm.customerType) || '请选择用户类型' }}</text>
-							<view class="field-arrow"></view>
-						</view>
-					</picker>
+					<view class="repair-field select-row tap" @click="openCustomerTypePicker">
+						<text><text class="required-star">*</text>用户类型</text>
+						<text class="select-value">{{ customerTypeLabel(repairForm.customerType) || '请选择用户类型' }}</text>
+						<view class="field-arrow"></view>
+					</view>
 				</view>
 				<view class="module-section-head repair-section-head tap" @click="toggleRepairSection('products')">
 					<text>产品信息</text>
@@ -41,21 +45,22 @@
 							<view v-if="repairProducts.length > 1" class="remove-link tap" @click="removeRepairProduct(index)">移除</view>
 						</view>
 						<view class="repair-form-card">
-							<view class="repair-field">
-								<text>产品名称</text>
-								<input v-model="product.name" placeholder="请输入" placeholder-class="input-placeholder" />
+							<view class="repair-field select-row tap" @click="openProductPicker(index)">
+								<text><text class="required-star">*</text>产品名称</text>
+								<text class="select-value" :class="{ placeholder: !product.name }">{{ repairProductNameText(product) }}</text>
+								<view class="field-arrow"></view>
+							</view>
+							<view v-if="isOtherRepairProduct(product)" class="repair-field">
+								<text><text class="required-star">*</text>其他名称</text>
+								<input v-model.trim="product.name" maxlength="80" placeholder="请输入产品名称" placeholder-class="input-placeholder" />
 							</view>
 							<view class="repair-field">
 								<text><text class="required-star">*</text>产品序列号</text>
-								<input v-model="product.serial" placeholder="输入或扫码 SN" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
-								<view class="scan-icon tap" @click="scanSn(index)">
-									<view class="scan-corner"></view>
-									<view class="scan-corner"></view>
-									<view class="scan-corner"></view>
-								</view>
+								<input v-model="product.serial" placeholder="输入" placeholder-class="input-placeholder" @blur="recognizeSn(index)" />
 							</view>
 							<!-- SN 识别结果 -->
 							<view v-if="product.snLoading" class="sn-result loading"><text>正在识别设备…</text></view>
+							<view v-else-if="getSnValidationMessage(product)" class="sn-result error"><text>{{ getSnValidationMessage(product) }}</text></view>
 							<view v-else-if="product.snInfo && product.snInfo.found" class="sn-result">
 								<view class="sn-result-row">
 									<text class="sn-result-label">已识别</text>
@@ -69,14 +74,33 @@
 								</view>
 							</view>
 							<view v-else-if="product.snInfo && !product.snInfo.found && product.serial" class="sn-result muted"><text>首次报修可手动填写，提交后会自动登记</text></view>
-							<view class="repair-field">
-								<text>设备分类</text>
-								<input v-model="product.category" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
+							<view v-if="!product.name" class="repair-field select-row tap" @click="openProductPicker(index)">
 								<text><text class="required-star">*</text>产品型号</text>
-								<input v-model="product.model" placeholder="识别后自动带出，可修改" placeholder-class="input-placeholder" />
+								<text class="select-value placeholder">请先选择产品名称</text>
+								<view class="field-arrow"></view>
 							</view>
+							<view v-else-if="isOtherRepairProduct(product)" class="repair-field">
+								<text><text class="required-star">*</text>产品型号</text>
+								<input v-model.trim="product.model" maxlength="80" placeholder="请输入产品型号" placeholder-class="input-placeholder" />
+							</view>
+							<template v-else>
+								<view class="repair-field select-row tap" @click="openRepairModelPicker(index)">
+									<text><text class="required-star">*</text>产品型号</text>
+									<text class="select-value" :class="{ placeholder: !product.model }">{{ repairProductModelText(product) }}</text>
+									<view class="field-arrow"></view>
+								</view>
+								<view v-if="isOtherRepairModel(product)" class="repair-field repair-custom-model-field">
+									<text><text class="required-star">*</text>其他型号</text>
+									<input
+										v-model="product.customModel"
+										maxlength="80"
+										placeholder="请输入自定义产品型号"
+										placeholder-class="input-placeholder"
+										@input="syncCustomRepairModel(index, $event.detail.value)"
+										@blur="syncCustomRepairModel(index, $event.detail.value, true)"
+									/>
+								</view>
+							</template>
 							<view class="repair-field">
 								<text>购买日期</text>
 								<picker mode="date" :value="product.buyDate" @change="(e) => onDateChange(index, e)">
@@ -116,11 +140,14 @@
 									<text>{{ product.media.length }}/3</text>
 								</view>
 								<view class="media-grid">
-									<view v-for="media in product.media" :key="media.id" class="media-thumb">
+									<view v-for="media in product.media" :key="media.id" class="media-thumb tap" @click="previewRepairMedia(index, media)">
 										<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
 										<view v-else class="media-video">
-											<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
-											<text>视频</text>
+											<image v-if="media.coverPath" class="media-image" :src="media.coverPath" mode="aspectFill"></image>
+											<view class="media-video-overlay">
+												<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
+												<text>视频</text>
+											</view>
 										</view>
 										<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
 									</view>
@@ -173,13 +200,11 @@
 					</view>
 				</view>
 				<view class="repair-form-card">
-					<picker class="native-field-picker" mode="selector" :range="logisticsList" range-key="label" :value="logisticsPickerIndex" @change="onLogisticsChange">
-						<view class="repair-field select-row tap">
-							<text><text class="required-star">*</text>物流公司</text>
-							<text class="select-value">{{ repairForm.logisticsCompany || '请选择物流公司' }}</text>
-							<view class="field-arrow"></view>
-						</view>
-					</picker>
+					<view class="repair-field select-row tap" @click="openRepairLogisticsPicker">
+						<text><text class="required-star">*</text>物流公司</text>
+						<text class="select-value">{{ repairForm.logisticsCompany || '请选择物流公司' }}</text>
+						<view class="field-arrow"></view>
+					</view>
 					<view class="repair-field">
 						<text><text v-if="!trackingLater" class="required-star">*</text>运单号</text>
 						<input v-model="repairForm.trackingNo" :placeholder="trackingLater ? '可稍后在工单详情补填' : '请输入运单号'" placeholder-class="input-placeholder" />
@@ -216,12 +241,12 @@
 					</view>
 				</view>
 
-				<view class="repair-brand-watermark" aria-hidden="true">
-					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-					<text>思科达售后维修中心</text>
+				<view class="repair-brand-watermark">
+					<image :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
+					<text>思科达售后服务中心</text>
 				</view>
 
-				<view class="repair-bottom-bar">
+				<view v-if="!uploadPrivacyVisible" class="repair-bottom-bar">
 					<view class="bottom-more tap" @click="showRepairTools = true">
 						<view class="bottom-more-icon"><view></view><view></view><view></view></view>
 						<text>工具</text>
@@ -229,20 +254,97 @@
 					<view class="bottom-submit tap" :class="{ disabled: repairSubmitting }" @click="submitRepair">{{ repairSubmitting ? '提交中...' : '立即提交报修' }}</view>
 				</view>
 
-				<view v-if="showSavedAddressPicker" class="sheet-mask" @click="showSavedAddressPicker = false"></view>
-				<view v-if="showSavedAddressPicker" class="choice-sheet">
+				<view v-if="showSavedAddressPicker" class="sheet-mask" @click="showSavedAddressPicker = false" @touchmove.stop></view>
+				<view v-if="showSavedAddressPicker" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="showSavedAddressPicker = false">取消</text>
 						<text>选择常用地址</text>
 						<text class="tap" @click="addSavedAddress">新增</text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in savedAddressOptions" :key="item.id || item._id" class="choice-row address-choice-row tap" @click="selectSavedAddress(item)">
 							<view>
 								<text>{{ item.receiver || item.name }}　{{ item.phone }}</text>
 								<text class="address-choice-detail">{{ savedAddressText(item) }}</text>
 							</view>
 							<text v-if="item.isDefault" class="address-choice-default">默认</text>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showCustomerTypePicker" class="sheet-mask" @click="showCustomerTypePicker = false" @touchmove.stop></view>
+				<view v-if="showCustomerTypePicker" class="choice-sheet" @touchmove.stop>
+					<view class="choice-head">
+						<text class="tap" @click="showCustomerTypePicker = false">取消</text>
+						<text>选择用户类型</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
+						<view v-for="item in customerTypeOptions" :key="item.value" class="choice-row tap" @click="selectCustomerType(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="repairForm.customerType === item.value" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showProductPicker" class="sheet-mask" @click="closeProductPicker" @touchmove.stop></view>
+				<view v-if="showProductPicker" class="choice-sheet" @touchmove.stop>
+					<view class="choice-head">
+						<text class="tap" @click="closeProductPicker">取消</text>
+						<text>选择产品名称</text>
+						<text></text>
+					</view>
+					<view class="product-choice-search">
+						<view class="glyph glyph-search glyph-search-small"></view>
+						<input v-model.trim="repairProductKeyword" maxlength="60" confirm-type="search" placeholder="产品名称、型号或拼音首字母" placeholder-class="input-placeholder" />
+					</view>
+					<scroll-view class="choice-scroll product-choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
+						<view v-if="repairProductLoading && !repairProductOptions.length" class="choice-empty">产品名称加载中...</view>
+						<view v-else-if="filteredRepairProductOptions.length">
+							<view v-for="item in filteredRepairProductOptions" :key="item.value" class="choice-row choice-row-product tap" @click="selectRepairProduct(item)">
+								<view>
+									<text>{{ item.label }}</text>
+								</view>
+								<view v-if="isActiveRepairProduct(item)" class="mini-icon mini-check"></view>
+							</view>
+						</view>
+						<view v-else class="choice-empty">没有匹配的产品</view>
+						<view v-if="!repairProductLoading" class="choice-row choice-row-product choice-row-other tap" @click="selectRepairProduct(repairProductOtherOption)">
+							<view>
+								<text>{{ repairProductOtherOption.label }}</text>
+								<text>自行填写产品名称</text>
+							</view>
+							<view v-if="isOtherRepairProduct(activeRepairProduct)" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showRepairModelPicker" class="sheet-mask" @click="closeRepairModelPicker" @touchmove.stop></view>
+				<view v-if="showRepairModelPicker" class="choice-sheet" @touchmove.stop>
+					<view class="choice-head">
+						<text class="tap" @click="closeRepairModelPicker">取消</text>
+						<text>选择产品型号</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
+						<view v-for="item in activeRepairModelOptions" :key="item.value" class="choice-row tap" @click="selectRepairProductModel(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="isActiveRepairModelOption(item)" class="mini-icon mini-check"></view>
+						</view>
+					</scroll-view>
+				</view>
+
+				<view v-if="showRepairLogisticsPicker" class="sheet-mask" @click="closeRepairLogisticsPicker" @touchmove.stop></view>
+				<view v-if="showRepairLogisticsPicker" class="choice-sheet" @touchmove.stop>
+					<view class="choice-head">
+						<text class="tap" @click="closeRepairLogisticsPicker">取消</text>
+						<text>选择物流公司</text>
+						<text></text>
+					</view>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
+						<view v-for="item in logisticsList" :key="item.value" class="choice-row tap" @click="selectRepairLogistics(item)">
+							<text>{{ item.label }}</text>
+							<view v-if="repairForm.logisticsCompany === item.value" class="mini-icon mini-check"></view>
 						</view>
 					</scroll-view>
 				</view>
@@ -256,8 +358,8 @@
 					<view class="success-row"><text>工单号</text><text class="copy-link tap" @click="copyOne(submittedOrderId, '工单号')">复制</text></view>
 					<text class="success-no">{{ submittedOrderId || '工单号生成中' }}</text>
 					<view class="success-grid">
-						<view><text>预计响应</text><text>30 分钟内</text></view>
-						<view><text>物流方式</text><text>顺丰到付</text></view>
+						<view><text>响应状态</text><text>等待客服受理</text></view>
+						<view><text>寄出物流</text><text>{{ submittedLogisticsText }}</text></view>
 					</view>
 					<text class="success-archive-tip">本次报修的设备已记入「我的设备」档案，维修完成后保修状态与历史工单会自动更新。</text>
 				</view>
@@ -403,8 +505,8 @@
 				<view class="invoice-hero">
 					<view class="invoice-hero-icon"><view class="glyph glyph-invoice"><view class="glyph-extra"></view></view></view>
 					<view>
-						<text>电子发票自助办理</text>
-						<text>维修完成后可在线申请，支持查看申请、审核、开票状态与电子发票链接。</text>
+						<text>对公转账开票申请</text>
+						<text>检修完成且对公款项核销后可申请；微信支付订单不提供开票。</text>
 					</view>
 				</view>
 				<view class="invoice-status-board">
@@ -434,6 +536,10 @@
 								<text>{{ item.label }}</text>
 								<text>{{ item.desc }}</text>
 							</view>
+						</view>
+						<view class="invoice-service-item">
+							<view><text>税收分类</text><text>修理修配劳务</text></view>
+							<view><text>发票项目</text><text>牙科设备检修服务费</text></view>
 						</view>
 						<view class="invoice-type-row">
 							<view v-for="item in invoiceTitleTypes" :key="item.value" class="tap" :class="{ on: invoiceForm.titleType === item.value, disabled: isPaperInvoice && item.value !== 'company' }" @click="selectInvoiceTitleType(item.value)">
@@ -490,8 +596,8 @@
 						</view>
 					</view>
 					<view class="invoice-tip">
-						<text v-if="isPaperInvoice">纸质专用发票仅支持企业抬头，财务审核开具后邮寄到收票地址，请确保收票信息准确无误。</text>
-						<text v-else>电子普通发票开具后可复制链接查看，同时会发送到接收邮箱。若需纸质专用发票，请切换上方发票类型。</text>
+						<text v-if="isPaperInvoice">纸质专用发票仅支持企业抬头，预计 7-15 个工作日寄出，请确保收票信息准确无误。</text>
+						<text v-else>电子普通发票预计 1-3 个工作日开具，小程序会同步号码、日期、抬头和金额等信息。</text>
 					</view>
 					<view class="primary-button tap save-button" :class="{ disabled: invoiceSubmitting }" @click="submitInvoiceApply">{{ invoiceSubmitting ? '提交中...' : '确认提交' }}</view>
 				</view>
@@ -515,7 +621,7 @@
 							<view><text>维修金额</text><text>{{ order.price }}</text></view>
 							<view><text>报修日期</text><text>{{ order.date }}</text></view>
 							<view><text>开票阶段</text><text>{{ getInvoiceMeta(order).stage }}</text></view>
-							<view><text>电子链接</text><text>{{ order.invoiceUrl ? '已生成' : '待开具' }}</text></view>
+							<view><text>用户查看</text><text>开具后小程序展示</text></view>
 						</view>
 						<view class="invoice-order-actions">
 							<view class="ghost-button tap" @click="openOrderDetail(order)">查看工单</view>
@@ -540,9 +646,11 @@
 						<view class="invoice-issued-info">
 							<view><text>发票号码</text><text>{{ order.invoiceNo || '待同步' }}</text></view>
 							<view><text>开票日期</text><text>{{ order.invoiceDate || '待同步' }}</text></view>
+							<view><text>税收分类</text><text>{{ order.invoiceTaxCategory || '修理修配劳务' }}</text></view>
+							<view><text>发票项目</text><text>{{ order.invoiceItemName || '牙科设备检修服务费' }}</text></view>
 							<view><text>开票状态</text><text>{{ order.invoiceType === '纸质专用发票' ? (order.invoiceStatus || getInvoiceMeta(order).stage) : getInvoiceMeta(order).stage }}</text></view>
 							<view v-if="order.invoiceType === '纸质专用发票'"><text>邮寄快递</text><text>{{ order.invoiceMailCompany || '待寄出' }}</text></view>
-							<view v-else><text>电子链接</text><text>{{ order.invoiceUrl ? '已生成' : '待同步' }}</text></view>
+							<view v-else><text>电子凭证</text><text>发票信息已同步</text></view>
 							<view v-if="order.invoiceType === '纸质专用发票' && order.invoiceMailNo"><text>邮寄单号</text><text>{{ order.invoiceMailNo }}</text></view>
 						</view>
 						<view class="invoice-order-actions">
@@ -550,7 +658,7 @@
 							<view v-if="order.invoiceType === '纸质专用发票'" class="primary-button tap" :class="{ disabled: !order.invoiceMailNo }" @click="copyInvoiceMailNo(order)">
 								{{ order.invoiceMailNo ? (copied === 'invMail-' + order.id ? '已复制邮寄单号' : '复制邮寄单号') : '待财务寄出' }}
 							</view>
-							<view v-else class="primary-button tap" @click="copyInvoiceLink(order)">复制发票链接</view>
+							<view v-else class="primary-button tap" @click="copyInvoiceInfo(order)">复制发票信息</view>
 						</view>
 					</view>
 					<view v-if="!invoiceIssuedOrders.length" class="empty-hint compact">暂无已开具的发票。</view>
@@ -563,10 +671,78 @@
 						<text>工单号</text>
 						<text :class="['tag', 'tag-muted-light']">{{ detailOrder.status }}</text>
 					</view>
-					<text class="detail-order-no">{{ detailOrder.id }}</text>
+					<view class="detail-order-no-row">
+						<text class="detail-order-no" user-select>{{ detailOrder.id }}</text>
+						<view class="detail-order-copy tap" @click="copyOne(detailOrder.id, 'detailOrderNo')">
+							<view v-if="copied === 'detailOrderNo'" class="mini-icon mini-check mini-check-white"></view>
+							<view v-else class="mini-icon mini-copy mini-copy-white"></view>
+							<text>{{ copied === 'detailOrderNo' ? '已复制' : '复制' }}</text>
+						</view>
+					</view>
 					<view class="detail-hero-grid">
 						<view><text>产品</text><text>{{ detailOrder.model }}</text></view>
 						<view><text>预计完成</text><text>{{ detailOrder.doneTime }}</text></view>
+					</view>
+				</view>
+				<view class="module-section-head single"><text>报修信息</text></view>
+				<view v-if="detailView.items.length" class="detail-repair-list">
+					<view v-for="(item, itemIndex) in detailView.items" :key="item.id" class="detail-repair-card">
+						<view class="detail-repair-head">
+							<text>报修产品 {{ itemIndex + 1 }}</text>
+							<text>{{ item.name }}</text>
+						</view>
+						<view class="detail-field-grid">
+							<view><text>产品分类</text><text>{{ item.category }}</text></view>
+							<view><text>产品型号</text><text>{{ item.model }}</text></view>
+							<view><text>产品序列号</text><text user-select>{{ item.sn }}</text></view>
+							<view><text>购买日期</text><text>{{ item.buyDate }}</text></view>
+						</view>
+						<view class="detail-fault-block">
+							<text>故障描述</text>
+							<text user-select>{{ item.faultDesc }}</text>
+						</view>
+						<view v-if="item.vouchers.length || item.images.length || item.videos.length" class="detail-attachment-block">
+							<text>凭证与附件</text>
+							<view class="detail-attachment-grid">
+								<view v-for="(attachment, index) in item.vouchers" :key="attachment.id" class="detail-attachment tap" @click="previewDetailImages(item.vouchers, index)">
+									<image v-if="getDetailAttachmentUrl(attachment)" :src="getDetailAttachmentUrl(attachment)" mode="aspectFill"></image>
+									<view v-else class="detail-attachment-placeholder">凭证</view>
+									<text>购买凭证</text>
+								</view>
+								<view v-for="(attachment, index) in item.images" :key="attachment.id" class="detail-attachment tap" @click="previewDetailImages(item.images, index)">
+									<image v-if="getDetailAttachmentUrl(attachment)" :src="getDetailAttachmentUrl(attachment)" mode="aspectFill"></image>
+									<view v-else class="detail-attachment-placeholder">图片</view>
+									<text>故障图片</text>
+								</view>
+								<view v-for="attachment in item.videos" :key="attachment.id" class="detail-attachment tap" @click="previewDetailVideo(attachment)">
+									<view class="detail-video-placeholder">
+										<image v-if="getDetailAttachmentCoverUrl(attachment)" :src="getDetailAttachmentCoverUrl(attachment)" mode="aspectFill"></image>
+										<view class="detail-video-play"><text>▶</text></view>
+									</view>
+									<text>故障视频</text>
+								</view>
+							</view>
+						</view>
+					</view>
+				</view>
+				<view v-else class="empty-hint compact">设备信息待同步，请稍后刷新或联系客服。</view>
+				<view class="detail-shipping-card">
+					<view class="detail-shipping-group">
+						<text>寄出信息</text>
+						<view><text>寄件人</text><text>{{ detailView.shipOut.name }}</text></view>
+						<view><text>联系电话</text><text user-select>{{ detailView.shipOut.phone }}</text></view>
+						<view><text>寄出地址</text><text user-select>{{ detailView.shipOut.address }}</text></view>
+						<view><text>物流公司</text><text>{{ detailView.shipOut.logisticsCompany }}</text></view>
+						<view><text>寄出单号</text><text user-select>{{ detailView.shipOut.logisticsNo }}</text></view>
+					</view>
+					<view class="detail-shipping-group">
+						<text>回寄信息</text>
+						<view><text>收件单位</text><text>{{ detailView.shipBack.unit }}</text></view>
+						<view><text>收货人</text><text>{{ detailView.shipBack.name }}</text></view>
+						<view><text>手机号码</text><text user-select>{{ detailView.shipBack.phone }}</text></view>
+						<view><text>回寄地址</text><text user-select>{{ detailView.shipBack.address }}</text></view>
+						<view><text>回寄物流</text><text>{{ detailView.shipBack.logisticsCompany }}</text></view>
+						<view><text>回寄单号</text><text user-select>{{ detailView.shipBack.logisticsNo }}</text></view>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>维修进度</text></view>
@@ -581,6 +757,22 @@
 							<text v-if="node.state === 'current'" class="progress-node-now">进行中</text>
 						</view>
 					</view>
+				</view>
+				<view class="detail-timeline-card">
+					<view class="detail-timeline-heading"><text>处理记录</text><text>共 {{ detailView.timeline.length }} 条</text></view>
+					<view v-if="detailView.timeline.length">
+						<view v-for="(item, index) in detailView.timeline" :key="item.id" class="detail-timeline-row">
+							<view class="detail-timeline-pin" :class="{ pending: item.pending }">
+								<view></view>
+								<view v-if="index < detailView.timeline.length - 1"></view>
+							</view>
+							<view class="detail-timeline-copy">
+								<view><text>{{ item.title }}</text><text>{{ item.time }}</text></view>
+								<text>{{ item.desc }}</text>
+							</view>
+						</view>
+					</view>
+					<view v-else class="empty-hint compact">暂无处理记录。</view>
 				</view>
 				<view class="module-section-head single"><text>维修报价</text></view>
 				<view class="billing-card quote-sheet-card quote-payment-panel">
@@ -795,14 +987,14 @@
 					</view>
 				</view>
 
-				<view v-if="showOutboundSheet" class="sheet-mask" @click="showOutboundSheet = false"></view>
-				<view v-if="showOutboundSheet" class="choice-sheet">
+				<view v-if="showOutboundSheet" class="sheet-mask" @click="showOutboundSheet = false" @touchmove.stop></view>
+				<view v-if="showOutboundSheet" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="showOutboundSheet = false">取消</text>
 						<text>选择物流公司</text>
 						<text></text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in logisticsList" :key="item.value" class="choice-row tap" @click="selectOutboundLogistics(item)">
 							<text>{{ item.label }}</text>
 							<view v-if="outboundForm.company === item.value" class="mini-icon mini-check"></view>
@@ -895,7 +1087,7 @@
 					<view class="diag-icon"><view class="glyph glyph-diag"><view class="glyph-extra"></view></view></view>
 					<view>
 						<text>2 步快速定位故障</text>
-						<text>选择产品类型与故障现象，即查看解决方法</text>
+						<text>选择产品类型与故障现象，即查看排查方法和处理建议</text>
 					</view>
 				</view>
 				<view class="module-section-head single"><text>请选择</text></view>
@@ -912,28 +1104,34 @@
 					</view>
 				</view>
 				<view v-if="diagConfirmVisible" class="diag-result">
-					<view class="module-section-head single"><text>解决方法</text></view>
+					<view class="module-section-head single"><text>自查结果</text></view>
+					<view v-if="diagLoading" class="diag-sync-tip">正在同步后台最新故障知识库...</view>
+					<view v-if="diagErrorText" class="diag-sync-tip warning">{{ diagErrorText }}</view>
+					<view v-if="diagResult" class="diag-advice-card" :class="{ recommend: diagRecommendRepair }">
+						<text>{{ diagRecommendRepair ? '建议报修' : '可先自查' }}</text>
+						<text>{{ diagRecommendRepair ? '后台知识库建议提交报修，由工程师进一步确认。' : '可先按排查步骤处理，未恢复时再提交报修。' }}</text>
+					</view>
 					<view v-for="section in diagConfirmSections" :key="section.title" class="diag-check-card">
 						<view class="diag-check-head"><view :style="{ backgroundColor: section.color }"></view><text>{{ section.title }}</text></view>
-						<view v-for="(item, index) in section.items" :key="item" class="diag-check-row">
+						<view v-for="(item, index) in section.items" :key="section.title + index" class="diag-check-row">
 							<text>{{ section.numbered ? index + 1 : '·' }}</text>
 							<text>{{ item }}</text>
 						</view>
 					</view>
 					<view class="dual-actions">
 						<view class="ghost-button tap" @click="resetDiag">重新选择</view>
-						<view class="primary-button tap" @click="go('repair')">仍未解决 · 立即报修</view>
+						<view class="primary-button tap" @click="startRepairFromDiag">{{ diagRepairActionText }}</view>
 					</view>
 				</view>
 				<view v-else class="empty-hint">{{ diagEmptyText }}</view>
-				<view v-if="diagOpen" class="sheet-mask" @click="diagOpen = ''"></view>
-				<view v-if="diagOpen" class="choice-sheet">
+				<view v-if="diagOpen" class="sheet-mask" @click="diagOpen = ''" @touchmove.stop></view>
+				<view v-if="diagOpen" class="choice-sheet" @touchmove.stop>
 					<view class="choice-head">
 						<text class="tap" @click="diagOpen = ''">取消</text>
 						<text>{{ diagOpen === 'product' ? '选择产品类型' : '选择故障现象' }}</text>
 						<text></text>
 					</view>
-					<scroll-view class="choice-scroll" scroll-y>
+					<scroll-view class="choice-scroll" scroll-y enhanced :show-scrollbar="false" :bounces="true">
 						<view v-for="item in diagSheetOptions" :key="item.id" class="choice-row tap" @click="selectDiagOption(item)">
 							<text>{{ item.title }}</text>
 							<view v-if="item.active" class="mini-icon mini-check"></view>
@@ -943,18 +1141,22 @@
 			</view>
 
 			<view v-else-if="activeModule === 'warranty'" class="module-content warranty-module">
-				<!-- 分块结构化：后台配置 warranty_policy_sections 时按块渲染，否则回退整段富文本 -->
-				<block v-if="warrantySections.length">
-					<view v-for="(section, index) in warrantySections" :key="section.title + index" class="warranty-section-card">
-						<view class="module-section-head single"><text>{{ section.title }}</text></view>
-						<view class="policy-rich-content warranty-section-content">
-							<rich-text :nodes="section.content"></rich-text>
+				<PolicyDocumentViewer
+					v-if="warrantyHasPolicyDocument"
+					:policy-document="warrantyDoc.policyDocument"
+				/>
+				<view v-else-if="warrantyDoc.content" class="doc-paper">
+					<rich-text :nodes="warrantyDoc.content"></rich-text>
+				</view>
+				<view v-if="!warrantyHasPolicyDocument && !warrantyDoc.content" class="doc-paper warranty-paper">
+					<text class="paper-title">保修政策</text>
+					<view v-for="section in warrantyTerms" :key="section.title" class="paper-section">
+						<text class="paper-section-title">{{ section.title }}</text>
+						<view v-for="(line, index) in section.lines" :key="line" class="paper-line">
+							<text>{{ index + 1 }})</text>
+							<text>{{ line }}</text>
 						</view>
 					</view>
-				</block>
-				<view v-else class="policy-rich-content">
-					<rich-text v-if="warrantyDoc.content" :nodes="warrantyDoc.content"></rich-text>
-					<text v-else class="policy-empty">暂无保修政策内容</text>
 				</view>
 				<view class="dual-actions">
 					<view class="primary-button tap" @click="go('repair')">立即报修</view>
@@ -966,10 +1168,10 @@
 					<view :class="['glyph', 'glyph-' + activeDoc.icon]"><view class="glyph-extra"></view></view>
 					<view><text>{{ activeDoc.title }}</text><text>{{ activeDoc.lead }}</text></view>
 				</view>
-				<view v-if="activeModule === 'fees'" class="policy-rich-content">
-					<rich-text v-if="activeDoc.content" :nodes="activeDoc.content"></rich-text>
-					<text v-else class="policy-empty">暂无收费办法内容</text>
-				</view>
+				<PolicyDocumentViewer
+					v-if="activeModule === 'fees' && activeDocHasPolicyDocument"
+					:policy-document="activeDoc.policyDocument"
+				/>
 				<view v-else-if="activeDoc.content" class="doc-paper">
 					<rich-text :nodes="activeDoc.content"></rich-text>
 				</view>
@@ -1014,18 +1216,22 @@
 				</scroll-view>
 				<view class="module-content orders-content-classic">
 					<view v-for="order in filteredOrderList" :key="order.id" class="order-card-mini order-card-classic tap" @click="openOrderDetail(order)">
-						<view class="order-card-main">
-							<text class="muted-line">工单 {{ order.id }}</text>
-							<text class="order-card-title">{{ order.cardTitle }}</text>
-							<text v-if="order.faultDesc" class="order-card-fault">{{ order.faultDesc }}</text>
-							<view v-if="order.cardMeta && order.cardMeta.length" class="order-card-meta">
-								<text v-for="meta in order.cardMeta" :key="meta">{{ meta }}</text>
-							</view>
-							<text class="order-card-date">报修日期 · {{ order.date }}</text>
-						</view>
-						<view class="order-card-side">
+						<view class="order-card-head">
+							<text class="order-card-no">工单 {{ order.id }}</text>
 							<text :class="['tag', 'tag-' + getOrderStatusTone(order)]">{{ order.status }}</text>
-							<text class="order-card-price">{{ formatOrderListPrice(order) }}</text>
+						</view>
+						<text class="order-card-title">{{ order.cardTitle }}</text>
+						<text v-if="order.faultDesc" class="order-card-fault">{{ order.faultDesc }}</text>
+						<view v-if="order.cardMeta && order.cardMeta.length" class="order-card-meta">
+							<text v-for="meta in order.cardMeta" :key="meta">{{ meta }}</text>
+						</view>
+						<view class="order-card-footer">
+							<text class="order-card-date">报修日期 · {{ order.date }}</text>
+							<view class="order-card-action">
+								<text v-if="formatOrderListPrice(order, '')" class="order-card-price">{{ formatOrderListPrice(order, '') }}</text>
+								<text>查看详情</text>
+								<view class="order-card-chevron"></view>
+							</view>
 						</view>
 					</view>
 					<view v-if="!filteredOrderList.length" class="empty-hint compact">当前筛选条件下没有订单。</view>
@@ -1036,11 +1242,11 @@
 				<view v-for="item in productList" :key="item.sn || item.title" class="product-card">
 					<view class="product-icon"><view class="glyph glyph-tooth"><view class="glyph-extra"></view></view></view>
 					<view class="product-copy">
-						<text>{{ item.title }}</text>
-						<text>SN · {{ item.sn || '未登记' }}</text>
-							<text v-if="item.model">型号 · {{ item.model }}</text>
-							<text v-if="item.lastOrderNo">最近工单 · {{ item.lastOrderNo }}{{ item.repairCount ? `（累计报修 ${item.repairCount} 次）` : '' }}</text>
-						<text v-else-if="item.date">购买日期 · {{ item.date }}</text>
+						<text class="product-title">{{ item.title }}</text>
+						<text class="product-meta">SN · {{ item.sn || '未登记' }}</text>
+						<text v-if="item.model" class="product-meta">型号 · {{ item.model }}</text>
+						<text v-if="item.lastOrderText" class="product-order">{{ item.lastOrderText }}</text>
+						<text v-else-if="item.date" class="product-meta">购买日期 · {{ item.date }}</text>
 						<text :class="['tag', item.expired ? 'tag-muted' : 'tag-ok']">{{ item.warranty }}</text>
 					</view>
 					<view class="ghost-mini tap" @click="go('repair')">报修</view>
@@ -1159,7 +1365,7 @@
 							</view>
 							<text class="feedback-ticket-content">{{ record.content }}</text>
 							<view v-if="record.images && record.images.length" class="feedback-ticket-images">
-								<image v-for="(image, index) in record.images" :key="image.id || image.url || image || index" :src="image.url || image" mode="aspectFill" class="feedback-ticket-image tap" @click="previewFeedbackRecordImage(record, index)"></image>
+								<image v-for="(image, index) in record.images" :key="image.id || image.url || image || index" :src="getFeedbackRecordImageUrl(image)" mode="aspectFill" class="feedback-ticket-image tap" @click="previewFeedbackRecordImage(record, index)"></image>
 							</view>
 							<view class="feedback-reply">
 								<text>客服回复</text>
@@ -1176,7 +1382,8 @@
 					:loading="loginSubmitting"
 					:retrying="loginRetrying"
 					:agreed="loginAgreementChecked"
-					:error="loginError"
+					:locked="loginClickLocked"
+					:cooldown-seconds="loginCooldownSeconds"
 					@back="returnFromModule"
 					@login="onLoginButtonTap"
 					@toggle-agreement="toggleLoginAgreement"
@@ -1189,56 +1396,72 @@
 			<view v-if="activeTab === 'home'" class="home-body">
 				<view class="brand-bar">
 					<view class="brand-left">
-						<text class="home-brand-subtitle">思科达服务</text>
+						<text class="home-brand-subtitle">服务中心</text>
 					</view>
 				</view>
 
 				<view class="new-brand-banner" style="margin: 12px; overflow: hidden; border-radius: 8px; position: relative; z-index: 10;">
-					<image src="/static/logo-banner.jpg" mode="widthFix" style="width: 100%; display: block;"></image>
+					<image :src="homeTopBackground" mode="widthFix" style="width: 100%; display: block;"></image>
 				</view>
 
 				<view class="section section-basic">
-					<text class="section-title">基础服务</text>
+					<view class="home-section-heading">
+						<view class="home-section-marker"></view>
+						<text class="section-title">基础服务</text>
+					</view>
 					<view class="three-grid">
 						<view
 							v-for="item in basics"
 							:key="item.id"
-							class="service-card tap"
+							class="service-card basic-service-card tap"
 							@click="go(item.id)"
 						>
-							<view class="service-icon" :style="{ backgroundColor: item.bg, color: item.color }">
-								<view :class="['glyph', 'glyph-' + item.icon]">
-									<view class="glyph-extra"></view>
+							<view class="service-icon-halo basic-icon-halo" :style="{ backgroundColor: item.bg }">
+								<view class="service-icon" :style="{ backgroundColor: item.color, color: '#FFFFFF' }">
+									<view :class="['glyph', 'glyph-' + item.icon]">
+										<view class="glyph-extra"></view>
+									</view>
 								</view>
 							</view>
 							<text class="service-title">{{ item.title }}</text>
+							<text class="service-desc">{{ item.desc }}</text>
+							<view class="service-accent" :style="{ backgroundColor: item.color }"></view>
 						</view>
 					</view>
 				</view>
 
 				<view class="section section-query">
-					<text class="section-title">自助查询</text>
+					<view class="home-section-heading">
+						<view class="home-section-marker"></view>
+						<text class="section-title">自助查询</text>
+					</view>
 					<view class="query-grid">
 						<view
 							v-for="item in queries"
 							:key="item.id"
-							class="service-card tap"
+							class="query-service-card tap"
 							@click="go(item.id)"
 						>
-							<view class="service-icon" :style="{ backgroundColor: item.bg, color: item.color }">
-								<view :class="['glyph', 'glyph-' + item.icon]">
-									<view class="glyph-extra"></view>
+							<view class="service-icon-halo query-icon-halo" :style="{ backgroundColor: item.bg }">
+								<view class="service-icon query-service-icon" :style="{ backgroundColor: item.color, color: '#FFFFFF' }">
+									<view :class="['glyph', 'glyph-' + item.icon]">
+										<view class="glyph-extra"></view>
+									</view>
 								</view>
 							</view>
-							<text class="service-title">{{ item.title }}</text>
+							<view class="query-service-copy">
+								<text class="service-title">{{ item.title }}</text>
+								<text class="service-desc">{{ item.desc }}</text>
+							</view>
+							<view class="query-chevron" :style="{ borderColor: item.color }"></view>
 						</view>
 					</view>
 				</view>
 
 				<view class="section section-guide">
-					<view class="section-line tutorial-section-line">
+					<view class="home-section-heading tutorial-section-line">
+						<view class="home-section-marker"></view>
 						<text class="section-title">操作教程</text>
-						<text class="section-meta">维修与开票</text>
 					</view>
 					<view class="tutorial-guide-grid">
 						<view
@@ -1252,33 +1475,52 @@
 									<view class="glyph-extra"></view>
 								</view>
 							</view>
-							<text class="guide-title">{{ item.title }}</text>
+							<view class="guide-copy">
+								<text class="guide-title">{{ item.title }}</text>
+								<text class="guide-desc">{{ item.desc }}</text>
+							</view>
 							<view class="chevron"></view>
 						</view>
 					</view>
+					<view class="product-video-entry tap" @click="openProductVideoLink">
+						<view class="product-video-icon">
+							<view class="product-video-play"></view>
+						</view>
+						<view class="product-video-copy">
+							<view class="product-video-title-row">
+								<text class="product-video-title">产品视频</text>
+								<text class="product-video-new">NEW</text>
+							</view>
+							<text class="product-video-desc">观看产品使用视频</text>
+						</view>
+						<view class="product-video-chevron"></view>
+					</view>
+				</view>
 
-					<view v-if="homeIntroVideo" class="maintenance-video-wrap">
-						<view class="maintenance-video-list">
-							<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
-								<text class="maintenance-video-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
-								<view class="maintenance-video-cover">
-									<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
-									<view v-else class="maintenance-video-placeholder">
-										<text class="maintenance-video-brand">CICADA Dental</text>
-										<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '售后服务介绍' }}</text>
-									</view>
-									<view class="maintenance-video-shade"></view>
-									<view class="maintenance-play-badge"><text>▶</text></view>
+				<view v-if="homeIntroVideo" class="section maintenance-video-wrap">
+					<view class="maintenance-video-list">
+						<view class="maintenance-video-card tap" @click="openMaintenanceVideo(homeIntroVideo)">
+							<text class="maintenance-video-title">{{ homeIntroVideo.title || '产品安装及维护保养视频' }}</text>
+							<view class="maintenance-video-cover">
+								<image v-if="homeIntroVideo.coverUrl" class="maintenance-video-image" :src="homeIntroVideo.coverUrl" mode="aspectFill"></image>
+								<view v-else class="maintenance-video-placeholder">
+									<text class="maintenance-video-brand">CICADA Dental</text>
+									<text class="maintenance-video-placeholder-title">{{ homeIntroVideo.title || '产品安装及维护保养视频' }}</text>
 								</view>
+								<view class="maintenance-video-shade"></view>
+								<view class="maintenance-play-badge"><text>▶</text></view>
 							</view>
 						</view>
 					</view>
 				</view>
 
 				<view class="section section-contact">
-					<text class="section-title">联系我们</text>
-					<view class="two-grid">
-						<button class="contact-card tap" open-type="contact" @click="openCustomerService">
+					<view class="home-section-heading">
+						<view class="home-section-marker"></view>
+						<text class="section-title">联系我们</text>
+					</view>
+					<view class="contact-grid">
+						<button class="contact-card tap" open-type="contact">
 							<view class="contact-icon">
 								<view class="glyph glyph-chat">
 									<view class="glyph-extra"></view>
@@ -1288,6 +1530,7 @@
 								<text class="contact-title">在线客服</text>
 								<text class="contact-desc">8:00-17:30</text>
 							</view>
+							<text class="contact-action">咨询</text>
 						</button>
 						<view class="contact-card tap" @click="makePhoneCall">
 							<view class="contact-icon">
@@ -1299,63 +1542,60 @@
 								<text class="contact-title">服务热线</text>
 								<text class="contact-desc">{{ contactInfo.phone }}</text>
 							</view>
+							<text class="contact-action">拨打</text>
+						</view>
+					</view>
+					<view class="home-receiver-detail">
+						<view class="receiver-card">
+							<view class="receiver-head">
+								<view class="glyph glyph-pin glyph-pin-title">
+									<view class="glyph-extra"></view>
+								</view>
+								<text>收件信息</text>
+							</view>
+							<view
+								v-for="(item, index) in receiver"
+								:key="item.label"
+								class="receiver-row"
+								:class="{ 'receiver-row-last': index === receiverLastIndex }"
+							>
+								<view class="receiver-line">
+									<view class="receiver-text">
+										<text class="receiver-label">{{ item.label }}</text>
+										<text class="receiver-value" user-select>{{ item.value }}</text>
+									</view>
+									<view class="copy-button tap" @click="copyOne(item.value, item.label)">
+										<view v-if="copied === item.label" class="mini-icon mini-check"></view>
+										<view v-else class="mini-icon mini-copy"></view>
+									</view>
+								</view>
+							</view>
+						</view>
+						<view class="copy-row">
+							<view class="copy-all tap" @click="copyAll">
+								<view class="mini-icon mini-check mini-check-white"></view>
+								<text>{{ copied === 'all' ? '已复制' : '一键复制以上收件信息' }}</text>
+							</view>
 						</view>
 					</view>
 				</view>
 
-				<view class="receiver-wrap">
-					<view class="receiver-card">
-						<view class="receiver-head">
-							<view class="glyph glyph-pin glyph-pin-title">
-								<view class="glyph-extra"></view>
-							</view>
-							<text>收件信息</text>
-						</view>
-						<view
-							v-for="(item, index) in receiver"
-							:key="item.label"
-							class="receiver-row"
-							:class="{ 'receiver-row-last': index === receiverLastIndex }"
-						>
-							<view class="receiver-line">
-								<view class="receiver-text">
-									<text class="receiver-label">{{ item.label }}</text>
-									<text class="receiver-value" selectable user-select>{{ item.value }}</text>
-								</view>
-								<view class="copy-button tap" @click="copyOne(item.value, item.label)">
-									<view v-if="copied === item.label" class="mini-icon mini-check"></view>
-									<view v-else class="mini-icon mini-copy"></view>
-								</view>
-							</view>
-						</view>
-					</view>
-				</view>
-
-				<view class="copy-row">
-					<view class="copy-all tap" @click="copyAll">
-						<view class="mini-icon mini-check mini-check-white"></view>
-						<text>{{ copied === 'all' ? '已复制' : '一键复制以上收件信息' }}</text>
-					</view>
-				</view>
 			</view>
 
 			<view v-else-if="activeTab === 'company'" class="company-body">
 				<view class="company-brand">
 					<view class="brand-left">
-						<image class="brand-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
+						<image class="brand-logo" :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 					</view>
 				</view>
 
 				<view class="company-hero">
-					<image class="company-hero-image" src="/static/company-intro-header.jpg" mode="aspectFill"></image>
-					<!-- 新图片已自带文字和Logo，注释掉原有叠加组件以防重叠 -->
-					<!-- <view class="company-hero-mask"></view> -->
-					<!-- <image class="company-hero-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image> -->
-					<!-- <view class="company-hero-title-wrap">
-						<text class="company-hero-kicker">CICADA Dental · 登煌医疗</text>
+					<image class="company-hero-image" :src="companyIntroHeader" mode="aspectFill"></image>
+					<view class="company-hero-shade"></view>
+					<view class="company-hero-caption">
+						<text class="company-hero-kicker">CICADA DENTAL</text>
 						<text class="company-hero-title">20年专注口腔设备研发制造</text>
-						<text class="company-hero-subtitle">从光固化设备起步，持续拓展根管治疗、电动微马达、牙科手机与牙齿美白等专业产品。</text>
-					</view> -->
+					</view>
 				</view>
 
 				<view class="company-stats-grid">
@@ -1368,7 +1608,11 @@
 
 				<view class="company-intro-card">
 					<text class="company-intro-label">公司简介</text>
-					<text v-for="item in companyIntro" :key="item" class="company-intro-text">{{ item }}</text>
+					<text
+						v-for="(item, index) in companyIntro"
+						:key="item"
+						:class="['company-intro-text', { 'company-intro-text-title': index === 0 }]"
+					>{{ item }}</text>
 				</view>
 
 				<view class="company-section">
@@ -1378,8 +1622,16 @@
 					</view>
 					<view class="business-list">
 						<view v-for="(item, index) in companyProductLines" :key="item.title" class="business-card">
-							<view class="business-visual" :style="{ background: item.gradient }">
-								<view :class="['device-shape', 'device-' + (index % 3)]"></view>
+							<view class="business-visual" :style="{ background: item.image ? '#FFFFFF' : item.gradient }">
+								<image
+									v-if="item.image"
+									class="business-image tap"
+									:src="item.image"
+									mode="aspectFill"
+									show-menu-by-longpress
+									@click.stop="previewCompanyProductImage(item)"
+								></image>
+								<view v-else :class="['device-shape', 'device-' + (index % 3)]"></view>
 							</view>
 							<view class="business-copy">
 								<text class="business-title">{{ item.title }}</text>
@@ -1397,9 +1649,9 @@
 					<view class="auth-card">
 						<view class="auth-head">
 							<view class="cert-icon"></view>
-							<text>医疗器械质量体系背书</text>
+							<text>医疗器械质量体系保障</text>
 						</view>
-						<text class="auth-desc">CICADA 产品已取得 ISO13485、CE、FDA 及国内产品注册等资质，覆盖口腔医疗设备研发、生产与合规交付关键环节。</text>
+						<text class="auth-desc">CICADA 产品拥有 ISO13485、CE、FDA 及国内医疗器械注册资质，覆盖口腔设备研发、生产、合规交付全流程。</text>
 					</view>
 					<view class="adv-grid">
 						<view v-for="item in companyAdvantages" :key="item.title" class="adv-card">
@@ -1416,21 +1668,27 @@
 						<text>服务理念</text>
 					</view>
 					<view class="company-service-card">
-						<text class="company-service-title">Serve Global Dental Specialist</text>
-						<text class="company-service-desc">我们服务全球牙科专业人士，不只提供设备，也重视售后支持、客户体验与临床技术交流，帮助诊所提升诊疗效率与设备使用体验。</text>
+						<text class="company-service-title">追求极致稳定性</text>
+						<text class="company-service-slogan">Make it Worth it</text>
+						<text class="company-service-desc">立足极致可靠的产品，面向全球牙科医师与合作伙伴。</text>
+						<text class="company-service-desc">CICADA 思科达不止提供稳定优质的口腔设备，依托快速售后响应、临床技术支持与全球服务布局，持续为客户创造长期价值，让每一份选择皆有所值。</text>
 						<view class="company-service-tags">
 							<text v-for="item in companyServiceTags" :key="item">{{ item }}</text>
 						</view>
 					</view>
 				</view>
 
-				<view class="follow-card">
+				<view class="follow-card tap" @click="openCicadaServiceAccountProfile">
 					<view class="qr-image-wrap company-qr">
-						<image class="qr-image" :src="wechatInfo.qrcodeUrl" mode="aspectFill" show-menu-by-longpress></image>
+						<image
+							class="qr-image"
+							:src="cicadaAssets.qrWechat"
+							mode="aspectFill"
+							show-menu-by-longpress
+						></image>
 					</view>
 					<text class="follow-title">了解产品与售后支持</text>
-					<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
-					<official-account class="official-account-btn"></official-account>
+					<text class="follow-desc">点击或长按识别二维码进入 CICADA 思科达服务号，获取产品资料、维修保养与售后服务支持。</text>
 				</view>
 			</view>
 
@@ -1488,7 +1746,7 @@
 						<text>服务与设置</text>
 					</view>
 					<view class="settings-card">
-						<view v-for="(item, index) in menus" :key="item.title" class="menu-row tap" :class="{ last: index === menus.length - 1 }" @click="go(item.go)">
+						<view v-for="(item, index) in accountMenus" :key="item.title" class="menu-row tap" :class="{ last: index === accountMenus.length - 1 }" @click="go(item.go)">
 							<view class="menu-icon">
 								<view :class="['glyph', 'glyph-' + item.icon]"><view class="glyph-extra"></view></view>
 							</view>
@@ -1506,8 +1764,7 @@
 				</view>
 
 				<view class="mine-footer">
-					<image :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-					<text>佛山思科达 · 牙医仪器检修 v1.2.0</text>
+					<image :src="cicadaAssets.logoCompact" mode="aspectFit"></image>
 				</view>
 			</view>
 		</view>
@@ -1515,8 +1772,8 @@
 		<view v-else class="boot-screen">
 			<view class="boot-content">
 				<image class="boot-logo" :src="cicadaAssets.bootLogo" mode="aspectFit"></image>
-				<text class="boot-title">思科达售后维修中心</text>
-				<view class="boot-dots" aria-hidden="true">
+				<text class="boot-title">思科达售后服务中心</text>
+				<view class="boot-dots">
 					<view class="boot-dot"></view>
 					<view class="boot-dot"></view>
 					<view class="boot-dot"></view>
@@ -1524,12 +1781,11 @@
 			</view>
 		</view>
 
-		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="showOfficial = true">
+		<view v-if="pageBootReady && !activeModule && activeTab === 'home'" class="side-tab tap vi-side-tab" @click="openCicadaServiceAccountProfile">
 			<view class="vi-side-wordmark">
-				<text class="vi-side-logo-text">CICADA</text>
-				<text class="vi-side-logo-r">®</text>
+				<image class="vi-side-logo-img" :src="cicadaAssets.wordmarkRegisteredWhite" mode="aspectFit"></image>
 			</view>
-			<text class="side-text">思科达公众号</text>
+			<text class="side-text">公众号</text>
 		</view>
 
 		<BottomTabbar v-if="showBottomTabbar" :tabs="tabs" :active-id="activeTab" @select="go" />
@@ -1565,35 +1821,14 @@
 			</view>
 		</view>
 
-		<view v-if="showOfficial" class="modal-mask">
-			<view class="official-modal" @click.stop>
-				<text class="modal-close tap" @click="showOfficial = false">×</text>
-				<view class="qr-image-wrap company-qr">
-					<image class="qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill" show-menu-by-longpress="true"></image>
+		<view v-if="showOfficialAccountQr" class="service-account-qr-mask" @click="showOfficialAccountQr = false">
+			<view class="service-account-qr-modal" @click.stop>
+				<text class="service-account-qr-close tap" @click="showOfficialAccountQr = false">×</text>
+				<text class="service-account-qr-title">CICADA 服务号</text>
+				<view class="service-account-qr-image-wrap">
+					<image class="service-account-qr-image" :src="cicadaAssets.qrWechat" mode="aspectFill"></image>
 				</view>
-				<text class="follow-title">了解产品与售后支持</text>
-				<text class="follow-desc">长按识别二维码关注官方公众号，获取产品资料、维修保养与售后服务支持。</text>
-				<official-account class="official-account-btn"></official-account>
-			</view>
-		</view>
-
-		<view v-if="showQr" class="modal-mask" @click="showQr = false">
-			<view class="qr-modal" @click.stop>
-				<text class="modal-close tap" @click="showQr = false">×</text>
-				<image class="qr-logo" :src="cicadaAssets.logoNew" mode="aspectFit"></image>
-				<text class="qr-title">关注官方公众号</text>
-				<text class="qr-subtitle">获取最新维修指南 / 售后政策</text>
-				<view class="qr-image-wrap">
-					<image
-						class="qr-image"
-						:src="cicadaAssets.qrWechat"
-						mode="aspectFill"
-						show-menu-by-longpress
-					></image>
-				</view>
-				<view class="qr-hint">
-					<text>长按图片即可识别二维码或保存图片</text>
-				</view>
+				<text class="service-account-qr-note">电脑端暂不支持直接打开，请使用微信扫码进入服务号</text>
 			</view>
 		</view>
 
@@ -1631,10 +1866,11 @@
 		</view>
 		<view v-if="uploadPrivacyVisible" class="upload-privacy-mask">
 			<view class="upload-privacy-card">
+				<view class="upload-privacy-close tap" @click="rejectUploadPrivacy">×</view>
 				<text class="upload-privacy-title">隐私政策与信息授权</text>
 				<scroll-view scroll-y class="upload-privacy-body">
 					<rich-text v-if="uploadPrivacyHtml" :nodes="uploadPrivacyHtml"></rich-text>
-					<view v-else class="upload-privacy-text">上传图片或视频前，需要您同意隐私授权。我们会依法使用您选择的图片、视频和报修信息，仅用于售后报修、维修沟通和服务记录。</view>
+					<view v-else class="upload-privacy-text">使用图片、视频、微信地址或扫码功能前，需要您同意隐私授权。相关信息仅用于售后报修、维修沟通和服务记录。</view>
 				</scroll-view>
 				<view class="upload-privacy-actions">
 					<view class="upload-privacy-btn ghost tap" @click="rejectUploadPrivacy">不同意</view>
@@ -1647,7 +1883,7 @@
 				</view>
 			</view>
 		</view>
-		<PrivacyConsent />
+		<PrivacyConsent :disabled="activeModule === 'repair'" />
 		<PolicyDialog v-model:visible="homeGuideVisible" title="操作指引" :content="homeGuideContent" />
 	</view>
 </template>
@@ -1660,9 +1896,15 @@ import PaymentMethodSelector from '@/components/PaymentMethodSelector.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
 import PolicyDialog from '@/components/PolicyDialog.vue'
+import PolicyDocumentViewer from '@/components/PolicyDocumentViewer.vue'
 import { cicadaAssets } from '@/config/cicada-assets'
-import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
+import homeTopBackground from '@/static/home-top-background.jpg'
+import companyIntroHeader from '@/static/company-intro-header-v2.jpg'
+import maintenanceW201lCover from '@/static/maintenance-w201l-cover.jpg'
+import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid, requestWechatLoginCode } from '@/utils/wechat-phone-login.js'
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
+import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
+import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
 import {
 	getContact,
 	getCustomerService,
@@ -1673,7 +1915,6 @@ import {
 	getSurveyConfig,
 	getSubscriptionConfig,
 	applyInvoice,
-	getWechat,
 	getWarrantyPolicy,
 	getHomeGuidePopup,
 	getCompliance,
@@ -1708,10 +1949,11 @@ import {
 	getMyDevices,
 	updateRepairOutboundLogistics
 } from '@/api/repair'
-import { getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
-import { getCloudTempFileURL } from '@/utils/cloud.js'
+import { formatInvoiceDisplayText, getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
+import { downloadCloudFile, getCloudTempFileURL } from '@/utils/cloud.js'
 import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { normalizePolicyHtml } from '@/utils/policyHtml.js'
+import { createPolicyDocumentRefresher } from '@/utils/policyRefresh.js'
 import {
 	basics,
 	companyAdvantages,
@@ -1719,6 +1961,7 @@ import {
 	companyProductLines,
 	companyServiceTags,
 	companyStats,
+	customerTypeOptions,
 	defaultReceiver,
 	defaultStatusItems,
 	guides,
@@ -1747,7 +1990,8 @@ import {
 	toTextLines
 } from './composables/orderFormatters'
 import { getFeedbackMeta, normalizeFeedbackRecord } from './composables/feedbackUtils'
-import { createRepairProduct as defaultRepairProduct, defaultRepairForm } from './composables/repairForm'
+import { createOrderDetailView } from './composables/orderDetail'
+import { createRepairProduct as defaultRepairProduct, defaultRepairForm, getRepairProductModelValue } from './composables/repairForm'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
 import {
 	createRepairStatusMeta,
@@ -1773,18 +2017,35 @@ import {
 	normalizeUploadFileId,
 	normalizeUploadUrl
 } from './composables/uploadUtils'
+import { getRepairProductOptions } from '@/api/product'
+import {
+	createRepairProductModelOptions,
+	REPAIR_PRODUCT_MODEL_OTHER_LABEL,
+	REPAIR_PRODUCT_OTHER_VALUE,
+	repairProductOptions as defaultRepairProductOptions,
+	repairProductOtherOption,
+	splitRepairProductModels
+} from '@/config/repair-products.js'
+import { defaultFaultTypes } from '@/config/fault-diagnostics.js'
 
 const bootStart = Date.now()
 const logBoot = (stage) => console.log('[index-boot]', stage, Date.now() - bootStart)
 
 const copied = ref('')
-const showQr = ref(false)
-const showOfficial = ref(false)
+const showOfficialAccountQr = ref(false)
 const showRepairTools = ref(false)
 const uploadPrivacyVisible = ref(false)
 const uploadPrivacyHtml = ref('')
 const surveyPosterUrl = cicadaAssets.surveyPoster
-const maintenanceVideos = ref([])
+const maintenanceVideoFallback = Object.freeze({
+	id: 'w201l-maintenance-fallback',
+	title: '牙科种植手机W201L保养维护',
+	desc: '牙科种植手机W201L保养维护',
+	videoUrl: 'https://cicada-video-prod.oss-cn-beijing.aliyuncs.com/home-intro-video/1783392116334_a6e54770be052_0.mp4',
+	videoName: '0.mp4',
+	coverUrl: maintenanceW201lCover
+})
+const maintenanceVideos = ref([{ ...maintenanceVideoFallback }])
 const homeIntroVideo = computed(() => maintenanceVideos.value[0] || null)
 const moduleHeadPaddingTop = ref(72)
 const pageBootReady = ref(false)
@@ -1794,6 +2055,7 @@ const activeModule = ref('')
 const previousModule = ref('')
 const logged = ref(Boolean(uni.getStorageSync('token')))
 const currentUser = ref(uni.getStorageSync('userInfo') || {})
+const repairLoginPending = ref(false)
 const diagProduct = ref('')
 const diagFault = ref('')
 const diagOpen = ref('')
@@ -1826,6 +2088,7 @@ const paymentSubmitting = ref(false)
 const actionSubmitting = ref(false)
 const paymentProofUploading = ref(false)
 const paymentProofTempUrls = ref({})
+const detailAttachmentTempUrls = ref({})
 const selectedPaymentMethod = ref('wechat')
 const subscriptionTemplates = ref(null)
 const feedbackSubmitting = ref(false)
@@ -1837,9 +2100,20 @@ const feedbackImages = ref([])
 const surveySubmitting = ref(false)
 const loginSubmitting = ref(false)
 const loginRetrying = ref(false)
-const loginError = ref('')
+const loginClickLocked = ref(false)
+const loginCooldownSeconds = ref(0)
 const loginPrivacyReady = ref(false)
 const loginAgreementChecked = ref(false)
+const isPcWebView = isPcWebViewEnvironment()
+const pcLoginGuard = createPcLoginGuard({
+	enabled: isPcWebView,
+	onLockChange: (locked) => {
+		loginClickLocked.value = locked
+	},
+	onCountdown: (seconds) => {
+		loginCooldownSeconds.value = seconds
+	}
+})
 const surveyConfig = ref({
 	enabled: true,
 	title: '售后服务调研表',
@@ -1919,11 +2193,6 @@ const requestStatusSubscription = (_scene) => {
 	})()
 	return subscriptionRequestPromise
 }
-const customerTypeOptions = [
-	{ value: 'individual', label: '个人' },
-	{ value: 'clinic', label: '企业' },
-	{ value: 'dealer', label: '签约代理商（齿科）' }
-]
 const customerTypeLabel = (value) => {
 	const option = customerTypeOptions.find((item) => item.value === value)
 	return option ? option.label : ''
@@ -1935,9 +2204,21 @@ const savedAddressTarget = ref('sender')
 const showOutboundSheet = ref(false)
 const outboundSubmitting = ref(false)
 const outboundForm = ref({ company: '', trackingNo: '' })
+// 报修表单：产品名称下拉选择（后端驱动）
+const showCustomerTypePicker = ref(false)
+const showProductPicker = ref(false)
+const activeProductPickerIndex = ref(-1)
+const showRepairModelPicker = ref(false)
+const activeRepairModelPickerIndex = ref(-1)
+const showRepairLogisticsPicker = ref(false)
+const repairProductLoading = ref(false)
+const repairProductOptions = ref(defaultRepairProductOptions.map((item) => ({ ...item })))
+const repairProductKeyword = ref('')
+let repairProductOptionsLoaded = false
 const feedbackContactValue = ref('')
 const feedbackOrderId = ref('')
 const feedbackRecords = ref([])
+const feedbackImageTempUrls = ref({})
 const packageQuery = ref({
 	trackingNo: '',
 	phoneLast4: ''
@@ -1982,25 +2263,15 @@ const addressForm = ref({
 	def: false
 })
 const repairDraftKey = 'repairDraft'
+const repairLoginReturnKey = 'repairLoginReturn'
 const feedbackRecordKey = 'feedbackRecords'
 const surveyRecordKey = 'afterSalesSurveyRecords'
 const repairForm = ref(defaultRepairForm())
 const trackingLater = ref(false)
 const submittedOrderId = ref('')
+const submittedRepairSummary = ref({ logisticsCompany: '', trackingNo: '', trackingPending: false })
 const repairProducts = ref([defaultRepairProduct()])
 const repairSectionOpen = ref({ user: true, products: true, sender: true, receiver: true })
-const customerTypePickerIndex = computed(() => Math.max(0, customerTypeOptions.findIndex((item) => item.value === repairForm.value.customerType)))
-const logisticsPickerIndex = computed(() => Math.max(0, logisticsList.findIndex((item) => item.value === repairForm.value.logisticsCompany)))
-
-const onCustomerTypeChange = (event) => {
-	const item = customerTypeOptions[Number(event.detail.value)]
-	if (item) repairForm.value.customerType = item.value
-}
-
-const onLogisticsChange = (event) => {
-	const item = logisticsList[Number(event.detail.value)]
-	if (item) repairForm.value.logisticsCompany = item.value
-}
 
 let repairProductSeed = 1
 let repairMediaSeed = 1
@@ -2035,10 +2306,12 @@ const diagFaultMap = ref({})
 
 const faultRecords = ref([])
 const diagResult = ref(null)
+const diagLoading = ref(false)
+const diagErrorText = ref('')
 
 const defaultDiagConfirmSections = [
 	{
-		title: '解决方法',
+		title: '处理方式',
 		color: '#10B981',
 		numbered: true,
 		items: ['暂未提供对应处理建议']
@@ -2067,28 +2340,70 @@ const maybeShowHomeGuidePopup = async () => {
 	}
 }
 
-const docModuleIds = ['fees', 'guide-repair', 'guide-invoice']
+const warrantyTerms = [
+	{
+		title: '一、保修时间计算方式：',
+		lines: [
+			'全品类整机统一质保12个月。优先以有效购机发票签收日期作为起算日。',
+			'无法提供有效发票时，以SN对应出厂日期顺延30天作为起算日。',
+			'后台录入的质保截止日期优先于月数推算，系统会保留起算依据供售后追溯。'
+		]
+	},
+	{
+		title: '二、质保期内免费维修范围：',
+		lines: [
+			'申请免费维修须同时满足：设备仍在12个月质保有效期内，且检测确认属于原厂生产、装配或硬件质量故障。',
+			'免费范围包括工厂检测费、工时费、故障原厂配件及维修完成后的单程回寄运费。'
+		]
+	},
+	{
+		title: '三、以下状况不属于保修范围：',
+		lines: [
+			'摔落、磕碰、进水、液体浸泡、消毒不当、电压不稳或违规接电造成的损坏。',
+			'长期超负荷打磨、违规夹持非标准车针或使用非原厂配件造成的损坏。',
+			'用户私自拆解、第三方维修、替换非原厂认证核心部件。',
+			'原厂防伪保修标签或SN被撕毁、磨损、篡改，导致产品身份无法核验。',
+			'雷击、水灾、火灾等不可抗力，以及运输途中未保价造成的破损或丢失。'
+		]
+	},
+	{
+		title: '四、寄修物流及运费权责',
+		lines: [
+			'质保期内免费维修：客户承担寄往厂家的运费，厂家承担修复后寄回用户的单程运费。',
+			'过保或人为损坏：维修产生的双向往返快递运费由客户承担。',
+			'贵重设备建议寄送时选择保价；未保价运输造成的破损或丢失由快递公司理赔。'
+		]
+	},
+	{ title: '五、维修续保', lines: ['付费维修更换的全新原厂配件，同一故障、同一更换件且非人为因素，单独续保三个月。'] }
+]
+
+const docModuleIds = ['fees', 'guide-quick', 'guide-repair', 'guide-invoice']
 
 const docFallbacks = {
+	warranty: {
+		title: '三重保修承诺',
+		lead: '原厂配件 · 工艺质保 · 终身咨询',
+		content: '',
+		sections: []
+	},
 	fees: {
 		title: '收费指南',
 		icon: 'money',
-		lead: '',
-		paperTitle: '',
+		lead: '价格透明，先报价后维修，全程无隐形消费。',
+		paperTitle: '思科达维修收费指南',
 		content: '',
-		sections: []
+		sections: [
+			{ title: '一、收费构成', lines: ['配件费：按照思科达原厂配件官方指导价收取。', '工时费：根据维修难度及工程师等级核算，公开透明。', '物流费：保修期内非人为质量故障由客户承担寄入厂家运费，厂家承担维修完成后的单程回寄运费；过保或人为损坏的往返运费由客户承担。'] },
+			{ title: '二、核心原则', lines: ['免费检测：所有寄修设备均享免费检测，未维修不收取任何检测费用。', '先报后修：工程师检测后出具正式报价单，经客户在线确认后方动工维修。', '拒绝隐形消费：所有收费项目均在报价单中列明，无额外附加费。'] },
+			{ title: '三、质保说明', lines: ['所有维修更换的配件（非人为因素）均享受 90 天的质保续期服务。'], marker: '' }
+		]
 	},
 	'guide-quick': {
 		title: '快速指南',
 		icon: 'book',
-		lead: '5 分钟了解小程序核心功能，让售后流程一目了然。',
-		paperTitle: '思科达医疗小程序 — 快速指南',
-		sections: [
-			{ title: '一、故障自查', marker: 'a)', lines: ['点击首页「故障自查」或在导航栏选择「操作指南」。', '选择产品类型，按照指引进行故障排查，即可获得初步解决方案。'] },
-			{ title: '二、如何报修', marker: 'b)', lines: ['点击首页「立即报修」进入报修表单。', '填写产品信息、故障描述、上传附件图片，点击提交完成报修。', '提交后可获得工单号，用于后续进度查询。'] },
-			{ title: '三、维修进度查询', marker: 'c)', lines: ['在首页或「维修进度」页面输入工单号查询。', '维修状态会实时更新，包括：已提交、运输中、已签收、处理中、已回寄、已完成等状态。'] },
-			{ title: '四、自助开票', marker: 'd)', lines: ['维修完成后，在「我的订单」中选择开票。', '选择发票类型，填写开票信息后提交。'] }
-		]
+		lead: '快速了解小程序售后流程。',
+		paperTitle: '',
+		sections: []
 	},
 	'guide-repair': {
 		title: '报修指南',
@@ -2107,18 +2422,6 @@ const docFallbacks = {
 			{ title: '确认并提交', desc: '核对报修信息无误后，点击提交完成申请。' }
 		]
 	},
-	'guide-query': {
-		title: '查询指南',
-		icon: 'search',
-		lead: '随时随地掌握维修进度，信息透明更安心。',
-		paperTitle: '思科达维修查询指南',
-		sections: [
-			{ title: '一、工单号查询', lines: ['登录后进入「我的 · 维修订单」页面，在顶部搜索框输入 DR 开头的完整工单号。', '即可查看该工单的实时物流进度、检测报告及维修状态。'] },
-			{ title: '二、序列号（SN）查询', lines: ['在「我的 · 维修订单」页面顶部搜索框，输入设备机身刻印的 SN 序列号进行查询。', '该方式可追溯设备的所有历史维修记录及保修剩余时长。'] },
-			{ title: '三、个人中心查询', lines: ['登录小程序后，点击右下角「我的」。', '进入「维修订单」页面，即可查看名下绑定的所有维修申请及进度。'] },
-			{ title: '四、人工查询', lines: ['如无法通过以上方式查询，请联系客服热线 0757-85775667，提供报修时的手机号由客服协助查询。'], marker: '' }
-		]
-	},
 	'guide-invoice': {
 		title: '开票指南',
 		icon: 'invoice',
@@ -2132,7 +2435,7 @@ const docFallbacks = {
 	}
 }
 
-;['guide-repair', 'guide-invoice'].forEach((key) => {
+;['guide-quick', 'guide-repair', 'guide-invoice'].forEach((key) => {
 	if (docFallbacks[key]) {
 		docFallbacks[key].content = ''
 		docFallbacks[key].fileName = ''
@@ -2147,7 +2450,7 @@ const docMap = ref({})
 logBoot('doc fallbacks ready')
 
 const contactInfo = ref({
-	companyName: '佛山市思科达医疗器械有限公司',
+	companyName: '佛山市登煌医疗器械有限公司',
 	phone: '0757-85775667',
 	email: '',
 	address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
@@ -2167,11 +2470,7 @@ const customerService = ref({
 	wechat: 'CSD-Service-001'
 })
 
-const wechatInfo = ref({
-	qrcodeUrl: cicadaAssets.qrWechat,
-	name: '思科达售后',
-	description: '获取最新维修指南 / 售后政策'
-})
+const CICADA_SERVICE_ACCOUNT_USERNAME = 'gh_722a53ce06b5'
 
 const contactHotlines = ref([
 	{ title: '售后技术', number: '0757-85775667', time: '工作日 08:00-21:00' },
@@ -2203,21 +2502,41 @@ const normalizeTrackingNo = (value = '') => String(value || '').replace(/\s/g, '
 const isValidPhone = (value = '') => phoneRegex.test(normalizePhone(value))
 const isValidTrackingNo = (value = '') => trackingNoRegex.test(normalizeTrackingNo(value))
 
+const hasRenderablePolicyDocument = (document) => Boolean(
+	String(document?.mobileHtml || '').trim()
+	|| (Array.isArray(document?.original?.pagePreviewUrls) && document.original.pagePreviewUrls.some(Boolean))
+	|| String(document?.original?.pdfPreviewUrl || '').trim()
+	|| String(document?.source?.previewUrl || '').trim()
+)
+
 const normalizeDoc = (doc, fallback = {}) => {
 	if (!doc) return fallback
-	const content = doc.content || doc.html || ''
+	const remoteContent = doc.content || doc.html || ''
+	const policyDocument = hasRenderablePolicyDocument(doc.policyDocument)
+		? doc.policyDocument
+		: (hasRenderablePolicyDocument(fallback.policyDocument) ? fallback.policyDocument : null)
+	const hasRemotePayload = Boolean(
+		String(remoteContent || '').trim()
+		|| policyDocument
+		|| (Array.isArray(doc.sections) && doc.sections.length)
+		|| (Array.isArray(doc.steps) && doc.steps.length)
+		|| (Array.isArray(doc.media) && doc.media.length)
+		|| doc.fileUrl
+		|| doc.file_url
+	)
 
 	return {
 		...fallback,
-		title: doc.title || fallback.title,
-		lead: doc.description || doc.summary || fallback.lead,
-		paperTitle: doc.paperTitle || doc.title || fallback.paperTitle || fallback.title,
-		content,
+		title: hasRemotePayload ? (doc.title || fallback.title) : (fallback.title || doc.title),
+		lead: hasRemotePayload ? (doc.description || doc.summary || fallback.lead) : fallback.lead,
+		paperTitle: doc.paperTitle || (hasRemotePayload ? doc.title : '') || fallback.paperTitle || fallback.title,
+		content: String(remoteContent || '').trim() ? remoteContent : (fallback.content || ''),
 		updateTime: doc.updateTime || fallback.updateTime,
 		fileName: doc.fileName || doc.file_name || fallback.fileName || '',
 		fileUrl: doc.fileUrl || doc.file_url || fallback.fileUrl || '',
 		fileType: doc.fileType || doc.file_type || fallback.fileType || '',
-		media: Array.isArray(doc.media) ? doc.media : fallback.media || [],
+		policyDocument,
+		media: Array.isArray(doc.media) && doc.media.length ? doc.media : fallback.media || [],
 		sections: Array.isArray(doc.sections) && doc.sections.length ? doc.sections : fallback.sections || [],
 		steps: Array.isArray(doc.steps) && doc.steps.length ? doc.steps : fallback.steps || []
 	}
@@ -2266,11 +2585,12 @@ const openRepairSection = (section) => {
 	}
 }
 
-const chooseWechatAddress = (target) => {
+const chooseWechatAddress = async (target) => {
 	if (typeof uni.chooseAddress !== 'function') {
 		uni.showToast({ title: '当前微信版本不支持地址导入', icon: 'none' })
 		return
 	}
+	if (!(await ensureWechatPrivacyForAction())) return
 	uni.chooseAddress({
 		success: (result = {}) => {
 			const address = Array.from(new Set([
@@ -2299,7 +2619,242 @@ const chooseWechatAddress = (target) => {
 	})
 }
 
-const scanTrackingNo = () => {
+const openCustomerTypePicker = () => {
+	if (!Array.isArray(customerTypeOptions) || !customerTypeOptions.length) {
+		uni.showToast({ title: '用户类型暂不可选，请稍后重试', icon: 'none' })
+		return
+	}
+	showCustomerTypePicker.value = true
+}
+
+const selectCustomerType = (item = {}) => {
+	const value = String(item.value || '').trim()
+	if (!value || !customerTypeOptions.some((option) => option.value === value)) {
+		uni.showToast({ title: '用户类型选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	repairForm.value.customerType = value
+	showCustomerTypePicker.value = false
+}
+
+const openRepairLogisticsPicker = () => {
+	if (!Array.isArray(logisticsList) || !logisticsList.length) {
+		uni.showToast({ title: '物流公司暂不可选，请稍后重试', icon: 'none' })
+		return
+	}
+	showRepairLogisticsPicker.value = true
+}
+
+const closeRepairLogisticsPicker = () => {
+	showRepairLogisticsPicker.value = false
+}
+
+const selectRepairLogistics = (item = {}) => {
+	const value = String(item.value || item.label || '').trim()
+	const selected = logisticsList.find((option) => option.value === value || option.label === value)
+	if (!selected) {
+		uni.showToast({ title: '物流公司选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	repairForm.value.logisticsCompany = selected.value || selected.label
+	closeRepairLogisticsPicker()
+}
+
+const activeRepairProduct = computed(() => {
+	const index = activeProductPickerIndex.value >= 0
+		? activeProductPickerIndex.value
+		: activeRepairModelPickerIndex.value
+	return repairProducts.value[index] || null
+})
+const normalizedRepairProductKeyword = computed(() => String(repairProductKeyword.value || '').trim().toLowerCase())
+const filteredRepairProductOptions = computed(() => {
+	const keyword = normalizedRepairProductKeyword.value
+	if (!keyword) return repairProductOptions.value
+	return repairProductOptions.value.filter((item = {}) => {
+		const searchable = item.searchKeywords
+			|| [item.label, item.name, item.model, item.initials].filter(Boolean).join(' ').toLowerCase()
+		return searchable.includes(keyword)
+	})
+})
+
+const loadRepairProductOptions = async () => {
+	if (repairProductLoading.value || repairProductOptionsLoaded) return
+	repairProductLoading.value = true
+	try {
+		const options = await getRepairProductOptions({ scene: 'repair' })
+		if (options.length) repairProductOptions.value = options
+	} catch (error) {
+		console.warn('repair product options failed:', error)
+	} finally {
+		repairProductLoading.value = false
+		repairProductOptionsLoaded = true
+	}
+}
+
+const openProductPicker = (index) => {
+	if (!repairProducts.value[index]) {
+		uni.showToast({ title: '产品信息无效，请重试', icon: 'none' })
+		return
+	}
+	activeProductPickerIndex.value = index
+	repairProductKeyword.value = ''
+	showProductPicker.value = true
+	loadRepairProductOptions()
+}
+
+const closeProductPicker = () => {
+	showProductPicker.value = false
+	repairProductKeyword.value = ''
+	activeProductPickerIndex.value = -1
+}
+
+const isOtherRepairProduct = (product = {}) => Boolean(product && product.isCustomName)
+const isOtherRepairModel = (product = {}) => Boolean(product && product.isCustomModel)
+const repairProductNameText = (product = {}) => {
+	if (product.name) return product.name
+	return isOtherRepairProduct(product) ? repairProductOtherOption.label : '请选择产品名称'
+}
+
+const findRepairProductOption = (product = {}) => repairProductOptions.value.find((item = {}) => (
+	Boolean(product.productId && product.productId === item.value)
+	|| Boolean(product.name && product.name === (item.label || item.name))
+))
+
+const repairProductModelOptions = (product = {}) => {
+	const option = findRepairProductOption(product)
+	return createRepairProductModelOptions(option && option.model)
+}
+
+const repairProductModelPickerOptions = (product = {}) => (
+	repairProductModelOptions(product).map((option) => option.label)
+)
+
+const syncRepairProductModelPickerOptions = (product = {}, sourceOption) => {
+	const option = sourceOption || findRepairProductOption(product)
+	product.modelPickerOptions = createRepairProductModelOptions(option && option.model)
+		.map((item) => item.label)
+}
+
+const isConfiguredRepairProductModel = (product = {}, model = '') => {
+	const option = findRepairProductOption(product)
+	return splitRepairProductModels(option && option.model).includes(String(model || '').trim())
+}
+
+const repairProductModelText = (product = {}) => {
+	const model = getRepairProductModelValue(product)
+	if (model) return model
+	return isOtherRepairModel(product) ? REPAIR_PRODUCT_MODEL_OTHER_LABEL : '请选择产品型号'
+}
+
+const syncCustomRepairModel = (index, value = '', shouldTrim = false) => {
+	const product = repairProducts.value[index]
+	if (!product || !product.isCustomModel) return
+	const nextValue = shouldTrim ? String(value || '').trim() : String(value || '')
+	product.customModel = nextValue
+	product.model = nextValue
+}
+
+const activeRepairModelOptions = computed(() => {
+	const product = activeRepairProduct.value
+	const options = product && Array.isArray(product.modelPickerOptions) ? product.modelPickerOptions : []
+	return options
+		.map((label) => String(label || '').trim())
+		.filter(Boolean)
+		.map((label) => ({ label, value: label }))
+})
+
+const isActiveRepairModelOption = (item = {}) => {
+	const product = activeRepairProduct.value
+	if (!product) return false
+	return product.model === item.value
+		|| (item.value === REPAIR_PRODUCT_MODEL_OTHER_LABEL && product.isCustomModel)
+}
+
+const openRepairModelPicker = (index) => {
+	const product = repairProducts.value[index]
+	if (!product) {
+		uni.showToast({ title: '产品信息无效，请重试', icon: 'none' })
+		return
+	}
+	if (!Array.isArray(product.modelPickerOptions) || !product.modelPickerOptions.some((item) => String(item || '').trim())) {
+		uni.showToast({ title: '产品型号暂不可选，请先选择产品名称', icon: 'none' })
+		return
+	}
+	activeProductPickerIndex.value = -1
+	activeRepairModelPickerIndex.value = index
+	showRepairModelPicker.value = true
+}
+
+const closeRepairModelPicker = () => {
+	showRepairModelPicker.value = false
+	activeRepairModelPickerIndex.value = -1
+}
+
+const selectRepairProductModel = (item = {}) => {
+	const product = activeRepairProduct.value
+	const selected = String(item.value || item.label || '').trim()
+	if (!product || !selected || !activeRepairModelOptions.value.some((option) => option.value === selected)) {
+		uni.showToast({ title: '产品型号选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	if (selected === REPAIR_PRODUCT_MODEL_OTHER_LABEL) {
+		const customModel = String(product.customModel || (product.isCustomModel ? product.model : '') || '').trim()
+		product.isCustomModel = true
+		product.customModel = customModel
+		product.model = customModel
+	} else {
+		product.isCustomModel = false
+		product.model = selected
+	}
+	closeRepairModelPicker()
+}
+
+const isActiveRepairProduct = (item = {}) => {
+	const product = activeRepairProduct.value || {}
+	return Boolean(product.productId && product.productId === item.value) || Boolean(product.name && product.name === item.label)
+}
+
+const selectRepairProduct = (item = {}) => {
+	const product = activeRepairProduct.value
+	const value = String(item.value || '').trim()
+	const label = String(item.label || item.name || '').trim()
+	const isOther = value === REPAIR_PRODUCT_OTHER_VALUE
+	const optionExists = repairProductOptions.value.some((option) => String(option.value || '').trim() === value)
+	if (!product || !value || (!isOther && (!label || !optionExists))) {
+		uni.showToast({ title: '产品名称选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	if (isOther) {
+		if (product.isCustomName) {
+			closeProductPicker()
+			return
+		}
+		product.productId = ''
+		product.name = ''
+		product.model = ''
+		product.isCustomName = true
+		product.isCustomModel = true
+		product.customModel = ''
+		product.modelPickerOptions = [REPAIR_PRODUCT_MODEL_OTHER_LABEL]
+		closeProductPicker()
+		return
+	}
+	const productChanged = product.productId !== value || product.name !== label
+	product.productId = value
+	product.name = label
+	product.isCustomName = false
+	syncRepairProductModelPickerOptions(product, item)
+	if (productChanged) {
+		const models = splitRepairProductModels(item.model)
+		product.model = models.length === 1 ? models[0] : ''
+		product.isCustomModel = false
+		product.customModel = ''
+	}
+	closeProductPicker()
+}
+
+const scanTrackingNo = async () => {
+	if (!(await ensureWechatPrivacyForAction())) return
 	uni.scanCode({
 		onlyFromCamera: false,
 		scanType: ['qrCode', 'barCode'],
@@ -2360,9 +2915,9 @@ const normalizeOrder = (item = {}) => {
 	const shipOutInfo = merged.ship_out_info || merged.shipOutInfo || {}
 	const shipBackInfo = merged.ship_back_info || merged.shipBackInfo || {}
 	const logisticsCompany = shipOutInfo.logistics_company || shipOutInfo.logisticsCompany || merged.logisticsCompany || ''
-	const trackingNo = shipOutInfo.logistics_no || shipOutInfo.logisticsNo || merged.trackingNo || merged.logisticsNo || merged.expressNo || ''
+	const trackingNo = shipOutInfo.logistics_no || shipOutInfo.logisticsNo || shipOutInfo.tracking_no || shipOutInfo.trackingNo || merged.trackingNo || merged.logisticsNo || merged.expressNo || ''
 	const returnLogisticsCompany = shipBackInfo.logistics_company || shipBackInfo.logisticsCompany || ''
-	const returnLogisticsNo = shipBackInfo.logistics_no || shipBackInfo.logisticsNo || shipBackInfo.return_no || shipBackInfo.returnNo || ''
+	const returnLogisticsNo = shipBackInfo.logistics_no || shipBackInfo.logisticsNo || shipBackInfo.tracking_no || shipBackInfo.trackingNo || shipBackInfo.return_no || shipBackInfo.returnNo || ''
 	const cardTitle = productName || productModel || (productSerial ? `SN ${productSerial}` : '') || '设备信息待同步'
 	const cardMeta = [
 		productModel && productModel !== cardTitle ? `型号 ${productModel}` : '',
@@ -2396,6 +2951,8 @@ const normalizeOrder = (item = {}) => {
 		id: orderId,
 		recordId: merged._id || merged.id || '',
 		items: orderItems,
+		shipOutInfo,
+		shipBackInfo,
 		productName,
 		product_name: productName,
 		productModel,
@@ -2428,11 +2985,19 @@ const normalizeOrder = (item = {}) => {
 		invoiceRemark: merged.invoiceRemark || merged.invoice_remark || invoiceInfo.remark,
 		invoiceNo: merged.invoiceNo || merged.invoice_no || invoiceInfo.invoice_no,
 		invoiceDate: merged.invoiceDate || merged.invoice_date || invoiceInfo.invoice_date || formatDateTime(invoiceInfo.issued_time || invoiceInfo.update_time || invoiceInfo.apply_time, 0, 10),
+		invoiceTaxCategory: merged.invoiceTaxCategory || merged.taxCategory || merged.tax_category || invoiceInfo.tax_category || '修理修配劳务',
+		invoiceItemName: merged.invoiceItemName || merged.itemName || merged.item_name || invoiceInfo.item_name || '牙科设备检修服务费',
+		invoiceDeliveryMethod: merged.invoiceDeliveryMethod || merged.deliveryMethod || merged.delivery_method || invoiceInfo.delivery_method || '',
+		invoiceFulfillmentMode: merged.invoiceFulfillmentMode || merged.fulfillmentMode || merged.fulfillment_mode || invoiceInfo.fulfillment_mode || 'manual',
+		invoiceArchiveStatus: merged.invoiceArchiveStatus || merged.archiveStatus || merged.archive_status || invoiceInfo.archive_status || '',
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
 		quoteStatus,
+		needsReturn: merged.needsReturn === true || merged.needs_return === true,
+		archiveStatus: merged.archiveStatus || merged.archive_status || '',
 		authorizationStatus: merged.authorizationStatus || merged.authorization_status || merged.authStatus || '',
 		authorizationTime: merged.authorizationTime || merged.authorization_time || '',
 		paymentStatus,
+		paymentMethod: merged.paymentMethod || merged.payment_method || '',
 		paymentRejectReason: merged.paymentRejectReason || merged.payment_reject_reason || '',
 		quoteDetail,
 		quoteItems,
@@ -2450,7 +3015,8 @@ const normalizeOrder = (item = {}) => {
 		paymentDeadline: Number(merged.paymentDeadline ?? merged.payment_deadline ?? 0) || 0,
 		returnLogisticsCompany,
 		returnLogisticsNo,
-		timeline: Array.isArray(merged.timeline) ? merged.timeline : []
+		timeline: Array.isArray(merged.timeline) ? merged.timeline : [],
+		review: merged.review || null
 	}
 }
 
@@ -2506,6 +3072,11 @@ const normalizeProduct = (item = {}) => {
 	const warranty = item.warrantyText || item.warranty
 		|| (warrantyStatus ? warrantyStatusLabels[warrantyStatus] : '')
 		|| (item.warrantyExpire ? `保修至 ${item.warrantyExpire}` : '保修信息待同步')
+	const lastOrderNo = item.lastOrderNo || item.last_order_no || ''
+	const repairCount = Number(item.repairCount || item.repair_count || 0) || 0
+	const lastOrderText = lastOrderNo
+		? `最近工单 · ${lastOrderNo}${repairCount ? `（累计报修 ${repairCount} 次）` : ''}`
+		: ''
 	return {
 		title: item.title || item.name || item.productName || item.model || '已登记设备',
 		sn: item.sn || item.serial || item.productSerial || item.id || '',
@@ -2513,8 +3084,9 @@ const normalizeProduct = (item = {}) => {
 		date: item.buyDate || item.purchaseDate || item.date || '',
 		warranty,
 		expired: warrantyStatus === 'expired' || Boolean(item.expired || item.isExpired),
-		lastOrderNo: item.lastOrderNo || item.last_order_no || '',
-		repairCount: Number(item.repairCount || item.repair_count || 0) || 0
+		lastOrderNo,
+		repairCount,
+		lastOrderText
 	}
 }
 
@@ -2630,7 +3202,7 @@ const pastePackageCode = () => {
 }
 
 const applyFaultTypes = (list = []) => {
-	if (!Array.isArray(list) || !list.length) return
+	if (!Array.isArray(list)) return
 	const productMap = {}
 	const faultMap = {}
 
@@ -2641,14 +3213,56 @@ const applyFaultTypes = (list = []) => {
 
 		if (!faultName) return
 		productMap[productId] = { id: productId, title: productName }
-		if (!faultMap[productId]) faultMap[productId] = []
-		faultMap[productId].push(faultName)
+		if (!faultMap[productId]) faultMap[productId] = new Set()
+		faultMap[productId].add(faultName)
 	})
 
-	if (Object.keys(productMap).length) {
-		diagProducts.value = Object.values(productMap)
-		diagFaultMap.value = faultMap
-		faultRecords.value = list
+	diagProducts.value = Object.values(productMap)
+	diagFaultMap.value = Object.entries(faultMap).reduce((map, [productId, names]) => {
+		map[productId] = Array.from(names)
+		return map
+	}, {})
+	faultRecords.value = list
+
+	if (diagProduct.value && !productMap[diagProduct.value]) {
+		diagProduct.value = ''
+		diagFault.value = ''
+		diagResult.value = null
+		return
+	}
+
+	if (diagProduct.value && diagFault.value) {
+		const currentFaults = diagFaultMap.value[diagProduct.value] || []
+		if (!currentFaults.includes(diagFault.value)) {
+			diagFault.value = ''
+			diagResult.value = null
+			return
+		}
+		diagResult.value = list.find(
+			(item) => (item.productTypeId || item.productType || item.productName) === diagProduct.value
+				&& item.faultName === diagFault.value
+		) || null
+	}
+}
+
+const refreshFaultTypes = async ({ forceRefresh = false, silent = false } = {}) => {
+	if (diagLoading.value) return faultRecords.value
+	if (!silent) diagLoading.value = true
+	diagErrorText.value = ''
+
+	try {
+		const list = await getFaultTypes({ forceRefresh })
+		if (!Array.isArray(list) || !list.length) throw new Error('故障知识库暂无可用数据')
+		applyFaultTypes(list)
+		return list
+	} catch (error) {
+		console.warn('fault types fallback:', error)
+		applyFaultTypes(defaultFaultTypes)
+		diagErrorText.value = '故障知识库加载失败，当前显示内置数据。'
+		if (!silent) uni.showToast({ title: '加载失败，已显示本地故障选项', icon: 'none' })
+		return defaultFaultTypes
+	} finally {
+		if (!silent) diagLoading.value = false
 	}
 }
 
@@ -2662,6 +3276,12 @@ const updateDoc = (key, doc) => {
 		[key]: normalized
 	}
 }
+
+const refreshPolicyDocument = createPolicyDocumentRefresher({
+	getWarrantyPolicy,
+	getFeePolicy,
+	updateDoc
+})
 
 const statusItems = computed(() => {
 	const counts = orderList.value.reduce(
@@ -2705,6 +3325,7 @@ const orderTabs = computed(() => [
 
 const invoiceTodoOrders = computed(() => orderList.value.filter((item) => invoiceTodoStatusKeys.includes(getInvoiceStatusKey(item))))
 const invoiceIssuedOrders = computed(() => orderList.value.filter((item) => getInvoiceStatusKey(item) === 'issued'))
+const accountMenus = computed(() => menus)
 const invoiceTabs = computed(() => [
 	`待开票 ${invoiceTodoOrders.value.length}`,
 	`已开票 ${invoiceIssuedOrders.value.length}`
@@ -2716,7 +3337,7 @@ const diagProductLabel = computed(() => {
 })
 const diagEmptyText = computed(() => (
 	diagProducts.value.length
-		? '选择产品类型与故障现象，系统将自动展示解决方法。'
+		? '选择产品类型与故障现象，系统将自动展示自查建议。'
 		: '暂未提供故障自查方案，可联系售后协助判断。'
 ))
 const diagFaultPlaceholder = computed(() => (diagProduct.value ? '请选择故障现象' : '请先选择产品类型'))
@@ -2725,19 +3346,45 @@ const diagFaultOptions = computed(() => {
 	return Array.from(new Set(Object.values(diagFaultMap.value).flat()))
 })
 const diagConfirmVisible = computed(() => Boolean(diagProduct.value && diagFault.value))
+const diagRecommendRepair = computed(() => {
+	const value = diagResult.value?.isRecommendRepair ?? diagResult.value?.is_recommend_repair
+	return value === true || value === 1 || ['1', 'true', 'yes', '建议', '建议报修'].includes(String(value || '').trim().toLowerCase())
+})
+const diagRepairActionText = computed(() => (diagRecommendRepair.value ? '建议报修 · 填写报修单' : '仍未解决 · 立即报修'))
 const diagConfirmSections = computed(() => {
 	if (!diagResult.value) return defaultDiagConfirmSections
 
-	const solutionItems = toTextLines(diagResult.value.solutions || diagResult.value.solution)
+	const relatedItems = toTextLines(diagResult.value.relatedQuestions || diagResult.value.related_questions)
+	const checkItems = toTextLines(diagResult.value.checkSteps || diagResult.value.check_steps)
+	const solutionItems = toTextLines(
+		diagResult.value.fixSolutions ||
+		diagResult.value.fix_solutions ||
+		diagResult.value.solutions ||
+		diagResult.value.solution
+	)
 
-	return [
+	const sections = [
 		{
-			title: '解决方法',
+			title: '相关问题',
+			color: '#1E6FE0',
+			numbered: false,
+			items: relatedItems
+		},
+		{
+			title: '排查确认',
+			color: '#F59E0B',
+			numbered: true,
+			items: checkItems
+		},
+		{
+			title: '处理方式',
 			color: '#10B981',
 			numbered: true,
 			items: solutionItems.length ? solutionItems : defaultDiagConfirmSections[0].items
 		}
-	]
+	].filter((section) => section.items.length)
+
+	return sections.length ? sections : defaultDiagConfirmSections
 })
 const diagSheetOptions = computed(() => {
 	if (diagOpen.value === 'product') {
@@ -2745,10 +3392,10 @@ const diagSheetOptions = computed(() => {
 	}
 	return diagFaultOptions.value.map((title) => ({ id: title, title, active: title === diagFault.value }))
 })
-const warrantyDoc = computed(() => docMap.value.warranty || {})
-// 保修政策分块（后台可编辑）：无配置时模板回退整段富文本
-const warrantySections = computed(() => (Array.isArray(warrantyDoc.value.sections) ? warrantyDoc.value.sections : []))
+const warrantyDoc = computed(() => docMap.value.warranty || docFallbacks.warranty)
+const warrantyHasPolicyDocument = computed(() => hasRenderablePolicyDocument(warrantyDoc.value.policyDocument))
 const activeDoc = computed(() => docMap.value[activeModule.value] || docFallbacks[activeModule.value] || docFallbacks['guide-repair'] || {})
+const activeDocHasPolicyDocument = computed(() => hasRenderablePolicyDocument(activeDoc.value.policyDocument))
 const isDocModule = computed(() => docModuleIds.includes(activeModule.value))
 const userDisplayName = computed(() => currentUser.value.nickname || currentUser.value.name || (currentUser.value.phone ? `用户${String(currentUser.value.phone).slice(-4)}` : '已登录用户'))
 const userDisplayUnit = computed(() => currentUser.value.unit || currentUser.value.companyName || '已绑定手机号')
@@ -2915,8 +3562,11 @@ const openGuideFile = async (doc = {}) => {
 	try {
 		uni.showLoading({ title: '打开中' })
 		const ext = getGuideFileExt(doc)
-		const url = await resolveGuideFileUrl(doc.fileUrl)
 		const imageExts = ['jpg', 'jpeg', 'png', 'webp', 'gif']
+		const isWebFile = /^https?:\/\//i.test(String(doc.fileUrl || '').trim())
+		const url = imageExts.includes(ext) || isWebFile
+			? await resolveGuideFileUrl(doc.fileUrl)
+			: ''
 
 		if (imageExts.includes(ext)) {
 			uni.hideLoading()
@@ -2924,8 +3574,14 @@ const openGuideFile = async (doc = {}) => {
 			return
 		}
 
-		const downloadRes = await uni.downloadFile({ url })
+		const downloadRes = isWebFile
+			? await uni.downloadFile({ url })
+			: await downloadCloudFile(doc.fileUrl)
+		if (isWebFile && Number(downloadRes.statusCode) !== 200) {
+			throw new Error(`文档下载失败（HTTP ${downloadRes.statusCode || '未知'}）`)
+		}
 		const filePath = downloadRes.tempFilePath
+		if (!filePath) throw new Error('文档下载后未生成临时文件')
 		uni.hideLoading()
 		await uni.openDocument({
 			filePath,
@@ -2940,8 +3596,8 @@ const openGuideFile = async (doc = {}) => {
 }
 
 const guideModuleTypeMap = {
-	'guide-repair': 'repair',
-	'guide-invoice': 'invoice'
+	'guide-quick': 'quick',
+	'guide-repair': 'repair'
 }
 
 const openGuideFromHome = async (id) => {
@@ -2985,12 +3641,15 @@ const openGuideFromHome = async (id) => {
 	uni.showToast({ title: '该教程还未上传文档', icon: 'none' })
 }
 
-const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const maintenanceVideoCategories = ['首页介绍视频', '小程序介绍视频', '售后介绍视频', '产品视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const clientGuideAudiences = new Set(['', 'client', 'public', 'all'])
+const isRenderableGuideUrl = (value = '') => /^(https?:\/\/|wxfile:\/\/|\/static\/)/i.test(String(value || '').trim())
 
 const normalizeMaintenanceVideos = async (list = []) => {
 	const picked = (Array.isArray(list) ? list : []).filter((item = {}) => {
 		const category = String(item.category || item.title || '')
-		return maintenanceVideoCategories.some((name) => category.includes(name)) && (item.audience === 'client' || !item.audience)
+		const audience = String(item.audience || '').trim().toLowerCase()
+		return maintenanceVideoCategories.some((name) => category.includes(name)) && clientGuideAudiences.has(audience)
 	}).sort((a = {}, b = {}) => {
 		const aCategory = String(a.category || a.title || '')
 		const bCategory = String(b.category || b.title || '')
@@ -3002,15 +3661,20 @@ const normalizeMaintenanceVideos = async (list = []) => {
 	const result = []
 	for (const guide of picked) {
 		const media = Array.isArray(guide.media) ? guide.media : []
-		const video = media.find((item) => item && item.type === 'video' && item.url)
+		let video = media.find((item) => item && item.type === 'video' && item.url)
+		const legacyFileUrl = guide.videoUrl || guide.video_url || guide.fileUrl || guide.file_url || ''
+		if (!video && legacyFileUrl) {
+			video = { url: legacyFileUrl, name: guide.videoName || guide.video_name || guide.fileName || guide.file_name || '' }
+		}
 		if (!video) continue
 		const cover = media.find((item) => item && item.type === 'image' && item.url)
-		let coverUrl = ''
+		let coverUrl = maintenanceVideoFallback.coverUrl
 		if (cover && cover.url) {
 			try {
-				coverUrl = await resolveGuideFileUrl(cover.url)
+				const resolvedCoverUrl = await resolveGuideFileUrl(cover.url)
+				if (isRenderableGuideUrl(resolvedCoverUrl)) coverUrl = resolvedCoverUrl
 			} catch (error) {
-				coverUrl = cover.url
+				console.warn('maintenance cover fallback:', error)
 			}
 		}
 		result.push({
@@ -3028,9 +3692,11 @@ const normalizeMaintenanceVideos = async (list = []) => {
 const loadMaintenanceVideos = async () => {
 	try {
 		const list = await getGuides({ forceRefresh: true })
-		maintenanceVideos.value = await normalizeMaintenanceVideos(list)
+		const normalized = await normalizeMaintenanceVideos(list)
+		maintenanceVideos.value = normalized.length ? normalized : [{ ...maintenanceVideoFallback }]
 	} catch (error) {
 		console.warn('maintenance videos fallback:', error)
+		maintenanceVideos.value = [{ ...maintenanceVideoFallback }]
 	}
 }
 
@@ -3042,12 +3708,20 @@ const openMaintenanceVideo = async (item = {}) => {
 	try {
 		uni.showLoading({ title: '打开中' })
 		const url = await resolveGuideFileUrl(item.videoUrl)
+		if (!isRenderableGuideUrl(url)) throw new Error('视频地址不可用')
 		uni.hideLoading()
 		if (uni.previewMedia) {
-			uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+			uni.previewMedia({
+				sources: [{ url, type: 'video' }],
+				current: 0,
+				fail: (error) => {
+					console.warn('preview maintenance video failed:', error)
+					uni.showToast({ title: '视频播放失败，请稍后重试', icon: 'none' })
+				}
+			})
 			return
 		}
-		uni.navigateTo && uni.navigateTo({ url: `/pages/index/index?video=${encodeURIComponent(url)}`, fail: () => {} })
+		uni.showToast({ title: '当前微信版本不支持视频预览', icon: 'none' })
 	} catch (error) {
 		console.warn('open maintenance video failed:', error)
 		uni.hideLoading()
@@ -3116,6 +3790,67 @@ const detailOrder = computed(() => {
 		{}
 	)
 })
+const detailView = computed(() => createOrderDetailView(detailOrder.value))
+const submittedLogisticsText = computed(() => {
+	const summary = submittedRepairSummary.value
+	const company = summary.logisticsCompany || '物流公司待同步'
+	if (summary.trackingPending || !summary.trackingNo) return `${company} · 单号待补`
+	return `${company} · ${summary.trackingNo}`
+})
+
+const getDetailAttachmentUrl = (attachment = {}) => {
+	const fileID = getCloudFileId(attachment)
+	if (fileID && detailAttachmentTempUrls.value[fileID]) return detailAttachmentTempUrls.value[fileID]
+	return getPreviewUrl(attachment)
+}
+
+const getDetailAttachmentCoverUrl = (attachment = {}) => (
+	attachment.coverUrl || attachment.cover_url || attachment.coverPath || attachment.thumbTempFilePath || ''
+)
+
+const resolveDetailAttachmentUrls = async (attachments = []) => {
+	const fileIDs = [...new Set((Array.isArray(attachments) ? attachments : [])
+		.map(getCloudFileId)
+		.filter((fileID) => fileID && isCloudFileId(fileID) && !detailAttachmentTempUrls.value[fileID]))]
+	if (!fileIDs.length) return
+	try {
+		const result = await getCloudTempFileURL(fileIDs)
+		const nextUrls = { ...detailAttachmentTempUrls.value }
+		const fileList = result && Array.isArray(result.fileList) ? result.fileList : []
+		for (const item of fileList) {
+			const fileID = item.fileID || item.fileId || ''
+			const tempFileURL = item.tempFileURL || item.url || ''
+			if (fileID && tempFileURL && !isCloudFileId(tempFileURL)) nextUrls[fileID] = tempFileURL
+		}
+		detailAttachmentTempUrls.value = nextUrls
+	} catch (error) {
+		console.warn('resolve detail attachment urls failed:', error)
+	}
+}
+
+const previewDetailImages = async (attachments = [], index = 0) => {
+	await resolveDetailAttachmentUrls(attachments)
+	const urls = attachments.map(getDetailAttachmentUrl).filter(Boolean)
+	if (!urls.length) {
+		uni.showToast({ title: '附件暂不可预览', icon: 'none' })
+		return
+	}
+	uni.previewImage({ urls, current: urls[Math.min(Math.max(Number(index) || 0, 0), urls.length - 1)] })
+}
+
+const previewDetailVideo = async (attachment = {}) => {
+	await resolveDetailAttachmentUrls([attachment])
+	const url = getDetailAttachmentUrl(attachment)
+	if (!url) {
+		uni.showToast({ title: '视频暂不可预览', icon: 'none' })
+		return
+	}
+	if (uni.previewMedia) {
+		uni.previewMedia({ sources: [{ url, type: 'video' }], current: 0 })
+		return
+	}
+	uni.showToast({ title: '当前微信版本暂不支持视频预览', icon: 'none' })
+}
 // 面向用户只保留四个关键维修阶段，报价和付款状态分别在对应卡片展示。
 const repairProgressNodes = computed(() => getRepairProgressNodes(detailOrder.value))
 
@@ -3182,7 +3917,9 @@ let copyTimer = null
 
 const initModuleSafeArea = () => {
 	try {
-		const systemInfo = uni.getSystemInfoSync()
+		const systemInfo = typeof uni.getWindowInfo === 'function'
+			? uni.getWindowInfo()
+			: { windowWidth: 375, statusBarHeight: 24 }
 		const menuRect = uni.getMenuButtonBoundingClientRect ? uni.getMenuButtonBoundingClientRect() : null
 		const pixelRatio = 750 / (systemInfo.windowWidth || 375)
 
@@ -3312,15 +4049,31 @@ watch(
 	{ immediate: true }
 )
 
+watch(
+	() => detailView.value.items.flatMap((item) => [...item.vouchers, ...item.images, ...item.videos]).map((item) => item.url).join('|'),
+	() => {
+		const attachments = detailView.value.items.flatMap((item) => [...item.vouchers, ...item.images, ...item.videos])
+		resolveDetailAttachmentUrls(attachments)
+	},
+	{ immediate: true }
+)
+
+const getRejectedQuoteFlowDesc = (order = {}) => {
+	if (order.statusKey === 'cancelled') return '您已拒绝该维修报价，工单已取消。'
+	if (['shipped', 'completed'].includes(order.statusKey) || order.returnLogisticsNo) return '您已拒绝该维修报价，设备已回寄。'
+	return '您已拒绝该维修报价，售后将安排设备回寄。'
+}
+
 const getQuoteMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
+	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: getRejectedQuoteFlowDesc(order) }
 	if ((!Array.isArray(order.quoteItems) || !order.quoteItems.length) && !order.quoteDetail) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
-	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: '客户暂未同意该维修报价。' }
 	if (order.authorizationStatus === 'confirmed') return { label: '已确认', tone: 'ok', desc: '报价已确认，工程师可继续维修。' }
 	return { label: '待确认', tone: 'warn', desc: '请确认维修项目、配件、工时和总价后再授权维修。' }
 }
 
 const getAuthorizationMeta = (order = {}) => {
+	if (order.quoteStatus === 'rejected') return { label: '无需授权', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 不再进入授权维修流程。` }
 	if (isWarrantyFreeOrder(order)) {
 		return order.authorizationStatus === 'confirmed'
 			? { label: '已授权', tone: 'ok', desc: order.authorizationTime ? `客户已于 ${order.authorizationTime} 确认质保维修。` : '客户已确认质保维修。' }
@@ -3333,9 +4086,14 @@ const getAuthorizationMeta = (order = {}) => {
 
 const getPaymentMeta = (order = {}) => {
 	const proofs = Array.isArray(order.paymentProofs) ? order.paymentProofs : []
+	if (order.quoteStatus === 'rejected') return { label: '无需付款', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 无需支付维修费用。` }
 	if (isWarrantyFreeOrder(order)) return { label: '质保免收费', tone: 'ok', desc: '本次维修费用由质保承担，无需微信支付或上传付款凭证。' }
 	if (!getQuoteTotal(order)) return { label: '待报价', tone: 'muted', desc: '报价金额确认后，可微信支付；企业客户也可上传对公转账凭证。' }
-	if (order.paymentStatus === 'paid') return { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
+	if (order.paymentStatus === 'paid') {
+		return ['offline_transfer', 'bank_transfer'].includes(order.paymentMethod)
+			? { label: '已核销', tone: 'ok', desc: '对公款项已由财务确认到账，可提交开票资料。' }
+			: { label: '已支付', tone: 'ok', desc: '微信支付已完成，系统已自动确认到账。' }
+	}
 	if (order.paymentStatus === 'rejected') return { label: '已驳回', tone: 'warn', desc: order.paymentRejectReason ? `转账凭证被驳回：${order.paymentRejectReason}` : '转账凭证被驳回，请核对后重新上传。' }
 	if (proofs.length || order.paymentStatus === 'uploaded') return { label: '待核销', tone: 'warn', desc: '凭证已留痕，等待财务核对到账。' }
 	return { label: '待支付', tone: 'warn', desc: '可直接微信支付；企业客户可走对公转账并上传凭证。' }
@@ -3344,6 +4102,7 @@ const getPaymentMeta = (order = {}) => {
 const getBillingAmountText = (order = {}) => {
 	const total = getQuoteTotal(order)
 	if (isWarrantyFreeOrder(order)) return '¥0.00（质保免收费）'
+	if (order.quoteStatus === 'rejected') return total ? `${formatMoney(total)}（已拒绝）` : '报价已拒绝'
 	return total ? formatMoney(total) : '待售后报价'
 }
 
@@ -3351,6 +4110,7 @@ const getBillingMeta = (order = {}) => {
 	const quoteTotal = getQuoteTotal(order)
 	const invoiceMeta = getInvoiceMeta(resolveOrderRecord(order))
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
+	if (order.quoteStatus === 'rejected') return { label: '无需付款', tone: 'muted', desc: `${getRejectedQuoteFlowDesc(order)} 当前无需付款。` }
 	if (isWarrantyFreeOrder(order)) {
 		return order.authorizationStatus === 'confirmed'
 			? { label: '质保已确认', tone: 'ok', desc: '本次维修免收费，已进入后续维修流程。' }
@@ -3478,8 +4238,8 @@ const payRepairQuote = (order = {}) => {
 	uni.showModal({
 		title: '确认并支付',
 		content: `确认维修报价 ${formatMoney(getQuoteTotal(order))}，并使用微信支付？`,
-		confirmText: '去支付',
-		cancelText: '再看看',
+		confirmText: '继续支付',
+		cancelText: '确认取消',
 		success: async ({ confirm }) => {
 			if (!confirm) return
 			let loadingShown = false
@@ -3489,7 +4249,9 @@ const payRepairQuote = (order = {}) => {
 				paymentSubmitting.value = true
 				uni.showLoading({ title: '创建支付' })
 				loadingShown = true
-				const paymentOrder = await createRepairWechatPay(order.recordId || order.id)
+				// 临时 code 对应当前操作微信的 openid，避免用历史登录态为另一账号下预支付单。
+				const payerCode = await requestWechatLoginCode()
+				const paymentOrder = await createRepairWechatPay(order.recordId || order.id, payerCode)
 				const paymentParams = paymentOrder.payment || {}
 				if (!paymentParams.timeStamp || !paymentParams.nonceStr || !paymentParams.package || !paymentParams.paySign) {
 					throw new Error('暂时无法支付，请稍后重试')
@@ -3594,7 +4356,13 @@ const canConfirmReceipt = (order = {}) => Boolean(order.id && (order.statusKey =
 const canFillOutboundTracking = (order = {}) => Boolean(order.id && order.statusKey === 'pending' && !order.trackingNo)
 
 const selectOutboundLogistics = (item = {}) => {
-	outboundForm.value.company = item.value || item.label || ''
+	const value = String(item.value || item.label || '').trim()
+	const selected = logisticsList.find((option) => option.value === value || option.label === value)
+	if (!selected) {
+		uni.showToast({ title: '物流公司选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	outboundForm.value.company = selected.value || selected.label
 	showOutboundSheet.value = false
 }
 
@@ -3732,6 +4500,9 @@ const reRepair = (order = {}) => {
 	const product = defaultRepairProduct()
 	product.name = order.productName || ''
 	product.model = order.productModel || ''
+	product.isCustomModel = Boolean(product.model && !isConfiguredRepairProductModel(product, product.model))
+	product.customModel = product.isCustomModel ? product.model : ''
+	syncRepairProductModelPickerOptions(product)
 	product.serial = order.productSerial || order.serial || ''
 	repairProducts.value = [product]
 	repairProductSeed = 1
@@ -3811,8 +4582,8 @@ const resetInvoiceForm = (order = {}) => {
 
 // 发票种类双选：电子普票 / 纸质专票（专票强制企业抬头，后端同规则）
 const invoiceKindOptions = [
-	{ value: '电子普通发票', label: '电子普通发票', desc: '开具快，链接+邮箱接收' },
-	{ value: '纸质专用发票', label: '纸质专用发票', desc: '可抵扣，财务审核后邮寄' }
+	{ value: '电子普通发票', label: '电子普通发票', desc: '数电票，预计 1-3 个工作日' },
+	{ value: '纸质专用发票', label: '纸质专用发票', desc: '财务审核，预计 7-15 个工作日寄出' }
 ]
 
 const isPaperInvoice = computed(() => invoiceForm.value.invoiceType === '纸质专用发票')
@@ -3963,16 +4734,16 @@ const submitInvoiceApply = async () => {
 	}
 }
 
-const copyInvoiceLink = (order = {}) => {
+const copyInvoiceInfo = (order = {}) => {
 	const sourceOrder = resolveOrderRecord(order)
-	const invoiceLink = sourceOrder.invoiceUrl
-	if (!invoiceLink) {
-		uni.showToast({ title: '暂无电子发票链接', icon: 'none' })
+	const invoiceText = formatInvoiceDisplayText(sourceOrder)
+	if (!invoiceText) {
+		uni.showToast({ title: '发票信息尚未同步', icon: 'none' })
 		return
 	}
 	uni.setClipboardData({
-		data: invoiceLink,
-		success: () => uni.showToast({ title: '发票链接已复制', icon: 'success' }),
+		data: invoiceText,
+		success: () => uni.showToast({ title: '发票信息已复制', icon: 'success' }),
 		fail: () => uni.showToast({ title: '复制失败', icon: 'none' })
 	})
 }
@@ -3982,7 +4753,9 @@ const handleInvoiceAction = (order = {}) => {
 	const status = getInvoiceStatusKey(sourceOrder)
 
 	if (status === 'issued') {
-		copyInvoiceLink(sourceOrder)
+		activeInvoiceOrderId.value = ''
+		activeModule.value = 'invoices'
+		activeInvoiceTab.value = '已开票'
 		return
 	}
 
@@ -4014,9 +4787,39 @@ const syncFeedbackRecords = async () => {
 		if (!Array.isArray(list)) return
 		feedbackRecords.value = list.map(normalizeFeedbackRecord)
 		saveFeedbackRecords()
+		await resolveFeedbackRecordImageUrls(feedbackRecords.value)
 	} catch (error) {
 		// 网络/登录异常时保留本地缓存，不打断页面
 		console.warn('sync feedback records fallback:', error)
+	}
+}
+
+const getFeedbackRecordImageUrl = (image = {}) => {
+	const item = typeof image === 'string' ? { url: image } : image
+	const fileID = getCloudFileId(item)
+	return (fileID && feedbackImageTempUrls.value[fileID]) || getPreviewUrl(item)
+}
+
+const resolveFeedbackRecordImageUrls = async (records = []) => {
+	const fileIDs = [...new Set((Array.isArray(records) ? records : [])
+		.flatMap((record = {}) => Array.isArray(record.images) ? record.images : [])
+		.map((image) => getCloudFileId(typeof image === 'string' ? { url: image } : image))
+		.filter(Boolean))]
+	const unresolved = fileIDs.filter((fileID) => !feedbackImageTempUrls.value[fileID])
+	if (!unresolved.length) return
+
+	try {
+		const result = await getCloudTempFileURL(unresolved)
+		const nextUrls = { ...feedbackImageTempUrls.value }
+		const fileList = result && Array.isArray(result.fileList) ? result.fileList : []
+		for (const item of fileList) {
+			const fileID = item.fileID || item.fileId || ''
+			const tempFileURL = item.tempFileURL || item.url || ''
+			if (fileID && tempFileURL && !isCloudFileId(tempFileURL)) nextUrls[fileID] = tempFileURL
+		}
+		feedbackImageTempUrls.value = nextUrls
+	} catch (error) {
+		console.warn('resolve feedback image urls failed:', error)
 	}
 }
 
@@ -4055,7 +4858,7 @@ const addLocalFeedbackRecord = (status = 'submitted', result = {}) => {
 }
 
 const previewFeedbackRecordImage = (record = {}, index = 0) => {
-	const urls = (record.images || []).map((item) => (typeof item === 'string' ? item : item.url)).filter(Boolean)
+	const urls = (record.images || []).map(getFeedbackRecordImageUrl).filter(Boolean)
 	if (!urls.length) return
 	uni.previewImage({
 		current: urls[index] || urls[0],
@@ -4160,11 +4963,22 @@ const openModule = (id, type) => {
 		openAddressPage()
 		return
 	}
+	if (id === 'repair' && !hasLoginToken()) {
+		previousModule.value = activeModule.value
+		activeModule.value = id
+		repairStep.value = 1
+		prefillRepairAddress()
+		loadRepairProductOptions()
+		beginRepairLogin()
+		return
+	}
 
 	previousModule.value = activeModule.value
 	activeModule.value = id
-	showOfficial.value = false
-	showQr.value = false
+
+	if (policyDocKeys.has(id)) {
+		refreshPolicyDocument(id).catch((error) => console.warn(`${id} policy refresh failed:`, error))
+	}
 
 	if (id === 'invoices') {
 		activeInvoiceOrderId.value = ''
@@ -4181,9 +4995,14 @@ const openModule = (id, type) => {
 		prefillSurveyContact()
 	}
 
+	if (id === 'diag') {
+		refreshFaultTypes({ forceRefresh: true })
+	}
+
 	if (id === 'repair') {
 		repairStep.value = 1
 		prefillRepairAddress()
+		loadRepairProductOptions()
 	}
 
 	if (id === 'orders' && type !== undefined) {
@@ -4199,6 +5018,14 @@ const openModule = (id, type) => {
 }
 
 const closeModule = () => {
+	if (activeModule.value === 'login' && previousModule.value === 'repair' && repairLoginPending.value) {
+		activeModule.value = 'repair'
+		previousModule.value = ''
+		repairLoginPending.value = false
+		clearRepairLoginReturn()
+		restoreRepairDraft()
+		return
+	}
 	if (activeModule.value === 'order-detail' && (previousModule.value === 'track' || previousModule.value === 'orders' || previousModule.value === 'invoices')) {
 		activeModule.value = previousModule.value
 		previousModule.value = ''
@@ -4218,13 +5045,16 @@ const returnFromModule = () => {
 }
 
 const openTrackDetail = (order) => {
+	orderDetailOrder.value = ''
 	trackDetailOrder.value = order.id
 	openModule('order-detail')
 }
 
 const openOrderDetail = (order) => {
+	trackDetailOrder.value = ''
 	orderDetailOrder.value = order.id
 	openModule('order-detail')
+	if (hasLoginToken()) refreshOrderFromServer(order).catch((error) => console.warn('refresh detail on open failed:', error))
 	// 打开详情时刷新该工单的投诉/反馈状态与客服回复
 	if (hasLoginToken()) syncFeedbackRecords().catch((error) => console.warn('sync feedback on detail failed:', error))
 }
@@ -4270,7 +5100,7 @@ const savedAddressText = (item = {}) => {
 
 const openSavedAddressPicker = async (target) => {
 	if (!hasLoginToken()) {
-		openModule('login')
+		beginRepairLogin({ prompt: false })
 		uni.showToast({ title: '请先登录后选择常用地址', icon: 'none' })
 		return
 	}
@@ -4323,18 +5153,32 @@ const syncRepairSeeds = () => {
 const normalizeRepairProducts = (products = []) => {
 	if (!Array.isArray(products) || !products.length) return [defaultRepairProduct()]
 
-	return products.map((item, index) => ({
-		id: Number(item.id) || index + 1,
-		name: item.name || '',
-		category: item.category || '',
-		model: item.model || '',
-		serial: item.serial || '',
-		buyDate: item.buyDate || '',
-		voucher: item.voucher || '',
-		voucherList: Array.isArray(item.voucherList) ? item.voucherList : [],
-		faultDesc: item.faultDesc || '',
-		media: Array.isArray(item.media) ? item.media : []
-	}))
+	return products.map((item, index) => {
+		const isCustomName = item.isCustomName === undefined
+			? Boolean(item.name && !findRepairProductOption(item))
+			: Boolean(item.isCustomName)
+		const isCustomModel = item.isCustomModel === undefined
+			? Boolean(item.model && !isConfiguredRepairProductModel(item, item.model))
+			: Boolean(item.isCustomModel)
+		const customModel = String(item.customModel || (isCustomModel ? item.model : '') || '')
+		return {
+			id: Number(item.id) || index + 1,
+			productId: item.productId || item.product_id || '',
+			isCustomName,
+			isCustomModel,
+			customModel,
+			modelPickerOptions: repairProductModelPickerOptions(item),
+			name: item.name || '',
+			category: item.category || '',
+			model: isCustomModel ? customModel : (item.model || ''),
+			serial: item.serial || '',
+			buyDate: item.buyDate || '',
+			voucher: item.voucher || '',
+			voucherList: Array.isArray(item.voucherList) ? item.voucherList : [],
+			faultDesc: item.faultDesc || '',
+			media: Array.isArray(item.media) ? item.media : []
+		}
+	})
 }
 
 const restoreRepairDraft = () => {
@@ -4369,6 +5213,75 @@ const persistRepairDraft = () => {
 	}
 }
 
+const readRepairLoginReturn = () => {
+	try {
+		const value = uni.getStorageSync(repairLoginReturnKey)
+		const timestamp = Number(value && value.time)
+		if (!timestamp) {
+			if (value) uni.removeStorageSync(repairLoginReturnKey)
+			return false
+		}
+		if (timestamp && Date.now() - timestamp > 30 * 60 * 1000) {
+			uni.removeStorageSync(repairLoginReturnKey)
+			return false
+		}
+		return Boolean(value)
+	} catch (error) {
+		console.warn('read repair login return fallback:', error)
+		return false
+	}
+}
+
+const markRepairLoginReturn = () => {
+	try {
+		uni.setStorageSync(repairLoginReturnKey, { time: Date.now() })
+	} catch (error) {
+		console.warn('persist repair login return fallback:', error)
+	}
+}
+
+const clearRepairLoginReturn = () => {
+	try {
+		uni.removeStorageSync(repairLoginReturnKey)
+	} catch (error) {
+		console.warn('clear repair login return fallback:', error)
+	}
+}
+
+const beginRepairLogin = ({ prompt = true } = {}) => {
+	if (repairLoginPending.value) return
+	repairLoginPending.value = true
+	persistRepairDraft()
+	markRepairLoginReturn()
+	if (!prompt) {
+		openModule('login')
+		return
+	}
+	try {
+		uni.showModal({
+			title: '请先登录',
+			content: '进入立即报修前，请先完成微信登录。',
+			confirmText: '去登录',
+			cancelText: '取消',
+			success: ({ confirm }) => {
+				if (confirm) {
+					openModule('login')
+					return
+				}
+				repairLoginPending.value = false
+				clearRepairLoginReturn()
+			},
+			fail: (error) => {
+				console.warn('show repair login prompt failed:', error)
+				openModule('login')
+			}
+		})
+	} catch (error) {
+		console.warn('show repair login prompt failed:', error)
+		openModule('login')
+	}
+}
+
 const saveRepairDraft = () => {
 	if (persistRepairDraft()) {
 		showRepairTools.value = false
@@ -4386,7 +5299,7 @@ const buildRepairNoteTemplate = () => {
 	const contactPhone = form.senderPhone || form.receiverPhone
 	const products = (repairProducts.value || []).map((product, index) => {
 		const name = repairNoteValue(product.name || product.category)
-		const model = repairNoteValue(product.model)
+		const model = repairNoteValue(getRepairProductModelValue(product))
 		const serial = repairNoteValue(product.serial)
 		const fault = repairNoteValue(product.faultDesc)
 		return [
@@ -4434,6 +5347,7 @@ const clearRepairForm = (notify = true) => {
 const startNewRepair = () => {
 	clearRepairForm(false)
 	submittedOrderId.value = ''
+	submittedRepairSummary.value = { logisticsCompany: '', trackingNo: '', trackingPending: false }
 	openModule('repair')
 }
 
@@ -4616,6 +5530,22 @@ const uploadRepairImage = async (index) => {
 	}
 }
 
+const getVideoCoverPath = (path = '') => new Promise((resolve) => {
+	if (!path || typeof uni.getVideoInfo !== 'function') {
+		resolve('')
+		return
+	}
+	try {
+		uni.getVideoInfo({
+			src: path,
+			success: (result = {}) => resolve(result.thumbTempFilePath || result.thumbPath || ''),
+			fail: () => resolve('')
+		})
+	} catch (error) {
+		resolve('')
+	}
+})
+
 const uploadRepairVideo = async (index) => {
 	const product = repairProducts.value[index]
 	if (!product || product.media.length >= 3) return
@@ -4635,12 +5565,14 @@ const uploadRepairVideo = async (index) => {
 
 		uni.showLoading({ title: '上传中' })
 		loadingShown = true
+		const coverPath = chooseRes.thumbTempFilePath || await getVideoCoverPath(chooseRes.tempFilePath)
 		const uploadRes = await uploadVideo(chooseRes.tempFilePath)
 		repairMediaSeed += 1
 		product.media.push({
 			id: `vid-${repairMediaSeed}`,
 			type: 'video',
 			path: chooseRes.tempFilePath,
+			coverPath,
 			fileID: normalizeUploadFileId(uploadRes),
 			url: normalizeUploadUrl(uploadRes, chooseRes.tempFilePath),
 			duration: chooseRes.duration,
@@ -4655,6 +5587,40 @@ const uploadRepairVideo = async (index) => {
 	} finally {
 		if (loadingShown) uni.hideLoading()
 	}
+}
+
+const previewRepairMedia = (productIndex, media = {}) => {
+	const product = repairProducts.value[productIndex]
+	if (!product) return
+
+	const url = getPreviewUrl(media)
+	if (!url) {
+		uni.showToast({ title: '附件暂不可预览', icon: 'none' })
+		return
+	}
+
+	if (media.type === 'image') {
+		const urls = product.media
+			.filter((item) => item.type === 'image')
+			.map(getPreviewUrl)
+			.filter(Boolean)
+		uni.previewImage({ current: url, urls })
+		return
+	}
+
+	if (media.type === 'video' && uni.previewMedia) {
+		uni.previewMedia({
+			sources: [{ url, type: 'video' }],
+			current: 0,
+			fail: (error) => {
+				console.warn('preview repair video failed:', error)
+				uni.showToast({ title: '视频播放失败，请稍后重试', icon: 'none' })
+			}
+		})
+		return
+	}
+
+	uni.showToast({ title: '当前微信版本暂不支持视频预览', icon: 'none' })
 }
 
 const addRepairMedia = (index) => {
@@ -4690,8 +5656,11 @@ const buildRepairPayload = () => {
 		customerType: repairForm.value.customerType,
 		status: 'submitted',
 		statusText: '已提交',
-		productName: (product.name || product.model || '维修产品').trim(),
-		productModel: String(product.model || '').trim(),
+		customerType: repairForm.value.customerType,
+		customer_type: repairForm.value.customerType,
+		productId: product.productId || '',
+		productName: (product.name || getRepairProductModelValue(product) || '维修产品').trim(),
+		productModel: getRepairProductModelValue(product),
 		productSerial: String(product.serial || '').trim(),
 		faultType: product.faultType || product.faultDesc || '待检测',
 		faultDesc: String(product.faultDesc || '').trim(),
@@ -4712,9 +5681,11 @@ const buildRepairPayload = () => {
 			const media = splitRepairMedia(item.media)
 			const voucherUrls = (item.voucherList || []).map(getUploadedUrl).filter(Boolean)
 			return {
-				productName: (item.name || item.model || '维修产品').trim(),
+				productId: item.productId || '',
+				product_id: item.productId || '',
+				productName: (item.name || getRepairProductModelValue(item) || '维修产品').trim(),
 				productCategory: String(item.category || '').trim(),
-				productModel: String(item.model || '').trim(),
+				productModel: getRepairProductModelValue(item),
 				productSerial: String(item.serial || '').trim(),
 				buyDate: item.buyDate,
 				voucher: item.voucher,
@@ -4733,12 +5704,30 @@ const validateRepairStep = (step) => {
 	const products = repairProducts.value
 	if (step === 1) {
 		for (let i = 0; i < products.length; i += 1) {
-			if (!String(products[i].model || '').trim()) {
-				uni.showToast({ title: `第 ${i + 1} 个产品请填写产品型号`, icon: 'none' })
+			if (!String(products[i].name || '').trim()) {
+				uni.showToast({
+					title: isOtherRepairProduct(products[i])
+						? `第 ${i + 1} 个产品请填写其他产品名称`
+						: `第 ${i + 1} 个产品请选择产品名称`,
+					icon: 'none'
+				})
+				return false
+			}
+			if (!getRepairProductModelValue(products[i])) {
+				uni.showToast({
+					title: isOtherRepairModel(products[i])
+						? `第 ${i + 1} 个产品请填写自定义产品型号`
+						: `第 ${i + 1} 个产品请填写产品型号`,
+					icon: 'none'
+				})
 				return false
 			}
 			if (!String(products[i].serial || '').trim()) {
 				uni.showToast({ title: `第 ${i + 1} 个产品请填写序列号`, icon: 'none' })
+				return false
+			}
+			if (cleanSn(products[i].serial).length > 80) {
+				uni.showToast({ title: `第 ${i + 1} 个产品序列号不能超过80个字符`, icon: 'none' })
 				return false
 			}
 		}
@@ -4784,6 +5773,7 @@ const snWarrantyLabel = (info = {}) => {
 
 // SN 清洗：去除空格/换行/制表符与首尾空白，保留横杠/字母数字（后端再做规范化匹配）
 const cleanSn = (raw) => String(raw == null ? '' : raw).replace(/[\s　]+/g, '').trim()
+const getSnValidationMessage = (product = {}) => cleanSn(product.serial).length > 80 ? '产品序列号不能超过80个字符' : ''
 
 // 防抖定时器（按产品下标）与最近一次扫码时间戳（节流）
 const snQueryTimers = {}
@@ -4798,6 +5788,7 @@ const recognizeSn = (index, force = false) => {
 	if (sn !== product.serial) product.serial = sn
 	if (snQueryTimers[index]) { clearTimeout(snQueryTimers[index]); snQueryTimers[index] = null }
 	if (!sn) { product.snInfo = null; return }
+	if (sn.length > 80) { product.snInfo = null; return }
 	const run = () => doRecognizeSn(index, sn)
 	if (force) run()
 	else snQueryTimers[index] = setTimeout(run, 500)
@@ -4816,9 +5807,17 @@ const doRecognizeSn = async (index, sn) => {
 		info = await lookupDeviceBySn(sn)
 		product.snInfo = info || { found: false, sn }
 		if (info && info.found) {
-			if (info.model && !String(product.model || '').trim()) product.model = info.model
 			if (info.productCategory && !String(product.category || '').trim()) product.category = info.productCategory
-			if (info.productName && !String(product.name || '').trim()) product.name = info.productName
+			if (info.productName && !product.isCustomName && !String(product.name || '').trim()) {
+				product.name = info.productName
+				product.isCustomName = false
+				syncRepairProductModelPickerOptions(product)
+			}
+			if (info.model && !product.isCustomModel && !String(product.model || '').trim()) {
+				product.model = info.model
+				product.isCustomModel = !isConfiguredRepairProductModel(product, info.model)
+				product.customModel = product.isCustomModel ? info.model : ''
+			}
 			if (info.buyDate && !product.buyDate) product.buyDate = info.buyDate
 		} else {
 			handleSnNotFound(index)
@@ -4880,9 +5879,10 @@ const openHistoryOrder = async (orderId) => {
 	}
 }
 
-const scanSn = (index) => {
+const scanSn = async (index) => {
 	const now = Date.now()
 	if (now - lastScanAt < 800) return // 连续扫码节流
+	if (!(await ensureWechatPrivacyForAction())) return
 	lastScanAt = now
 	uni.scanCode({
 		scanType: ['barCode', 'qrCode'],
@@ -4915,14 +5915,24 @@ const validateRepairForm = () => {
 	for (let index = 0; index < repairProducts.value.length; index += 1) {
 		const product = repairProducts.value[index] || {}
 		const label = `第 ${index + 1} 个产品`
-		if (!String(product.model || '').trim()) {
+		if (!String(product.name || '').trim()) {
 			openRepairSection('products')
-			uni.showToast({ title: `${label}请填写产品型号`, icon: 'none' })
+			uni.showToast({ title: isOtherRepairProduct(product) ? `${label}请填写其他产品名称` : `${label}请选择产品名称`, icon: 'none' })
+			return false
+		}
+		if (!getRepairProductModelValue(product)) {
+			openRepairSection('products')
+			uni.showToast({ title: isOtherRepairModel(product) ? `${label}请填写自定义产品型号` : `${label}请填写产品型号`, icon: 'none' })
 			return false
 		}
 		if (!String(product.serial || '').trim()) {
 			openRepairSection('products')
 			uni.showToast({ title: `${label}请填写序列号`, icon: 'none' })
+			return false
+		}
+		if (cleanSn(product.serial).length > 80) {
+			openRepairSection('products')
+			uni.showToast({ title: `${label}序列号不能超过80个字符`, icon: 'none' })
 			return false
 		}
 		if (!String(product.faultDesc || '').trim()) {
@@ -5001,25 +6011,31 @@ const validateRepairForm = () => {
 const submitRepair = async () => {
 	if (repairSubmitting.value) return
 	if (!hasLoginToken()) {
-		openModule('login')
+		beginRepairLogin({ prompt: false })
 		uni.showToast({ title: '请先登录后再提交报修', icon: 'none' })
 		return
 	}
 	if (!validateRepairForm()) return
 
-	await requestStatusSubscription('repair_submit')
 	repairSubmitting.value = true
 	try {
-		const res = await submitRepairOrder(buildRepairPayload())
+		await requestStatusSubscription('repair_submit')
+		const payload = buildRepairPayload()
+		const res = await submitRepairOrder(payload)
 		const resData = (res && res.data) ? res.data : (res || {})
 		submittedOrderId.value = resData.order_no || resData.orderNo || resData.orderId || resData.id || ''
+		submittedRepairSummary.value = {
+			logisticsCompany: payload.logisticsCompany,
+			trackingNo: payload.trackingNo,
+			trackingPending: payload.trackingPending
+		}
 		uni.removeStorageSync(repairDraftKey)
 		openModule('repair-success')
 		loadRemoteContent()
 	} catch (error) {
 		if (isAuthError(error)) {
 			logoutLocal()
-			openModule('login')
+			beginRepairLogin({ prompt: false })
 			uni.showToast({ title: '登录已失效，请重新登录', icon: 'none' })
 			return
 		}
@@ -5052,19 +6068,35 @@ const loadFaultResult = async () => {
 		(item) => (item.productTypeId || item.productType || item.productName) === diagProduct.value && item.faultName === diagFault.value
 	)
 	diagResult.value = localRecord || null
+	diagErrorText.value = ''
+	if (diagLoading.value && localRecord) return
+	diagLoading.value = true
 
 	try {
 		const result = await searchFault({
 			productType: diagProduct.value,
-			faultTypeId: localRecord ? (localRecord.faultTypeId || localRecord.id || '') : ''
+			faultTypeId: localRecord ? (localRecord.faultTypeId || localRecord.id || '') : '',
+			faultName: diagFault.value,
+			forceRefresh: true
 		})
 		diagResult.value = result || localRecord || null
+		if (!diagResult.value) diagErrorText.value = '暂未找到对应自查方案，请联系售后协助判断。'
 	} catch (error) {
 		console.warn('fault search fallback:', error)
+		diagErrorText.value = localRecord
+			? '最新方案同步失败，当前显示上一次数据。'
+			: '故障方案加载失败，请稍后重试。'
+	} finally {
+		diagLoading.value = false
 	}
 }
 
-const selectDiagOption = (item) => {
+const selectDiagOption = (item = {}) => {
+	if (!item.id || !item.title || !diagSheetOptions.value.some((option) => option.id === item.id)) {
+		uni.showToast({ title: '选项无效，请重新选择', icon: 'none' })
+		return
+	}
+	diagErrorText.value = ''
 	if (diagOpen.value === 'product') {
 		diagProduct.value = item.id
 		if (diagFault.value && !(diagFaultMap.value[item.id] || []).includes(diagFault.value)) {
@@ -5083,6 +6115,33 @@ const resetDiag = () => {
 	diagFault.value = ''
 	diagOpen.value = ''
 	diagResult.value = null
+	diagErrorText.value = ''
+}
+
+const startRepairFromDiag = () => {
+	const productLabel = diagProductLabel.value
+	const faultLabel = diagFault.value
+	const recommendText = diagRecommendRepair.value ? '（知识库建议报修）' : ''
+	const faultSummary = '故障自查：' + productLabel + ' / ' + faultLabel + recommendText
+	let product = repairProducts.value.find(item => !String(item.faultDesc || '').trim())
+
+	if (!product) {
+		repairProductSeed += 1
+		product = defaultRepairProduct(repairProductSeed)
+		repairProducts.value.push(product)
+	}
+
+	if (!String(product.category || '').trim()) product.category = productLabel
+	const currentFaultDesc = String(product.faultDesc || '').trim()
+	if (!currentFaultDesc) {
+		product.faultDesc = faultSummary
+	} else if (!currentFaultDesc.includes(faultLabel)) {
+		product.faultDesc = currentFaultDesc + '\n' + faultSummary
+	}
+
+	repairSectionOpen.value.products = true
+	openModule('repair')
+	uni.showToast({ title: '已带入故障自查信息', icon: 'none' })
 }
 
 const removeVoucher = (productIndex, voucherIndex) => {
@@ -5342,9 +6401,9 @@ const submitFeedback = async () => {
 }
 
 // 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
-const doWechatLogin = async () => {
+const doWechatLogin = async ({ automatic = false } = {}) => {
 	if (loginSubmitting.value) return
-	loginError.value = ''
+	if (!pcLoginGuard.beginAttempt({ automatic })) return
 	loginRetrying.value = false
 	loginSubmitting.value = true
 
@@ -5353,18 +6412,23 @@ const doWechatLogin = async () => {
 			retries: 1,
 			onRetry: () => {
 				loginRetrying.value = true
-				loginError.value = '微信登录失败，正在自动重试...'
 			}
 		})
 		if (applyLoginSession(res)) {
-			loginError.value = ''
 			uni.showToast({ title: res.offline ? '体验登录成功' : '登录成功', icon: 'success' })
 		}
 	} catch (error) {
 		console.warn('wechat login failed:', error)
+		if (isLoginCancelledError(error)) return
+		if (pcLoginGuard.handleRateLimit(error, automatic ? undefined : () => doWechatLogin({ automatic: true }))) {
+			uni.showToast({
+				title: automatic ? getLoginErrorMessage(error) : '操作过于频繁，15秒后自动重试',
+				icon: 'none'
+			})
+			return
+		}
 		const message = getLoginErrorMessage(error)
-		loginError.value = message
-		uni.showToast({ title: message, icon: 'none' })
+		if (message) uni.showToast({ title: message, icon: 'none' })
 	} finally {
 		loginSubmitting.value = false
 		loginRetrying.value = false
@@ -5378,7 +6442,6 @@ const syncLoginPrivacyReady = () => {
 const toggleLoginAgreement = async () => {
 	const nextValue = !loginAgreementChecked.value
 	loginAgreementChecked.value = nextValue
-	loginError.value = ''
 }
 
 const onLoginButtonTap = () => {
@@ -5390,7 +6453,6 @@ const onLoginButtonTap = () => {
 }
 
 const onLoginDisabledTap = () => {
-	loginError.value = ''
 	uni.showToast({ title: '请勾选同意《用户协议》和《隐私政策》后再登录', icon: 'none' })
 }
 
@@ -5398,12 +6460,7 @@ const openLoginPolicy = (type) => {
 	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
 }
 
-const showLoginError = (message) => {
-	loginError.value = message
-	uni.showToast({ title: message, icon: 'none' })
-}
-
-const ensureWechatPrivacyForUpload = async () => {
+const ensureWechatPrivacyForAction = async () => {
 	try {
 		if (await getWechatPrivacyReady()) return true
 		try {
@@ -5415,7 +6472,7 @@ const ensureWechatPrivacyForUpload = async () => {
 		}
 	} catch (error) {
 		console.warn('manual privacy authorization before upload failed:', error)
-		uni.showToast({ title: '请先同意隐私授权后再上传', icon: 'none' })
+		uni.showToast({ title: '请先同意隐私授权后再使用该功能', icon: 'none' })
 		return false
 	}
 }
@@ -5452,7 +6509,7 @@ const rejectUploadPrivacy = () => {
 		uploadPrivacyResolve(false)
 		uploadPrivacyResolve = null
 	}
-	uni.showToast({ title: '请先同意隐私授权后再上传', icon: 'none' })
+	uni.showToast({ title: '请先同意隐私授权后再使用该功能', icon: 'none' })
 }
 
 const isWechatPrivacyScopeUndeclared = (error = {}) => {
@@ -5470,7 +6527,7 @@ const getWechatPrivacyPickerMessage = (error = {}) => {
 const isWechatPrivacyError = (error) => isWechatPrivacyScopeUndeclared(error) || /privacy|agreePrivacyAuthorization|隐私/i.test(String(error && (error.errMsg || error.message) || error || ''))
 
 const chooseImageWithPrivacy = async (options = {}) => {
-	if (!(await ensureWechatPrivacyForUpload())) {
+	if (!(await ensureWechatPrivacyForAction())) {
 		throw new Error('privacy authorization required')
 	}
 	try {
@@ -5479,13 +6536,13 @@ const chooseImageWithPrivacy = async (options = {}) => {
 		if (!isWechatPrivacyError(error)) throw error
 		if (isWechatPrivacyScopeUndeclared(error)) throw error
 		resetWechatPrivacyReady()
-		if (!(await ensureWechatPrivacyForUpload())) throw error
+		if (!(await ensureWechatPrivacyForAction())) throw error
 		return await uni.chooseImage(options)
 	}
 }
 
 const chooseVideoWithPrivacy = async (options = {}) => {
-	if (!(await ensureWechatPrivacyForUpload())) {
+	if (!(await ensureWechatPrivacyForAction())) {
 		throw new Error('privacy authorization required')
 	}
 	try {
@@ -5494,7 +6551,7 @@ const chooseVideoWithPrivacy = async (options = {}) => {
 		if (!isWechatPrivacyError(error)) throw error
 		if (isWechatPrivacyScopeUndeclared(error)) throw error
 		resetWechatPrivacyReady()
-		if (!(await ensureWechatPrivacyForUpload())) throw error
+		if (!(await ensureWechatPrivacyForAction())) throw error
 		return await uni.chooseVideo(options)
 	}
 }
@@ -5505,14 +6562,33 @@ const applyLoginSession = (res = {}) => {
 		return false
 	}
 
-	uni.setStorageSync('token', res.token)
-	uni.setStorageSync('userInfo', res.userInfo || {})
-	uni.setStorageSync('isLoggedIn', true)
+	try {
+		uni.setStorageSync('token', res.token)
+		uni.setStorageSync('userInfo', res.userInfo || {})
+		uni.setStorageSync('isLoggedIn', true)
+	} catch (error) {
+		console.warn('persist login session failed:', error)
+		uni.showToast({ title: '登录信息保存失败，请重试', icon: 'none' })
+		return false
+	}
+
+	const returnToRepair = repairLoginPending.value || readRepairLoginReturn()
 	currentUser.value = res.userInfo || {}
 	logged.value = true
 	resolveAvatarDisplay(currentUser.value.avatar)
-	activeModule.value = ''
-	activeTab.value = 'mine'
+	if (returnToRepair) {
+		repairLoginPending.value = false
+		clearRepairLoginReturn()
+		restoreRepairDraft()
+		previousModule.value = ''
+		activeModule.value = 'repair'
+		activeTab.value = 'home'
+		prefillRepairAddress()
+		loadRepairProductOptions()
+	} else {
+		activeModule.value = ''
+		activeTab.value = 'mine'
+	}
 	// 登录后立即拉工单/设备，避免角标与列表空到下次 onShow
 	loadRemoteContent().catch((error) => console.warn('load after login failed:', error))
 	return true
@@ -5552,6 +6628,12 @@ const onCancelAccount = () => {
 			}
 		}
 	})
+}
+
+const previewCompanyProductImage = (item = {}) => {
+	const urls = companyProductLines.map(product => product.image).filter(Boolean)
+	if (!item.image || !urls.length) return
+	uni.previewImage({ current: item.image, urls })
 }
 
 const go = (id, type) => {
@@ -5594,6 +6676,52 @@ const openCustomerService = () => {
 	uni.showToast({ title: '客服方式暂未配置', icon: 'none' })
 }
 
+const normalizeOfficialAccountUsername = (value) => String(value || '').trim()
+
+const launchOfficialAccountProfile = (username, options = {}) => {
+	const fallbackMessage = options.fallbackMessage || '当前版本暂不支持直接打开公众号'
+	const handleFallback = () => {
+		if (typeof options.onFallback === 'function' && options.onFallback()) return
+		uni.showToast({ title: fallbackMessage, icon: 'none' })
+	}
+	const targetUsername = normalizeOfficialAccountUsername(username)
+	if (!targetUsername) {
+		handleFallback()
+		return
+	}
+	// #ifdef MP-WEIXIN
+	if (typeof wx !== 'undefined' && typeof wx.openOfficialAccountProfile === 'function') {
+		wx.openOfficialAccountProfile({
+			username: targetUsername,
+			fail: (error = {}) => {
+				const errMsg = String(error.errMsg || error.message || error || '')
+				console.warn('open official account failed:', error)
+				if (/cancel/i.test(errMsg)) return
+				handleFallback()
+			}
+		})
+		return
+	}
+	// #endif
+
+	handleFallback()
+}
+
+const openCicadaServiceAccountProfile = () => {
+	launchOfficialAccountProfile(CICADA_SERVICE_ACCOUNT_USERNAME, {
+		fallbackMessage: '当前版本暂不支持直接打开服务号',
+		onFallback: () => {
+			if (!isPcWebView) return false
+			showOfficialAccountQr.value = true
+			return true
+		}
+	})
+}
+
+const openProductVideoLink = () => {
+	openCicadaServiceAccountProfile()
+}
+
 const makePhoneCall = () => {
 	callPhone(contactInfo.value.phone)
 }
@@ -5614,6 +6742,7 @@ onLoad((options = {}) => {
 	const routeType = Number.isInteger(type) ? type : undefined
 
 	if (options.module && moduleMap[options.module]) {
+		if (options.module === 'repair') restoreRepairDraft()
 		openModule(options.module, routeType)
 		return
 	}
@@ -5634,18 +6763,22 @@ onShow(() => {
 onPullDownRefresh(async () => {
 	logBoot('onPullDownRefresh triggered')
 	try {
-		await loadRemoteContent()
+		await loadRemoteContent({ forceFaultRefresh: true })
 	} finally {
 		uni.stopPullDownRefresh()
 	}
 })
 
 onBackPress(() => {
+	if (uploadPrivacyVisible.value) {
+		rejectUploadPrivacy()
+		return true
+	}
 	if (!activeModule.value && !diagOpen.value) return false
 	return returnFromModule()
 })
 
-const loadRemoteContent = async () => {
+const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 	const tasks = [
 		getWarrantyPolicy()
 			.then((doc) => updateDoc('warranty', doc))
@@ -5653,12 +6786,12 @@ const loadRemoteContent = async () => {
 		getFeePolicy()
 			.then((doc) => updateDoc('fees', doc))
 			.catch((error) => console.warn('fee fallback:', error)),
+		getGuide('quick')
+			.then((doc) => updateDoc('guide-quick', doc))
+			.catch((error) => console.warn('quick guide fallback:', error)),
 		getGuide('repair')
 			.then((doc) => updateDoc('guide-repair', doc))
 			.catch((error) => console.warn('repair guide fallback:', error)),
-		getGuide('invoice')
-			.then((doc) => updateDoc('guide-invoice', doc))
-			.catch((error) => console.warn('invoice guide fallback:', error)),
 		loadMaintenanceVideos(),
 		getContact()
 			.then((data) => applyContact(data))
@@ -5673,18 +6806,7 @@ const loadRemoteContent = async () => {
 				}
 			})
 			.catch((error) => console.warn('customer service fallback:', error)),
-		getWechat()
-			.then((data = {}) => {
-				wechatInfo.value = {
-					...wechatInfo.value,
-					...data,
-					qrcodeUrl: normalizeQrUrl(data.qrcodeUrl)
-				}
-			})
-			.catch((error) => console.warn('wechat fallback:', error)),
-		getFaultTypes()
-			.then((list) => applyFaultTypes(list))
-			.catch((error) => console.warn('fault types fallback:', error))
+		refreshFaultTypes({ forceRefresh: forceFaultRefresh, silent: true })
 	]
 
 	if (hasLoginToken()) {
@@ -5736,6 +6858,7 @@ onMounted(() => {
 
 onUnmounted(() => {
 	uni.$off('wechatPrivacyReady', syncLoginPrivacyReady)
+	pcLoginGuard.dispose()
 })
 </script>
 
@@ -5762,7 +6885,7 @@ onUnmounted(() => {
 	position: fixed;
 	inset: 0;
 	z-index: 99999;
-	padding: 48rpx;
+	padding: 48rpx 48rpx calc(48rpx + env(safe-area-inset-bottom));
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -5771,12 +6894,15 @@ onUnmounted(() => {
 }
 
 .upload-privacy-card {
+	position: relative;
 	width: 100%;
 	max-width: 640rpx;
+	height: 78vh;
 	max-height: 78vh;
 	padding: 36rpx 32rpx 28rpx;
 	display: flex;
 	flex-direction: column;
+	overflow: hidden;
 	border-radius: 24rpx;
 	background: #FFFFFF;
 	box-shadow: 0 24rpx 60rpx rgba(15, 31, 58, 0.22);
@@ -5784,6 +6910,8 @@ onUnmounted(() => {
 }
 
 .upload-privacy-title {
+	flex-shrink: 0;
+	padding: 0 52rpx;
 	text-align: center;
 	font-size: 34rpx;
 	font-weight: 800;
@@ -5791,9 +6919,29 @@ onUnmounted(() => {
 	color: #0F1F3A;
 }
 
+.upload-privacy-close {
+	position: absolute;
+	top: 18rpx;
+	right: 18rpx;
+	z-index: 2;
+	width: 64rpx;
+	height: 64rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 50%;
+	background: #F2F4F7;
+	font-size: 42rpx;
+	font-weight: 400;
+	line-height: 1;
+	color: #667085;
+}
+
 .upload-privacy-body {
+	flex: 1;
+	min-height: 0;
+	height: 0;
 	margin: 24rpx 0;
-	max-height: 52vh;
 	font-size: 27rpx;
 	line-height: 1.8;
 	color: #4E5969;
@@ -5806,6 +6954,7 @@ onUnmounted(() => {
 }
 
 .upload-privacy-actions {
+	flex-shrink: 0;
 	display: flex;
 	gap: 20rpx;
 }
@@ -5862,6 +7011,7 @@ onUnmounted(() => {
 .boot-logo {
 	width: 208rpx;
 	height: 208rpx;
+	background: #FFFFFF;
 	animation: bootLogoBounce 760ms cubic-bezier(0.22, 1.18, 0.36, 1) both;
 }
 
@@ -6037,6 +7187,15 @@ onUnmounted(() => {
 	font-size: 23rpx;
 	line-height: 1.4;
 	color: #6B7C97;
+}
+
+.module-brand-watermark {
+	width: 190rpx;
+	height: 46rpx;
+	margin-left: auto;
+	flex-shrink: 0;
+	opacity: 0.25;
+	pointer-events: none;
 }
 
 .module-content {
@@ -6511,51 +7670,43 @@ onUnmounted(() => {
 }
 
 .vi-side-tab {
-	padding: 24rpx 20rpx 24rpx 32rpx !important;
-	background: linear-gradient(135deg, #3A86FF 0%, #0A4FB8 100%) !important;
-	box-shadow: -8rpx 12rpx 32rpx -8rpx rgba(10, 79, 184, 0.4) !important;
+	width: 168rpx;
+	height: 96rpx;
+	padding: 12rpx 16rpx !important;
+	flex-direction: column !important;
+	justify-content: center;
+	align-items: center;
+	gap: 8rpx;
+	border: none !important;
+	border-radius: 24rpx 0 0 24rpx !important;
+	background: linear-gradient(180deg, #2A8DF1 0%, #1268D6 100%) !important;
+	box-shadow: -5rpx 9rpx 18rpx -9rpx rgba(18, 104, 214, 0.34) !important;
+	overflow: hidden;
 }
 
-.vi-side-logo {
-	width: 108rpx;
-	height: 26rpx;
-}
-
-.vi-side-logo-text {
-	font-family: Georgia, "Times New Roman", serif;
-	font-size: 27rpx;
-	font-weight: 800;
-	line-height: 1;
-	letter-spacing: 1.8rpx;
+.vi-side-tab .side-text {
+	padding-left: 0;
+	flex-shrink: 0;
+	font-size: 22rpx;
+	letter-spacing: 0;
+	line-height: 1.15;
 	color: #FFFFFF;
 }
 
-.vi-side-logo-r {
-	position: relative;
-	top: -8rpx;
-	margin-left: 2rpx;
-	font-size: 12rpx;
-	font-weight: 800;
-	line-height: 1;
-	color: #FFFFFF;
+.vi-side-logo-img {
+	width: 104rpx;
+	height: 24rpx;
+	display: block;
 }
 
 .vi-side-wordmark {
 	display: flex;
-	align-items: baseline;
-	margin-bottom: 4rpx;
-}
-
-.vi-side-wordmark .vi-en {
-	color: #FFFFFF;
-	font-size: 26rpx;
-	margin-right: 4rpx;
-}
-
-.vi-side-wordmark .vi-tm {
-	color: #FFFFFF;
-	font-size: 12rpx;
-	top: -0.5em;
+	align-items: center;
+	justify-content: center;
+	width: 108rpx;
+	height: 24rpx;
+	margin-bottom: 0;
+	flex-shrink: 0;
 }
 
 .brand-left {
@@ -6703,13 +7854,38 @@ onUnmounted(() => {
 }
 
 .section-basic {
-	padding-top: 48rpx;
+	padding-top: 28rpx;
 }
 
 .section-query,
 .section-guide,
 .section-contact {
-	padding-top: 44rpx;
+	padding-top: 38rpx;
+}
+
+.home-section-heading {
+	height: 54rpx;
+	padding: 0 2rpx 18rpx;
+	display: flex;
+	align-items: center;
+	gap: 14rpx;
+	box-sizing: content-box;
+}
+
+.home-section-marker {
+	width: 9rpx;
+	height: 38rpx;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+	background: #2F86EA;
+	box-shadow: 0 6rpx 14rpx rgba(47, 134, 234, 0.22);
+}
+
+.home-section-heading .section-title {
+	padding: 0;
+	font-size: 32rpx;
+	font-weight: 800;
+	line-height: 54rpx;
 }
 
 .section-title {
@@ -6741,108 +7917,193 @@ onUnmounted(() => {
 .three-grid {
 	display: flex;
 	align-items: stretch;
-	justify-content: space-between;
+	gap: 14rpx;
 }
 
 .query-grid {
-	display: flex;
-	align-items: stretch;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: 20rpx 0;
-}
-
-.query-grid .service-card {
-	width: 337rpx;
-	min-height: 172rpx;
-	padding: 30rpx 16rpx;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20rpx 16rpx;
 }
 
 .service-card {
-	width: 218rpx;
-	padding: 36rpx 16rpx;
+	min-width: 0;
+	flex: 1;
+	padding: 26rpx 10rpx 22rpx;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 20rpx;
-	border-radius: 28rpx;
+	border-radius: 24rpx;
 	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
 	box-sizing: border-box;
 }
 
+.basic-service-card {
+	min-height: 238rpx;
+}
+
+.service-icon-halo {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+}
+
+.basic-icon-halo {
+	width: 108rpx;
+	height: 108rpx;
+}
+
 .service-icon {
-	width: 96rpx;
-	height: 96rpx;
+	width: 86rpx;
+	height: 86rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	border-radius: 999rpx;
-}
-
-.section-basic .service-icon {
-	width: 112rpx;
-	height: 112rpx;
+	box-shadow: inset 0 2rpx 8rpx rgba(255, 255, 255, 0.24), 0 6rpx 14rpx rgba(29, 78, 145, 0.12);
 }
 
 .section-basic .service-icon .glyph {
 	width: 48rpx;
 	height: 48rpx;
-	transform: scale(1.18);
+	transform: scale(1.06);
 	transform-origin: center center;
 }
 
 .section-basic .service-icon .glyph-box {
-	transform: translateY(-1rpx) scale(1.18);
+	transform: translateY(-1rpx) scale(1.06);
 }
 
 .service-title {
-	font-size: 26rpx;
-	font-weight: 500;
+	display: block;
+	margin-top: 18rpx;
+	font-size: 28rpx;
+	font-weight: 700;
 	line-height: 1.2;
 	color: #0F1F3A;
 }
 
-.two-grid {
+.service-desc {
+	display: block;
+	margin-top: 8rpx;
+	font-size: 21rpx;
+	line-height: 1.3;
+	color: #A0A9B8;
+	white-space: nowrap;
+}
+
+.service-accent {
+	width: 46rpx;
+	height: 5rpx;
+	margin-top: 16rpx;
+	border-radius: 999rpx;
+}
+
+.query-service-card {
+	min-width: 0;
+	min-height: 120rpx;
+	padding: 18rpx 18rpx;
 	display: flex;
-	align-items: stretch;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: 20rpx 0;
+	align-items: center;
+	gap: 16rpx;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
+	box-sizing: border-box;
+}
+
+.query-icon-halo {
+	width: 82rpx;
+	height: 82rpx;
+}
+
+.query-service-icon {
+	width: 64rpx;
+	height: 64rpx;
+}
+
+.query-service-icon .glyph {
+	transform: scale(0.84);
+	transform-origin: center center;
+}
+
+.query-service-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+
+.query-service-copy .service-title {
+	margin-top: 0;
+	font-size: 27rpx;
+	white-space: nowrap;
+}
+
+.query-service-copy .service-desc {
+	margin-top: 8rpx;
+	font-size: 20rpx;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.query-chevron {
+	width: 15rpx;
+	height: 15rpx;
+	flex-shrink: 0;
+	border-right: 5rpx solid;
+	border-bottom: 5rpx solid;
+	transform: rotate(-45deg);
 }
 
 .guide-card {
-	width: 337rpx;
-	min-height: 96rpx;
-	padding: 28rpx;
+	min-width: 0;
+	min-height: 128rpx;
+	padding: 20rpx 22rpx;
 	display: flex;
 	align-items: center;
-	gap: 20rpx;
-	border-radius: 24rpx;
+	gap: 16rpx;
+	border-radius: 22rpx;
 	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 24rpx rgba(30, 111, 224, 0.05);
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
 	box-sizing: border-box;
 }
 
 .guide-icon {
-	width: 68rpx;
-	height: 68rpx;
+	width: 76rpx;
+	height: 76rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
-	border-radius: 18rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
+	border-radius: 17rpx;
+	background: #E8F2FF;
+	color: #2F86EA;
+}
+
+.guide-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
 }
 
 .guide-title {
-	min-width: 0;
-	flex: 1;
 	font-size: 27rpx;
-	font-weight: 500;
+	font-weight: 700;
 	line-height: 1.25;
 	color: #0F1F3A;
+}
+
+.guide-desc {
+	margin-top: 8rpx;
+	font-size: 20rpx;
+	line-height: 1.25;
+	color: #A0A9B8;
+	white-space: nowrap;
 }
 
 .tutorial-guide-grid {
@@ -6854,7 +8115,120 @@ onUnmounted(() => {
 .tutorial-guide-grid .guide-card {
 	width: auto;
 	min-width: 0;
-	min-height: 112rpx;
+}
+
+.product-video-entry {
+	margin-top: 20rpx;
+	min-height: 124rpx;
+	padding: 20rpx 24rpx;
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
+	box-sizing: border-box;
+}
+
+.product-video-icon {
+	position: relative;
+	width: 76rpx;
+	height: 76rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	border-radius: 50%;
+	background: #FFE6E5;
+	color: #FF6B6B;
+}
+
+.product-video-icon::before {
+	content: "";
+	position: absolute;
+	width: 58rpx;
+	height: 58rpx;
+	border-radius: 50%;
+	background: #FF7775;
+	box-shadow: 0 8rpx 18rpx rgba(255, 107, 107, 0.24);
+}
+
+.product-video-play {
+	position: relative;
+	width: 30rpx;
+	height: 24rpx;
+	border: 4rpx solid #FFFFFF;
+	border-radius: 7rpx;
+	box-sizing: border-box;
+}
+
+.product-video-play::after {
+	content: "";
+	position: absolute;
+	left: 9rpx;
+	top: 4rpx;
+	width: 0;
+	height: 0;
+	border-top: 6rpx solid transparent;
+	border-bottom: 6rpx solid transparent;
+	border-left: 9rpx solid #FFFFFF;
+}
+
+.product-video-copy {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+}
+
+.product-video-title-row {
+	display: flex;
+	align-items: center;
+	gap: 10rpx;
+	min-width: 0;
+}
+
+.product-video-title {
+	font-size: 28rpx;
+	font-weight: 700;
+	line-height: 1.25;
+	color: #0F1F3A;
+}
+
+.product-video-new {
+	padding: 3rpx 8rpx;
+	border-radius: 12rpx;
+	background: #FF5E5E;
+	color: #FFFFFF;
+	font-size: 16rpx;
+	font-weight: 800;
+	line-height: 1.2;
+}
+
+.product-video-desc {
+	margin-top: 8rpx;
+	font-size: 20rpx;
+	line-height: 1.25;
+	color: #A0A9B8;
+}
+
+.product-video-chevron {
+	position: relative;
+	width: 18rpx;
+	height: 28rpx;
+	flex-shrink: 0;
+}
+
+.product-video-chevron::before {
+	content: "";
+	position: absolute;
+	top: 5rpx;
+	left: 0;
+	width: 15rpx;
+	height: 15rpx;
+	border-top: 5rpx solid #FF6B6B;
+	border-right: 5rpx solid #FF6B6B;
+	transform: rotate(45deg);
 }
 
 .maintenance-video-wrap {
@@ -6898,11 +8272,26 @@ onUnmounted(() => {
 
 .maintenance-video-title {
 	display: block;
-	margin-bottom: 18rpx;
 	font-size: 31rpx;
 	font-weight: 700;
 	line-height: 1.35;
 	color: #0F1F3A;
+}
+
+.maintenance-video-intro {
+	display: -webkit-box;
+	margin-top: 6rpx;
+	margin-bottom: 18rpx;
+	font-size: 23rpx;
+	line-height: 1.5;
+	color: #6B7C97;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
+	overflow: hidden;
+}
+
+.maintenance-video-title + .maintenance-video-cover {
+	margin-top: 18rpx;
 }
 
 .maintenance-video-cover {
@@ -6995,48 +8384,95 @@ onUnmounted(() => {
 }
 
 .contact-card {
-	width: 337rpx;
-	min-height: 104rpx;
-	padding: 28rpx;
+	width: auto;
+	min-width: 0;
+	min-height: 124rpx;
+	margin: 0;
+	padding: 20rpx 18rpx;
 	display: flex;
 	align-items: center;
-	gap: 20rpx;
-	border-radius: 24rpx;
-	background: #D7E3FA;
-	box-shadow: 0 4rpx 16rpx rgba(30, 111, 224, 0.08);
+	gap: 14rpx;
+	border: 0;
+	border-radius: 22rpx;
+	background: #FFFFFF;
+	box-shadow: 0 10rpx 28rpx rgba(55, 105, 171, 0.08);
+	line-height: normal;
 	box-sizing: border-box;
 }
 
+.contact-card::after {
+	border: 0;
+}
+
+.contact-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 16rpx;
+}
+
 .contact-icon {
-	width: 76rpx;
-	height: 76rpx;
+	width: 72rpx;
+	height: 72rpx;
 	display: flex;
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.6);
-	color: #1E6FE0;
+	border-radius: 17rpx;
+	background: #E8F2FF;
+	color: #2F86EA;
+}
+
+.contact-icon .glyph {
+	transform: scale(0.82);
+	transform-origin: center center;
 }
 
 .contact-copy {
 	min-width: 0;
+	flex: 1;
 	display: flex;
 	flex-direction: column;
 }
 
 .contact-title {
-	font-size: 27rpx;
+	font-size: 25rpx;
 	font-weight: 700;
 	line-height: 1.2;
-	color: #0F1F3A;
+	color: #2F86EA;
+	white-space: nowrap;
 }
 
 .contact-desc {
 	margin-top: 6rpx;
-	font-size: 22rpx;
+	font-size: 20rpx;
 	line-height: 1.2;
-	color: #1E6FE0;
+	color: #66758B;
+	white-space: nowrap;
+}
+
+.contact-action {
+	min-width: 68rpx;
+	height: 48rpx;
+	padding: 0 12rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	border-radius: 999rpx;
+	background: #2F86EA;
+	color: #FFFFFF;
+	font-size: 21rpx;
+	font-weight: 700;
+	line-height: 48rpx;
+	box-sizing: border-box;
+}
+
+.home-receiver-detail {
+	margin-top: 16rpx;
+}
+
+.home-receiver-detail .copy-row {
+	padding: 16rpx 0 0;
 }
 
 .receiver-wrap {
@@ -7163,7 +8599,8 @@ onUnmounted(() => {
 
 .company-hero {
 	position: relative;
-	height: 480rpx;
+	width: 100%;
+	aspect-ratio: 1051 / 645;
 	overflow: hidden;
 	border-radius: 28rpx;
 	background: linear-gradient(135deg, #1A3C5C 0%, #2C5985 50%, #4A7BA6 100%);
@@ -7175,58 +8612,45 @@ onUnmounted(() => {
 	inset: 0;
 	width: 100%;
 	height: 100%;
+	transform: scale(1.012);
+	transform-origin: 50% 50%;
 }
 
-.company-hero-mask {
-	position: absolute;
-	inset: 0;
-	background: linear-gradient(180deg, rgba(15, 46, 102, 0.35) 0%, rgba(15, 31, 58, 0.65) 100%);
-}
-
-.company-hero-logo {
-	position: absolute;
-	top: 28rpx;
-	right: 28rpx;
-	width: 320rpx;
-	height: 96rpx;
-}
-
-.company-hero-title-wrap {
+.company-hero-shade {
 	position: absolute;
 	left: 0;
 	right: 0;
 	bottom: 0;
-	padding: 72rpx 36rpx 36rpx;
+	z-index: 1;
+	height: 46%;
+	background: linear-gradient(180deg, rgba(5, 20, 40, 0) 0%, rgba(5, 20, 40, 0.58) 100%);
+}
+
+.company-hero-caption {
+	position: absolute;
+	left: 26rpx;
+	right: 26rpx;
+	bottom: 24rpx;
+	z-index: 2;
 	display: flex;
 	flex-direction: column;
-	gap: 14rpx;
-	background: linear-gradient(180deg, transparent 0%, rgba(15, 31, 58, 0.55) 100%);
+	gap: 8rpx;
 }
 
 .company-hero-kicker {
-	align-self: flex-start;
-	padding: 8rpx 16rpx;
-	border: 1rpx solid rgba(255, 255, 255, 0.42);
-	border-radius: 999rpx;
-	background: rgba(255, 255, 255, 0.14);
-	font-size: 22rpx;
-	line-height: 1.2;
-	color: #FFFFFF;
+	font-size: 23rpx;
+	font-weight: 500;
+	line-height: 1.1;
+	color: rgba(255, 255, 255, 0.88);
+	letter-spacing: 0.4rpx;
 }
 
 .company-hero-title {
-	font-size: 36rpx;
-	font-weight: 700;
-	line-height: 1.3;
+	font-size: 34rpx;
+	font-weight: 800;
+	line-height: 1.2;
 	color: #FFFFFF;
-	letter-spacing: 1.2rpx;
-}
-
-.company-hero-subtitle {
-	width: 92%;
-	font-size: 24rpx;
-	line-height: 1.58;
-	color: rgba(255, 255, 255, 0.86);
+	text-shadow: 0 2rpx 10rpx rgba(0, 0, 0, 0.3);
 }
 
 .company-stats-grid {
@@ -7295,6 +8719,14 @@ onUnmounted(() => {
 	line-height: 1.7;
 	color: #324563;
 	letter-spacing: 0.4rpx;
+}
+
+.company-intro-text-title {
+	margin-top: 0;
+	font-size: 30rpx;
+	font-weight: 800;
+	line-height: 1.35;
+	color: #0F1F3A;
 }
 
 .company-section {
@@ -7487,6 +8919,12 @@ onUnmounted(() => {
 	border-radius: 16rpx;
 }
 
+.business-image {
+	display: block;
+	width: 100%;
+	height: 100%;
+}
+
 .device-shape {
 	position: relative;
 	width: 96rpx;
@@ -7591,6 +9029,16 @@ onUnmounted(() => {
 	font-weight: 800;
 	line-height: 1.3;
 	color: #FFFFFF;
+}
+
+.company-service-slogan {
+	display: block;
+	margin-top: 8rpx;
+	font-size: 24rpx;
+	font-weight: 700;
+	line-height: 1.3;
+	letter-spacing: 0.8rpx;
+	color: rgba(255, 255, 255, 0.92);
 }
 
 .company-service-desc {
@@ -8050,7 +9498,7 @@ onUnmounted(() => {
 .side-tab {
 	position: fixed;
 	right: 0;
-	top: 42%;
+	top: 43%;
 	z-index: 25;
 	padding: 20rpx 16rpx 20rpx 28rpx;
 	display: flex;
@@ -8064,7 +9512,7 @@ onUnmounted(() => {
 	box-shadow: -8rpx 12rpx 32rpx -8rpx rgba(10, 79, 184, 0.4);
 	color: #FFFFFF;
 	line-height: 1.1;
-	letter-spacing: 1.2rpx;
+	letter-spacing: 0;
 	transform: translateY(-50%);
 	box-sizing: border-box;
 }
@@ -8078,13 +9526,16 @@ onUnmounted(() => {
 }
 
 .side-text {
-	font-size: 19rpx;
-	font-weight: 600;
-	line-height: 1.1;
-	color: rgba(255, 255, 255, 0.95);
+	font-size: 22rpx;
+	font-weight: 700;
+	line-height: 1.15;
+	letter-spacing: 3rpx;
+	padding-left: 3rpx;
+	color: rgba(255, 255, 255, 0.96);
+	text-shadow: 0 1rpx 2rpx rgba(0, 0, 0, 0.1);
 }
 
-.modal-mask {
+.service-account-qr-mask {
 	position: fixed;
 	inset: 0;
 	z-index: 75;
@@ -8096,20 +9547,53 @@ onUnmounted(() => {
 	box-sizing: border-box;
 }
 
-.official-modal,
-.qr-modal {
+.service-account-qr-modal {
 	position: relative;
-	width: 600rpx;
-	border-radius: 36rpx;
+	width: 560rpx;
+	max-width: 100%;
+	padding: 52rpx 40rpx 40rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	border-radius: 24rpx;
 	background: #FFFFFF;
 	box-sizing: border-box;
 }
 
-.official-modal {
-	padding: 48rpx 36rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
+.service-account-qr-close {
+	position: absolute;
+	top: 18rpx;
+	right: 24rpx;
+	font-size: 40rpx;
+	line-height: 1;
+	color: #94A3B8;
+}
+
+.service-account-qr-title {
+	font-size: 32rpx;
+	font-weight: 700;
+	line-height: 1.3;
+	color: #0F1F3A;
+}
+
+.service-account-qr-image-wrap {
+	margin: 28rpx 0 24rpx;
+	padding: 16rpx;
+	border-radius: 16rpx;
+	background: #F3F8FF;
+}
+
+.service-account-qr-image {
+	display: block;
+	width: 360rpx;
+	height: 360rpx;
+	border-radius: 8rpx;
+}
+
+.service-account-qr-note {
+	font-size: 22rpx;
+	line-height: 1.5;
+	color: #6B7280;
 	text-align: center;
 }
 
@@ -8128,76 +9612,6 @@ onUnmounted(() => {
 	color: #6B7C97;
 }
 
-.official-account-btn {
-	width: 100%;
-	margin-top: 32rpx;
-}
-
-.qr-modal {
-	padding: 48rpx;
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-}
-
-.modal-close {
-	position: absolute;
-	top: 20rpx;
-	right: 28rpx;
-	z-index: 2;
-	font-size: 44rpx;
-	font-weight: 300;
-	line-height: 1;
-	color: #94A3B8;
-}
-
-.modal-btn {
-	height: 84rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999rpx;
-	font-size: 26rpx;
-	font-weight: 600;
-	box-sizing: border-box;
-}
-
-.modal-btn-ghost {
-	flex: 1;
-	border: 2rpx solid #BFD6F7;
-	background: #FFFFFF;
-	color: #324563;
-}
-
-.modal-btn-primary {
-	flex: 1.5;
-	gap: 10rpx;
-	background: linear-gradient(180deg, #3A86FF 0%, #1E6FE0 100%);
-	color: #FFFFFF;
-	font-weight: 700;
-}
-
-.qr-logo {
-	width: 380rpx;
-	height: 114rpx;
-	margin-bottom: 28rpx;
-}
-
-.qr-title {
-	font-size: 28rpx;
-	font-weight: 700;
-	line-height: 1.25;
-	color: #0F1F3A;
-}
-
-.qr-subtitle {
-	margin-top: 8rpx;
-	font-size: 23rpx;
-	line-height: 1.3;
-	color: #94A3B8;
-}
-
 .qr-image-wrap {
 	margin: 32rpx auto;
 	padding: 20rpx;
@@ -8211,32 +9625,6 @@ onUnmounted(() => {
 	width: 360rpx;
 	height: 360rpx;
 	border-radius: 12rpx;
-}
-
-.qr-hint {
-	margin-top: 20rpx;
-	padding: 20rpx 32rpx;
-	background: #F3F8FF;
-	border-radius: 16rpx;
-}
-
-.qr-hint text {
-	font-size: 24rpx;
-	color: #6B7280;
-}
-
-.qr-action {
-	width: 100%;
-	height: 84rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 999rpx;
-	background: linear-gradient(180deg, #3A86FF 0%, #1E6FE0 100%);
-	color: #FFFFFF;
-	font-size: 28rpx;
-	font-weight: 600;
-	box-sizing: border-box;
 }
 
 .glyph,
@@ -8589,6 +9977,11 @@ onUnmounted(() => {
 	background: transparent;
 }
 
+.mini-copy-white::before,
+.mini-copy-white::after {
+	border-color: #FFFFFF;
+}
+
 .mini-external::before {
 	left: 8rpx;
 	top: 8rpx;
@@ -8696,6 +10089,14 @@ onUnmounted(() => {
 	overflow: hidden;
 }
 
+.repair-user-card {
+	margin-top: 20rpx;
+}
+
+.repair-product {
+	margin-bottom: 20rpx;
+}
+
 .repair-brand-watermark {
 	position: relative;
 	z-index: 0;
@@ -8785,8 +10186,6 @@ onUnmounted(() => {
 .repair-form-card,
 .select-card,
 .timeline-card,
-.white-list-card,
-.text-card,
 .doc-paper,
 .step-card,
 .feedback-card,
@@ -8833,6 +10232,27 @@ onUnmounted(() => {
 .field-optional {
 	font-size: 22rpx;
 	color: #9CA3AF;
+}
+
+.voucher-field .field-label-wrap {
+	width: 220rpx;
+	flex-wrap: nowrap;
+	white-space: nowrap;
+}
+
+.voucher-field .field-label-wrap > text {
+	white-space: nowrap;
+}
+
+.voucher-field .field-label-wrap > text:first-child {
+	flex-shrink: 0;
+	font-size: 27rpx;
+	line-height: 1.3;
+	color: #324563;
+}
+
+.voucher-field .field-optional {
+	flex-shrink: 0;
 }
 
 .repair-field > text,
@@ -9183,12 +10603,27 @@ onUnmounted(() => {
 }
 
 .media-video {
+	position: relative;
+	width: 100%;
+	height: 100%;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
 	gap: 8rpx;
 	color: #1E6FE0;
+}
+
+.media-video-overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 8rpx;
+	background: rgba(15, 31, 58, 0.24);
+	color: #FFFFFF;
 }
 
 .media-remove {
@@ -9630,6 +11065,7 @@ onUnmounted(() => {
 
 .sn-result.muted { background: #F7F8FA; border-color: #ECEEF2; }
 .sn-result.loading { background: #F7F8FA; border-color: #ECEEF2; color: #8597B2; }
+.sn-result.error { background: #FFF4F2; border-color: #F3C7C1; color: #B23A3A; }
 .sn-result-row { display: flex; align-items: center; justify-content: space-between; }
 .sn-result-label { font-size: 24rpx; color: #0A4FB8; font-weight: 600; }
 .sn-result-line { font-size: 24rpx; color: #324563; }
@@ -10821,6 +12257,35 @@ onUnmounted(() => {
 	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
 }
 
+.invoice-service-item {
+	padding: 22rpx 28rpx;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 18rpx;
+	border-bottom: 2rpx solid #F1F5FB;
+	background: #F8FBFF;
+	box-sizing: border-box;
+}
+
+.invoice-service-item > view {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.invoice-service-item text:first-child {
+	font-size: 21rpx;
+	color: #6B7C97;
+}
+
+.invoice-service-item text:last-child {
+	font-size: 25rpx;
+	font-weight: 700;
+	line-height: 1.45;
+	color: #0F1F3A;
+}
+
 .invoice-type-row {
 	padding: 24rpx 28rpx;
 	display: grid;
@@ -10926,11 +12391,36 @@ onUnmounted(() => {
 }
 
 .detail-order-no {
-	display: block;
-	margin-top: 8rpx;
+	min-width: 0;
+	flex: 1;
 	font-size: 32rpx;
 	font-weight: 800;
 	letter-spacing: 1rpx;
+	word-break: break-all;
+}
+
+.detail-order-no-row {
+	display: flex;
+	align-items: center;
+	gap: 20rpx;
+	margin-top: 8rpx;
+}
+
+.detail-order-copy {
+	min-width: 92rpx;
+	height: 52rpx;
+	padding: 0 14rpx;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6rpx;
+	flex-shrink: 0;
+	border: 2rpx solid rgba(255, 255, 255, 0.58);
+	border-radius: 12rpx;
+	box-sizing: border-box;
+	color: #FFFFFF;
+	font-size: 21rpx;
+	font-weight: 600;
 }
 
 .detail-hero-grid {
@@ -10955,6 +12445,184 @@ onUnmounted(() => {
 .detail-hero-grid text:last-child {
 	font-size: 26rpx;
 	font-weight: 700;
+}
+
+.detail-repair-list {
+	display: flex;
+	flex-direction: column;
+	gap: 20rpx;
+}
+
+.detail-repair-card,
+.detail-shipping-card,
+.detail-timeline-card {
+	padding: 28rpx;
+	border: 2rpx solid #E4ECF7;
+	border-radius: 16rpx;
+	background: #FFFFFF;
+	box-sizing: border-box;
+}
+
+.detail-repair-head,
+.detail-timeline-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.detail-repair-head text:first-child,
+.detail-timeline-heading text:first-child {
+	font-size: 28rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.detail-repair-head text:last-child,
+.detail-timeline-heading text:last-child {
+	min-width: 0;
+	font-size: 23rpx;
+	color: #64748B;
+	text-align: right;
+	word-break: break-all;
+}
+
+.detail-field-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 20rpx 24rpx;
+	margin-top: 24rpx;
+	padding-top: 24rpx;
+	border-top: 2rpx solid #EEF3FA;
+}
+
+.detail-field-grid > view,
+.detail-shipping-group > view {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 6rpx;
+}
+
+.detail-field-grid > view > text:first-child,
+.detail-shipping-group > view > text:first-child,
+.detail-fault-block > text:first-child,
+.detail-attachment-block > text:first-child {
+	font-size: 22rpx;
+	color: #94A3B8;
+}
+
+.detail-field-grid > view > text:last-child,
+.detail-shipping-group > view > text:last-child {
+	font-size: 25rpx;
+	line-height: 1.5;
+	color: #263952;
+	word-break: break-all;
+}
+
+.detail-fault-block,
+.detail-attachment-block {
+	display: flex;
+	flex-direction: column;
+	gap: 10rpx;
+	margin-top: 24rpx;
+}
+
+.detail-fault-block > text:last-child {
+	font-size: 25rpx;
+	line-height: 1.65;
+	color: #263952;
+	white-space: pre-wrap;
+	word-break: break-all;
+}
+
+.detail-attachment-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 14rpx;
+}
+
+.detail-attachment {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+}
+
+.detail-attachment image,
+.detail-attachment-placeholder,
+.detail-video-placeholder {
+	width: 100%;
+	aspect-ratio: 1;
+	border-radius: 12rpx;
+	background: #F2F6FC;
+	overflow: hidden;
+}
+
+.detail-attachment-placeholder,
+.detail-video-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 23rpx;
+	color: #64748B;
+}
+
+.detail-video-placeholder {
+	position: relative;
+}
+
+.detail-video-placeholder image {
+	width: 100%;
+	height: 100%;
+}
+
+.detail-video-play {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: rgba(15, 31, 58, 0.2);
+}
+
+.detail-video-play text {
+	font-size: 38rpx;
+	color: #FFFFFF;
+}
+
+.detail-attachment > text:last-child {
+	font-size: 21rpx;
+	color: #64748B;
+	text-align: center;
+}
+
+.detail-shipping-card {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 28rpx;
+	margin-top: 20rpx;
+}
+
+.detail-shipping-group {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 18rpx;
+}
+
+.detail-shipping-group > text:first-child {
+	font-size: 26rpx;
+	font-weight: 800;
+	color: #0F1F3A;
+}
+
+.detail-timeline-card {
+	margin-top: 20rpx;
+}
+
+.detail-timeline-heading {
+	margin-bottom: 28rpx;
 }
 
 .timeline-card {
@@ -12188,6 +13856,50 @@ onUnmounted(() => {
 	opacity: 0.55;
 }
 
+.diag-sync-tip {
+	margin-bottom: 20rpx;
+	padding: 18rpx 22rpx;
+	border-radius: 16rpx;
+	background: #EFF6FF;
+	font-size: 24rpx;
+	line-height: 1.5;
+	color: #1E6FE0;
+}
+
+.diag-sync-tip.warning {
+	background: #FFF7E6;
+	color: #B45309;
+}
+
+.diag-advice-card {
+	margin-bottom: 20rpx;
+	padding: 24rpx 28rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+	border-left: 8rpx solid #10B981;
+	border-radius: 16rpx;
+	background: #ECFDF5;
+	box-sizing: border-box;
+}
+
+.diag-advice-card.recommend {
+	border-left-color: #F59E0B;
+	background: #FFF7E6;
+}
+
+.diag-advice-card > text:first-child {
+	font-size: 27rpx;
+	font-weight: 700;
+	color: #0F1F3A;
+}
+
+.diag-advice-card > text:last-child {
+	font-size: 24rpx;
+	line-height: 1.55;
+	color: #52647F;
+}
+
 .diag-check-card {
 	margin-bottom: 20rpx;
 	padding: 28rpx 32rpx;
@@ -12262,6 +13974,7 @@ onUnmounted(() => {
 	right: 0;
 	bottom: 0;
 	z-index: 100;
+	height: 70vh;
 	max-height: 70vh;
 	display: flex;
 	flex-direction: column;
@@ -12296,8 +14009,46 @@ onUnmounted(() => {
 	color: #0F1F3A;
 }
 
+.product-choice-search {
+	margin: 18rpx 24rpx 8rpx;
+	padding: 0 22rpx;
+	min-height: 76rpx;
+	display: flex;
+	align-items: center;
+	gap: 16rpx;
+	border: 2rpx solid #D7E3FA;
+	border-radius: 16rpx;
+	background: #F7FAFF;
+	box-sizing: border-box;
+}
+
+.product-choice-search .glyph-search {
+	width: 30rpx;
+	height: 30rpx;
+	flex-shrink: 0;
+	color: #5A6C8D;
+}
+
+.product-choice-search input {
+	min-width: 0;
+	flex: 1;
+	height: 72rpx;
+	font-size: 26rpx;
+	color: #0F1F3A;
+}
+
 .choice-scroll {
+	height: calc(70vh - 92rpx);
+	flex: 1;
+	min-height: 0;
 	max-height: calc(70vh - 92rpx);
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+}
+
+.product-choice-scroll {
+	height: calc(70vh - 192rpx);
+	max-height: calc(70vh - 192rpx);
 }
 
 .choice-row {
@@ -12310,6 +14061,43 @@ onUnmounted(() => {
 	font-size: 28rpx;
 	color: #0F1F3A;
 	box-sizing: border-box;
+}
+
+.choice-row-product > view:first-child {
+	min-width: 0;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+	padding: 20rpx 20rpx 20rpx 0;
+}
+
+.choice-row-product > view:first-child text:first-child {
+	font-size: 28rpx;
+	color: #0F1F3A;
+}
+
+.choice-row-product > view:first-child text + text {
+	font-size: 23rpx;
+	line-height: 1.45;
+	color: #94A3B8;
+}
+
+.choice-row-other {
+	background: #F7FAFF;
+}
+
+.choice-row-other > view:first-child text:first-child {
+	color: #1E6FE0;
+	font-weight: 700;
+}
+
+.choice-empty {
+	padding: 56rpx 32rpx;
+	text-align: center;
+	font-size: 26rpx;
+	line-height: 1.5;
+	color: #94A3B8;
 }
 
 .doc-hero {
@@ -12357,112 +14145,24 @@ onUnmounted(() => {
 	flex-direction: column;
 }
 
-.white-list-card,
-.text-card,
+.fees-hero {
+	margin-bottom: 24rpx;
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
 .doc-paper,
 .step-card {
 	overflow: hidden;
 }
 
-.list-row {
-	min-height: 92rpx;
-	padding: 0 28rpx;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 20rpx;
-	border-bottom: 2rpx solid #F1F5FB;
-	box-sizing: border-box;
-}
-
-.list-row:last-child {
-	border-bottom: none;
-}
-
-.list-row text:first-child {
-	font-size: 28rpx;
-	font-weight: 600;
-	color: #0F1F3A;
-}
-
-.list-row text:last-child {
-	font-size: 24rpx;
-	font-weight: 600;
-	color: #0A4FB8;
-	text-align: right;
-}
-
-.text-card {
-	padding: 24rpx 28rpx;
-}
-
-.number-line {
-	padding: 12rpx 0;
-	display: flex;
-	align-items: flex-start;
-	gap: 20rpx;
-	font-size: 26rpx;
-	line-height: 1.7;
-	color: #324563;
-}
-
-.number-line text:first-child {
-	width: 36rpx;
-	height: 36rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	border-radius: 999rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
-	font-size: 22rpx;
-	font-weight: 700;
-}
-
-.service-line {
-	padding: 28rpx;
-	display: flex;
-	align-items: center;
-	gap: 24rpx;
-	border-bottom: 2rpx solid #F1F5FB;
-}
-
-.service-line:last-child {
-	border-bottom: none;
-}
-
-.service-line-icon {
-	width: 72rpx;
-	height: 72rpx;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-shrink: 0;
-	border-radius: 20rpx;
-	background: #E8F1FE;
-	color: #1E6FE0;
-}
-
-.service-line > view:last-child {
-	display: flex;
-	flex-direction: column;
-	gap: 4rpx;
-}
-
-.service-line > view:last-child text:first-child {
-	font-size: 27rpx;
-	font-weight: 700;
-	color: #0F1F3A;
-}
-
-.service-line > view:last-child text:last-child {
-	font-size: 23rpx;
-	color: #6B7C97;
-}
-
 .doc-paper {
 	padding: 32rpx;
+}
+
+.warranty-paper {
+	margin-top: 32rpx;
 }
 
 .policy-rich-content {
@@ -12472,20 +14172,6 @@ onUnmounted(() => {
 	line-height: 1.8;
 	color: #1F2A3D;
 	word-break: break-word;
-}
-
-.warranty-section-card {
-	margin-top: 20rpx;
-	padding: 8rpx 26rpx 26rpx;
-	border-radius: 24rpx;
-	background: #FFFFFF;
-	box-shadow: 0 2rpx 4rpx rgba(15, 31, 58, 0.04), 0 8rpx 28rpx rgba(30, 111, 224, 0.05);
-	box-sizing: border-box;
-}
-
-.warranty-section-content {
-	padding: 8rpx 4rpx 8rpx;
-	font-size: 26rpx;
 }
 
 .warranty-module .dual-actions {
@@ -12952,63 +14638,40 @@ onUnmounted(() => {
 	margin-bottom: 20rpx;
 	padding: 28rpx;
 	display: flex;
-	align-items: flex-start;
-	justify-content: space-between;
-	gap: 20rpx;
-}
-
-.order-card-mini > view:first-child {
-	min-width: 0;
-	flex: 1;
-	display: flex;
 	flex-direction: column;
-	gap: 8rpx;
-}
-
-.order-card-mini > view:first-child text:nth-child(2) {
-	font-size: 28rpx;
-	font-weight: 700;
-	line-height: 1.35;
-	color: #0F1F3A;
-}
-
-.order-card-mini > view:first-child text:last-child {
-	font-size: 23rpx;
-	color: #6B7C97;
-}
-
-.order-card-mini > view:last-child {
-	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	gap: 12rpx;
-}
-
-.order-card-mini > view:last-child text:last-child {
-	font-size: 30rpx;
-	font-weight: 800;
-	color: #0F1F3A;
+	gap: 14rpx;
 }
 
 .order-card-classic {
-	padding: 32rpx 30rpx;
-	border-radius: 30rpx;
+	padding: 28rpx 30rpx 26rpx;
+	border-radius: 24rpx;
 	background: rgba(255, 255, 255, 0.96);
 	box-shadow: 0 10rpx 28rpx rgba(79, 112, 168, 0.08);
 }
 
-.order-card-main {
+.order-card-head {
+	min-width: 0;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+}
+
+.order-card-no {
 	min-width: 0;
 	flex: 1;
-	display: flex;
-	flex-direction: column;
-	gap: 10rpx;
+	font-size: 22rpx;
+	line-height: 1.35;
+	color: #8795AB;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .order-card-title {
 	display: block;
 	max-width: 100%;
-	font-size: 28rpx;
+	font-size: 30rpx;
 	font-weight: 700;
 	line-height: 1.35;
 	color: #0F1F3A;
@@ -13018,56 +14681,83 @@ onUnmounted(() => {
 }
 
 .order-card-fault {
-	display: block;
 	max-width: 100%;
-	font-size: 23rpx;
-	line-height: 1.35;
+	font-size: 24rpx;
+	line-height: 1.5;
 	color: #6B7C97;
-	white-space: nowrap;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 2;
 	overflow: hidden;
-	text-overflow: ellipsis;
 }
 
 .order-card-meta {
 	max-width: 100%;
 	display: flex;
 	align-items: center;
-	gap: 12rpx;
-	overflow: hidden;
+	flex-wrap: wrap;
+	gap: 10rpx 12rpx;
 }
 
 .order-card-meta text {
 	min-width: 0;
 	max-width: 100%;
-	padding: 4rpx 10rpx;
-	border-radius: 999rpx;
+	padding: 6rpx 12rpx;
+	border-radius: 8rpx;
 	background: #F3F8FF;
-	color: #5A6C8D;
-	font-size: 21rpx;
-	line-height: 1.25;
+	color: #566A89;
+	font-size: 22rpx;
+	font-weight: 500;
+	line-height: 1.35;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
 
-.order-card-date {
-	font-size: 23rpx;
-	line-height: 1.3;
-	color: #6B7C97;
+.order-card-footer {
+	min-width: 0;
+	padding-top: 16rpx;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 20rpx;
+	border-top: 2rpx solid #EEF3FA;
 }
 
-.order-card-side {
+.order-card-date {
+	min-width: 0;
+	font-size: 22rpx;
+	line-height: 1.3;
+	color: #8795AB;
+	white-space: nowrap;
+}
+
+.order-card-action {
 	display: flex;
-	flex-direction: column;
-	align-items: flex-end;
-	gap: 18rpx;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10rpx;
+	flex-shrink: 0;
+	font-size: 22rpx;
+	font-weight: 600;
+	line-height: 1.2;
+	color: #1E6FE0;
 }
 
 .order-card-price {
-	font-size: 30rpx;
+	margin-right: 6rpx;
+	font-size: 26rpx;
 	font-weight: 800;
 	line-height: 1.2;
 	color: #0F1F3A;
+}
+
+.order-card-chevron {
+	width: 12rpx;
+	height: 12rpx;
+	border-top: 3rpx solid currentColor;
+	border-right: 3rpx solid currentColor;
+	transform: rotate(45deg);
 }
 
 .product-card {
@@ -13099,16 +14789,25 @@ onUnmounted(() => {
 	gap: 6rpx;
 }
 
-.product-copy > text:first-child {
+.product-title {
 	font-size: 28rpx;
 	font-weight: 700;
+	line-height: 1.35;
 	color: #0F1F3A;
 }
 
-.product-copy > text:nth-child(2),
-.product-copy > text:nth-child(3) {
+.product-meta {
 	font-size: 22rpx;
+	line-height: 1.45;
 	color: #94A3B8;
+}
+
+.product-order {
+	font-size: 26rpx;
+	font-weight: 500;
+	line-height: 1.45;
+	color: #0F1F3A;
+	word-break: break-all;
 }
 
 .ghost-mini {
@@ -13376,14 +15075,18 @@ onUnmounted(() => {
 .feedback-ticket-meta {
 	margin-top: 20rpx;
 	padding: 20rpx;
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	display: flex;
+	align-items: flex-start;
 	gap: 16rpx;
 	border-radius: 20rpx;
 	background: #F7FAFF;
+	box-sizing: border-box;
 }
 
 .feedback-ticket-meta view {
+	width: 0;
+	min-width: 0;
+	flex: 1;
 	display: flex;
 	flex-direction: column;
 	gap: 6rpx;
@@ -13395,8 +15098,14 @@ onUnmounted(() => {
 }
 
 .feedback-ticket-meta text:last-child {
+	display: block;
+	width: 100%;
+	min-width: 0;
 	font-size: 24rpx;
 	font-weight: 700;
+	line-height: 1.4;
+	word-break: break-all;
+	overflow-wrap: anywhere;
 	color: #0F1F3A;
 }
 
@@ -13416,10 +15125,13 @@ onUnmounted(() => {
 }
 
 .feedback-ticket-image {
+	display: block;
+	flex: 0 0 112rpx;
 	width: 112rpx;
 	height: 112rpx;
 	border-radius: 14rpx;
 	background: #F3F8FF;
+	overflow: hidden;
 }
 
 .feedback-reply {
@@ -13716,7 +15428,6 @@ onUnmounted(() => {
 	text-align: center;
 }
 
-.login-error,
 .login-image-error {
 	width: 100%;
 	padding: 0;
@@ -13820,6 +15531,3 @@ onUnmounted(() => {
 .edit-btn.save { background: #1E6FE0; color: #FFFFFF; }
 .edit-btn.save.disabled { opacity: 0.6; }
 </style>
-
-
-

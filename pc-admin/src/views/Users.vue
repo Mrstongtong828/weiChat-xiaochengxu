@@ -24,6 +24,7 @@
         </el-table-column>
         <el-table-column prop="username" label="账号" width="140"></el-table-column>
         <el-table-column prop="phone" label="手机号" width="150"></el-table-column>
+        <el-table-column prop="email" label="邮箱" min-width="200" show-overflow-tooltip></el-table-column>
         <el-table-column prop="roleDisplay" label="角色" show-overflow-tooltip></el-table-column>
         <el-table-column label="负责品类" show-overflow-tooltip>
           <template #default="{row}">{{ (row.device_categories || []).join('、') || '—' }}</template>
@@ -70,6 +71,9 @@
       </el-form-item>
       <el-form-item label="手机号">
         <el-input v-model.trim="userForm.phone" placeholder="请输入手机号"></el-input>
+      </el-form-item>
+      <el-form-item label="邮箱">
+        <el-input v-model.trim="userForm.email" type="email" placeholder="用于登录密码找回"></el-input>
       </el-form-item>
       <el-form-item label="角色">
         <el-select v-model="userForm.role" style="width:100%;">
@@ -128,6 +132,7 @@ const userForm = reactive({
   password: '',
   name: '',
   phone: '',
+  email: '',
   role: '工程师',
   device_categories: [],
   service_areas: []
@@ -189,6 +194,7 @@ const openUserDialog = (user) => {
   userForm.password = ''
   userForm.name = user ? user.name : ''
   userForm.phone = user ? user.phone : ''
+  userForm.email = user ? user.email : ''
   userForm.role = user ? user.roleDisplay : '工程师'
   userForm.device_categories = user && Array.isArray(user.device_categories) ? [...user.device_categories] : []
   userForm.service_areas = user && Array.isArray(user.service_areas) ? [...user.service_areas] : []
@@ -196,8 +202,12 @@ const openUserDialog = (user) => {
 }
 
 const saveUser = async () => {
-  if (!userForm.name || !userForm.phone) {
+  if (!userForm.name || !userForm.phone || !userForm.email) {
     ElMessage.warning('请完整填写用户信息')
+    return
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userForm.email)) {
+    ElMessage.warning('请输入有效的邮箱地址')
     return
   }
   if (!isEditUser.value && !userForm.username) {
@@ -220,6 +230,7 @@ const saveUser = async () => {
       username: userForm.username,
       name: userForm.name,
       phone: userForm.phone,
+      email: userForm.email.toLowerCase(),
       role: roleMapReverse[userForm.role] || 'engineer',
       device_categories: userForm.device_categories,
       service_areas: userForm.service_areas

@@ -4,7 +4,8 @@
 			:loading="loading"
 			:retrying="retrying"
 			:agreed="agreed"
-			:error="loginError"
+			:locked="loginClickLocked"
+			:cooldown-seconds="loginCooldownSeconds"
 			@back="goBack"
 			@login="onLoginButtonTap"
 			@toggle-agreement="toggleAgreement"
@@ -15,17 +16,30 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { wechatLogin } from '@/api/content'
+import { onUnmounted, ref } from 'vue'
+import { wechatLogin } from '@/api/user.js'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
 import WechatLoginPanel from '@/components/WechatLoginPanel.vue'
-import { getLoginErrorMessage, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
+import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid } from '@/utils/wechat-phone-login.js'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
+import { saveAuthSession } from '@/utils/storage.js'
+import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
+import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
 
 const agreed = ref(false)
 const loading = ref(false)
 const retrying = ref(false)
-const loginError = ref('')
+const loginClickLocked = ref(false)
+const loginCooldownSeconds = ref(0)
+const pcLoginGuard = createPcLoginGuard({
+	enabled: isPcWebViewEnvironment(),
+	onLockChange: (locked) => {
+		loginClickLocked.value = locked
+	},
+	onCountdown: (seconds) => {
+		loginCooldownSeconds.value = seconds
+	}
+})
 
 const openPolicy = (type) => {
 	uni.navigateTo({ url: `/pages-sub/legal/index?type=${type === 'privacy' ? 'privacy' : 'user'}` })
@@ -33,7 +47,6 @@ const openPolicy = (type) => {
 
 const toggleAgreement = async () => {
 	agreed.value = !agreed.value
-	loginError.value = ''
 }
 
 const onLoginButtonTap = () => {
@@ -46,13 +59,11 @@ const onLoginButtonTap = () => {
 
 const onLoginDisabledTap = () => {
 	const message = '请先阅读并同意用户协议和隐私政策'
-	loginError.value = message
 	uni.showToast({ title: message, icon: 'none' })
 }
 
 const showLoginError = (message) => {
-	loginError.value = message
-	uni.showToast({ title: message, icon: 'none' })
+	if (message) uni.showToast({ title: message, icon: 'none' })
 }
 
 const goBackAfterLogin = () => {
@@ -69,9 +80,7 @@ const goBack = () => {
 
 const applyLoginSuccess = (res = {}, message = '') => {
 	if (res && res.token) {
-		uni.setStorageSync('token', res.token)
-		uni.setStorageSync('userInfo', res.userInfo || {})
-		uni.setStorageSync('isLoggedIn', true)
+		saveAuthSession(res)
 
 		uni.showToast({ title: message || (res.offline ? '体验登录成功' : '登录成功'), icon: 'success' })
 
@@ -85,9 +94,9 @@ const applyLoginSuccess = (res = {}, message = '') => {
 }
 
 // 微信一键登录：仅通过 wx.login code 换取 openid 作为账号身份，不再获取手机号。
-const doWechatLogin = async () => {
+const doWechatLogin = async ({ automatic = false } = {}) => {
 	if (loading.value) return
-	loginError.value = ''
+	if (!pcLoginGuard.beginAttempt({ automatic })) return
 	retrying.value = false
 	loading.value = true
 
@@ -96,16 +105,24 @@ const doWechatLogin = async () => {
 			retries: 1,
 			onRetry: () => {
 				retrying.value = true
-				loginError.value = '微信登录失败，正在自动重试...'
 			}
 		})
 
 		applyLoginSuccess(res, '登录成功')
 	} catch (error) {
+		if (isLoginCancelledError(error)) return
+		if (pcLoginGuard.handleRateLimit(error, automatic ? undefined : () => doWechatLogin({ automatic: true }))) {
+			showLoginError(automatic ? getLoginErrorMessage(error) : '操作过于频繁，15秒后自动重试')
+			return
+		}
 		showLoginError(getLoginErrorMessage(error))
 	} finally {
 		loading.value = false
 		retrying.value = false
 	}
 }
+
+onUnmounted(() => {
+	pcLoginGuard.dispose()
+})
 </script>

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countStatusBreakdown, countStatusBuckets, getStatusBucket } from './statusMeta.js'
+import { countStatusBreakdown, countStatusBuckets, deriveDisplayStatus, getRepairProgressNodes, getStatusBucket } from './statusMeta.js'
+
+test('待处理工单显示为待寄出，同时保留报修已提交的进度节点', () => {
+  assert.equal(deriveDisplayStatus({ status: 'pending' }), '待寄出')
+  assert.equal(getRepairProgressNodes({ id: 'R001', statusKey: 'pending' })[0].label, '报修已提交')
+})
 
 test('检测中的工单提醒用户订单正在处理中', () => {
   assert.equal(getStatusBucket({ status: 'inspecting' }), 'fixing')
@@ -38,4 +43,17 @@ test('原始状态统计不受旧版汇总字段影响', () => {
     fixing: 3,
     shipped: 0
   })
+})
+
+test('paid and warranty-free orders advance to the repair stage', () => {
+  const paidNodes = getRepairProgressNodes({ id: 'R002', statusKey: 'inspecting', paymentStatus: 'paid' })
+  const warrantyNodes = getRepairProgressNodes({ id: 'R003', statusKey: 'inspecting', payment_status: 'not_required' })
+
+  assert.equal(paidNodes[2].state, 'current')
+  assert.equal(warrantyNodes[2].state, 'current')
+})
+
+test('客户拒绝报价后显示待回寄而不是待付款或维修中', () => {
+  assert.equal(deriveDisplayStatus({ status: 'received', quoteStatus: 'rejected' }), '拒修待回寄')
+  assert.equal(deriveDisplayStatus({ status: 'fixing', quote_status: 'rejected' }), '拒修待回寄')
 })

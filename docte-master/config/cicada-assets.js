@@ -1,29 +1,19 @@
-import brandToothBlue from '@/static/brand-cicada-tooth-blue.png'
-import brandToothBlueOriginal from '@/static/brand-cicada-tooth-blue-original.png'
-import bootLogo from '@/static/cicada-boot-logo.jpg'
-import logoMark from '@/static/logo-cicada-mark.jpg'
-import logoFull from '@/static/logo-cicada-full.jpg'
+import bootLogo from '@/static/cicada-boot-logo-white.png'
 import logoNew from '@/static/new-logo.png'
-import wordmarkBlue from '@/static/cicada-wordmark.png'
-import wordmarkRegistered from '@/static/cicada-wordmark-registered.png'
+import logoCompact from '@/static/cicada-logo-compact.png'
+import logoHeader from '@/static/cicada-logo-header.png'
+import wordmarkRegisteredWhite from '@/static/cicada-wordmark-registered-white.png'
 import wordmarkWhite from '@/static/cicada-wordmark-white.png'
 import qrWechat from '@/static/qr-wechat.jpg'
 import surveyPoster from '@/static/survey-poster.jpg'
-import surveyQrWechat from '@/static/survey-qr-wechat.jpg'
-import loginAuthBg from '@/static/login-auth-bg.jpg'
 
 export const cicadaAssets = {
-	brandToothBlue,
-	brandToothBlueOriginal,
 	bootLogo,
-	logoMark,
-	logoFull,
 	logoNew,
-	wordmarkBlue,
-	wordmarkRegistered,
+	logoCompact,
+	logoHeader,
+	wordmarkRegisteredWhite,
 	wordmarkWhite,
 	qrWechat,
-	surveyPoster,
-	surveyQrWechat,
-	loginAuthBg
+	surveyPoster
 }

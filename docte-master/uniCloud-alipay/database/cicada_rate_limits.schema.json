@@ -26,6 +26,23 @@
     "identity": {
       "bsonType": "string"
     },
+    "request_fingerprint": {
+      "bsonType": "string",
+      "description": "报修幂等锁对应的完整请求指纹"
+    },
+    "state": {
+      "bsonType": "string",
+      "enum": ["pending", "completed"]
+    },
+    "lock_token": {
+      "bsonType": "string"
+    },
+    "order_id": {
+      "bsonType": "string"
+    },
+    "order_no": {
+      "bsonType": "string"
+    },
     "count": {
       "bsonType": "int"
     },

@@ -5,12 +5,17 @@
         <h2 class="page-title">报修工单管理</h2>
         <p class="page-subtitle">从待签收、报价到回寄，集中处理客户维修工单。</p>
       </div>
+      <div class="page-header-actions">
+        <el-button v-if="canPerformOrderAction('create_order')" type="primary" @click="openCreateOrderDialog">
+          <el-icon><Plus /></el-icon> 新建工单
+        </el-button>
+      </div>
     </div>
 
     <div class="workorder-toolbar">
       <div class="search-strip">
         <div class="search-strip-main">
-          <el-input v-model="wo.search" placeholder="搜索工单号、客户、手机号或设备 SN" clearable prefix-icon="Search"></el-input>
+          <el-input v-model="wo.search" placeholder="搜索工单号、快递单号、客户、手机号或设备 SN" clearable prefix-icon="Search"></el-input>
         </div>
         <el-select v-model="wo.filter" placeholder="工单状态" clearable>
           <el-option v-for="status in adminStatusOptions" :key="status" :label="status" :value="status"></el-option>
@@ -29,11 +34,9 @@
           <el-option label="在保" value="in_warranty"></el-option>
           <el-option label="已过保" value="expired"></el-option>
         </el-select>
-        <el-select v-model="wo.customerTypeFilter" placeholder="用户类型" clearable>
+        <el-select v-model="wo.customerTypeFilter" placeholder="用户类型" clearable filterable allow-create default-first-option>
           <el-option label="全部用户类型" value=""></el-option>
-          <el-option label="企业" value="clinic"></el-option>
-          <el-option label="签约代理商（齿科）" value="dealer"></el-option>
-          <el-option label="个人" value="individual"></el-option>
+          <el-option v-for="option in customerTypeOptionsWithCurrent(wo.customerTypeFilter)" :key="option.value" :label="option.label" :value="option.value"></el-option>
         </el-select>
         <el-select v-model="slaFilter" placeholder="SLA 状态" clearable>
           <el-option label="全部 SLA 状态" value=""></el-option>
@@ -48,8 +51,8 @@
         <el-tooltip content="物流批量导入（签收单/回寄单）已统一到「物流管理」" placement="top">
           <el-button type="primary" plain class="top-btn-text" @click="$router.push('/logistics?tab=import')"><el-icon><Van /></el-icon> 物流导入</el-button>
         </el-tooltip>
-        <el-dropdown :disabled="!selectedOrders.length || batchCompleting" trigger="click" @command="handleBatchToolbarCommand">
-          <el-button plain class="top-btn-text" :disabled="!selectedOrders.length || batchCompleting" :loading="batchCompleting">
+        <el-dropdown :disabled="!selectedOrders.length || batchCompleting || batchDeleting" trigger="click" @command="handleBatchToolbarCommand">
+          <el-button plain class="top-btn-text" :disabled="!selectedOrders.length || batchCompleting || batchDeleting" :loading="batchCompleting || batchDeleting">
             批量操作<el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
@@ -57,6 +60,7 @@
               <el-dropdown-item command="print"><el-icon><Printer /></el-icon>打印所选工单</el-dropdown-item>
               <el-dropdown-item command="processing" :disabled="!getTransitionableOrders('处理中').length"><el-icon><CircleCheck /></el-icon>标记为处理中</el-dropdown-item>
               <el-dropdown-item command="complete" :disabled="!getTransitionableOrders('已完成').length" divided><el-icon><CircleCheck /></el-icon>批量结单</el-dropdown-item>
+              <el-dropdown-item v-if="canPerformOrderAction('delete_order')" command="delete" divided><el-icon><Delete /></el-icon>删除所选工单</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -83,19 +87,18 @@
     </div>
 
     <div class="attention-strip">
-      <span class="attention-label">需要关注</span>
-      <div class="sla-board">
+      <span class="attention-label">处理状态</span>
+      <div class="status-summary-board">
       <el-button
-        v-for="item in slaCards"
+        v-for="item in statusSummaryCards"
         :key="item.key"
         text
-        class="sla-card"
-        :class="[`sla-card--${item.tone}`, { active: slaFilter === item.filter }]"
-        @click="applySlaFilter(item.filter)"
+        class="status-summary-card"
+        :class="[`status-summary-card--${item.tone}`, { active: wo.filter === item.filter }]"
+        @click="applyStatusFilter(item.filter)"
       >
         <span>{{ item.label }}</span>
         <strong>{{ item.count }}</strong>
-        <small>{{ item.desc }}</small>
       </el-button>
       </div>
     </div>
@@ -116,7 +119,7 @@
           </div>
         </template>
         <el-table-column type="selection" width="42"></el-table-column>
-        <el-table-column prop="id" label="工单编号" width="150" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('id')" prop="id" label="工单号" width="150" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('reporter')" label="报修方信息" width="200">
           <template #default="{row}">
@@ -130,17 +133,32 @@
                 round
                 :type="customerTypeMeta(row.customerType).type"
                 class="customer-type-tag"
+                :title="customerTypeMeta(row.customerType).label"
               >{{ customerTypeMeta(row.customerType).label }}</el-tag>
             </div>
             <div class="phone-number">{{ row.phone }}</div>
           </template>
         </el-table-column>
 
+        <el-table-column v-if="isTableColumnVisible('receivedDate')" prop="receivedDate" label="收件日期" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('bizUser')" prop="bizUser" label="对接业务员" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('customerType')" label="客户类型" width="110" show-overflow-tooltip>
+          <template #default="{row}">{{ customerTypeLabel(row.customerType) || '-' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isTableColumnVisible('clinicName')" prop="clinicName" label="客户/单位名称" width="180" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('contactName')" prop="contactName" label="联系人" width="110" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('phone')" prop="phone" label="手机号" width="130" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('customerAddress')" prop="customerAddress" label="客户地址" min-width="220" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('logisticsCompany')" prop="logisticsCompany" label="寄入快递公司" width="130" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('logisticsNo')" prop="logisticsNo" label="寄入快递单号" width="170" show-overflow-tooltip></el-table-column>
+
         <el-table-column v-if="isTableColumnVisible('productName')" label="产品名称" width="140" show-overflow-tooltip>
           <template #default="{row}">
             <div class="device-main-cell">{{ row.productName || '-' }}</div>
           </template>
         </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('productCategory')" prop="productCategory" label="设备分类" width="130" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('productModel')" label="型号" width="140" show-overflow-tooltip>
           <template #default="{row}">
@@ -153,6 +171,12 @@
             <div class="device-code-cell">{{ getOrderProductCode(row) }}</div>
           </template>
         </el-table-column>
+
+        <el-table-column v-if="isTableColumnVisible('buyDate')" prop="buyDate" label="购买日期" width="120" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('warrantyMonths')" label="质保月数" width="110" show-overflow-tooltip>
+          <template #default="{row}">{{ row.warrantyMonths ? `${row.warrantyMonths} 个月` : '-' }}</template>
+        </el-table-column>
+        <el-table-column v-if="isTableColumnVisible('warrantyExpire')" prop="warrantyExpire" label="质保到期日" width="130" show-overflow-tooltip></el-table-column>
 
         <el-table-column v-if="isTableColumnVisible('fault')" label="故障" min-width="200">
           <template #default="{row}">
@@ -174,48 +198,46 @@
           </template>
         </el-table-column>
 
-        <el-table-column v-if="isTableColumnVisible('nextAction')" width="126">
-          <template #header>
-            <el-tooltip content="按当前状态、报价、付款和物流自动判断后台下一步要做什么" placement="top">
-              <span class="table-header-help">下一步动作</span>
-            </el-tooltip>
-          </template>
-          <template #default="{row}">
-            <div class="next-action-cell">
-              <el-tag :type="getNextAction(row).type" effect="light" round size="small">
-                {{ getNextAction(row).label }}
-              </el-tag>
-              <span>{{ getNextAction(row).desc }}</span>
-            </div>
-          </template>
-        </el-table-column>
+        <el-table-column v-if="isTableColumnVisible('adminRemark')" prop="adminRemark" label="内部备注" min-width="180" show-overflow-tooltip></el-table-column>
+        <el-table-column v-if="isTableColumnVisible('printRemark')" prop="printRemark" label="随件留言" min-width="180" show-overflow-tooltip></el-table-column>
 
-        <el-table-column v-if="isTableColumnVisible('status')" width="130">
+        <el-table-column v-if="isTableColumnVisible('progress')" width="180">
           <template #header>
-            <el-tooltip content="可点击状态标签快速推进工单进度" placement="top">
-              <span class="table-header-help">处理状态</span>
+            <el-tooltip content="上方是系统建议动作；下方是当前工单状态，点击后仅显示允许流转到的状态" placement="top">
+              <span class="table-header-help">进度与下一步</span>
             </el-tooltip>
           </template>
           <template #default="{row}">
-            <el-dropdown trigger="click" :disabled="!getAllowedStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
-              <span class="status-dropdown-trigger">
-                <el-tag
-                  :class="'status-tag status-' + row.status"
-                  :type="getStatusType(row.status)"
-                  effect="light"
-                  round
-                  size="small">
-                  {{ row.status }} <span v-if="getAllowedStatusOptions(row).length" class="status-dropdown-caret">▾</span>
+            <div class="progress-cell">
+              <div class="progress-next-action">
+                <el-tag :type="getNextAction(row).type" effect="light" round size="small">
+                  {{ getNextAction(row).label }}
                 </el-tag>
-              </span>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item v-for="status in getAllowedStatusOptions(row)" :key="status" :command="status">{{ status }}</el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <div class="update-time" :class="{ 'is-overdue': getStatusDwell(row).level === 'warning' }">
-              {{ getStatusDwell(row).text }}
+                <span>{{ getNextAction(row).desc }}</span>
+              </div>
+              <div class="progress-current-status">
+                <span class="progress-current-label">当前</span>
+                <el-dropdown trigger="click" :disabled="!getAllowedStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
+                  <span class="status-dropdown-trigger">
+                    <el-tag
+                      :class="'status-tag status-' + row.status"
+                      :type="getStatusType(row.status)"
+                      effect="light"
+                      round
+                      size="small">
+                      {{ row.status }} <span v-if="getAllowedStatusOptions(row).length" class="status-dropdown-caret">▾</span>
+                    </el-tag>
+                  </span>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="status in getAllowedStatusOptions(row)" :key="status" :command="status">{{ status }}</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+                <span class="update-time" :class="{ 'is-overdue': getStatusDwell(row).level === 'warning' }">
+                  {{ getStatusDwell(row).text }}
+                </span>
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -254,7 +276,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="128" fixed="right" align="right">
+        <el-table-column label="操作" width="136" fixed="right" align="right" class-name="operation-column" label-class-name="operation-column">
           <template #default="{row}">
             <div class="operation-actions">
               <el-tooltip content="打开工单详情，处理报价、付款、物流、发票和结案" placement="top">
@@ -360,6 +382,7 @@
                         size="small"
                         effect="light"
                         :type="customerTypeMeta(currentOrder.customerType).type"
+                        :title="customerTypeMeta(currentOrder.customerType).label"
                       >{{ customerTypeMeta(currentOrder.customerType).label }}</el-tag>
                       <span v-else>-</span>
                     </strong>
@@ -540,6 +563,7 @@
                             target="_blank"
                             rel="noreferrer"
                             class="video-link"
+                            @click.prevent="openOrderVideo(video)"
                           >视频 {{ index + 1 }}</a>
                         </div>
                       </template>
@@ -589,12 +613,20 @@
                   </div>
                   <div class="warranty-entry-row">
                     <div>
-                      <span>质保月数（可选）</span>
-                      <el-input-number v-model="item.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" />
+                      <span>发票签收日</span>
+                      <el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期" clearable style="width:100%;" />
                     </div>
                     <div>
-                      <span>质保截止（可选）</span>
-                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="以此日期为准" clearable style="width:100%;" />
+                      <span>SN出厂日</span>
+                      <el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时使用" clearable style="width:100%;" />
+                    </div>
+                    <div>
+                      <span>质保月数</span>
+                      <span>统一12个月</span>
+                    </div>
+                    <div>
+                      <span>质保截止</span>
+                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接指定" clearable style="width:100%;" />
                     </div>
                     <p>{{ itemWarrantyPreview(item).detail }}</p>
                   </div>
@@ -638,7 +670,7 @@
                   <template v-if="item.video_urls && item.video_urls.length">
                     <p class="attachment-title">故障视频</p>
                     <div class="attachment-list">
-                      <a v-for="(video, index) in item.video_urls" :key="`video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" class="video-link">视频 {{ index + 1 }}</a>
+                      <a v-for="(video, index) in item.video_urls" :key="`video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" class="video-link" @click.prevent="openOrderVideo(video)">视频 {{ index + 1 }}</a>
                     </div>
                   </template>
                   <template v-if="item.media_urls && item.media_urls.length">
@@ -725,6 +757,10 @@
                     <el-tag effect="plain" :type="getQuotePartStockType(item)">库存 {{ item.stock ?? '-' }}</el-tag>
                     <el-input-number v-model="item.unitPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="单价"></el-input-number>
                     <el-input-number v-model="item.quantity" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="0" :step="1" controls-position="right" placeholder="数量"></el-input-number>
+                    <el-select v-model="item.deviceSn" :disabled="!canPerformOrderAction('issue_quote')" clearable placeholder="关联设备SN">
+                      <el-option v-for="sn in quoteDeviceSnOptions" :key="sn" :label="sn" :value="sn" />
+                    </el-select>
+                    <el-checkbox v-model="item.warrantyEligible" :disabled="!canPerformOrderAction('issue_quote')">全新原厂更换件</el-checkbox>
                     <strong>{{ formatMoney(getQuoteRowAmount(item)) }}</strong>
                     <el-button type="danger" link :disabled="!canPerformOrderAction('issue_quote') || quoteForm.parts.length <= 1" @click="removeQuoteRow('parts', index)">删除</el-button>
                   </div>
@@ -774,7 +810,7 @@
                   <div class="quote-terms-grid">
                     <div class="quote-final-row">
                       <span>维修质保(月)</span>
-                      <el-input-number v-model="quoteForm.warrantyMonths" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :max="60" :step="1" controls-position="right" placeholder="0=沿用全局质保政策"></el-input-number>
+                      <span>符合条件的全新原厂更换件固定3个月</span>
                     </div>
                     <div class="quote-final-row">
                       <span>付款期限(天)</span>
@@ -830,7 +866,12 @@
                   <span>付款状态</span>
                   <strong>{{ getPaymentStatusText(currentOrder) }}</strong>
                 </div>
+                <div>
+                  <span>付款方式</span>
+                  <strong>{{ getPaymentMethodLabel(currentOrder.paymentMethod) }}</strong>
+                </div>
               </div>
+              <CorporateAccountDetails v-if="currentOrder.paymentMethod !== 'wechat_pay'" class="payment-account" :account="corporateAccount" />
               <div v-if="resolvePaymentStatus(currentOrder) === 'uploaded' && canPerformOrderAction('view_payment_proof') && currentOrder.paymentProofs && currentOrder.paymentProofs.length" class="payment-proof-list">
                 <div v-for="(proof, index) in currentOrder.paymentProofs" :key="proof.id || proof.url || proof.fileID || index" class="payment-proof-card">
                   <el-image
@@ -935,7 +976,7 @@
               <div class="drawer-section-head">
                 <div>
                   <p class="drawer-section-title">发票处理</p>
-                  <p class="section-helper">先确认到账，再登记或开具发票。</p>
+                  <p class="section-helper">仅已完工且已核销的对公转账进入发票流程；微信支付订单不开票。</p>
                 </div>
                 <el-tag :type="getInvoiceType(normalizeInvoiceStatus(currentOrder))" size="small">{{ normalizeInvoiceStatus(currentOrder) }}</el-tag>
               </div>
@@ -943,22 +984,43 @@
                 <div><span>客户申请</span><strong>{{ currentOrder.needInvoice ? '需要开票' : '无需开票' }}</strong></div>
                 <div><span>发票类型</span><strong>{{ currentOrder.invoiceType || invoiceForm.invoiceType || '电子普通发票' }}</strong></div>
                 <div><span>开票状态</span><strong>{{ normalizeInvoiceStatus(currentOrder) }}</strong></div>
+                <div><span>税收分类</span><strong>{{ currentOrder.invoiceTaxCategory || '修理修配劳务' }}</strong></div>
+                <div><span>发票项目</span><strong>{{ currentOrder.invoiceItemName || '牙科设备检修服务费' }}</strong></div>
+                <div><span>归档工单</span><strong>{{ currentOrder.invoiceArchiveOrderNo || currentOrder.id }}</strong></div>
               </div>
               <el-alert
-                v-if="currentOrder.needInvoice && resolvePaymentStatus(currentOrder) !== 'paid'"
-                title="客户已申请发票，但当前尚未确认到账"
-                description="完成微信支付查单或对公付款核销后，才能开具发票。"
+                v-if="!isCorporateTransferPayment(currentOrder.paymentMethod) && !currentOrder.needInvoice"
+                title="微信支付订单不进入发票流程"
+                description="本系统仅处理对公转账订单的开票申请；微信支付完成后直接进入后续维修流程。"
+                type="info"
+                :closable="false"
+                show-icon
+                class="invoice-alert"
+              ></el-alert>
+              <el-alert
+                v-else-if="currentOrder.needInvoice && resolvePaymentStatus(currentOrder) !== 'paid'"
+                title="客户已申请发票，但对公款项尚未核销"
+                description="财务确认银行对公款项到账后，才能人工开具并登记发票。"
                 type="warning"
                 :closable="false"
                 show-icon
                 class="invoice-alert"
               ></el-alert>
-              <div v-if="!currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
+              <el-alert
+                v-else-if="isCorporateTransferPayment(currentOrder.paymentMethod) && currentOrder.statusEn !== 'completed'"
+                title="检修服务尚未完工结单"
+                description="工单状态变为已完成后，客户才能申请开票，财务才能登记开票结果。"
+                type="warning"
+                :closable="false"
+                show-icon
+                class="invoice-alert"
+              ></el-alert>
+              <div v-if="isCorporateTransferPayment(currentOrder.paymentMethod) && resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.statusEn === 'completed' && !currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
                 <strong>本单暂不需要发票</strong>
                 <span>如果客户补充开票需求，可在这里登记发票信息。</span>
                 <el-button v-if="canPerformOrderAction('update_invoice')" size="small" plain @click="invoiceEditorExpanded = true">登记发票</el-button>
               </div>
-              <template v-else>
+              <template v-else-if="isCorporateTransferPayment(currentOrder.paymentMethod) || currentOrder.needInvoice">
                 <div class="invoice-editor-heading">
                   <strong>发票信息</strong>
                   <span>带 * 的信息用于开票和客户接收</span>
@@ -972,12 +1034,13 @@
               </template>
               <el-divider border-style="dashed"></el-divider>
               <p class="drawer-section-title">发票登记</p>
-              <el-form label-position="top" size="small" class="invoice-form">
+              <el-form label-position="top" size="small" class="invoice-form" :disabled="!canPerformOrderAction('update_invoice') || !canManuallyRegisterInvoice">
                 <div class="invoice-form-grid">
                 <el-form-item label="发票状态 *">
                   <el-select v-model="invoiceStatus" :disabled="!canPerformOrderAction('update_invoice')" style="width:100%;">
                     <el-option label="无需开票" value="无需开票"></el-option>
                     <el-option label="未发票" value="未发票"></el-option>
+                    <el-option label="开票中" value="开具中"></el-option>
                     <el-option label="已发票" value="已发票"></el-option>
                     <el-option label="已寄出" value="已寄出"></el-option>
                     <el-option label="已签收" value="已签收"></el-option>
@@ -988,6 +1051,15 @@
                     <el-option label="电子普通发票" value="电子普通发票"></el-option>
                     <el-option label="纸质专用发票" value="纸质专用发票"></el-option>
                   </el-select>
+                </el-form-item>
+                <el-form-item label="开票模式 *">
+                  <el-input model-value="人工开票并登记" disabled></el-input>
+                </el-form-item>
+                <el-form-item label="税收分类">
+                  <el-input model-value="修理修配劳务" disabled></el-input>
+                </el-form-item>
+                <el-form-item label="发票项目">
+                  <el-input model-value="牙科设备检修服务费" disabled></el-input>
                 </el-form-item>
                 <el-form-item label="发票抬头 *">
                   <el-input v-model="invoiceForm.title" :disabled="!canPerformOrderAction('update_invoice')" placeholder="请输入发票抬头"></el-input>
@@ -1026,13 +1098,22 @@
                   </div>
                 </details>
                 <details class="invoice-detail-disclosure" :open="['已发票', '已寄出', '已签收'].includes(invoiceStatus)">
-                  <summary><span>开票结果与交付信息</span><small>开票后填写链接、号码和寄送信息</small></summary>
+                  <summary><span>开票结果与交付信息</span><small>开票后填写号码、日期和寄送信息</small></summary>
                   <div class="invoice-form-grid">
-                <el-form-item label="发票链接">
-                  <el-input v-model="invoiceForm.fileUrl" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票下载/查看链接，客户可复制"></el-input>
-                </el-form-item>
-                <el-form-item label="PDF链接">
-                  <el-input v-model="invoiceForm.pdfUrl" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票 PDF 链接，可与发票链接相同"></el-input>
+                <el-form-item v-if="invoiceForm.invoiceType !== '纸质专用发票'" label="电子发票原件归档">
+                  <el-upload
+                    action="#"
+                    accept="application/pdf,.pdf"
+                    :auto-upload="false"
+                    :show-file-list="false"
+                    :disabled="invoiceFileUploading || !canPerformOrderAction('update_invoice')"
+                    :on-change="handleInvoicePdfSelect"
+                  >
+                    <el-button :loading="invoiceFileUploading" plain>
+                      <el-icon><Upload /></el-icon>{{ invoiceForm.pdfUrl ? '替换 PDF' : '上传 PDF' }}
+                    </el-button>
+                  </el-upload>
+                  <small class="invoice-upload-status">{{ invoiceFileName || (invoiceForm.pdfUrl ? '已保存云存储原件' : '选填，最大 20MB') }}</small>
                 </el-form-item>
                 <el-form-item label="发票号码">
                   <el-input v-model="invoiceForm.invoiceNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="开具后的电子发票号码"></el-input>
@@ -1058,11 +1139,8 @@
                 </details>
               </el-form>
               <div class="invoice-actions">
-              <el-tooltip v-if="canPerformOrderAction('update_invoice')" content="保存后会更新该工单的财务开票状态，列表发票状态同步变化" placement="top">
+              <el-tooltip v-if="canPerformOrderAction('update_invoice') && canManuallyRegisterInvoice" content="财务线下开具后，登记号码、日期和归档原件" placement="top">
                 <el-button type="primary" size="small" @click="saveInvoiceStatus">保存发票信息</el-button>
-              </el-tooltip>
-              <el-tooltip v-if="canPerformOrderAction('update_invoice') && autoInvoiceEnabled" content="需先确认到账。点此调用开票服务商自动开票并回填链接/号码/日期（未对接服务商前会提示未配置）" placement="top">
-                <el-button type="success" plain size="small" :loading="invoiceIssuing" @click="onIssueInvoice">一键开票</el-button>
               </el-tooltip>
               </div>
               </template>
@@ -1206,10 +1284,67 @@
     </template>
   </el-drawer>
 
+  <el-dialog
+    v-model="orderVideoDialogVisible"
+    title="故障视频"
+    width="min(720px, 92vw)"
+    align-center
+    destroy-on-close
+    class="order-video-dialog"
+    @closed="resetOrderVideo"
+  >
+    <div class="order-video-player-wrap">
+      <video
+        v-if="activeOrderVideoUrl"
+        :key="activeOrderVideoUrl"
+        :src="activeOrderVideoUrl"
+        class="order-video-player"
+        controls
+        autoplay
+        playsinline
+        preload="metadata"
+        @error="handleOrderVideoError"
+      ></video>
+      <el-alert
+        v-if="orderVideoError"
+        :title="orderVideoError"
+        type="warning"
+        show-icon
+        :closable="false"
+      ></el-alert>
+    </div>
+    <template #footer>
+      <a
+        v-if="activeOrderVideoUrl"
+        :href="activeOrderVideoUrl"
+        target="_blank"
+        rel="noreferrer"
+        download
+        class="video-download-link"
+      >视频无法播放时可下载原文件</a>
+      <el-button @click="orderVideoDialogVisible = false">关闭</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="quickShipDialogVisible" title="快捷发货" width="400px" align-center @closed="resetQuickShipDialog">
     <el-form label-width="86px">
       <el-form-item label="物流公司" required>
-        <el-input v-model="quickShipForm.returnCompany" placeholder="请输入物流公司"></el-input>
+        <el-select
+          v-model="quickShipForm.returnCompany"
+          placeholder="请选择物流公司"
+          filterable
+          allow-create
+          default-first-option
+          clearable
+          style="width: 100%;"
+        >
+          <el-option
+            v-for="company in logisticsCompanyOptions"
+            :key="company"
+            :label="company"
+            :value="company"
+          ></el-option>
+        </el-select>
       </el-form-item>
       <el-form-item label="物流单号" required>
         <el-input v-model="quickShipForm.returnNo" placeholder="请输入物流单号"></el-input>
@@ -1367,21 +1502,213 @@
     </template>
   </el-dialog>
 
+  <el-dialog v-model="batchDeleteDialogVisible" title="批量删除工单" width="560px" align-center @closed="resetBatchDeleteForm">
+    <div class="delete-confirm-panel">
+      <el-alert
+        title="删除后工单会从正常列表、小程序和统计中隐藏，但会保留审计记录。已付款、已开票、已扣库存或状态不允许的工单会自动跳过。"
+        type="error"
+        :closable="false"
+        show-icon
+      ></el-alert>
+      <div class="delete-confirm-summary">
+        <strong>本次选择 {{ selectedOrders.length }} 个工单</strong>
+        <span>{{ formatOrderIdList(selectedOrders) }}</span>
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="删除原因" required>
+          <el-input
+            v-model="batchDeleteForm.reason"
+            type="textarea"
+            :rows="3"
+            maxlength="500"
+            show-word-limit
+            placeholder="例如：后台误建测试工单、客户重复提交后保留另一张工单"
+          ></el-input>
+        </el-form-item>
+        <el-form-item label="确认短语" required>
+          <el-input v-model="batchDeleteForm.confirmText" :placeholder="expectedBatchDeleteConfirmText"></el-input>
+          <p class="delete-confirm-tip">请输入：{{ expectedBatchDeleteConfirmText }}</p>
+        </el-form-item>
+      </el-form>
+    </div>
+    <template #footer>
+      <el-button @click="batchDeleteDialogVisible = false">取消</el-button>
+      <el-button type="danger" :loading="batchDeleting" @click="submitBatchDeleteOrders">
+        <el-icon><Delete /></el-icon> 确认删除
+      </el-button>
+    </template>
+  </el-dialog>
+
+  <el-dialog
+    v-model="createOrderDialogVisible"
+    title="新建报修工单"
+    width="920px"
+    :fullscreen="isMobile"
+    align-center
+    destroy-on-close
+    class="manual-order-dialog"
+    @closed="resetCreateOrderForm"
+  >
+    <el-form ref="createOrderFormRef" :model="createOrderForm" label-position="top" class="manual-order-form">
+      <section class="manual-order-section">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">1</span>
+          <div><strong>受理与客户信息</strong><small>线下收件、客户联系人与 CRM 客户档案</small></div>
+        </div>
+        <div class="manual-order-grid manual-order-grid--intake">
+          <el-form-item label="收件日期" required>
+            <el-date-picker v-model="createOrderForm.received_date" type="date" value-format="YYYY-MM-DD" placeholder="选择收件日期"></el-date-picker>
+          </el-form-item>
+          <el-form-item label="对接业务员">
+            <el-input v-model="createOrderForm.customer.biz_user" maxlength="40" placeholder="负责对接的业务员"></el-input>
+          </el-form-item>
+          <el-form-item label="快递公司">
+            <el-input v-model="createOrderForm.ship_out_info.logistics_company" maxlength="40" placeholder="如：顺丰速运"></el-input>
+          </el-form-item>
+          <el-form-item label="快递单号">
+            <el-input v-model="createOrderForm.ship_out_info.logistics_no" maxlength="40" placeholder="客户寄入运单号"></el-input>
+          </el-form-item>
+          <el-form-item label="客户类型" required>
+            <el-select v-model="createOrderForm.customer.customer_type" filterable allow-create default-first-option placeholder="选择或输入客户类型">
+              <el-option v-for="option in customerTypeOptionsWithCurrent(createOrderForm.customer.customer_type)" :key="option.value" :label="option.label" :value="option.value"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="客户/单位名称" required>
+            <el-input v-model="createOrderForm.customer.name" maxlength="80" placeholder="如：某某口腔门诊部"></el-input>
+          </el-form-item>
+          <el-form-item label="联系人" required>
+            <el-input v-model="createOrderForm.customer.contact" maxlength="40" placeholder="客户联系人姓名"></el-input>
+          </el-form-item>
+          <el-form-item label="手机号" required>
+            <el-input v-model="createOrderForm.customer.phone" maxlength="11" inputmode="numeric" placeholder="11 位手机号码"></el-input>
+          </el-form-item>
+          <el-form-item label="客户地址" required class="manual-order-span-2">
+            <el-input v-model="createOrderForm.customer.address" maxlength="200" placeholder="省市区及详细地址"></el-input>
+          </el-form-item>
+          <el-form-item label="初始状态" required class="manual-order-span-2 manual-order-status">
+            <el-radio-group v-model="createOrderForm.status">
+              <el-radio-button value="pending">待客户寄入</el-radio-button>
+              <el-radio-button value="sent">运输中</el-radio-button>
+              <el-radio-button value="received">已到店/已签收</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+        </div>
+      </section>
+
+      <section class="manual-order-section">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">2</span>
+          <div><strong>设备与故障</strong><small>支持同一工单录入多台设备</small></div>
+          <el-button type="primary" plain @click="addCreateOrderItem"><el-icon><Plus /></el-icon> 添加设备</el-button>
+        </div>
+        <div class="manual-order-item-list">
+          <div v-for="(item, index) in createOrderForm.items" :key="item.key" class="manual-order-item">
+            <div class="manual-order-item-head">
+              <strong>设备 {{ index + 1 }}</strong>
+              <el-tooltip v-if="createOrderForm.items.length > 1" content="移除此设备" placement="top">
+                <el-button circle text type="danger" aria-label="移除此设备" @click="removeCreateOrderItem(index)">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </el-tooltip>
+            </div>
+            <div class="manual-order-filter-row">
+              <el-form-item label="产品名称" required>
+                <el-select
+                  v-model="item.product_name"
+                  filterable
+                  allow-create
+                  default-first-option
+                  clearable
+                  placeholder="选择或输入其他产品"
+                  @change="onCreateOrderProductNameChange(item)"
+                >
+                  <el-option v-for="product in REPAIR_PRODUCT_OPTIONS" :key="product.name" :label="product.name" :value="product.name"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="产品型号" required>
+                <el-select
+                  v-model="item.product_model"
+                  filterable
+                  allow-create
+                  default-first-option
+                  clearable
+                  :disabled="!item.product_name"
+                  placeholder="选择或输入其他型号"
+                >
+                  <el-option v-for="model in getRepairProductModels(item.product_name)" :key="model" :label="model" :value="model"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="设备分类">
+                <el-input v-model="item.product_category" maxlength="80" placeholder="如：牙科手机"></el-input>
+              </el-form-item>
+              <el-form-item label="设备 SN" required>
+                <el-input v-model="item.sn" maxlength="80" placeholder="机身序列号" @blur="lookupCreateOrderItemBySn(item)">
+                  <template #append>
+                    <el-button :loading="item.lookupLoading" aria-label="识别设备 SN" @click="lookupCreateOrderItemBySn(item)">
+                      <el-icon><Search /></el-icon>
+                    </el-button>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </div>
+            <div class="manual-order-grid manual-order-grid--device-detail">
+              <el-form-item label="购买日期">
+                <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="发票签收日">
+                <el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="SN出厂日">
+                <el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时填写"></el-date-picker>
+              </el-form-item>
+                <el-form-item label="整机质保"><span>统一12个月</span></el-form-item>
+              <el-form-item label="质保到期日">
+                <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="选择日期"></el-date-picker>
+              </el-form-item>
+              <el-form-item label="故障描述" required class="manual-order-span-2">
+                <el-input v-model="item.fault_desc" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="客户反馈的故障现象、发生条件和已尝试操作"></el-input>
+              </el-form-item>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="manual-order-section manual-order-section--last">
+        <div class="manual-order-section-head">
+          <span class="manual-order-step">3</span>
+          <div><strong>内部备注</strong><small>仅后台工作人员可见</small></div>
+        </div>
+        <el-input v-model="createOrderForm.admin_remark" type="textarea" :rows="2" maxlength="1000" show-word-limit placeholder="如：客户通过电话报修、紧急程度、沟通约定等"></el-input>
+      </section>
+    </el-form>
+    <template #footer>
+      <el-button @click="createOrderDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="createOrderSubmitting" @click="submitCreateOrder">
+        <el-icon><CirclePlus /></el-icon> 创建工单
+      </el-button>
+    </template>
+  </el-dialog>
+
 </template>
 
 <script setup>
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchImportLogistics, batchUpdateShipping, getOrderList, getWorkflowConfig, issueInvoice, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
+import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
+import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
+import { uploadFileToCloud } from '../utils/upload.js'
+import { getPaymentMethodLabel, isCorporateTransferPayment, resolveCorporateAccount } from '../config/corporateAccount.js'
+import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
 const route = useRoute()
 const isMobile = ref(window.innerWidth <= 768)
@@ -1408,6 +1735,7 @@ const getInvoiceType = (status) => {
   const invoiceMap = {
     '无需开票': 'info',
     '未发票': 'warning',
+    '开具中': 'primary',
     '已发票': 'success',
     '已寄出': 'primary',
     '已签收': 'success'
@@ -1416,7 +1744,8 @@ const getInvoiceType = (status) => {
 }
 
 const normalizeInvoiceStatus = (order = {}) => {
-  if (order.invoiceStatus === '待开票' || order.invoiceStatus === '开具中') return '未发票'
+  if (order.invoiceStatus === '待开票') return '未发票'
+  if (order.invoiceStatus === '开具中') return '开具中'
   if (order.invoiceStatus === '已寄出') return '已寄出'
   if (order.invoiceStatus === '已签收') return '已签收'
   if (order.invoiceStatus === '已开具') return '已发票'
@@ -1598,19 +1927,28 @@ const getSlaText = (order = {}) => {
 const getNextAction = (order = {}) => {
   if (order.status === '已取消') return { label: '已作废', desc: '无需处理', type: 'info' }
   if (order.status === '已完成') return { label: '已结案', desc: '流程完成', type: 'success' }
+  if (order.status === '已回寄' || order.returnNo) return { label: '待结案', desc: '确认完成归档', type: 'success' }
   if (['已提交', '运输中'].includes(order.status)) return { label: '待签收', desc: '确认寄入设备', type: 'warning' }
   const quoteStatus = order.quoteStatus || order.quote_status || ''
   const paymentStatus = resolvePaymentStatus(order)
-  if (order.status === '已签收' && ['pending', 'draft', 'rejected', ''].includes(quoteStatus)) {
+  if (quoteStatus === 'rejected') {
+    return { label: '拒修待回寄', desc: '无需付款，可直接安排设备回寄', type: 'warning' }
+  }
+  if (order.status === '已签收' && ['pending', 'draft', ''].includes(quoteStatus)) {
     return { label: '待报价', desc: '检测并发布报价', type: 'primary' }
   }
-  if (['pending', 'draft', 'rejected'].includes(quoteStatus)) {
+  if (['pending', 'draft'].includes(quoteStatus)) {
     return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
   }
   if (order.chargeType === 'free' && ['issued', 'confirmed'].includes(quoteStatus)) {
     return order.authorizationStatus === 'confirmed'
       ? { label: '质保维修', desc: '客户已确认，无需付款', type: 'success' }
       : { label: '待确认', desc: '等待客户确认质保维修', type: 'success' }
+  }
+  if (!order.returnNo && ['issued', 'confirmed'].includes(quoteStatus)) {
+    if (paymentStatus === 'paid') return { label: '待回寄', desc: '继续维修并录入回寄物流', type: 'warning' }
+    if (paymentStatus === 'uploaded') return { label: '维修待处理', desc: '可先维修，付款凭证待审核', type: 'primary' }
+    return { label: '维修待处理', desc: '可先维修或回寄，付款继续跟进', type: 'primary' }
   }
   if (paymentStatus === 'uploaded') return { label: '待审核', desc: '核对对公流水', type: 'warning' }
   if (paymentStatus === 'rejected') return { label: '已驳回', desc: '等待客户重传凭证', type: 'danger' }
@@ -1624,17 +1962,15 @@ const drawerWorkflowStages = [
   { key: 'intake', label: '受理' },
   { key: 'diagnosis', label: '检测' },
   { key: 'quote', label: '报价' },
-  { key: 'payment', label: '收款' },
   { key: 'repair', label: '维修' },
   { key: 'return', label: '回寄' }
 ]
 
 const getDrawerStageIndex = (order = {}) => {
-  if (order.status === '已完成' || order.returnNo || order.status === '已回寄') return 5
-  const paymentStatus = resolvePaymentStatus(order)
-  if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 4
+  if (order.status === '已完成' || order.returnNo || order.status === '已回寄') return 4
+  if (['处理中', '维修中'].includes(order.status)) return 3
   const quoteStatus = order.quoteStatus || order.quote_status || ''
-  if (['issued', 'confirmed'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 3
+  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 2
   if (['已签收', '处理中', '维修中'].includes(order.status)) return 1
   return 0
 }
@@ -1643,8 +1979,9 @@ const getRecommendedDrawerTab = (order = {}) => {
   const quoteStatus = order.quoteStatus || order.quote_status || ''
   const paymentStatus = resolvePaymentStatus(order)
   const invoiceState = normalizeInvoiceStatus(order)
-  if (['pending', 'draft', 'rejected', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
-  if (Number(order.totalPrice || 0) > 0 && !['paid', 'not_required'].includes(paymentStatus)) return 'payment'
+  if (['pending', 'draft', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
+  if (order.status === '已回寄' || order.returnNo) return 'service'
+  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) && ['已签收', '处理中', '维修中'].includes(order.status)) return 'service'
   if (order.needInvoice && paymentStatus === 'paid' && !['已发票', '已寄出', '已签收'].includes(invoiceState)) return 'invoice'
   if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 'service'
   return 'base'
@@ -1655,7 +1992,7 @@ const getNextStepButtonText = (order = {}) => {
     quote: '去报价',
     payment: resolvePaymentStatus(order) === 'uploaded' ? '审核付款' : '查看收款',
     invoice: '去开票',
-    service: order.returnNo ? '查看回寄' : '继续维修'
+    service: order.returnNo ? '查看回寄' : ((order.quoteStatus || order.quote_status) === 'rejected' ? '安排回寄' : '继续维修')
   }
   return labels[getRecommendedDrawerTab(order)] || '查看详情'
 }
@@ -1699,6 +2036,7 @@ const loading = ref(false)
 const importing = ref(false)
 const quickStatusLoading = ref(false)
 const batchCompleting = ref(false)
+const batchDeleting = ref(false)
 const todoTypeMap = {
   inbound: '待签收',
   quote: '待报价',
@@ -1708,14 +2046,236 @@ const todoTypeMap = {
   exception: '异常工单'
 }
 
-const CUSTOMER_TYPE_META = {
-  clinic: { label: '企业', type: 'success' },
-  dealer: { label: '签约代理商（齿科）', type: 'warning' },
-  individual: { label: '个人', type: 'info' }
+const createManualOrderItem = () => ({
+  key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  product_name: '',
+  product_category: '',
+  product_model: '',
+  sn: '',
+  buy_date: '',
+  warranty_start_date: '',
+  invoice_received_date: '',
+  manufacture_date: '',
+  warranty_months: 0,
+  warranty_expire: '',
+  fault_desc: '',
+  lookupLoading: false
+})
+
+const todayDateString = () => new Date().toISOString().slice(0, 10)
+
+const createOrderDialogVisible = ref(false)
+const createOrderSubmitting = ref(false)
+const createOrderFormRef = ref(null)
+const createOrderForm = reactive({
+  received_date: todayDateString(),
+  customer: {
+    customer_id: '',
+    customer_type: 'clinic',
+    name: '',
+    contact: '',
+    phone: '',
+    address: '',
+    biz_user: ''
+  },
+  status: 'received',
+  ship_out_info: {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: '',
+    logistics_company: '',
+    logistics_no: '',
+    received_at: ''
+  },
+  ship_back_info: {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: ''
+  },
+  items: [createManualOrderItem()],
+  admin_remark: ''
+})
+
+const resetCreateOrderForm = () => {
+  createOrderForm.received_date = todayDateString()
+  Object.assign(createOrderForm.customer, {
+    customer_id: '',
+    customer_type: 'clinic',
+    name: '',
+    contact: '',
+    phone: '',
+    address: '',
+    biz_user: ''
+  })
+  createOrderForm.status = 'received'
+  Object.assign(createOrderForm.ship_out_info, {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: '',
+    logistics_company: '',
+    logistics_no: '',
+    received_at: ''
+  })
+  Object.assign(createOrderForm.ship_back_info, {
+    name: '',
+    phone: '',
+    unit: '',
+    detail: ''
+  })
+  createOrderForm.items = [createManualOrderItem()]
+  createOrderForm.admin_remark = ''
+  createOrderFormRef.value?.clearValidate()
 }
 
-const customerTypeMeta = (type = '') => CUSTOMER_TYPE_META[String(type || '').trim()] || null
-const customerTypeLabel = (type = '') => (customerTypeMeta(type) || {}).label || ''
+const openCreateOrderDialog = () => {
+  resetCreateOrderForm()
+  createOrderDialogVisible.value = true
+}
+
+const addCreateOrderItem = () => {
+  createOrderForm.items.push(createManualOrderItem())
+}
+
+const onCreateOrderProductNameChange = (item) => {
+  const models = getRepairProductModels(item && item.product_name)
+  item.product_model = models.length === 1 ? models[0] : ''
+}
+
+const removeCreateOrderItem = (index) => {
+  if (createOrderForm.items.length <= 1) return
+  createOrderForm.items.splice(index, 1)
+}
+
+const fillCreateOrderShipping = () => {
+  const { name, contact, phone, address } = createOrderForm.customer
+  Object.assign(createOrderForm.ship_out_info, {
+    name: contact || createOrderForm.ship_out_info.name,
+    phone: phone || createOrderForm.ship_out_info.phone,
+    unit: name || createOrderForm.ship_out_info.unit,
+    detail: address || createOrderForm.ship_out_info.detail
+  })
+  Object.assign(createOrderForm.ship_back_info, {
+    name: contact || createOrderForm.ship_back_info.name,
+    phone: phone || createOrderForm.ship_back_info.phone,
+    unit: name || createOrderForm.ship_back_info.unit,
+    detail: address || createOrderForm.ship_back_info.detail
+  })
+}
+
+const syncCreateOrderShipping = () => {
+  const { name, contact, phone, address } = createOrderForm.customer
+  Object.assign(createOrderForm.ship_out_info, {
+    name: contact,
+    phone,
+    unit: name,
+    detail: address,
+    received_at: createOrderForm.received_date
+  })
+  Object.assign(createOrderForm.ship_back_info, {
+    name: contact,
+    phone,
+    unit: name,
+    detail: address
+  })
+}
+
+const lookupCreateOrderItemBySn = async (item) => {
+  const sn = String(item && item.sn || '').trim()
+  if (!sn || item.lookupLoading) return
+  item.lookupLoading = true
+  try {
+    const result = await lookupDeviceBySnApi(sn)
+    await logSnAction('sn_query', sn, {
+      matched: Boolean(result && result.found),
+      device_id: result && result.deviceId,
+      warranty_status: result && result.warrantyStatus
+    })
+    if (!result || !result.found) return
+    item.product_name = result.productName || item.product_name
+    item.product_category = result.productCategory || item.product_category
+    item.product_model = result.model || item.product_model
+    item.buy_date = result.buyDate || item.buy_date
+    item.warranty_start_date = result.warrantyStartDate || item.warranty_start_date
+    item.invoice_received_date = result.invoiceReceivedDate || item.invoice_received_date
+    item.manufacture_date = result.manufactureDate || item.manufacture_date
+    item.warranty_months = Number(result.warrantyMonths || item.warranty_months || 0) || 0
+    item.warranty_expire = result.warrantyExpire || item.warranty_expire
+    if (result.customerId && !createOrderForm.customer.customer_id) {
+      createOrderForm.customer.customer_id = result.customerId
+      createOrderForm.customer.name = result.customerName || createOrderForm.customer.name
+      createOrderForm.customer.customer_type = result.customerType || createOrderForm.customer.customer_type
+    }
+    ElMessage.success('已从设备档案回填 SN 信息')
+  } catch (error) {
+    if (!error.__displayed) ElMessage.warning(error.message || 'SN 识别失败')
+  } finally {
+    item.lookupLoading = false
+  }
+}
+
+const validateCreateOrderForm = () => {
+  syncCreateOrderShipping()
+  const customer = createOrderForm.customer
+  const customerType = resolveCustomerTypeValue(customer.customer_type)
+  if (!customerType) return '请选择或输入客户类型'
+  if (customerType.length > 40) return '客户类型不能超过 40 个字符'
+  customer.customer_type = customerType
+  if (!customer.name.trim()) return '请填写客户/单位名称'
+  if (!customer.contact.trim()) return '请填写联系人'
+  if (!/^1\d{10}$/.test(customer.phone.trim())) return '请填写正确的 11 位手机号'
+  if (!customer.address.trim()) return '请填写客户地址'
+  if (!createOrderForm.received_date) return '请选择收件日期'
+  if (!createOrderForm.items.length) return '请至少添加一台维修设备'
+  for (let index = 0; index < createOrderForm.items.length; index += 1) {
+    const item = createOrderForm.items[index]
+    const prefix = `设备 ${index + 1}`
+    if (!item.product_name.trim()) return `${prefix}：请填写产品名称`
+    if (item.product_name.trim().length > 80) return `${prefix}：产品名称不能超过 80 个字符`
+    if (!item.product_model.trim()) return `${prefix}：请填写产品型号`
+    if (item.product_model.trim().length > 80) return `${prefix}：产品型号不能超过 80 个字符`
+    if (!item.sn.trim()) return `${prefix}：请填写设备 SN`
+    if (!item.fault_desc.trim()) return `${prefix}：请填写故障描述`
+  }
+  const out = createOrderForm.ship_out_info
+  const back = createOrderForm.ship_back_info
+  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户名称、联系方式和客户地址'
+  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善客户名称、联系方式和客户地址'
+  if (createOrderForm.status === 'sent' && !out.logistics_no.trim()) return '运输中工单必须填写寄入物流单号'
+  return ''
+}
+
+const submitCreateOrder = async () => {
+  const validationError = validateCreateOrderForm()
+  if (validationError) {
+    ElMessage.warning(validationError)
+    return
+  }
+
+  createOrderSubmitting.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const payload = {
+      customer: { ...createOrderForm.customer },
+      status: createOrderForm.status,
+      ship_out_info: { ...createOrderForm.ship_out_info },
+      ship_back_info: { ...createOrderForm.ship_back_info },
+      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item, warranty_months: 12 })),
+      admin_remark: createOrderForm.admin_remark
+    }
+    const result = await createAdminOrder(token, payload)
+    createOrderDialogVisible.value = false
+    wo.page = 1
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
+    ElMessage.success(`工单 ${result.order_no || ''} 创建成功`)
+  } catch (error) {
+    if (!error.__displayed) ElMessage.error(error.message || '新建工单失败')
+  } finally {
+    createOrderSubmitting.value = false
+  }
+}
 
 const exportableFields = [
   { label: '工单编号', key: 'id', getter: order => order.id },
@@ -1758,27 +2318,56 @@ const exportableFields = [
 ]
 
 const tableColumnStorageKey = 'pc-admin:work-order-visible-columns'
+const tableColumnStorageVersionKey = 'pc-admin:work-order-visible-columns-version'
+const tableColumnStorageVersion = '3'
 const tableColumnOptions = [
+  { key: 'id', label: '工单号' },
   { key: 'reporter', label: '报修方信息' },
+  { key: 'receivedDate', label: '收件日期' },
+  { key: 'bizUser', label: '对接业务员' },
+  { key: 'customerType', label: '客户类型' },
+  { key: 'clinicName', label: '客户/单位名称' },
+  { key: 'contactName', label: '联系人' },
+  { key: 'phone', label: '手机号' },
+  { key: 'customerAddress', label: '客户地址' },
+  { key: 'logisticsCompany', label: '寄入快递公司' },
+  { key: 'logisticsNo', label: '寄入快递单号' },
   { key: 'productName', label: '产品名称' },
+  { key: 'productCategory', label: '设备分类' },
   { key: 'productModel', label: '型号' },
   { key: 'productCode', label: '编码/SN' },
+  { key: 'buyDate', label: '购买日期' },
+  { key: 'warrantyMonths', label: '质保月数' },
+  { key: 'warrantyExpire', label: '质保到期日' },
   { key: 'fault', label: '故障' },
   { key: 'logistics', label: '物流信息' },
-  { key: 'nextAction', label: '下一步动作' },
-  { key: 'status', label: '处理状态' },
+  { key: 'adminRemark', label: '内部备注' },
+  { key: 'printRemark', label: '随件留言' },
+  { key: 'progress', label: '进度与下一步' },
   { key: 'invoice', label: '发票状态' },
   { key: 'sla', label: 'SLA' }
 ]
-const defaultTableColumnKeys = tableColumnOptions.map(column => column.key)
+const defaultTableColumnKeys = ['id', 'reporter', 'productName', 'productModel', 'productCode', 'fault', 'logistics', 'progress', 'invoice', 'sla']
+const availableTableColumnKeys = new Set(tableColumnOptions.map(column => column.key))
 
 const readTableColumnKeys = () => {
   try {
     const raw = localStorage.getItem(tableColumnStorageKey)
-    if (!raw) return [...defaultTableColumnKeys]
+    if (!raw) {
+      localStorage.setItem(tableColumnStorageVersionKey, tableColumnStorageVersion)
+      return [...defaultTableColumnKeys]
+    }
     const parsed = JSON.parse(raw)
-    const allowed = new Set(defaultTableColumnKeys)
-    return Array.isArray(parsed) ? parsed.filter(key => allowed.has(key)) : [...defaultTableColumnKeys]
+    if (!Array.isArray(parsed)) return [...defaultTableColumnKeys]
+    if (!parsed.includes('progress') && (parsed.includes('nextAction') || parsed.includes('status'))) {
+      parsed.push('progress')
+    }
+    const visibleKeys = parsed.filter(key => availableTableColumnKeys.has(key))
+    if (localStorage.getItem(tableColumnStorageVersionKey) !== tableColumnStorageVersion) {
+      if (!visibleKeys.includes('id')) visibleKeys.unshift('id')
+      localStorage.setItem(tableColumnStorageVersionKey, tableColumnStorageVersion)
+    }
+    return visibleKeys
   } catch (error) {
     return [...defaultTableColumnKeys]
   }
@@ -1788,6 +2377,11 @@ const orders = ref([])
 const totalOrders = ref(0)
 const deviceModelOptions = ref([])
 const selectedOrders = ref([])
+const batchDeleteDialogVisible = ref(false)
+const batchDeleteForm = reactive({
+  reason: '',
+  confirmText: ''
+})
 const workflowConfig = ref(null)
 const printConfig = ref(parsePrintTemplates().repair_order)
 const printSettingsRaw = ref({})
@@ -1803,8 +2397,10 @@ const activeLogisticsImportType = ref('return')
 const shipDate = ref(new Date().toISOString().slice(0, 10))
 const searchInvoiceStatus = ref('')
 const slaFilter = ref('')
+const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0, cancelled: 0 })
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
+const expectedBatchDeleteConfirmText = computed(() => `确认删除${selectedOrders.value.length}个工单`)
 const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
 const logisticsImportTip = computed(() => {
   return activeLogisticsImportType.value === 'inbound'
@@ -1817,20 +2413,46 @@ const loadWorkflowConfig = async () => {
   workflowConfig.value = await getWorkflowConfig(token)
 }
 
-const slaCards = computed(() => {
-  const overdue = orders.value.filter(order => order.slaInfo && order.slaInfo.overdue)
-  const critical = orders.value.filter(order => getSlaLevel(order) === 'critical')
-  const warning = orders.value.filter(order => getSlaLevel(order) === 'warning')
+const statusSummaryCards = computed(() => {
+  const counts = statusBreakdown.value
   return [
-    { key: 'overdue', label: '超时工单', count: overdue.length, desc: '当前页需优先处理', filter: 'overdue', tone: 'danger' },
-    { key: 'critical', label: '严重超时', count: critical.length, desc: '超过阈值 2 倍', filter: 'critical', tone: 'critical' },
-    { key: 'warning', label: '临近超时', count: warning.length, desc: '超过 SLA 阈值', filter: 'warning', tone: 'warning' },
-    { key: 'today', label: '今日待处理', count: orders.value.filter(order => ['已提交', '运输中', '已签收', '处理中'].includes(order.status)).length, desc: '未完成有效工单', filter: '', tone: 'info' }
+    { key: 'pending', label: '已提交', count: counts.pending, filter: '已提交', tone: 'pending' },
+    { key: 'sent', label: '运输中', count: counts.sent, filter: '运输中', tone: 'sent' },
+    { key: 'received', label: '已签收', count: counts.received, filter: '已签收', tone: 'received' },
+    { key: 'processing', label: '处理中', count: counts.inspecting + counts.fixing, filter: '处理中', tone: 'processing' },
+    { key: 'shipped', label: '已回寄', count: counts.shipped, filter: '已回寄', tone: 'shipped' },
+    { key: 'completed', label: '已完成', count: counts.completed, filter: '已完成', tone: 'completed' },
+    { key: 'cancelled', label: '已取消', count: counts.cancelled, filter: '已取消', tone: 'cancelled' }
   ]
 })
 
-const applySlaFilter = (filter) => {
-  slaFilter.value = slaFilter.value === filter ? '' : filter
+const applyStatusFilter = (filter) => {
+  wo.filter = wo.filter === filter ? '' : filter
+}
+
+const loadStatusBreakdown = async () => {
+  const token = localStorage.getItem('adminToken')
+  const data = await getStatistics(token, { includeStatusBreakdown: true })
+  const breakdown = data && data.statusBreakdown
+  if (!breakdown) return
+  statusBreakdown.value = {
+    pending: Number(breakdown.pending || 0),
+    sent: Number(breakdown.sent || 0),
+    received: Number(breakdown.received || 0),
+    inspecting: Number(breakdown.inspecting || 0),
+    fixing: Number(breakdown.fixing || 0),
+    shipped: Number(breakdown.shipped || 0),
+    completed: Number(breakdown.completed || 0),
+    cancelled: Number(breakdown.cancelled || 0)
+  }
+}
+
+const refreshStatusBreakdown = async () => {
+  try {
+    await loadStatusBreakdown()
+  } catch (error) {
+    ElMessage.warning(error.message || '处理状态统计加载失败')
+  }
 }
 
 const canPerformOrderAction = (action) => {
@@ -1885,6 +2507,26 @@ const getAllowedStatusOptions = (order = {}) => {
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
   return adminActionStatusOptions.filter(status => {
     const targetStatus = toEnglishStatus(status)
+    if (targetStatus === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
+      const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
+      const quoteConfirmed = (order.quoteStatus || order.quote_status) === 'confirmed'
+      const authorizationConfirmed = (order.authorizationStatus || order.authorization_status) === 'confirmed'
+      const paymentStatus = order.paymentStatus || order.payment_status
+      const warrantyStatus = order.warrantyStatus || order.warranty_status
+      const paymentReady = total > 0
+        ? paymentStatus === 'paid'
+        : paymentStatus === 'not_required'
+          && (order.chargeType || order.charge_type) === 'free'
+          && Boolean(order.inWarranty || order.in_warranty)
+          && ['in_warranty', 'extended'].includes(warrantyStatus)
+      if (!quoteConfirmed || !authorizationConfirmed || !paymentReady) return false
+    }
+    if (currentStatus === 'received' && targetStatus === 'shipped') {
+      const isRejectReturn = order.quoteStatus === 'rejected'
+        || order.needsReturn === true
+        || order.archiveStatus === 'pending_return'
+      if (!isRejectReturn) return false
+    }
     return targetStatus !== currentStatus && transitions.includes(targetStatus)
   })
 }
@@ -1910,7 +2552,7 @@ const loadOrders = async () => {
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       warrantyStatus: wo.warrantyFilter,
-      customerType: wo.customerTypeFilter,
+      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
       responseMode: 'page'
@@ -1943,7 +2585,7 @@ const fetchAllFilteredOrders = async () => {
       deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       warrantyStatus: wo.warrantyFilter,
-      customerType: wo.customerTypeFilter,
+      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
       responseMode: 'page'
@@ -1998,6 +2640,7 @@ onMounted(async () => {
   // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
   if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
   loadOrders()
+  refreshStatusBreakdown()
 })
 
 onBeforeUnmount(() => {
@@ -2054,8 +2697,32 @@ watch(
 
 const drawerVisible = ref(false)
 const currentOrder = ref(null)
+const orderVideoDialogVisible = ref(false)
+const activeOrderVideoUrl = ref('')
+const orderVideoError = ref('')
+
+const openOrderVideo = (videoUrl) => {
+  const url = String(videoUrl || '').trim()
+  if (!url || url.startsWith('cloud://')) {
+    ElMessage.warning('视频地址暂不可用，请刷新工单后重试')
+    return
+  }
+  activeOrderVideoUrl.value = url
+  orderVideoError.value = ''
+  orderVideoDialogVisible.value = true
+}
+
+const handleOrderVideoError = () => {
+  orderVideoError.value = '浏览器未能播放该视频，请尝试下载原文件后查看。'
+}
+
+const resetOrderVideo = () => {
+  activeOrderVideoUrl.value = ''
+  orderVideoError.value = ''
+}
 const activeDrawerTab = ref('base')
 const invoiceEditorExpanded = ref(false)
+const corporateAccount = ref(resolveCorporateAccount())
 // SN 回填：每个工单项的查询结果与 loading 状态（按下标）
 const snLookupResults = reactive({})
 const snLookupLoading = reactive({})
@@ -2066,6 +2733,8 @@ const quickShipDialogVisible = ref(false)
 const remarkDialogVisible = ref(false)
 const newStatus = ref('')
 const invoiceStatus = ref('无需开票')
+const invoiceFileUploading = ref(false)
+const invoiceFileName = ref('')
 const invoiceForm = reactive({
   invoiceType: '电子普通发票',
   title: '',
@@ -2087,10 +2756,12 @@ const invoiceForm = reactive({
   mailNo: '',
   mailTime: ''
 })
-const invoiceIssuing = ref(false)
-// 一键开票（自动开票）开关：默认隐藏；对接好开票服务商后，在 pc-admin/.env.local 设
-// VITE_ENABLE_AUTO_INVOICE=1 并重新构建即可显示「一键开票」按钮。人工阶段保持隐藏。
-const autoInvoiceEnabled = import.meta.env.VITE_ENABLE_AUTO_INVOICE === '1'
+const canManuallyRegisterInvoice = computed(() => (
+  Boolean(currentOrder.value)
+  && isCorporateTransferPayment(currentOrder.value.paymentMethod)
+  && resolvePaymentStatus(currentOrder.value) === 'paid'
+  && currentOrder.value.statusEn === 'completed'
+))
 const remarkSaving = ref(false)
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
@@ -2101,6 +2772,20 @@ const partPickerVisible = ref(false)
 const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
 const pickerParts = ref([])
+const logisticsCompanyOptions = [
+  '顺丰速运',
+  '京东物流',
+  '中国邮政EMS',
+  '德邦快递',
+  '中通快递',
+  '圆通速递',
+  '申通快递',
+  '韵达快递',
+  '极兔速递',
+  '百世快递',
+  '跨越速运',
+  '安能物流'
+]
 const quickShipForm = reactive({ returnCompany: '顺丰速运', returnNo: '' })
 const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
 
@@ -2115,6 +2800,8 @@ const createQuoteRow = (item = {}, type = 'services') => ({
   unitPrice: Number(item.unitPrice ?? item.unit_price ?? item.price ?? item.sale_price ?? item.projectPrice ?? item.project_price ?? item.amount ?? 0) || 0,
   quantity: Number(item.quantity ?? item.qty ?? item.count ?? 1) || 1,
   amount: Number(item.amount ?? item.total ?? 0) || 0,
+  deviceSn: item.deviceSn || item.device_sn || '',
+  warrantyEligible: item.warrantyEligible === true || item.warranty_eligible === true,
   remark: item.remark || item.desc || item.description || ''
 })
 
@@ -2126,12 +2813,16 @@ const quoteForm = reactive({
   status: 'pending',
   remark: '',
   finalPrice: 0,
-  warrantyMonths: 0,
   paymentDeadlineDays: 7,
   parts: [createPartRow()],
   services: [createServiceRow()],
   others: []
 })
+const quoteDeviceSnOptions = computed(() => [...new Set(
+  ((currentOrder.value && currentOrder.value.itemsList) || [])
+    .map(item => String(item.sn || '').trim())
+    .filter(Boolean)
+)])
 
 const coverageResultOptions = [
   { value: 'pending', label: '待人工核验' },
@@ -2148,7 +2839,14 @@ const coverageReasonOptions = [
   { value: 'consumable', label: '耗材/易损件' },
   { value: 'water_damage', label: '进水/污染' },
   { value: 'drop_damage', label: '摔落/撞击' },
-  { value: 'missing_proof', label: '凭证不足' },
+  { value: 'improper_disinfection', label: '消毒不当' },
+  { value: 'voltage_damage', label: '电压/违规接电' },
+  { value: 'overload_or_nonstandard_bur', label: '超负荷/非标准车针' },
+  { value: 'unauthorized_repair', label: '私拆/第三方维修' },
+  { value: 'non_oem_parts', label: '非原厂配件' },
+  { value: 'label_or_sn_damage', label: '标签或SN损坏' },
+  { value: 'force_majeure_or_uninsured_transport', label: '不可抗力/未保价运输' },
+  { value: 'repair_warranty', label: '同故障同更换件维修延保' },
   { value: 'other', label: '其他原因' }
 ]
 
@@ -2258,7 +2956,6 @@ const resetQuoteForm = (order = {}) => {
   quoteForm.status = order.quoteStatus || order.quote_status || (totalPrice > 0 ? 'issued' : 'pending')
   quoteForm.remark = remark
   quoteForm.finalPrice = Number(detail.finalPrice ?? detail.final_price ?? totalPrice ?? 0) || 0
-  quoteForm.warrantyMonths = Number(order.quoteWarrantyMonths ?? order.quote_warranty_months ?? 0) || 0
   quoteForm.paymentDeadlineDays = quoteForm.paymentDeadlineDays || 7
 
   if (Array.isArray(detail.parts) || Array.isArray(detail.services) || Array.isArray(detail.others)) {
@@ -2316,6 +3013,8 @@ const buildQuotePayload = (status) => {
           part_id: item.partId || '',
           part_code: (item.partCode || '').trim(),
           model: (item.model || '').trim(),
+          device_sn: (item.deviceSn || '').trim(),
+          warranty_eligible: item.warrantyEligible === true,
           stock: Number(item.stock || 0) || 0
         }
       }
@@ -2372,7 +3071,7 @@ const buildQuotePayload = (status) => {
     remark,
     finalPrice,
     final_price: finalPrice,
-    quote_warranty_months: Math.max(0, Number(quoteForm.warrantyMonths) || 0),
+    quote_warranty_months: 3,
     payment_deadline_days: Math.max(1, Number(quoteForm.paymentDeadlineDays) || 7),
     quote_detail: {
       parts,
@@ -2443,7 +3142,10 @@ const openDrawer = (row) => {
   Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
   Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
   Object.keys(snLookupTimers).forEach((k) => { clearTimeout(snLookupTimers[k]); delete snLookupTimers[k] })
-  newStatus.value = getAllowedStatusOptions(row)[0] || row.status
+  const allowedStatuses = getAllowedStatusOptions(row)
+  newStatus.value = (row.quoteStatus === 'rejected' && allowedStatuses.includes('已回寄'))
+    ? '已回寄'
+    : (allowedStatuses[0] || row.status)
   invoiceStatus.value = normalizeInvoiceStatus(row)
   invoiceForm.invoiceType = row.invoiceType || '电子普通发票'
   invoiceForm.title = row.invoiceTitle || ''
@@ -2459,6 +3161,7 @@ const openDrawer = (row) => {
   invoiceForm.remark = row.invoiceRemark || ''
   invoiceForm.fileUrl = row.invoiceUrl || ''
   invoiceForm.pdfUrl = row.invoicePdfUrl || ''
+  invoiceFileName.value = row.invoicePdfUrl ? '已保存云存储原件' : ''
   invoiceForm.invoiceNo = row.invoiceNo || ''
   invoiceForm.invoiceDate = row.invoiceDate || ''
   invoiceForm.mailCompany = row.invoiceMailCompany || ''
@@ -2488,19 +3191,43 @@ const addWarrantyMonths = (dateStr, months) => {
   if (!dateStr || !Number.isFinite(amount) || amount <= 0) return ''
   const date = new Date(`${dateStr}T00:00:00`)
   if (Number.isNaN(date.getTime())) return ''
+  const day = date.getDate()
+  date.setDate(1)
   date.setMonth(date.getMonth() + amount)
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(day, lastDay))
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+const addWarrantyDays = (dateStr, days) => {
+  const date = new Date(`${dateStr}T00:00:00`)
+  if (!dateStr || Number.isNaN(date.getTime())) return ''
+  date.setDate(date.getDate() + Number(days || 0))
   const pad = (value) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 const itemWarrantyPreview = (item = {}) => {
-  const expire = item.warranty_expire || addWarrantyMonths(item.buy_date, item.warranty_months)
+  const startDate = item.invoice_received_date
+    || (item.manufacture_date ? addWarrantyDays(item.manufacture_date, 30) : '')
+    || item.warranty_start_date
+    || item.buy_date
+  const expire = item.warranty_expire || addWarrantyMonths(startDate, 12)
   if (!expire) {
-    const missingDate = Number(item.warranty_months) > 0 && !item.buy_date
-    return { status: 'unknown', detail: missingDate ? '请补采购日期，或直接填写质保截止日期。' : '质保信息待补充，本单暂不自动判定收费。' }
+    return { status: 'unknown', detail: '请填写发票签收日；无发票时填写SN出厂日，系统按出厂日+30天起算。' }
   }
   const active = Date.now() <= new Date(`${expire}T23:59:59`).getTime()
-  return { status: active ? 'in_warranty' : 'expired', detail: `判定依据：质保截止 ${expire}` }
+  const basis = item.invoice_received_date
+    ? `发票签收日 ${item.invoice_received_date}`
+    : item.manufacture_date
+      ? `SN出厂日 ${item.manufacture_date}+30天`
+      : item.warranty_start_date
+        ? `手工起算日 ${item.warranty_start_date}`
+      : item.buy_date
+        ? `历史采购日期 ${item.buy_date}`
+        : '指定质保截止日'
+  return { status: active ? 'in_warranty' : 'expired', detail: `判定依据：${basis}，质保截止 ${expire}` }
 }
 
 // 取某工单项当前在保状态：优先 SN 查询结果，回退工单级快照
@@ -2546,6 +3273,9 @@ const doLookupOrderItemSn = async (itemIndex, sn) => {
       if (info.productCategory && !String(item.product_category || '').trim()) item.product_category = info.productCategory
       if (info.model && !String(item.product_model || '').trim()) item.product_model = info.model
       if (info.buyDate && !String(item.buy_date || '').trim()) item.buy_date = info.buyDate
+      if (info.warrantyStartDate && !String(item.warranty_start_date || '').trim()) item.warranty_start_date = info.warrantyStartDate
+      if (info.invoiceReceivedDate && !String(item.invoice_received_date || '').trim()) item.invoice_received_date = info.invoiceReceivedDate
+      if (info.manufactureDate && !String(item.manufacture_date || '').trim()) item.manufacture_date = info.manufactureDate
       if (Number(info.warrantyMonths) > 0 && !Number(item.warranty_months)) item.warranty_months = Number(info.warrantyMonths)
       if (info.warrantyExpire && !String(item.warranty_expire || '').trim()) item.warranty_expire = info.warrantyExpire
       snLookupResults[itemIndex] = { ...info, sn }
@@ -2587,13 +3317,20 @@ const saveOrderItemsInfo = async () => {
       product_model: it.product_model || '',
       sn: cleanSn(it.sn),
       buy_date: it.buy_date || '',
-      warranty_months: Number(it.warranty_months) > 0 ? Number(it.warranty_months) : 0,
+      warranty_start_date: it.warranty_start_date || '',
+      invoice_received_date: it.invoice_received_date || '',
+      manufacture_date: it.manufacture_date || '',
+      warranty_months: 12,
       warranty_expire: it.warranty_expire || '',
       coverage_result: it.coverage_result || '',
       coverage_reason: it.coverage_reason || '',
       coverage_note: it.coverage_note || ''
     }))
   if (!items.length) { ElMessage.warning('无可保存的产品明细'); return }
+  if (items.some(item => item.coverage_result === 'free' && !['quality_issue', 'repair_warranty'].includes(item.coverage_reason))) {
+    ElMessage.warning('质保免费必须选择“非人为质量问题”或“同故障同更换件维修延保”')
+    return
+  }
   savingOrderItems.value = true
   try {
     const token = localStorage.getItem('adminToken')
@@ -2735,6 +3472,93 @@ const formatOrderIdList = (list = []) => {
   return ids.length > 6 ? `${visible} 等 ${ids.length} 单` : visible
 }
 
+const resetBatchDeleteForm = () => {
+  batchDeleteForm.reason = ''
+  batchDeleteForm.confirmText = ''
+}
+
+const openBatchDeleteDialog = () => {
+  if (!selectedOrders.value.length) {
+    ElMessage.warning('请先勾选要删除的工单')
+    return
+  }
+  if (!canPerformOrderAction('delete_order')) {
+    ElMessage.error('当前角色无权删除工单')
+    return
+  }
+  resetBatchDeleteForm()
+  batchDeleteDialogVisible.value = true
+}
+
+const buildBatchDeleteRows = (ordersForDelete = []) => ordersForDelete.map(order => ({
+  order_id: order._id,
+  order_no: order.id || order.order_no
+}))
+
+const formatBatchDeleteFailures = (failures = []) => failures
+  .slice(0, 8)
+  .map(item => `${item.order_no || item.order_id || '-'}：${item.reason || '未删除'}`)
+  .join('\n')
+
+const submitBatchDeleteOrders = async () => {
+  const ordersForDelete = [...selectedOrders.value]
+  if (!ordersForDelete.length) {
+    ElMessage.warning('请先勾选要删除的工单')
+    return
+  }
+  if (!canPerformOrderAction('delete_order')) {
+    ElMessage.error('当前角色无权删除工单')
+    return
+  }
+  const reason = batchDeleteForm.reason.trim()
+  const expected = `确认删除${ordersForDelete.length}个工单`
+  if (reason.length < 2) {
+    ElMessage.warning('删除原因至少填写2个字')
+    return
+  }
+  if (batchDeleteForm.confirmText.trim() !== expected) {
+    ElMessage.warning(`请输入“${expected}”确认批量删除`)
+    return
+  }
+
+  batchDeleting.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const result = await batchDeleteOrders(token, buildBatchDeleteRows(ordersForDelete), reason, expected)
+    const deletedCount = Number(result.deleted_count || result.deletedCount || 0)
+    const failedCount = Number(result.failed_count || result.failedCount || 0)
+    const failures = Array.isArray(result.failures) ? result.failures : []
+    const deleted = Array.isArray(result.deleted) ? result.deleted : []
+
+    if (deletedCount) {
+      ElMessage.success(`已删除 ${deletedCount} 个工单${failedCount ? `，${failedCount} 个未删除` : ''}`)
+    } else {
+      ElMessage.warning('没有工单被删除')
+    }
+    if (failures.length) {
+      const extra = failures.length > 8 ? `\n其余 ${failures.length - 8} 个失败原因请刷新后逐单查看。` : ''
+      await ElMessageBox.alert(formatBatchDeleteFailures(failures) + extra, '未删除工单', {
+        confirmButtonText: '知道了',
+        type: deletedCount ? 'warning' : 'error'
+      })
+    }
+
+    if (deleted.some(item => currentOrder.value && item.order_id === currentOrder.value._id)) {
+      drawerVisible.value = false
+      currentOrder.value = null
+    }
+    selectedOrders.value = []
+    batchDeleteDialogVisible.value = false
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
+  } catch (error) {
+    if (!isUserCancel(error)) {
+      ElMessage.error(error.message || '批量删除失败')
+    }
+  } finally {
+    batchDeleting.value = false
+  }
+}
+
 const getBatchSkipReason = (order = {}, targetStatus = '') => {
   if (!targetStatus) return '当前状态不支持该批量操作'
   if (!canMoveOrderToStatus(order, targetStatus)) return `当前状态“${order.status || '-'}”不能流转到“${targetStatus}”`
@@ -2837,7 +3661,7 @@ const handleQuickStatusChange = async (row, status) => {
     const token = localStorage.getItem('adminToken')
     await updateOrderStatus(token, row._id, toEnglishStatus(status))
     ElMessage.success('工单状态更新成功')
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     syncCurrentOrderFromList(row)
     return true
   } catch (error) {
@@ -2902,7 +3726,7 @@ const handleBatchProcessing = async () => {
       ElMessage.success(`已批量标记处理中 ${targetOrders.length} 单`)
     }
     selectedOrders.value = []
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     if (!isUserCancel(error)) {
       ElMessage.error(error.message || '批量标记处理中失败')
@@ -2960,7 +3784,7 @@ const handleBatchComplete = async () => {
       ElMessage.success(`已批量结单 ${targetOrders.length} 单`)
     }
     selectedOrders.value = []
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     if (!isUserCancel(error)) {
       ElMessage.error(error.message || '批量结单失败')
@@ -3001,7 +3825,7 @@ const confirmQuickShip = async () => {
     }
     ElMessage.success('快捷发货更新成功')
     quickShipDialogVisible.value = false
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     syncCurrentOrderFromList(currentQuickOrder.value)
   } catch (error) {
     ElMessage.error(error.message || '快捷发货失败')
@@ -3022,35 +3846,14 @@ const confirmStatus = async () => {
   }
 }
 
-// 一键开票：财务确认到账后，调用开票服务商自动开票并回填
-const onIssueInvoice = async () => {
-  if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_invoice')) {
-    ElMessage.error('当前角色无权开票')
-    return
-  }
-  try {
-    await ElMessageBox.confirm('确认该工单已收款到账，并自动开具电子发票？', '一键开票', { type: 'warning' })
-  } catch (e) { return }
-  invoiceIssuing.value = true
-  try {
-    const token = localStorage.getItem('adminToken')
-    await issueInvoice(token, currentOrder.value._id)
-    ElMessage.success('开票成功，已回填发票信息')
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) currentOrder.value = fresh
-  } catch (error) {
-    if (!error?.__displayed) ElMessage.error(error?.message || '开票失败')
-  } finally {
-    invoiceIssuing.value = false
-  }
-}
-
 const saveInvoiceStatus = async () => {
   if (!currentOrder.value) return
   if (!canPerformOrderAction('update_invoice')) {
     ElMessage.error('当前角色无权更新发票状态')
+    return
+  }
+  if (!canManuallyRegisterInvoice.value) {
+    ElMessage.error('仅已完工且已核销的对公转账订单可登记发票')
     return
   }
   loading.value = true
@@ -3058,6 +3861,7 @@ const saveInvoiceStatus = async () => {
     const token = localStorage.getItem('adminToken')
     await updateInvoiceStatus(token, currentOrder.value._id, invoiceStatus.value, {
       invoice_type: invoiceForm.invoiceType,
+      fulfillment_mode: 'manual',
       title: invoiceForm.title,
       taxNo: invoiceForm.taxNo,
       email: invoiceForm.email,
@@ -3087,6 +3891,28 @@ const saveInvoiceStatus = async () => {
     ElMessage.error(error.message || '发票状态保存失败')
   } finally {
     loading.value = false
+  }
+}
+
+const handleInvoicePdfSelect = async (uploadFile) => {
+  const raw = uploadFile && uploadFile.raw
+  if (!raw || invoiceFileUploading.value || !currentOrder.value) return
+  if (raw.type !== 'application/pdf' || !/\.pdf$/i.test(raw.name || '')) {
+    ElMessage.warning('电子发票原件仅支持 PDF 文件')
+    return
+  }
+
+  invoiceFileUploading.value = true
+  try {
+    const orderKey = String(currentOrder.value.id || currentOrder.value._id || 'order').replace(/[^a-zA-Z0-9_-]/g, '_')
+    const uploaded = await uploadFileToCloud(raw, `invoice/${orderKey}/`, 20 * 1024 * 1024)
+    invoiceForm.pdfUrl = uploaded.fileUrl
+    invoiceFileName.value = raw.name
+    ElMessage.success('电子发票原件已上传到云存储')
+  } catch (error) {
+    ElMessage.error(error.message || '电子发票原件上传失败')
+  } finally {
+    invoiceFileUploading.value = false
   }
 }
 
@@ -3140,11 +3966,28 @@ const saveOrderQuote = async (status = 'draft') => {
     ElMessage.success(status === 'issued' ? '报价已发布' : '报价草稿已保存')
     await loadOrders()
     const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) {
-      currentOrder.value = fresh
-      resetQuoteForm(fresh)
-    } else if (result) {
-      resetQuoteForm({ ...currentOrder.value, ...result })
+    const updatedOrder = fresh || (result
+      ? {
+          ...currentOrder.value,
+          quoteDetail: result.quote_detail ?? result.quoteDetail ?? currentOrder.value.quoteDetail,
+          quoteItems: result.quote_items ?? result.quoteItems ?? currentOrder.value.quoteItems,
+          quoteStatus: result.quote_status ?? result.quoteStatus ?? status,
+          quoteRemark: result.quote_remark ?? result.quoteRemark ?? currentOrder.value.quoteRemark,
+          quoteTime: result.quote_update_time ?? result.quoteTime ?? currentOrder.value.quoteTime,
+          paymentDeadline: result.payment_deadline ?? result.paymentDeadline ?? currentOrder.value.paymentDeadline,
+          partsFee: Number(result.parts_fee ?? result.partsFee ?? currentOrder.value.partsFee ?? 0),
+          laborFee: Number(result.labor_fee ?? result.laborFee ?? currentOrder.value.laborFee ?? 0),
+          totalPrice: Number(result.total_price ?? result.totalPrice ?? currentOrder.value.totalPrice ?? total),
+          paymentStatus: result.payment_status ?? result.paymentStatus ?? currentOrder.value.paymentStatus,
+          needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
+          archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
+          timeline: result.timeline ?? currentOrder.value.timeline
+        }
+      : null)
+    if (updatedOrder) {
+      currentOrder.value = updatedOrder
+      resetQuoteForm(updatedOrder)
+      if (status === 'issued') activeDrawerTab.value = getRecommendedDrawerTab(updatedOrder)
     }
   } catch (error) {
     ElMessage.error(error.message || '报价保存失败')
@@ -3186,8 +4029,12 @@ const markPaymentPaid = async () => {
     const token = localStorage.getItem('adminToken')
     const orderId = currentOrder.value._id
     const result = await updatePaymentStatus(token, orderId, 'paid')
-    ElMessage.success('付款已标记为到账')
-    await loadOrders()
+    if (result.inventoryResult?.warning) {
+      ElMessage.warning(`付款已标记为到账；${result.inventoryResult.reason || '配件未自动出库，请到库存管理核对'}`)
+    } else {
+      ElMessage.success('付款已标记为到账')
+    }
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
     const fresh = orders.value.find(item => item._id === orderId)
     if (fresh) {
       currentOrder.value = fresh
@@ -3429,12 +4276,14 @@ const loadPrintConfig = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const data = await getSettings(token)
+    corporateAccount.value = resolveCorporateAccount(data)
     const templates = parsePrintTemplates(data && data.print_templates, data && data.print_config)
     await Promise.all(Object.values(templates).map(template => resolvePrintLogo(template)))
     printSettingsRaw.value = { ...(data || {}), print_templates: templates }
     printConfig.value = templates.repair_order
     feeTiers.value = parseSettingsArray(data && data.fee_tier_templates)
   } catch (error) {
+    corporateAccount.value = resolveCorporateAccount()
     const templates = parsePrintTemplates()
     printSettingsRaw.value = { print_templates: templates }
     printConfig.value = templates.repair_order
@@ -3490,6 +4339,7 @@ const handleBatchToolbarCommand = (command) => {
   if (command === 'print') return handleConfiguredBatchPrint()
   if (command === 'processing') return handleBatchProcessing()
   if (command === 'complete') return handleBatchComplete()
+  if (command === 'delete') return openBatchDeleteDialog()
 }
 
 const openImportDialog = (type = 'return') => {
@@ -3529,7 +4379,7 @@ const handleImportFile = async (uploadFile) => {
     importDialogVisible.value = false
     importResultVisible.value = true
     ElMessage.success(`导入完成：成功 ${result.success} 条，失败 ${result.fail} 条`)
-    await loadOrders()
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
     ElMessage.error(error.message || '导入失败')
   } finally {
@@ -3569,18 +4419,15 @@ const confirmExportExcel = async () => {
 
 .attention-strip { display: flex; align-items: center; gap: 14px; min-height: 48px; margin-bottom: 16px; padding: 7px 10px; border: 1px solid #edf1f7; border-radius: 8px; background: #fff; }
 .attention-label { flex: none; color: #667085; font-size: 12px; font-weight: 700; }
-.sla-board { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); flex: 1; gap: 8px; }
-.sla-card { appearance: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; align-items: center; gap: 0 8px; height: auto; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
-.sla-card:hover, .sla-card.active { border-color: #8bbcf2; background: #f7fbff; }
-.sla-card span { grid-row: 1 / span 2; color: #4e5969; font-size: 12px; }
-.sla-card strong { color: #1d2129; font-size: 16px; line-height: 1; text-align: right; }
-.sla-card small { color: #98a2b3; font-size: 10px; line-height: 1.2; text-align: right; white-space: nowrap; }
-.sla-card--danger, .sla-card--critical { border-color: #ffd0cc; background: #fff7f6; }
-.sla-card--danger strong, .sla-card--critical strong { color: #f56c6c; }
-.sla-card--warning { border-color: #ffe0a3; background: #fffaf0; }
-.sla-card--warning strong { color: #ff9800; }
-.sla-card--info { border-color: #d9ecff; background: #f7fbff; }
-.sla-card--info strong { color: #1890ff; }
+.status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(92px, 1fr)); flex: 1; gap: 8px; }
+.status-summary-card { appearance: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; height: 34px; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.status-summary-card:hover, .status-summary-card.active { border-color: #8bbcf2; background: #f7fbff; }
+.status-summary-card span { min-width: 0; overflow: hidden; color: #4e5969; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.status-summary-card strong { flex: none; color: #1d2129; font-size: 16px; line-height: 1; }
+.status-summary-card--sent strong, .status-summary-card--received strong { color: #b86b00; }
+.status-summary-card--processing strong { color: #1769aa; }
+.status-summary-card--shipped strong, .status-summary-card--completed strong { color: #238636; }
+.status-summary-card--cancelled strong { color: #b42318; }
 
 .table-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
 .table-section-head > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
@@ -3601,15 +4448,53 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.delete-confirm-panel { display: flex; flex-direction: column; gap: 16px; }
+.delete-confirm-summary { padding: 12px 14px; border-radius: 8px; background: #fff7f7; border: 1px solid #ffd6d6; }
+.delete-confirm-summary strong { display: block; margin-bottom: 6px; color: #c45656; font-size: 14px; line-height: 1.4; }
+.delete-confirm-summary span { display: block; color: #5f6b7a; font-size: 13px; line-height: 1.5; word-break: break-all; }
+.delete-confirm-tip { margin: 6px 0 0; color: #8a97aa; font-size: 12px; line-height: 1.4; }
+.manual-order-form { max-height: 68vh; overflow-y: auto; padding: 0 6px 4px 0; }
+.manual-order-section { padding: 0 0 20px; margin: 0 0 20px; border-bottom: 1px solid #e8edf4; }
+.manual-order-section--last { margin-bottom: 0; border-bottom: 0; }
+.manual-order-section-head { display: flex; align-items: center; gap: 10px; min-height: 36px; margin-bottom: 14px; }
+.manual-order-section-head > div { display: flex; flex-direction: column; min-width: 0; }
+.manual-order-section-head > div strong { color: #17212f; font-size: 15px; line-height: 1.35; }
+.manual-order-section-head > div small { color: #8a97aa; font-size: 12px; line-height: 1.4; }
+.manual-order-section-head > .el-button { margin-left: auto; }
+.manual-order-step { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; background: #1769aa; color: #fff; font-size: 12px; font-weight: 700; }
+.manual-order-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
+.manual-order-grid--customer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.manual-order-grid--intake { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.manual-order-grid--device-detail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.manual-order-filter-row { display: grid; grid-template-columns: minmax(160px, 1.25fr) minmax(140px, 1fr) minmax(130px, .9fr) minmax(170px, 1.1fr); gap: 0 10px; padding: 10px 10px 0; margin-bottom: 10px; border: 1px solid #e5eefb; border-radius: 8px; background: #fff; }
+.manual-order-grid :deep(.el-form-item) { min-width: 0; margin-bottom: 14px; }
+.manual-order-filter-row :deep(.el-form-item) { min-width: 0; margin-bottom: 10px; }
+.manual-order-grid :deep(.el-select),
+.manual-order-grid :deep(.el-date-editor),
+.manual-order-grid :deep(.el-input-number),
+.manual-order-filter-row :deep(.el-select),
+.manual-order-filter-row :deep(.el-date-editor),
+.manual-order-filter-row :deep(.el-input-number) { width: 100%; }
+.manual-order-span-2 { grid-column: 1 / -1; }
+.manual-order-item-list { display: flex; flex-direction: column; gap: 12px; }
+.manual-order-item { padding: 14px 14px 0; border: 1px solid #e5eaf1; border-radius: 8px; background: #fbfcfe; }
+.manual-order-item-head { display: flex; align-items: center; justify-content: space-between; min-height: 30px; margin-bottom: 8px; }
+.manual-order-item-head strong { color: #344054; font-size: 13px; }
+.manual-order-status { margin-bottom: 16px; }
+.manual-order-logistics-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.manual-order-logistics-column { min-width: 0; padding: 14px 14px 0; border: 1px solid #e5eaf1; border-radius: 8px; }
+.manual-order-logistics-column > strong { display: block; margin-bottom: 12px; color: #344054; font-size: 13px; }
 .column-config-panel { padding: 4px 2px; }
 .column-config-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .column-config-head strong { color: #1d2129; font-size: 14px; }
-.column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; }
-.table-responsive { width: 100%; overflow-x: auto; margin-top: 4px; }
-.modern-table { min-width: 1280px; }
+.column-config-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 14px; max-height: min(58vh, 520px); overflow-y: auto; padding-right: 4px; }
+.table-responsive { width: 100%; overflow: hidden; margin-top: 4px; }
+.modern-table { min-width: 0; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
 .modern-table :deep(th.el-table__cell) { background-color: #f7f8fa !important; color: #4e5969; font-weight: 600; border-bottom: none; font-size: 13px; }
 .modern-table :deep(td.el-table__cell) { border-bottom: 1px solid #f0f2f5; padding: 16px 0; }
+.modern-table :deep(.operation-column) { background: #fff !important; box-shadow: -8px 0 12px -12px rgba(29, 33, 41, 0.45); }
+.modern-table :deep(th.operation-column) { background: #f7f8fa !important; }
 .operation-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 8px; white-space: nowrap; }
 .operation-actions :deep(.el-button + .el-button) { margin-left: 0; }
 .remark-button { position: relative; }
@@ -3619,7 +4504,8 @@ const confirmExportExcel = async () => {
 
 .clinic-name { font-weight: 600; color: #1d2129; font-size: 14px; margin-bottom: 4px; }
 .customer-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.customer-type-tag { margin-left: 0; }
+.customer-type-tag { margin-left: 0; max-width: 180px; }
+.customer-type-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .customer-name { color: #4e5969; font-size: 13px; margin-bottom: 2px; }
 .phone-number { color: #86909c; font-size: 12px; font-family: 'Consolas', monospace; }
 
@@ -3659,7 +4545,7 @@ const confirmExportExcel = async () => {
 .drawer-next-step-copy strong { color: #17212f; font-size: 16px; }
 .drawer-next-step-copy > span:last-child { color: #52637a; font-size: 13px; }
 .drawer-next-step-button { flex: none; }
-.drawer-workflow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0 2px; }
+.drawer-workflow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0 2px; }
 .drawer-workflow-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #98a2b3; font-size: 12px; line-height: 1.2; }
 .drawer-workflow-stage::before { content: ''; position: absolute; top: 9px; left: -50%; width: 100%; height: 2px; background: #e5e9ef; }
 .drawer-workflow-stage:first-child::before { display: none; }
@@ -3758,7 +4644,7 @@ const confirmExportExcel = async () => {
 .quote-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #1d2129; font-size: 14px; font-weight: 600; }
 .quote-section-head em { margin-left: 4px; color: #8a97aa; font-size: 12px; font-style: normal; font-weight: 400; }
 .quote-row-grid { display: grid; align-items: center; gap: 8px; }
-.quote-row-grid--parts { grid-template-columns: 100px minmax(100px, 1fr) 96px 110px 96px 88px auto; }
+.quote-row-grid--parts { grid-template-columns: 100px minmax(100px, 1fr) 96px 110px 96px 88px minmax(150px, 1fr) 150px auto auto; }
 .quote-row-grid--services { grid-template-columns: minmax(120px, 1.2fr) 96px 110px 96px 88px auto; }
 .quote-row-grid--others { grid-template-columns: minmax(140px, 1fr) 110px 96px 88px auto; }
 .quote-item-list, .quote-section { overflow-x: auto; }
@@ -3769,7 +4655,8 @@ const confirmExportExcel = async () => {
 .quote-final-row :deep(.el-input-number) { width: 100%; }
 .quote-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 .quote-actions :deep(.el-button) { min-width: 112px; min-height: 40px; font-size: 15px; font-weight: 600; }
-.payment-status-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.payment-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.payment-account { margin-bottom: 12px; }
 .payment-guide { min-height: 78px; display: flex; flex-direction: column; justify-content: center; gap: 4px; margin-top: 12px; padding: 14px 16px; border-radius: 8px; border: 1px dashed #cfd7e3; background: #fafbfc; }
 .payment-guide strong { color: #17212f; font-size: 14px; }
 .payment-guide span { color: #6b778c; font-size: 12px; line-height: 1.55; }
@@ -3809,6 +4696,7 @@ const confirmExportExcel = async () => {
 .invoice-detail-disclosure > summary small { color: #8b95a5; font-size: 11px; font-weight: 400; }
 .invoice-detail-disclosure > .invoice-form-grid { padding: 2px 14px 4px; }
 .invoice-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.invoice-upload-status { display: block; margin-top: 6px; color: #86909c; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
 .drawer-section .el-textarea { margin-bottom: 10px; }
 .drawer-section .el-button { margin-top: 2px; }
 .drawer-footer { width: 100%; display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
@@ -3825,7 +4713,7 @@ const confirmExportExcel = async () => {
 .sn-edit-input { flex: 1 1 auto; min-width: 0; width: auto; }
 .sn-fields-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 0; }
 .sn-warranty-expire { font-size: 13px; color: #86909c; margin: 2px 0 4px; }
-.warranty-entry-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(140px, 1fr) minmax(160px, 1.4fr); align-items: end; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
+.warranty-entry-row { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)) minmax(220px, 1.5fr); align-items: end; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
 .warranty-entry-row > div > span { display: block; margin-bottom: 4px; color: #4e5969; font-size: 13px; font-weight: 600; }
 .warranty-entry-row :deep(.el-input-number) { width: 100%; }
 .warranty-entry-row > p { margin: 0; color: #7a5200; font-size: 13px; line-height: 1.45; align-self: center; }
@@ -3844,6 +4732,11 @@ const confirmExportExcel = async () => {
 .attachment-list { display: flex; gap: 6px; flex-wrap: wrap; }
 .attachment-thumb { width: 72px; height: 72px; border-radius: 6px; }
 .video-link { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 6px; background: #e6f4ff; color: #1890ff; font-size: 13px; text-decoration: none; }
+.order-video-player-wrap { display: flex; flex-direction: column; gap: 12px; }
+.order-video-player { display: block; width: 100%; max-height: min(68vh, 720px); aspect-ratio: 16 / 9; background: #000; object-fit: contain; }
+.video-download-link { color: #667085; font-size: 13px; text-decoration: none; }
+.video-download-link:hover { color: #1890ff; }
+.order-video-dialog :deep(.el-dialog__footer) { display: flex; align-items: center; justify-content: flex-end; gap: 16px; }
 /* 检测与报价：默认中号控件，字更大、框更高 */
 .product-detail-card :deep(.el-input__wrapper),
 .product-detail-card :deep(.el-select__wrapper),
@@ -3876,14 +4769,17 @@ const confirmExportExcel = async () => {
 
 .logistics-info { font-size: 12px; color: #4e5969; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px; }
 .logistics-label { color: #86909c; font-weight: 500; }
-.next-action-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
-.next-action-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
+.progress-cell { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; }
+.progress-next-action { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
+.progress-next-action > span:last-child { color: #667085; font-size: 11px; line-height: 1.35; }
+.progress-current-status { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.progress-current-label { flex: none; color: #98a2b3; font-size: 10px; }
 .sla-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
 .sla-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
 .sla-cell--warning span:last-child { color: #ff9800; font-weight: 600; }
 .sla-cell--critical span:last-child { color: #f56c6c; font-weight: 600; }
 
-.status-tag { font-weight: 600; font-size: 12px; }
+.status-tag { max-width: 100%; font-weight: 600; font-size: 12px; }
 .status-dropdown-trigger { display: inline-flex; cursor: pointer; outline: none; }
 .status-dropdown-caret { margin-left: 4px; font-size: 10px; }
 .status-已提交, .status-待处理 { background: #e6f4ff !important; color: #1890ff !important; border-color: #91d5ff !important; }
@@ -3892,7 +4788,7 @@ const confirmExportExcel = async () => {
 .status-已回寄, .status-已发货, .status-已完成 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 .status-已取消 { background: #fff1f0 !important; color: #f56c6c !important; border-color: #ffccc7 !important; }
 .status-已处理 { background: #f0f2f5 !important; color: #86909c !important; border-color: #d9d9d9 !important; }
-.update-time { font-size: 11px; color: #86909c; margin-top: 4px; }
+.update-time { max-width: 100%; overflow: hidden; color: #86909c; font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .update-time.is-overdue { color: #f56c6c; font-weight: 600; }
 .inline-muted { color: #86909c; font-size: 12px; margin-left: 6px; }
 .section-helper { color: #86909c; font-size: 12px; line-height: 1.6; margin: 0 0 10px !important; }
@@ -3913,14 +4809,20 @@ const confirmExportExcel = async () => {
 .invoice-未发票 { background: #fff7e6 !important; color: #ff9800 !important; border-color: #ffd666 !important; }
 .invoice-已发票 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 
+@media screen and (max-width: 1200px) {
+  .status-summary-board { grid-template-columns: repeat(4, minmax(92px, 1fr)); }
+}
+
 @media screen and (max-width: 768px) {
   .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .page-header-actions { width: 100%; }
+  .page-header-actions :deep(.el-button) { width: 100%; }
   .workorder-toolbar { padding: 10px; }
   .search-strip { grid-template-columns: 1fr; }
   .batch-strip { justify-content: flex-start; overflow-x: auto; padding-bottom: 2px; }
   .selection-count { margin-right: 4px; white-space: nowrap; }
   .attention-strip { align-items: flex-start; flex-direction: column; gap: 8px; }
-  .sla-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .status-summary-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .table-section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .table-section-head > div { align-items: flex-start; flex-direction: column; gap: 2px; }
   .drawer-body { gap: 8px; }
@@ -3932,7 +4834,7 @@ const confirmExportExcel = async () => {
   .drawer-next-step { align-items: flex-start; }
   .drawer-next-step-copy { grid-template-columns: 1fr; }
   .drawer-next-step-eyebrow { grid-row: auto; }
-  .drawer-workflow { margin-inline: 0; grid-template-columns: repeat(6, minmax(52px, 1fr)); padding: 2px 0 4px; overflow-x: auto; }
+  .drawer-workflow { margin-inline: 0; grid-template-columns: repeat(5, minmax(52px, 1fr)); padding: 2px 0 4px; overflow-x: auto; }
   .drawer-tabs :deep(.el-tabs__item) { padding: 0 10px; }
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
@@ -3952,6 +4854,17 @@ const confirmExportExcel = async () => {
   .invoice-detail-disclosure > summary::before { position: absolute; right: 16px; margin-top: 5px; }
   .drawer-footer-actions { flex-wrap: wrap; }
   .warranty-entry-row { grid-template-columns: 1fr; align-items: stretch; }
+  .manual-order-form { max-height: none; padding-right: 0; }
+  .manual-order-grid,
+  .manual-order-grid--customer,
+  .manual-order-grid--intake,
+  .manual-order-grid--device-detail,
+  .manual-order-filter-row,
+  .manual-order-logistics-columns { grid-template-columns: 1fr; }
+  .manual-order-section-head { align-items: flex-start; flex-wrap: wrap; }
+  .manual-order-section-head > .el-button { margin-left: 36px; }
+  .manual-order-status :deep(.el-radio-group) { display: grid; grid-template-columns: 1fr; width: 100%; }
+  .manual-order-status :deep(.el-radio-button__inner) { width: 100%; }
 }
 
 </style>

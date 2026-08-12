@@ -3,7 +3,7 @@
     <div class="section-title">
       <div>
         <span>系统配置</span>
-        <p class="section-desc">维护保修政策、收费办法、基础收费项、隐私合规文案和小程序联系方式。</p>
+        <p class="section-desc">维护保修政策、收费办法、基础收费项、小程序联系方式和预览二维码。</p>
       </div>
     </div>
     <el-tabs v-model="activeContentTab" class="modern-tabs">
@@ -13,6 +13,12 @@
           <el-button type="primary" link @click="openPolicyPreview('warranty')"><el-icon><View /></el-icon>预览小程序效果</el-button>
         </div>
         <div class="sub-label">直接填写保修政策内容，支持图文；保存后同步至小程序「保修政策」页展示。</div>
+        <PolicyDocumentImporter
+          v-model="warrantyPolicyDocument"
+          document-key="warranty"
+          title="保修政策 Word 文档"
+          description="保留原稿页面，同时生成适合手机阅读的排版。"
+        />
         <RichEditor v-model="config.warranty" upload-dir="warranty/" placeholder="填写保修政策总述，如质保范围、保修期限、免责情形等…" />
 
         <div class="qual-head" style="margin-top:24px;">
@@ -38,6 +44,12 @@
           <el-button type="primary" link @click="openPolicyPreview('fees')"><el-icon><View /></el-icon>预览小程序效果</el-button>
         </div>
         <div class="sub-label">直接填写收费办法说明，支持图文；保存后同步至小程序「收费指南」页展示。</div>
+        <PolicyDocumentImporter
+          v-model="feePolicyDocument"
+          document-key="fees"
+          title="收费指南 Word 文档"
+          description="自动识别标题、列表和表格，并生成原稿 PDF 与逐页预览。"
+        />
         <RichEditor v-model="config.feePolicy" upload-dir="fees/" placeholder="填写收费办法说明，如检测费、维修费、加急费的计费规则等…" />
 
         <div class="qual-head">
@@ -69,7 +81,7 @@
 
       <el-tab-pane label="操作教程" name="guides">
         <el-alert
-          title="这里维护小程序首页两个操作教程按钮，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
+          title="这里维护小程序首页的「快速指南」和「报修指南」，并管理首页「介绍视频」。上传 PDF 或 Word 后，用户点击对应按钮会直接打开该文档。"
           type="info"
           show-icon
           :closable="false"
@@ -107,10 +119,10 @@
           </div>
         </div>
         <div class="qual-head maintenance-video-head">
-          <span>首页介绍视频</span>
+          <span>产品安装及维护保养视频</span>
           <el-button type="primary" link :disabled="maintenanceVideos.length >= 1" @click="addMaintenanceVideo">+ 添加视频</el-button>
         </div>
-        <div class="sub-label">保存后展示在小程序首页「操作教程」下方，只保留 1 个视频。适合上传售后流程、报修寄修、服务介绍等客户引导视频。</div>
+        <div class="sub-label">保存后展示在小程序首页「操作教程」下方，只保留 1 个视频。</div>
         <div class="product-video-list maintenance-video-list-admin">
           <div v-for="(video, index) in maintenanceVideos" :key="video._key" class="policy-document-card product-video-card">
             <div class="product-video-cover">
@@ -121,8 +133,6 @@
               </el-upload>
             </div>
             <div class="product-video-fields">
-              <el-input v-model="video.title" placeholder="视频标题，如：售后服务流程介绍" maxlength="50" show-word-limit />
-              <el-input v-model="video.intro" type="textarea" :rows="2" placeholder="一句话简介（可选）" maxlength="120" show-word-limit style="margin-top:8px;" />
               <div class="product-video-fileline">
                 <el-tag v-if="video.video_name" type="success" effect="plain"><el-icon><VideoPlay /></el-icon> {{ video.video_name }}</el-tag>
                 <span v-else class="policy-document-empty">暂未上传视频</span>
@@ -142,66 +152,9 @@
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="隐私与合规" name="compliance">
-        <el-alert
-          title="医疗器械小程序上线必备：隐私政策、账号注销规则、资质公示。保存后小程序端实时读取并展示。"
-          type="warning"
-          show-icon
-          :closable="false"
-          style="margin: 20px 0;"
-        />
-
-        <div class="field-title">隐私政策</div>
-        <RichEditor v-model="compliance.privacy_policy" upload-dir="compliance/" placeholder="完整隐私协议，支持图文，一键同步至小程序隐私弹窗（个人信息收集用途也写在此处即可）…" />
-
-        <div class="field-title" style="margin-top:20px;">账号注销规则</div>
-        <el-input v-model="compliance.account_cancellation_policy" type="textarea" :rows="3" placeholder="账号注销流程与数据删除规则（满足《个人信息保护法》），简要说明即可" />
-
-        <div class="qual-head">
-          <span>资质公示</span>
-          <el-button type="primary" link @click="addQualification">+ 新增资质</el-button>
-        </div>
-        <div v-if="!qualifications.length" class="empty-tip">还没有资质，点击右上角“新增资质”。小程序「公司介绍 / 关于我们」会自动读取展示。</div>
-        <div v-for="(item, index) in qualifications" :key="index" class="qual-card">
-          <div class="qual-row">
-            <el-input v-model="item.name" placeholder="资质名称，如《医疗器械生产许可证》" style="max-width:360px;" />
-            <el-radio-group v-model="item.type">
-              <el-radio-button label="image">图片</el-radio-button>
-              <el-radio-button label="text">文本</el-radio-button>
-            </el-radio-group>
-            <el-button type="danger" link @click="qualifications.splice(index, 1)">删除</el-button>
-          </div>
-          <div v-if="item.type === 'image'" class="qual-img-row">
-            <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(f) => handleQualImage(f, item)">
-              <el-button>{{ item.imageUrl ? '更换图片' : '上传图片' }}</el-button>
-            </el-upload>
-            <img v-if="qualPreview(item)" :src="qualPreview(item)" class="qual-thumb" />
-            <span v-else-if="item.imageUrl" class="preview-hint">图片已上传（云存储）</span>
-          </div>
-          <el-input v-else v-model="item.text" type="textarea" :rows="3" placeholder="资质说明文本，如备案号、有效期等" />
-        </div>
-
-        <el-divider />
-
-        <div class="qual-head">
-          <span>小程序体验版二维码</span>
-        </div>
-        <div class="empty-tip">上传微信公众平台「版本管理」的体验版/开发版二维码。后台顶栏「访问小程序」按钮会弹出此码供员工扫码预览客户端；换版后重新上传即可（员工微信需先在公众平台「成员管理」加为体验成员）。</div>
-        <div class="qual-img-row">
-          <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="handleMiniappQr">
-            <el-button>{{ miniappQr ? '更换二维码' : '上传二维码' }}</el-button>
-          </el-upload>
-          <img v-if="miniappQrPreview" :src="miniappQrPreview" class="qual-thumb" />
-          <span v-else-if="miniappQr" class="preview-hint">二维码已上传（云存储）</span>
-          <el-button v-if="miniappQr" type="danger" link @click="removeMiniappQr">移除</el-button>
-        </div>
-
-        <div class="save-row"><el-button type="primary" :loading="savingCompliance" @click="saveCompliance">保存隐私与合规配置</el-button></div>
-      </el-tab-pane>
-
       <el-tab-pane label="联系与公众号" name="contact">
         <el-alert
-          title="以下内容直接展示在小程序首页与「关于我们」：企业联系方式、在线客服和公众号二维码。保存后小程序端实时读取展示。"
+          title="以下内容直接展示在小程序首页与「关于我们」：企业联系方式、在线客服、公众号二维码、公众号原始 ID 和后台预览二维码。保存后小程序端实时读取展示。"
           type="info"
           show-icon
           :closable="false"
@@ -253,6 +206,7 @@
         <div class="field-title" style="margin-top:20px;">公众号</div>
         <el-form :model="contactInfo" label-width="110px" class="print-form">
           <el-form-item label="公众号名称"><el-input v-model="contactInfo.wechat_name" placeholder="公众号名称" /></el-form-item>
+          <el-form-item label="原始 ID"><el-input v-model="contactInfo.wechat_username" placeholder="gh_ 开头，用于小程序内直接打开公众号主页" /></el-form-item>
           <el-form-item label="公众号简介"><el-input v-model="contactInfo.wechat_desc" type="textarea" :rows="2" placeholder="关注引导文案" /></el-form-item>
           <el-form-item label="公众号二维码">
             <div class="logo-row">
@@ -265,7 +219,44 @@
           </el-form-item>
         </el-form>
 
-        <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与公众号配置</el-button></div>
+        <div class="field-title" style="margin-top:20px;">小程序体验版二维码</div>
+        <div class="empty-tip">上传微信公众平台「版本管理」的体验版/开发版二维码。后台顶栏「访问小程序」按钮会弹出此码供员工扫码预览客户端；换版后重新上传即可（员工微信需先在公众平台「成员管理」加为体验成员）。</div>
+        <div class="qual-img-row">
+          <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="handleMiniappQr">
+            <el-button>{{ miniappQr ? '更换二维码' : '上传二维码' }}</el-button>
+          </el-upload>
+          <img v-if="miniappQrPreview" :src="miniappQrPreview" class="qual-thumb" />
+          <span v-else-if="miniappQr" class="preview-hint">二维码已上传（云存储）</span>
+          <el-button v-if="miniappQr" type="danger" link @click="removeMiniappQr">移除</el-button>
+        </div>
+
+        <div class="save-row"><el-button type="primary" :loading="savingContact" @click="saveContact">保存联系与访问配置</el-button></div>
+      </el-tab-pane>
+
+      <el-tab-pane label="公司介绍" name="company">
+        <el-alert
+          title="这里维护小程序「公司介绍」页「产品矩阵」的四张产品图。保存后小程序端实时读取展示；某栏目未配置时继续使用小程序内置默认图片，无需重新发布小程序。"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin: 20px 0;"
+        />
+        <div class="field-title">产品矩阵图片</div>
+        <div class="company-product-grid">
+          <div v-for="item in COMPANY_PRODUCT_IMAGE_ITEMS" :key="item.key" class="company-product-card">
+            <div class="company-product-label">{{ item.label }}</div>
+            <div class="company-product-upload">
+              <el-upload action="#" :auto-upload="false" :show-file-list="false" accept=".png,.jpg,.jpeg,.webp" :on-change="(f) => handleCompanyProductUpload(f, item.key)">
+                <el-button>{{ companyProductImages[item.key] ? '更换图片' : '上传图片' }}</el-button>
+              </el-upload>
+              <img v-if="companyProductPreview(item.key)" :src="companyProductPreview(item.key)" class="company-product-thumb" />
+              <span v-else-if="companyProductImages[item.key]" class="preview-hint">图片已上传（云存储）</span>
+              <el-button v-if="companyProductImages[item.key]" type="danger" link @click="removeCompanyProductImage(item.key)">移除</el-button>
+            </div>
+          </div>
+        </div>
+        <div class="empty-tip" style="margin-top:12px;">仅替换对应系列的产品展示图，不影响栏目名称与简介文案。</div>
+        <div class="save-row"><el-button type="primary" :loading="savingCompanyProductImages" @click="saveCompanyProductImages">保存公司介绍产品图</el-button></div>
       </el-tab-pane>
 
       <el-tab-pane label="打印模板" name="print">
@@ -362,7 +353,8 @@
         <div class="mp-phone-header">{{ policyPreviewTab === 'warranty' ? '保修政策' : '收费指南' }}</div>
         <div class="mp-phone-body">
           <template v-if="policyPreviewTab === 'warranty'">
-            <template v-if="previewWarrantySections.length">
+            <div v-if="warrantyPolicyDocument?.mobileHtml" class="mp-rich" v-html="warrantyPolicyDocument.mobileHtml"></div>
+            <template v-else-if="previewWarrantySections.length">
               <div v-for="(section, index) in previewWarrantySections" :key="index" class="mp-warranty-section">
                 <div class="mp-warranty-section-title">{{ section.title || '未命名分块' }}</div>
                 <div class="mp-rich" v-html="section.content"></div>
@@ -372,15 +364,16 @@
             <div v-else class="mp-empty">暂无保修政策内容</div>
           </template>
           <template v-else>
-            <div v-if="feeTiers.length" class="mp-fee-table">
+            <div v-if="feePolicyDocument?.mobileHtml" class="mp-rich" v-html="feePolicyDocument.mobileHtml"></div>
+            <div v-else-if="feeTiers.length" class="mp-fee-table">
               <div class="mp-fee-row mp-fee-head"><span>收费项</span><span>标准价</span></div>
               <div v-for="(t, i) in feeTiers" :key="i" class="mp-fee-row">
                 <span class="mp-fee-name">{{ t.name || '未命名' }}<em v-if="t.note">{{ t.note }}</em></span>
                 <span class="mp-fee-price">¥{{ t.price || 0 }}<i v-if="t.unit">/{{ t.unit }}</i></span>
               </div>
             </div>
-            <div v-if="config.feePolicy" class="mp-rich" v-html="config.feePolicy"></div>
-            <div v-if="!feeTiers.length && !config.feePolicy" class="mp-empty">暂无收费办法内容</div>
+            <div v-if="!feePolicyDocument?.mobileHtml && config.feePolicy" class="mp-rich" v-html="config.feePolicy"></div>
+            <div v-if="!feePolicyDocument?.mobileHtml && !feeTiers.length && !config.feePolicy" class="mp-empty">暂无收费办法内容</div>
           </template>
         </div>
       </div>
@@ -405,8 +398,7 @@
             ></video>
             <div v-else class="mp-video-loading">{{ videoPlayLoading ? '视频加载中…' : '视频地址无效，请确认已上传成功' }}</div>
             <div class="mp-video-meta">
-              <div class="mp-video-title">{{ (videoPreviewItem && videoPreviewItem.title) || '未命名视频' }}</div>
-              <div v-if="videoPreviewItem && videoPreviewItem.intro" class="mp-video-intro">{{ videoPreviewItem.intro }}</div>
+              <div class="mp-video-title">产品安装及维护保养视频</div>
             </div>
           </div>
         </div>
@@ -422,8 +414,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
 import PrintTemplateEditor from '../components/PrintTemplateEditor.vue'
 import RichEditor from '../components/RichEditor.vue'
+import PolicyDocumentImporter from '../components/PolicyDocumentImporter.vue'
 import { normalizePolicyHtml } from '../utils/policyHtml.js'
+import { parsePolicyDocumentSetting, serializePolicyDocumentSetting } from '../utils/policyDocument.js'
 import { parsePrintTemplates } from '../utils/orderPrint.js'
+import { DEFAULT_CORPORATE_ACCOUNT } from '../config/corporateAccount.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { uploadToOss } from '../utils/ossUpload.js'
 
@@ -436,6 +431,8 @@ const savingPrintTemplates = ref(false)
 // ===== 保修与收费 =====
 const savingPolicy = ref(false)
 const feeTiers = ref([])
+const warrantyPolicyDocument = ref(null)
+const feePolicyDocument = ref(null)
 // 保修政策分块（小程序按块渲染），存 warranty_policy_sections（JSON 数组 [{title, content}]）
 const warrantySections = ref([])
 
@@ -481,8 +478,8 @@ const moveWarrantySection = (index, offset) => {
 
 // ===== 操作教程文档 =====
 const GUIDE_TYPES = [
-  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 1 },
-  { type: 'invoice', category: '开票指南', desc: '说明发票申请、抬头填写和寄送方式。', sort: 2 }
+  { type: 'quick', category: '快速指南', desc: '快速了解小程序售后流程。', sort: 1 },
+  { type: 'repair', category: '报修指南', desc: '说明报修流程、寄出注意事项和进度查询方式。', sort: 2 }
 ]
 const guideDocuments = ref(GUIDE_TYPES.map(item => ({ ...item, _id: '', file_name: '', file_url: '', file_type: '', updatedAt: '' })))
 const guidePreviewMap = reactive({})
@@ -610,9 +607,10 @@ const saveGuideDocuments = async () => {
   }
 }
 
-// ===== 首页介绍视频（cicada_guides，category=首页介绍视频；desc=标题，content=简介，media=[视频,封面]）=====
+// ===== 首页介绍视频（cicada_guides，标题固定，media=[视频,封面]）=====
 const MAINTENANCE_VIDEO_CATEGORY = '首页介绍视频'
-const MAINTENANCE_VIDEO_LEGACY_CATEGORIES = ['维修保养视频', '维护保养视频', '维修保养', '维护保养']
+const MAINTENANCE_VIDEO_TITLE = '产品安装及维护保养视频'
+const MAINTENANCE_VIDEO_LEGACY_CATEGORIES = ['产品视频', '维修保养视频', '维护保养视频', '维修保养', '维护保养']
 const maintenanceVideos = ref([])
 const savingMaintenanceVideos = ref(false)
 const uploadingVideoKey = ref('')
@@ -647,8 +645,8 @@ const loadMaintenanceVideos = async () => {
       return {
         _id: g._id || g.id || '',
         _key: g._id || g.id || `new-maint-${++videoKeySeq}`,
-        title: g.title || g.description || g.desc || '',
-        intro: g.content || '',
+        title: MAINTENANCE_VIDEO_TITLE,
+        intro: '',
         video_url: video.url || '',
         video_name: video.name || '',
         cover_url: cover.url || '',
@@ -854,8 +852,8 @@ const addMaintenanceVideo = () => {
   maintenanceVideos.value.push({
     _id: '',
     _key: `new-maint-${++videoKeySeq}`,
-    title: '首页介绍视频',
-    intro: '了解报修、寄修、进度查询与开票流程',
+    title: MAINTENANCE_VIDEO_TITLE,
+    intro: '',
     video_url: '',
     video_name: '',
     cover_url: '',
@@ -891,12 +889,8 @@ const saveMaintenanceVideos = async () => {
     return
   }
   for (const v of maintenanceVideos.value) {
-    if (!String(v.title || '').trim()) {
-      ElMessage.warning('请填写首页介绍视频标题')
-      return
-    }
     if (!v.video_url) {
-      ElMessage.warning(`「${v.title || '未命名'}」还没有上传视频`)
+      ElMessage.warning('产品安装及维护保养视频还没有上传视频')
       return
     }
   }
@@ -910,10 +904,10 @@ const saveMaintenanceVideos = async () => {
       const payload = {
         category: MAINTENANCE_VIDEO_CATEGORY,
         audience: 'client',
-        title: String(v.title).trim(),
-        description: String(v.title).trim(),
-        desc: String(v.title).trim(),
-        content: v.intro || '',
+        title: MAINTENANCE_VIDEO_TITLE,
+        description: MAINTENANCE_VIDEO_TITLE,
+        desc: MAINTENANCE_VIDEO_TITLE,
+        content: '',
         media,
         sort: i + 1
       }
@@ -940,12 +934,15 @@ const loadSettings = async () => {
     const data = await getSettings(token)
     config.warranty = normalizePolicyHtml(data.warranty_policy || '')
     config.feePolicy = normalizePolicyHtml(data.fee_description || '')
+    warrantyPolicyDocument.value = parsePolicyDocumentSetting(data.warranty_policy_document)
+    feePolicyDocument.value = parsePolicyDocumentSetting(data.fee_policy_document)
     feeTiers.value = parseJsonArray(data.fee_tier_templates)
     warrantySections.value = parseJsonArray(data.warranty_policy_sections)
       .map(item => ({ title: String(item.title || ''), content: normalizePolicyHtml(item.content || '') }))
     printTemplates.value = parsePrintTemplates(data.print_templates, data.print_config)
-    applyCompliance(data)
+    applyMiniappQr(data)
     applyContactInfo(data)
+    applyCompanyProductImages(data)
     applySurveyConfig(data.survey_config)
   } catch (error) {
     console.error('加载配置失败:', error)
@@ -985,9 +982,8 @@ const saveConfig = async () => {
     await saveSettings(token, {
       warranty_policy: warrantyPolicy,
       fee_description: feePolicy,
-      // 已下线「文档上传」入口：清空旧文档字段，避免小程序端读到过期文档
-      warranty_policy_file: '',
-      fee_policy_file: '',
+      warranty_policy_document: serializePolicyDocumentSetting(warrantyPolicyDocument.value),
+      fee_policy_document: serializePolicyDocumentSetting(feePolicyDocument.value),
       fee_tier_templates: JSON.stringify(cleanFeeTiers),
       warranty_policy_sections: JSON.stringify(cleanWarrantySections)
     })
@@ -1002,64 +998,9 @@ const saveConfig = async () => {
   }
 }
 
-// ===== 隐私与合规配置 =====
-const compliance = reactive({
-  privacy_policy: '',
-  account_cancellation_policy: ''
-})
-const qualifications = ref([])
-const qualPreviewMap = reactive({}) // fileID -> 临时预览地址
-const savingCompliance = ref(false)
+// ===== 小程序访问二维码 =====
 const miniappQr = ref('')          // 小程序体验版二维码（云存储 fileID 或外链）
 const miniappQrPreview = ref('')   // 临时预览地址
-
-const parseQualifications = (value) => {
-  try {
-    const list = value ? JSON.parse(value) : []
-    return Array.isArray(list)
-      ? list.map(it => ({ name: it.name || '', type: it.type === 'text' ? 'text' : 'image', imageUrl: it.imageUrl || '', text: it.text || '' }))
-      : []
-  } catch (error) {
-    return []
-  }
-}
-
-const resolveQualPreviews = async () => {
-  const token = localStorage.getItem('adminToken')
-  const ids = qualifications.value
-    .filter(it => it.type === 'image' && it.imageUrl && !isWebUrl(it.imageUrl) && !qualPreviewMap[it.imageUrl])
-    .map(it => it.imageUrl)
-  if (!ids.length) return
-  try {
-    const map = await getTempFileURL(token, ids)
-    Object.entries(map || {}).forEach(([id, url]) => { qualPreviewMap[id] = url })
-  } catch (error) {
-    console.error('解析资质图片地址失败:', error)
-  }
-}
-
-const qualPreview = (item) => {
-  if (!item || item.type !== 'image' || !item.imageUrl) return ''
-  if (isWebUrl(item.imageUrl)) return item.imageUrl
-  return qualPreviewMap[item.imageUrl] || ''
-}
-
-const addQualification = () => {
-  qualifications.value.push({ name: '', type: 'image', imageUrl: '', text: '' })
-}
-
-const handleQualImage = async (uploadFile, item) => {
-  const raw = uploadFile && uploadFile.raw
-  if (!raw) return
-  try {
-    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, 'compliance/', 5 * 1024 * 1024)
-    item.imageUrl = fileUrl
-    if (tempUrl) qualPreviewMap[fileUrl] = tempUrl
-    ElMessage.success('图片上传成功')
-  } catch (error) {
-    ElMessage.error(error.message || '图片上传失败')
-  }
-}
 
 const handleMiniappQr = async (uploadFile) => {
   const raw = uploadFile && uploadFile.raw
@@ -1079,11 +1020,7 @@ const removeMiniappQr = () => {
   miniappQrPreview.value = ''
 }
 
-const applyCompliance = (data = {}) => {
-  compliance.privacy_policy = data.privacy_policy || ''
-  compliance.account_cancellation_policy = data.account_cancellation_policy || ''
-  qualifications.value = parseQualifications(data.qualifications)
-  resolveQualPreviews()
+const applyMiniappQr = (data = {}) => {
   miniappQr.value = data.miniapp_preview_qr || ''
   resolveMiniappQrPreview()
 }
@@ -1101,49 +1038,27 @@ const resolveMiniappQrPreview = async () => {
   }
 }
 
-const saveCompliance = async () => {
-  try {
-    savingCompliance.value = true
-    const token = localStorage.getItem('adminToken')
-    const cleaned = qualifications.value
-      .filter(it => it.name || it.imageUrl || it.text)
-      .map(it => ({ name: it.name, type: it.type, imageUrl: it.type === 'image' ? it.imageUrl : '', text: it.type === 'text' ? it.text : '' }))
-    await saveSettings(token, {
-      privacy_policy: compliance.privacy_policy,
-      account_cancellation_policy: compliance.account_cancellation_policy,
-      // 已下线的字段：保存空串以清除历史内容，避免小程序端仍展示旧的更新公告/数据收集告知
-      privacy_update_notice: '',
-      data_collection_notice: '',
-      qualifications: JSON.stringify(cleaned),
-      miniapp_preview_qr: miniappQr.value || ''
-    })
-    ElMessage.success('隐私与合规配置已保存')
-  } catch (error) {
-    ElMessage.error(error.message || '保存失败')
-  } finally {
-    savingCompliance.value = false
-  }
-}
-
 // ===== 联系方式 / 在线客服 / 公众号 =====
 const CONTACT_KEYS = [
   'company_name', 'contact_phone', 'contact_email', 'contact_address', 'work_time',
   'bank_transfer_company_name', 'bank_transfer_tax_no', 'bank_transfer_address_phone', 'bank_transfer_bank_name', 'bank_transfer_account_no', 'bank_transfer_line_no',
   'customer_service_title', 'customer_service_desc', 'customer_service_wechat', 'customer_service_qrcode',
-  'wechat_name', 'wechat_desc', 'wechat_qrcode'
+  'wechat_name', 'wechat_desc', 'wechat_qrcode', 'wechat_username'
 ]
 const CONTACT_QR_KEYS = ['customer_service_qrcode', 'wechat_qrcode']
 const DEFAULT_CONTACT_INFO = {
-  company_name: '佛山市思科达医疗器械有限公司',
+  company_name: '佛山市登煌医疗器械有限公司',
   contact_phone: '0757-85775667',
   contact_address: '广东省佛山市南海区狮山镇罗村广东新光源核心基地B5座五楼',
   work_time: '周一至周五 08:00 - 21:00',
-  bank_transfer_company_name: '佛山市登煌医疗器械有限公司',
+  bank_transfer_company_name: DEFAULT_CORPORATE_ACCOUNT.companyName,
   bank_transfer_tax_no: '91440605688623440U',
   bank_transfer_address_phone: '佛山市南海区狮山镇罗村广东新光源产业基地核心区内B区5座二层  0757-85775667',
-  bank_transfer_bank_name: '中国农业银行佛山惠景支行',
-  bank_transfer_account_no: '4442 3201 0400 04288',
-  bank_transfer_line_no: '103588042208'
+  bank_transfer_bank_name: DEFAULT_CORPORATE_ACCOUNT.bankName,
+  bank_transfer_account_no: DEFAULT_CORPORATE_ACCOUNT.accountNo,
+  bank_transfer_line_no: '103588042208',
+  wechat_name: '思科达售后',
+  wechat_username: 'gh_efdbbf08eaa1'
 }
 const contactInfo = reactive(CONTACT_KEYS.reduce((acc, key) => { acc[key] = DEFAULT_CONTACT_INFO[key] || ''; return acc }, {}))
 const contactQrPreviewMap = reactive({})
@@ -1194,12 +1109,82 @@ const saveContact = async () => {
     const token = localStorage.getItem('adminToken')
     const payload = {}
     CONTACT_KEYS.forEach(key => { payload[key] = contactInfo[key] || '' })
+    payload.miniapp_preview_qr = miniappQr.value || ''
     await saveSettings(token, payload)
-    ElMessage.success('联系与公众号配置已保存')
+    ElMessage.success('联系与访问配置已保存')
   } catch (error) {
     ElMessage.error(error.message || '保存失败')
   } finally {
     savingContact.value = false
+  }
+}
+
+// ===== 公司介绍：产品矩阵四张产品图 =====
+const COMPANY_PRODUCT_IMAGE_ITEMS = [
+  { key: 'company_product_root_canal_image', label: '根管系列' },
+  { key: 'company_product_restoration_image', label: '修复系列' },
+  { key: 'company_product_implant_image', label: '种植系列' },
+  { key: 'company_product_prevention_image', label: '预防辅助系列' }
+]
+const companyProductImages = reactive(COMPANY_PRODUCT_IMAGE_ITEMS.reduce((acc, item) => { acc[item.key] = ''; return acc }, {}))
+const companyProductPreviewMap = reactive({})
+const savingCompanyProductImages = ref(false)
+
+const companyProductPreview = (key) => {
+  const value = companyProductImages[key]
+  if (!value) return ''
+  if (isWebUrl(value)) return value
+  return companyProductPreviewMap[value] || ''
+}
+
+const resolveCompanyProductPreviews = async () => {
+  const token = localStorage.getItem('adminToken')
+  const ids = COMPANY_PRODUCT_IMAGE_ITEMS
+    .map(item => companyProductImages[item.key])
+    .filter(value => value && !isWebUrl(value) && !companyProductPreviewMap[value])
+  if (!ids.length) return
+  try {
+    const map = await getTempFileURL(token, ids)
+    Object.entries(map || {}).forEach(([id, url]) => { companyProductPreviewMap[id] = url })
+  } catch (error) {
+    console.error('解析公司产品图预览失败:', error)
+  }
+}
+
+const handleCompanyProductUpload = async (uploadFile, key) => {
+  const raw = uploadFile && uploadFile.raw
+  if (!raw) return
+  try {
+    const { fileUrl, tempUrl } = await uploadFileToCloud(raw, 'company/', 5 * 1024 * 1024)
+    companyProductImages[key] = fileUrl
+    if (tempUrl) companyProductPreviewMap[fileUrl] = tempUrl
+    ElMessage.success('产品图上传成功')
+  } catch (error) {
+    ElMessage.error(error.message || '产品图上传失败')
+  }
+}
+
+const removeCompanyProductImage = (key) => {
+  companyProductImages[key] = ''
+}
+
+const applyCompanyProductImages = (data = {}) => {
+  COMPANY_PRODUCT_IMAGE_ITEMS.forEach(item => { companyProductImages[item.key] = data[item.key] || '' })
+  resolveCompanyProductPreviews()
+}
+
+const saveCompanyProductImages = async () => {
+  try {
+    savingCompanyProductImages.value = true
+    const token = localStorage.getItem('adminToken')
+    const payload = {}
+    COMPANY_PRODUCT_IMAGE_ITEMS.forEach(item => { payload[item.key] = companyProductImages[item.key] || '' })
+    await saveSettings(token, payload)
+    ElMessage.success('公司介绍产品图已保存')
+  } catch (error) {
+    ElMessage.error(error.message || '保存失败')
+  } finally {
+    savingCompanyProductImages.value = false
   }
 }
 
@@ -1425,7 +1410,14 @@ onMounted(() => {
 .modern-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background-color: #f0f2f5; }
 .modern-tabs :deep(.el-tabs__item) { font-size: 15px; padding: 0 20px; }
 
+.company-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 12px; }
+.company-product-card { border: 1px solid #e5eefb; border-radius: 10px; padding: 14px; background: #fbfdff; display: flex; flex-direction: column; gap: 10px; }
+.company-product-label { font-weight: 600; color: #1d2129; }
+.company-product-upload { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.company-product-thumb { height: 72px; max-width: 140px; border-radius: 6px; border: 1px solid #f0f2f5; object-fit: contain; }
+
 @media (max-width: 768px) {
+  .company-product-grid { grid-template-columns: 1fr; }
   .guide-document-grid { grid-template-columns: 1fr; }
   .policy-document-card { align-items:flex-start; flex-direction:column; }
   .policy-document-actions { width:100%; justify-content:flex-start; }

@@ -3,7 +3,7 @@
     <div class="section-title">
       <div>
         <span>客户管理</span>
-        <p class="section-desc">维护诊所、经销商和散户档案，统一查看客户资产、历史工单和服务标签。</p>
+        <p class="section-desc">维护门诊/医院、代理商/经销商和自定义类型客户档案，统一查看客户资产、历史工单和服务标签。</p>
       </div>
       <div class="title-actions">
         <el-button v-if="canEdit" size="small" @click="tagMgrVisible = true">标签管理</el-button>
@@ -20,10 +20,8 @@
     <div class="filter-bar">
       <el-input v-model.trim="filters.keyword" placeholder="客户名称 / 联系人 / 手机号" clearable
         style="width:240px;" @keyup.enter="reload" @clear="reload" />
-      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable style="width:200px;" @change="reload">
-        <el-option label="企业" value="clinic" />
-        <el-option label="签约代理商（齿科）" value="dealer" />
-        <el-option label="个人" value="individual" />
+      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable filterable allow-create default-first-option style="width:200px;" @change="reload">
+        <el-option v-for="option in customerTypeOptionsWithCurrent(filters.customer_type)" :key="option.value" :label="option.label" :value="option.value" />
       </el-select>
       <el-select v-model="filters.status" style="width:130px;" @change="reload">
         <el-option label="正常客户" value="active" />
@@ -101,8 +99,8 @@
               size="small" @click="revealPhone(row)">查看</el-button>
           </template>
         </el-table-column>
-        <el-table-column label="类型" width="100">
-          <template #default="{row}"><el-tag size="small" :type="typeTag(row.customer_type)">{{ typeLabel(row.customer_type) }}</el-tag></template>
+        <el-table-column label="类型" min-width="130">
+          <template #default="{row}"><el-tag class="customer-type-cell-tag" size="small" :type="typeTag(row.customer_type)" :title="typeLabel(row.customer_type)">{{ typeLabel(row.customer_type) }}</el-tag></template>
         </el-table-column>
         <el-table-column label="标签" min-width="140">
           <template #default="{row}">
@@ -138,14 +136,12 @@
   <el-dialog v-model="editVisible" :title="isEdit ? '编辑客户' : '新增客户'" width="520px" align-center>
     <el-form :model="form" label-width="100px">
       <el-form-item label="客户类型">
-        <el-select v-model="form.customer_type" style="width:100%;">
-          <el-option label="企业" value="clinic" />
-          <el-option label="签约代理商（齿科）" value="dealer" />
-          <el-option label="个人" value="individual" />
+        <el-select v-model="form.customer_type" filterable allow-create default-first-option placeholder="选择或输入客户类型" style="width:100%;">
+          <el-option v-for="option in customerTypeOptionsWithCurrent(form.customer_type)" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
       </el-form-item>
       <el-form-item label="客户名称" required>
-        <el-input v-model.trim="form.name" placeholder="诊所名 / 经销商名 / 个人姓名" />
+        <el-input v-model.trim="form.name" placeholder="门诊、经销商或客户名称" />
       </el-form-item>
       <el-form-item label="联系人"><el-input v-model.trim="form.contact" /></el-form-item>
       <el-form-item label="手机号"><el-input v-model.trim="form.phone" maxlength="11" placeholder="11位手机号" /></el-form-item>
@@ -289,8 +285,10 @@
           <strong>质保信息（可后补）</strong>
           <el-tag :type="deviceWarrantyPreview.type" size="small">{{ deviceWarrantyPreview.label }}</el-tag>
         </div>
-        <p>质保月数和截止日期任选一种填写。填写采购日期 + 质保月数后系统自动计算；直接填写截止日期时以截止日期为准。</p>
-        <el-form-item label="质保月数"><el-input-number v-model="deviceForm.warranty_months" :min="1" :max="120" :precision="0" controls-position="right" placeholder="不确定可留空" style="width:100%;" /></el-form-item>
+        <p>有效发票签收日优先；无发票时按SN出厂日期顺延30天起算。质保月数未填时统一按12个月计算。</p>
+        <el-form-item label="发票签收日"><el-date-picker v-model="deviceForm.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期" clearable style="width:100%;" /></el-form-item>
+        <el-form-item label="SN出厂日"><el-date-picker v-model="deviceForm.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时填写" clearable style="width:100%;" /></el-form-item>
+        <el-form-item label="整机质保"><span>统一12个月</span></el-form-item>
         <el-form-item label="质保到期"><el-date-picker v-model="deviceForm.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接选择截止日期" clearable style="width:100%;" /></el-form-item>
         <div class="warranty-preview">{{ deviceWarrantyPreview.detail }}</div>
       </div>
@@ -386,21 +384,21 @@ import {
   listCustomerOrders, getCustomerLogs,
   listTags, saveTag, deleteTag, batchTag, exportCustomers, batchImportCustomers
 } from '../api/customer.js'
+import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { downloadCustomerTemplate, exportCustomerWorkbook, parseCustomerExcelFile } from '../utils/customerExcel.js'
 
-const TYPE_LABELS = { clinic: '企业', dealer: '签约代理商（齿科）', individual: '个人' }
 const route = useRoute()
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
 const WARRANTY_LABELS = { in_warranty: '在保', extended: '已延保', expired: '过保', unknown: '待补充' }
 const ORDER_STATUS_LABELS = { pending: '待寄出', sent: '已寄出', received: '已收货', inspecting: '检测中', fixing: '维修中', shipped: '已寄回', completed: '已完成', cancelled: '已取消' }
 const LOG_ACTION_LABELS = { create: '新增', edit: '编辑', cancel: '注销', view_phone: '查看手机号', device_save: '设备变更', device_delete: '解绑设备', sync: '同步', export: '导出' }
 
-const typeLabel = (t) => TYPE_LABELS[t] || t || '-'
+const typeLabel = (t) => customerTypeLabel(t) || '-'
 const sourceLabel = (s) => SOURCE_LABELS[s] || '-'
 const warrantyLabel = (s) => WARRANTY_LABELS[s] || '待补充'
 const orderStatusLabel = (s) => ORDER_STATUS_LABELS[s] || s
 const logActionLabel = (a) => LOG_ACTION_LABELS[a] || a
-const typeTag = (t) => (t === 'dealer' ? 'warning' : t === 'individual' ? 'info' : 'success')
+const typeTag = (t) => (customerTypeMeta(t) || {}).type || 'info'
 const warrantyTag = (s) => (s === 'expired' ? 'danger' : (!s || s === 'unknown') ? 'warning' : 'success')
 const warrantyAlertLabel = (category) => ({ missing: '资料待补充', expiring: '即将到期', expired: '已过保' }[category] || '待处理')
 const warrantyAlertTag = (category) => (category === 'expired' ? 'danger' : category === 'expiring' ? 'warning' : 'info')
@@ -418,12 +416,13 @@ const hasCustomerPermission = (action, fallback) => {
   if (permissions && Object.prototype.hasOwnProperty.call(permissions, action)) return !!permissions[action]
   return fallback
 }
-const canCreate = computed(() => hasCustomerPermission('create', ['admin', 'support'].includes(currentRole)))
-const canEdit = computed(() => hasCustomerPermission('edit', ['admin', 'support'].includes(currentRole)))
-const canCancel = computed(() => hasCustomerPermission('cancel', currentRole === 'admin'))
-const canViewPhone = computed(() => hasCustomerPermission('view_phone', currentRole === 'admin'))
-const canDevice = computed(() => hasCustomerPermission('device', ['admin', 'engineer', 'support'].includes(currentRole)))
-const canExport = computed(() => hasCustomerPermission('export', currentRole === 'admin'))
+const hasFallbackRole = (...roles) => currentRole === 'superadmin' || roles.includes(currentRole)
+const canCreate = computed(() => hasCustomerPermission('create', hasFallbackRole('admin', 'support')))
+const canEdit = computed(() => hasCustomerPermission('edit', hasFallbackRole('admin', 'support')))
+const canCancel = computed(() => hasCustomerPermission('cancel', hasFallbackRole('admin')))
+const canViewPhone = computed(() => hasCustomerPermission('view_phone', hasFallbackRole('admin')))
+const canDevice = computed(() => hasCustomerPermission('device', hasFallbackRole('admin', 'engineer', 'support')))
+const canExport = computed(() => hasCustomerPermission('export', hasFallbackRole('admin')))
 
 const loading = ref(false)
 const saving = ref(false)
@@ -454,7 +453,7 @@ const tagColor = (name) => tagColorMap.value[name] || ''
 const load = async () => {
   loading.value = true
   try {
-    const data = await listCustomers({ ...filters })
+    const data = await listCustomers({ ...filters, customer_type: resolveCustomerTypeValue(filters.customer_type) })
     list.value = data.list || []
     total.value = data.total || 0
   } catch (e) { /* 拦截器已提示 */ } finally { loading.value = false }
@@ -527,6 +526,10 @@ const openEdit = (row) => {
 const saveCustomer = async () => {
   if (!form.name) { ElMessage.warning('请填写客户名称'); return }
   if (form.phone && !/^1\d{10}$/.test(form.phone)) { ElMessage.warning('手机号格式不正确'); return }
+  const customerType = resolveCustomerTypeValue(form.customer_type)
+  if (!customerType) { ElMessage.warning('请选择或输入客户类型'); return }
+  if (customerType.length > 40) { ElMessage.warning('客户类型不能超过 40 个字符'); return }
+  form.customer_type = customerType
   saving.value = true
   try {
     const payload = { ...form }
@@ -595,13 +598,26 @@ const loadLogs = async () => { tabLoading.value = true; try { logs.value = await
 
 // ===== 设备弹窗 =====
 const deviceVisible = ref(false)
-const deviceForm = reactive({ _id: null, product_category: '', product_name: '', model: '', sn: '', purchase_channel: '', dealer_name: '', buy_date: '', warranty_months: null, warranty_expire: '', maintenance_cycle: '' })
+const deviceForm = reactive({ _id: null, product_category: '', product_name: '', model: '', sn: '', purchase_channel: '', dealer_name: '', buy_date: '', warranty_start_date: '', invoice_received_date: '', manufacture_date: '', warranty_months: null, warranty_expire: '', maintenance_cycle: '' })
 const addMonthsToDate = (dateStr, months) => {
   const amount = Number(months)
   if (!dateStr || !Number.isFinite(amount) || amount <= 0) return ''
   const date = new Date(`${dateStr}T00:00:00`)
   if (Number.isNaN(date.getTime())) return ''
+  const day = date.getDate()
+  date.setDate(1)
   date.setMonth(date.getMonth() + amount)
+  const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
+  date.setDate(Math.min(day, lastDay))
+  const pad = (value) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+const addDaysToDate = (dateStr, days) => {
+  if (!dateStr) return ''
+  const date = new Date(`${dateStr}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return ''
+  date.setDate(date.getDate() + Number(days || 0))
+  const pad = (value) => String(value).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
@@ -614,10 +630,13 @@ const openWarrantyAlert = async (alert) => {
   openDevice(device)
 }
 const deviceWarrantyPreview = computed(() => {
-  const expire = deviceForm.warranty_expire || addMonthsToDate(deviceForm.buy_date, deviceForm.warranty_months)
+  const startDate = deviceForm.invoice_received_date
+    || (deviceForm.manufacture_date ? addDaysToDate(deviceForm.manufacture_date, 30) : '')
+    || deviceForm.warranty_start_date
+    || deviceForm.buy_date
+  const expire = deviceForm.warranty_expire || addMonthsToDate(startDate, 12)
   if (!expire) {
-    const missingDate = deviceForm.warranty_months && !deviceForm.buy_date
-    return { type: 'warning', label: '待补充', detail: missingDate ? '已填写质保月数，请再填写采购日期；也可以直接填写质保到期日。' : '当前不会自动判定保内或保外，后续可随时补充。' }
+    return { type: 'warning', label: '待补充', detail: '请填写发票签收日；无发票时填写SN出厂日，系统会顺延30天起算。' }
   }
   const active = Date.now() <= new Date(`${expire}T23:59:59`).getTime()
   return { type: active ? 'success' : 'danger', label: active ? '预计在保' : '预计过保', detail: `系统判定依据：质保截止 ${expire}` }
@@ -632,6 +651,9 @@ const openDevice = (row) => {
     purchase_channel: row ? (row.purchase_channel || '') : '',
     dealer_name: row ? (row.dealer_name || '') : '',
     buy_date: row ? (row.buy_date || '') : '',
+    warranty_start_date: row ? (row.warranty_start_date || '') : '',
+    invoice_received_date: row ? (row.invoice_received_date || '') : '',
+    manufacture_date: row ? (row.manufacture_date || '') : '',
     warranty_months: row && Number(row.warranty_months) > 0 ? Number(row.warranty_months) : null,
     warranty_expire: row ? (row.warranty_expire || '') : '',
     maintenance_cycle: row ? (row.maintenance_cycle || '') : ''
@@ -642,7 +664,7 @@ const saveDevice = async () => {
   if (!deviceForm.product_name) { ElMessage.warning('请填写设备名称'); return }
   saving.value = true
   try {
-    await saveCustomerDevice(detail._id, { ...deviceForm, warranty_months: Number(deviceForm.warranty_months) > 0 ? Number(deviceForm.warranty_months) : 0 })
+    await saveCustomerDevice(detail._id, { ...deviceForm, warranty_months: 12 })
     ElMessage.success('已保存')
     deviceVisible.value = false
     loadDevices()
@@ -696,7 +718,7 @@ const submitBatchTag = async () => {
 const doExport = async () => {
   exporting.value = true
   try {
-    const data = await exportCustomers({ keyword: filters.keyword, customer_type: filters.customer_type, status: filters.status, tag: filters.tag })
+    const data = await exportCustomers({ keyword: filters.keyword, customer_type: resolveCustomerTypeValue(filters.customer_type), status: filters.status, tag: filters.tag })
     if (!data.length) { ElMessage.warning('没有可导出的数据'); return }
     await exportCustomerWorkbook(data)
     ElMessage.success(`已导出 ${data.length} 条`)
@@ -765,6 +787,8 @@ watch(() => route.query.alert, () => {
 .batch-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; background: #ecf5ff; border-radius: 8px; color: #4e5969; }
 .batch-bar b { color: #409eff; }
 .row-tag { margin-right: 4px; margin-bottom: 2px; }
+.customer-type-cell-tag { max-width: 100%; }
+.customer-type-cell-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: #909399; font-size: 13px; }
 .tag-add-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .import-tip { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }

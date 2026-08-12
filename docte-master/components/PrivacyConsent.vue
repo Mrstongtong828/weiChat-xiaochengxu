@@ -1,6 +1,7 @@
 <template>
 	<view v-if="show" class="pc-mask">
 		<view class="pc-card">
+			<view class="pc-close tap" @click="reject">×</view>
 			<text class="pc-title">隐私政策与信息授权</text>
 			<scroll-view scroll-y class="pc-body">
 				<rich-text v-if="privacyHtml" :nodes="privacyHtml"></rich-text>
@@ -21,9 +22,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { getCompliance } from '@/api/content.js'
 import { markWechatPrivacyReady, setupWechatPrivacyAuthorization, PRIVACY_STORAGE_KEY } from '@/utils/wechat-privacy.js'
+
+const props = defineProps({
+	disabled: { type: Boolean, default: false }
+})
 
 const show = ref(false)
 const privacyHtml = ref('')
@@ -32,9 +37,21 @@ const privacyHtml = ref('')
 let privacyResolve = null
 
 const showPrivacyDialog = (resolve = null) => {
+	if (props.disabled) {
+		if (typeof resolve === 'function') resolve({ event: 'disagree' })
+		return
+	}
 	privacyResolve = resolve
 	loadComplianceText()
 	show.value = true
+}
+
+const closeWithoutToast = () => {
+	if (typeof privacyResolve === 'function') {
+		privacyResolve({ event: 'disagree' })
+		privacyResolve = null
+	}
+	show.value = false
 }
 
 const loadComplianceText = async () => {
@@ -63,6 +80,11 @@ onUnmounted(() => {
 	// #ifdef MP-WEIXIN
 	uni.$off('needPrivacyAuthorization', showPrivacyDialog)
 	// #endif
+	closeWithoutToast()
+})
+
+watch(() => props.disabled, (disabled) => {
+	if (disabled && show.value) closeWithoutToast()
 })
 
 // 微信官方同意回调：放行被拦截的隐私接口
@@ -100,30 +122,45 @@ const reject = () => {
 	align-items: center;
 	justify-content: center;
 	z-index: 9500;
-	padding: 48rpx;
+	padding: 48rpx 48rpx calc(48rpx + env(safe-area-inset-bottom));
+	box-sizing: border-box;
 }
 .pc-card {
+	position: relative;
 	width: 100%;
 	max-width: 620rpx;
+	height: 78vh;
 	max-height: 78vh;
 	background: #fff;
 	border-radius: 24rpx;
 	padding: 36rpx 32rpx 28rpx;
 	display: flex;
 	flex-direction: column;
+	overflow: hidden;
+	box-sizing: border-box;
 }
-.pc-title { font-size: 34rpx; font-weight: 700; color: #1d2129; text-align: center; }
-.pc-body { margin: 24rpx 0; flex: 1; font-size: 27rpx; line-height: 1.8; color: #4e5969; }
+.pc-title { flex-shrink: 0; padding: 0 52rpx; font-size: 34rpx; font-weight: 700; color: #1d2129; text-align: center; }
+.pc-close { position: absolute; top: 18rpx; right: 18rpx; z-index: 2; width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #f2f4f7; color: #667085; font-size: 42rpx; line-height: 1; }
+.pc-body { margin: 24rpx 0; flex: 1; min-height: 0; height: 0; font-size: 27rpx; line-height: 1.8; color: #4e5969; }
 .pc-text { color: #4e5969; }
 .pc-subtitle { display: block; margin: 20rpx 0 8rpx; font-weight: 600; color: #1d2129; }
-.pc-actions { display: flex; gap: 20rpx; }
+.pc-actions { flex-shrink: 0; display: flex; gap: 20rpx; }
 .pc-btn {
 	flex: 1;
+	height: 88rpx;
+	padding: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 0;
 	text-align: center;
-	padding: 22rpx 0;
 	border-radius: 999rpx;
 	font-size: 29rpx;
+	font-weight: 700;
+	line-height: 88rpx;
+	box-sizing: border-box;
 }
+.pc-btn::after { border: 0; }
 .pc-btn.primary { background: #1E6FE0; color: #fff; }
 .pc-btn.ghost { background: #f2f3f5; color: #4e5969; }
 </style>

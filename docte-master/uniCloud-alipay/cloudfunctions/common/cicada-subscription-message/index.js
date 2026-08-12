@@ -6,6 +6,16 @@ const SUBSCRIPTION_CONFIG_SCENES = Object.freeze([
   { scene: 'order_finish_invoice', title: '设备维修完成通知', envKey: 'ORDER_FINISH_INVOICE' }
 ])
 
+const { getInvoiceRequestBlockReason, isCorporateTransferPayment } = loadInvoicePolicyModule()
+
+function loadInvoicePolicyModule() {
+  try {
+    return require('cicada-invoice-policy')
+  } catch (packageError) {
+    return require('../cicada-invoice-policy')
+  }
+}
+
 const SUBSCRIPTION_TEMPLATE_KEYS = Object.freeze({
   repair_submitted: 'REPAIR_SUBMIT',
   order_received: 'DEVICE_RECEIVE_SHIP',
@@ -97,8 +107,16 @@ function getPaymentTip(scene = '') {
 function getInvoiceHint(order = {}) {
   const invoiceInfo = order.invoice_info || order.invoiceInfo || {}
   const status = normalizeText(invoiceInfo.status)
-  if (['已开具', '已寄出', '已签收'].includes(status)) return '发票已开具，请到工单下载'
-  if (invoiceInfo.need_invoice || status === '待开票' || status === '开具中') return '发票开具后，请到工单下载'
+  const paymentMethod = normalizeText(order.payment_method || order.paymentMethod)
+  if (['已开具', '已寄出', '已签收'].includes(status)) return '发票已开具，请到工单查看'
+  const blockReason = getInvoiceRequestBlockReason(order)
+  if (blockReason) {
+    if (!isCorporateTransferPayment(paymentMethod)) return '微信支付订单不提供发票'
+    if (blockReason.includes('确认对公款项')) return '款项核销后可申请发票'
+    if (blockReason.includes('完成并结单')) return '检修结单后可申请发票'
+    return '当前订单暂不支持申请发票'
+  }
+  if (invoiceInfo.need_invoice || status === '待开票' || status === '开具中') return '发票开具后，请到工单查看'
   return '如需发票，请到工单申请'
 }
 

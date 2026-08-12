@@ -1,11 +1,6 @@
 function getReturnShipmentBlockReason(order = {}) {
-  const isFree = order.charge_type === 'free'
-    || order.charge_type === 'warranty'
-    || order.warranty_status === 'in_warranty'
-  if (isFree) return ''
-  if (order.payment_status !== 'paid') {
-    return '该工单尚未确认到账（payment_status≠paid），未支付不可录入发货物流'
-  }
+  // Payment reconciliation is independent from the physical repair workflow.
+  // Staff may return an unrepaired or unpaid device while the balance remains pending.
   return ''
 }
 
@@ -15,8 +10,8 @@ function getTrackingSegments(order = {}, trackingNo = '') {
   const out = order.ship_out_info || {}
   const back = order.ship_back_info || {}
   const segments = []
-  if ([out.logistics_no, out.logisticsNo].some(value => String(value || '').trim() === no)) segments.push('out')
-  if ([back.logistics_no, back.logisticsNo, back.return_no, back.returnNo].some(value => String(value || '').trim() === no)) segments.push('back')
+  if ([out.logistics_no, out.logisticsNo, out.tracking_no, out.trackingNo].some(value => String(value || '').trim() === no)) segments.push('out')
+  if ([back.logistics_no, back.logisticsNo, back.tracking_no, back.trackingNo, back.return_no, back.returnNo].some(value => String(value || '').trim() === no)) segments.push('back')
   return segments
 }
 

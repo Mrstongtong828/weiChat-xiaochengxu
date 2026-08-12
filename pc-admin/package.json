@@ -13,25 +13,37 @@
     "check:subscription": "node scripts/check-subscription-config.mjs",
     "check:errors": "node scripts/check-request-error-parser.mjs",
     "check:print": "node scripts/check-print-templates.mjs",
+    "check:video": "node scripts/check-workorder-video-preview.mjs",
     "check:security": "node scripts/check-admin-security.mjs",
     "check:warranty": "node scripts/check-warranty-free-flow.mjs",
-    "check:logistics": "node scripts/check-logistics-readiness.mjs"
+    "check:logistics": "node scripts/check-logistics-readiness.mjs",
+    "check:customer-types": "node scripts/check-customer-types.mjs",
+    "check:policy-documents": "node scripts/check-policy-documents.mjs",
+    "check:repair-products": "node scripts/check-repair-products.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
     "@wangeditor/editor": "^5.1.23",
     "@wangeditor/editor-for-vue": "^5.1.12",
-    "axios": "^1.16.1",
+    "axios": "^1.18.0",
+    "docx-preview": "^0.4.0",
+    "dompurify": "^3.4.12",
     "echarts": "^6.1.0",
     "element-plus": "^2.14.0",
     "exceljs": "^4.4.0",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
+    "mammoth": "^1.12.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.34",
     "vue-router": "^4.6.4"
   },
   "overrides": {
     "uuid": "^11.1.1",
-    "form-data": "^4.0.6"
+    "form-data": "^4.0.6",
+    "postcss": "8.5.24",
+    "brace-expansion@^1.0.0": "1.1.18",
+    "brace-expansion@^2.0.0": "2.1.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.6",

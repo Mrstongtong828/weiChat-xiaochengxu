@@ -23,11 +23,11 @@
         </div>
         <div class="login-heading">
           <el-tag type="primary" effect="light" size="small">后台管理</el-tag>
-          <h2>欢迎回来</h2>
-          <p>使用管理账号登录服务工作台。</p>
+          <h2>{{ heading.title }}</h2>
+          <p>{{ heading.description }}</p>
         </div>
 
-        <el-form :model="loginForm" class="login-form" @keyup.enter="handleLogin">
+        <el-form v-if="mode === 'login'" :model="loginForm" class="login-form" @keyup.enter="handleLogin">
           <el-form-item label="账号">
             <el-input
               v-model.trim="loginForm.username"
@@ -51,9 +51,41 @@
               autocomplete="current-password"
             />
           </el-form-item>
+          <div class="form-link-row">
+            <el-button link type="primary" @click="showForgot">忘记密码？</el-button>
+          </div>
           <el-button class="login-button" type="primary" size="large" :loading="loading" @click="handleLogin">
             登录工作台
           </el-button>
+        </el-form>
+
+        <el-form v-else-if="mode === 'forgot'" :model="resetForm" class="login-form" @keyup.enter="sendResetCode">
+          <el-form-item label="账号邮箱">
+            <el-input v-model.trim="resetForm.email" type="email" inputmode="email" placeholder="请输入已绑定的邮箱" prefix-icon="Message" size="large" autocomplete="email" />
+          </el-form-item>
+          <el-button class="login-button" type="primary" size="large" :loading="loading" @click="sendResetCode">发送验证码</el-button>
+          <el-button class="back-button" link @click="showLogin">返回登录</el-button>
+        </el-form>
+
+        <el-form v-else :model="resetForm" class="login-form" @keyup.enter="submitReset">
+          <el-form-item label="账号邮箱">
+            <el-input v-model="resetForm.email" type="email" prefix-icon="Message" size="large" disabled />
+          </el-form-item>
+          <el-form-item label="邮箱验证码">
+            <el-input v-model.trim="resetForm.code" inputmode="numeric" maxlength="6" placeholder="请输入 6 位验证码" prefix-icon="Key" size="large" autocomplete="one-time-code">
+              <template #append>
+                <el-button :disabled="cooldown > 0 || loading" @click="sendResetCode">{{ cooldown > 0 ? `${cooldown}s` : '重新发送' }}</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="新密码">
+            <el-input v-model="resetForm.newPassword" type="password" placeholder="至少 10 位，包含字母和数字" prefix-icon="Lock" show-password size="large" autocomplete="new-password" />
+          </el-form-item>
+          <el-form-item label="确认新密码">
+            <el-input v-model="resetForm.confirmPassword" type="password" placeholder="请再次输入新密码" prefix-icon="Lock" show-password size="large" autocomplete="new-password" />
+          </el-form-item>
+          <el-button class="login-button" type="primary" size="large" :loading="loading" @click="submitReset">重置密码</el-button>
+          <el-button class="back-button" link @click="showLogin">返回登录</el-button>
         </el-form>
 
         <p class="login-note">仅限已授权的管理员、工程师、财务和客服人员使用。</p>
@@ -63,15 +95,89 @@
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { adminLogin } from '../api/admin.js'
+import { adminLogin, requestPasswordReset, resetPasswordByEmail } from '../api/admin.js'
 import { resetSessionExpiredNotice } from '../utils/adminSession.js'
 
 const router = useRouter()
 const loginForm = reactive({ username: '', password: '' })
+const resetForm = reactive({ email: '', code: '', newPassword: '', confirmPassword: '' })
+const mode = ref('login')
 const loading = ref(false)
+const cooldown = ref(0)
+let cooldownTimer = null
+
+const heading = computed(() => ({
+  login: { title: '欢迎回来', description: '使用管理账号登录服务工作台。' },
+  forgot: { title: '找回密码', description: '输入后台账号绑定的邮箱，我们会发送验证码。' },
+  reset: { title: '设置新密码', description: '输入邮件中的验证码并设置新的登录密码。' }
+}[mode.value]))
+
+const showForgot = () => { mode.value = 'forgot' }
+const showLogin = () => {
+  mode.value = 'login'
+  resetForm.code = ''
+  resetForm.newPassword = ''
+  resetForm.confirmPassword = ''
+}
+
+const startCooldown = () => {
+  cooldown.value = 60
+  clearInterval(cooldownTimer)
+  cooldownTimer = setInterval(() => {
+    cooldown.value -= 1
+    if (cooldown.value <= 0) clearInterval(cooldownTimer)
+  }, 1000)
+}
+
+const sendResetCode = async () => {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resetForm.email)) {
+    ElMessage.warning('请输入有效的邮箱地址')
+    return
+  }
+  loading.value = true
+  try {
+    const res = await requestPasswordReset(resetForm.email.toLowerCase())
+    mode.value = 'reset'
+    startCooldown()
+    ElMessage.success(res.msg || '验证码发送请求已提交')
+  } catch (error) {
+    if (!error.__displayed) ElMessage.error(error.message || '验证码发送失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const submitReset = async () => {
+  if (!/^\d{6}$/.test(resetForm.code)) {
+    ElMessage.warning('请输入 6 位邮箱验证码')
+    return
+  }
+  if (resetForm.newPassword.length < 10 || !/[A-Za-z]/.test(resetForm.newPassword) || !/\d/.test(resetForm.newPassword)) {
+    ElMessage.warning('新密码至少需要 10 位，并同时包含字母和数字')
+    return
+  }
+  if (resetForm.newPassword !== resetForm.confirmPassword) {
+    ElMessage.warning('两次输入的密码不一致')
+    return
+  }
+  loading.value = true
+  try {
+    const res = await resetPasswordByEmail(resetForm.email.toLowerCase(), resetForm.code, resetForm.newPassword)
+    ElMessage.success(res.msg || '密码已重置')
+    showLogin()
+    loginForm.username = ''
+    loginForm.password = ''
+  } catch (error) {
+    if (!error.__displayed) ElMessage.error(error.message || '密码重置失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+onBeforeUnmount(() => clearInterval(cooldownTimer))
 
 const handleLogin = async () => {
   if (!loginForm.username || !loginForm.password) {
@@ -154,6 +260,8 @@ const handleLogin = async () => {
 .login-form :deep(.el-input__wrapper.is-focus) { background: #ffffff; box-shadow: 0 0 0 1px hsl(var(--ring)) inset, 0 0 0 4px hsl(var(--ring) / .1) !important; }
 .login-form :deep(.el-input__prefix-inner) { color: #8090a4; }
 .login-button { width: 100%; height: 46px; margin-top: 8px; font-weight: 700; }
+.form-link-row { display: flex; justify-content: flex-end; min-height: 28px; margin-top: -12px; }
+.back-button { justify-self: center; margin-top: 10px; }
 .login-note { margin: 22px 0 0; color: #8a98a8; font-size: 12px; line-height: 1.7; }
 
 @media (max-width: 920px) {

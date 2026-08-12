@@ -1,16 +1,32 @@
-# 牙医仪器检修管理系统
+# CICADA 牙科设备检修管理系统
 
-面向牙科设备售后维修场景的多端项目：客户使用的微信小程序、管理员 / 工程师 / 财务 / 客服使用的 PC 后台，以及两端共用的 uniCloud（支付宝云）云函数与数据库。
+面向牙科设备售后维修场景的多端系统。客户通过微信小程序提交报修并跟踪进度，管理员、工程师、财务和客服通过 PC 后台协同处理工单；两端共用 uniCloud（支付宝云）云函数与云数据库。
+
+> 当前运行版本位于 `docte-master/` 和 `pc-admin/`。仓库根目录保留了一份不完整的旧版小程序文件，仅用于历史兼容，不应作为开发或部署入口。
 
 ## 项目组成
 
 | 模块 | 位置 | 技术栈 | 说明 |
 | --- | --- | --- | --- |
-| 用户端小程序 | `docte-master/` | uni-app、Vue 3、微信小程序 | 客户提交报修、查看维修进度、确认报价、支付、查询包裹、管理地址与设备、投诉建议、查看政策和联系客服 |
+| 用户端小程序 | `docte-master/` | uni-app、Vue 3、微信小程序 | 客户报修、进度跟踪、报价确认、支付、物流、设备、投诉建议、政策与客服 |
 | PC 管理后台 | `pc-admin/` | Vue 3、Vite、Element Plus、Pinia | 工单、配件库存、结算、客户 CRM、知识库、反馈闭环、系统设置和数据导出 |
 | 云端服务 | `docte-master/uniCloud-alipay/` | uniCloud 云函数、云数据库 | 登录、工单状态机、支付与退款、订阅消息、CRM、后台管理接口 |
 
-> 仓库根目录还保留了一份**残缺的小程序旧拷贝**（`App.vue`、`main.js`、`pages.json` 等，没有 `pages/` 与后端）。以 `docte-master/` 为准，根目录文件不是运行版本。最权威的架构导览见根目录 `CLAUDE.md`。
+最权威的架构导览见根目录 [`CLAUDE.md`](CLAUDE.md)。
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    Client["微信小程序<br/>docte-master"] -->|uniCloud 云对象| ClientFunctions[客户端云函数]
+    Admin["PC 管理后台<br/>pc-admin"] -->|HTTPS / URL 化| AdminFunctions[管理端云函数]
+    ClientFunctions --> Shared["共享业务模块<br/>状态机 / 权限 / 支付策略"]
+    AdminFunctions --> Shared
+    ClientFunctions --> DB[(uniCloud 云数据库)]
+    AdminFunctions --> DB
+    Express[物流服务商] -->|回调| Callback[cicada-express-callback]
+    Callback --> DB
+```
 
 ## 核心能力
 
@@ -21,9 +37,11 @@
 - 维修进度、报价确认 / 拒绝、支付状态和回寄物流展示（口径与后台一致）
 - 拒绝报价的归档闭环：未拆检自动取消归档，已检测 / 维修的设备走原路回寄后结案
 - 地址、投诉建议、发票信息、政策与客服 / 公众号入口
+- 「产品视频」统一打开 CICADA 服务号主页；首页产品安装及维护保养视频、公司介绍页产品矩阵图片支持后台配置，并提供内置内容兜底
 
 ### PC 管理后台
 - 工单分页、筛选、**SLA 时效预警与筛选**、导出、批量操作和待办中心
+- 工单搜索支持**运单号**；工单支持**自定义字段**（自定义客户类型、对接业务员）与**批量删除**（软删除、记录原因与操作人）
 - 配件库存：配件目录、报价用料扣减、库存流水，**含「报价含配件但未绑库存」告警**
 - 结算与**微信支付 v3 退款**（全额 / 部分、幂等防重、写审计）
 - 客户 CRM：档案、设备台账、历史工单、标签、导入导出、合规日志
@@ -85,7 +103,7 @@ INDEX_TASK.md                数据库索引创建说明
 npm install
 npm run dev:mp-weixin     # 开发构建，产物在 unpackage/dist/dev/mp-weixin
 npm run build:mp-weixin   # 生产构建，产物在 unpackage/dist/build/mp-weixin
-npm run check             # 等同 build:mp-weixin，作为本地验收检查
+npm run check             # 生产构建 + 客户端密钥扫描 + 主包体积校验（本地验收门禁）
 ```
 
 构建完成后用微信开发者工具打开对应产物目录预览。
@@ -114,6 +132,9 @@ npm run build                # 产物输出到 dist/
 - `cicada-admin-kb`：后台故障知识库
 - `cicada-admin-sys`：系统、员工、配置和投诉处理闭环
 - `cicada-maintenance`：维护和后台清理任务
+- `cicada-express-callback`：外部物流状态回调
+
+订单状态机、员工权限、发票策略、质保策略和物流供应商适配等共享逻辑位于 `cloudfunctions/common/`。涉及工单状态或角色权限时，应优先修改 `cicada-order-workflow`，并同步管理端云函数中的 fallback 实现。
 
 云函数改动经 HBuilderX「上传并部署」生效；后台云函数需开启 **URL 化**并在 PC 后台配置对应地址。
 
@@ -158,15 +179,26 @@ npm run build                # 产物输出到 dist/
 2. 配置微信登录、支付（含退款）和订阅消息环境变量。
 3. 部署所有 uniCloud 云函数。
 4. 开启后台云函数 URL 化，并更新 PC 后台接口地址。
-5. 运行小程序和 PC 后台构建检查。
+5. 运行小程序 `npm run check`（生产构建 + 客户端密钥扫描 + 主包体积校验）和 PC 后台构建检查。
 6. 用准生产数据验证报修、在保判定、报价、支付 / 退款、发票、物流、回访与订阅消息闭环。
+
+PC 后台还提供按功能拆分的检查脚本：
+
+```bash
+cd pc-admin
+npm run check:urls
+npm run check:staff
+npm run check:subscription
+npm run check:errors
+npm run check:security
+```
 
 ## 参考文档
 
-- `CLAUDE.md`（仓库导览与架构说明，最权威）
-- `docte-master/上线配置清单.md`（微信支付 / 订阅模板 / 索引逐条配置清单）
-- `AFTERSALES_QUOTE_GOAL.md` / `AFTERSALES_DEPLOY_ACCEPTANCE.md`（售后报价与验收目标）
-- `SCALING_GUIDE.md`（约 1000 用户容量调优）
-- `后端对接任务清单.md`
-- `pc-admin/README.md`、`pc-admin/配置指南.md`
-- `docte-master/uniCloud-alipay/database/INDEXES.md`
+- [`CLAUDE.md`](CLAUDE.md)：仓库导览与架构说明（最权威）
+- [`docte-master/README.md`](docte-master/README.md)：小程序与 uniCloud 后端开发说明
+- [`pc-admin/README.md`](pc-admin/README.md)：PC 后台开发与验收说明
+- [`docte-master/上线配置清单.md`](docte-master/上线配置清单.md)：支付、订阅消息、物流和索引上线清单
+- [`docte-master/uniCloud-alipay/database/INDEXES.md`](docte-master/uniCloud-alipay/database/INDEXES.md)：数据库索引说明
+- [`SCALING_GUIDE.md`](SCALING_GUIDE.md)：约 1000 用户容量调优
+- [`AFTERSALES_DEPLOY_ACCEPTANCE.md`](AFTERSALES_DEPLOY_ACCEPTANCE.md)：售后流程部署验收

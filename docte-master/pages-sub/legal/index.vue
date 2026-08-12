@@ -5,6 +5,7 @@
 				<view></view>
 			</view>
 			<text>{{ currentDoc.title }}</text>
+			<image class="legal-brand" :src="cicadaAssets.logoHeader" mode="aspectFit"></image>
 		</view>
 		<scroll-view class="legal-scroll" scroll-y>
 			<view class="legal-content">
@@ -18,6 +19,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
+import { cicadaAssets } from '@/config/cicada-assets'
 
 const userAgreementLines = [
 	'第一条 协议说明',
@@ -131,12 +133,23 @@ const lineClass = (line) => (/^(第.+条|[一二三四五六七八九十]、)/.t
 }
 
 .legal-head > text {
-	max-width: 520rpx;
+	width: 100%;
+	max-width: 450rpx;
 	font-size: 32rpx;
 	font-weight: 800;
 	color: #102044;
 	text-align: center;
 	line-height: 1.3;
+}
+
+.legal-brand {
+	position: absolute;
+	right: 32rpx;
+	bottom: 30rpx;
+	width: 112rpx;
+	height: 28rpx;
+	opacity: 0.26;
+	pointer-events: none;
 }
 
 .legal-back {

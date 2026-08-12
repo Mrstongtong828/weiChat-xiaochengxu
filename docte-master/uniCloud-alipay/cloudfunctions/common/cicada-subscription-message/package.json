@@ -2,5 +2,8 @@
   "name": "cicada-subscription-message",
   "version": "1.0.0",
   "description": "五套微信订阅模板的业务场景映射与关键词填参",
-  "main": "index.js"
+  "main": "index.js",
+  "dependencies": {
+    "cicada-invoice-policy": "file:../cicada-invoice-policy"
+  }
 }

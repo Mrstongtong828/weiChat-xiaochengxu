@@ -19,6 +19,24 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
   })
 }
 
+// 工作人员代客户录入售后报修工单
+export const createAdminOrder = (token, payload = {}) => {
+  return request.post(`${API_BASE.adminOrder}/createAdminOrder`, {
+    token,
+    ...payload
+  })
+}
+
+// 管理员批量逻辑删除误建工单；后端会逐单校验并返回未删除原因
+export const batchDeleteOrders = (token, orders, reason, confirmText) => {
+  return request.post(`${API_BASE.adminOrder}/batchDeleteOrders`, {
+    token,
+    orders,
+    reason,
+    confirm_text: confirmText
+  })
+}
+
 // 保存工单产品/设备信息（SN 回填后落库，并重算在保快照）
 export const saveOrderItems = (token, orderId, items) => {
   return request.post(`${API_BASE.adminOrder}/saveOrderItems`, {
@@ -105,14 +123,6 @@ export const updateInvoiceStatus = (token, orderId, status, invoice = {}) => {
   })
 }
 
-// 一键开票（财务确认到账后，调用开票服务商 API 自动开票并回填）
-export const issueInvoice = (token, orderId) => {
-  return request.post(`${API_BASE.adminOrder}/issueInvoice`, {
-    token,
-    order_id: orderId
-  })
-}
-
 // 更新/发布维修报价
 export const updateOrderQuote = (token, orderId, quote = {}) => {
   return request.post(`${API_BASE.adminOrder}/updateOrderQuote`, {
@@ -123,11 +133,12 @@ export const updateOrderQuote = (token, orderId, quote = {}) => {
 }
 
 // 更新付款核销状态
-export const updatePaymentStatus = (token, orderId, status) => {
+export const updatePaymentStatus = (token, orderId, status, options = {}) => {
   return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
     token,
     order_id: orderId,
-    status
+    status,
+    payment_method: options.paymentMethod || ''
   })
 }
 
@@ -161,8 +172,11 @@ export const addTimeline = (token, orderId, title, desc) => {
 }
 
 // 获取统计数据
-export const getStatistics = (token) => {
-  return request.post(`${API_BASE.adminOrder}/getStatistics`, { token })
+export const getStatistics = (token, options = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getStatistics`, {
+    token,
+    includeStatusBreakdown: options.includeStatusBreakdown === true
+  })
 }
 
 // 获取后台待办中心统计

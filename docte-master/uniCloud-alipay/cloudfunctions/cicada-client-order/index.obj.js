@@ -1,10 +1,12 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
-const { assertOrderStatusTransition, canTransitionOrderStatus } = loadWorkflowModule()
+const { assertOrderStatusTransition, canTransitionOrderStatus, getRepairStartBlockReason } = loadWorkflowModule()
+const warrantyPolicy = loadWarrantyPolicyModule()
 const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 const { getMiniStatusBucket } = require('./order-status')
+const { getInvoiceRequestBlockReason, INVOICE_ITEM_NAME, INVOICE_TAX_CATEGORY } = loadInvoicePolicyModule()
 const {
   PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES,
   PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES,
@@ -92,7 +94,9 @@ function sanitizeOrderItemInput(item = {}) {
   data.product_name = normalizeText(data.product_name).slice(0, 80)
   data.product_category = normalizeText(data.product_category).slice(0, 80)
   data.product_model = normalizeText(data.product_model).slice(0, 80)
-  data.sn = normalizeText(data.sn).slice(0, 80)
+  const snError = getOrderItemSnError([data])
+  if (snError) throw new Error(snError)
+  data.sn = normalizeText(data.sn)
   data.buy_date = normalizeText(data.buy_date).slice(0, 20)
   data.fault_desc = normalizeText(data.fault_desc).slice(0, 2000)
   data.media_urls = normalizeArray(data.media_urls).slice(0, 12)
@@ -103,11 +107,27 @@ function sanitizeOrderItemInput(item = {}) {
   return data
 }
 
+function loadWarrantyPolicyModule() {
+  try {
+    return require('cicada-warranty-policy')
+  } catch (packageError) {
+    return require('../common/cicada-warranty-policy')
+  }
+}
+
 function loadPaymentProofModule() {
   try {
     return require('cicada-payment-proof')
   } catch (packageError) {
     return require('../common/cicada-payment-proof')
+  }
+}
+
+function loadInvoicePolicyModule() {
+  try {
+    return require('cicada-invoice-policy')
+  } catch (packageError) {
+    return require('../common/cicada-invoice-policy')
   }
 }
 
@@ -118,6 +138,8 @@ function projectClientOrder(order = {}, extras = {}) {
     order_no: order.order_no || '',
     status: order.status || '',
     mini_status_bucket: getMiniStatusBucket(order.status),
+    needs_return: order.needs_return === true,
+    archive_status: order.archive_status || '',
     customer_type: order.customer_type || '',
     ship_out_info: order.ship_out_info || {},
     ship_back_info: order.ship_back_info || {},
@@ -157,6 +179,33 @@ function getWechatAppConfig() {
   const secret = getEnvValue('WX_SECRET', 'WECHAT_SECRET')
   if (!appId || !secret) throw new Error('未配置 WX_APPID/WX_SECRET')
   return { appId, secret }
+}
+
+function buildWechatSessionErrorMessage(data = {}) {
+  const errcode = Number(data.errcode || 0)
+  const errmsg = normalizeText(data.errmsg)
+  const suffix = errcode ? `（${errcode}${errmsg ? `：${errmsg}` : ''}）` : ''
+  if ([40013, 40125].includes(errcode)) return `微信小程序 AppID 或 Secret 配置不正确${suffix}`
+  if ([40029, 40163].includes(errcode)) return `微信支付身份凭证已失效，请重新支付${suffix}`
+  if (errcode === 45011) return `微信身份校验过于频繁，请稍后再试${suffix}`
+  return errmsg || '无法确认当前微信支付账号'
+}
+
+async function getWechatPaymentPayerOpenid(code, payConfig) {
+  const payerCode = normalizeText(code)
+  if (!payerCode) throw new Error('无法确认当前微信支付账号，请重新进入小程序后再试')
+  const appConfig = getWechatAppConfig()
+  if (appConfig.appId !== payConfig.appId) {
+    throw new Error('微信登录 AppID 与支付 AppID 配置不一致，请联系客服')
+  }
+  const response = await uniCloud.httpclient.request(
+    `https://api.weixin.qq.com/sns/jscode2session?appid=${encodeURIComponent(appConfig.appId)}&secret=${encodeURIComponent(appConfig.secret)}&js_code=${encodeURIComponent(payerCode)}&grant_type=authorization_code`,
+    { method: 'GET', dataType: 'json' }
+  )
+  const data = response.data || {}
+  const openid = normalizeText(data.openid)
+  if (!openid) throw new Error(buildWechatSessionErrorMessage(data))
+  return openid
 }
 
 async function getWechatAccessToken() {
@@ -410,44 +459,62 @@ function normalizeSn(value) {
   return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
 }
 
-// 将 YYYY-MM-DD 加上 N 个月，返回 YYYY-MM-DD；无效输入返回空串
-function addMonthsToDateStr(dateStr, months) {
-  const s = normalizeText(dateStr)
-  const m = Number(months)
-  if (!s || !Number.isFinite(m) || m <= 0) return ''
-  const d = new Date(`${s}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return ''
-  d.setMonth(d.getMonth() + m)
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${day}`
+function getOrderItemSnError(items = []) {
+  return (Array.isArray(items) ? items : []).some(item => normalizeText(item && item.sn).length > 80)
+    ? '产品序列号不能超过80个字符'
+    : ''
 }
 
-// 推算质保到期日：优先已存截止日；否则仅在明确填写月数时由购机日期推算。
-function deriveWarrantyExpire(device = {}) {
-  const stored = normalizeText(device.warranty_expire)
-  if (stored) return stored
-  const months = Number(device.warranty_months)
-  if (!Number.isFinite(months) || months <= 0) return ''
-  return addMonthsToDateStr(device.buy_date || device.buyDate, months)
-}
-
-// 计算在保状态，返回 { inWarranty, warrantyStatus }
-function computeWarrantyStatus(expireStr, extWarranty) {
-  let inWarranty = false
-  let warrantyStatus = 'unknown'
-  const expire = normalizeText(expireStr)
-  if (expire) {
-    const expireTs = new Date(`${expire}T23:59:59`).getTime()
-    if (!Number.isNaN(expireTs)) {
-      inWarranty = Date.now() <= expireTs
-      warrantyStatus = inWarranty
-        ? (Array.isArray(extWarranty) && extWarranty.length ? 'extended' : 'in_warranty')
-        : 'expired'
-    }
+function canonicalizeRepairItem(item = {}) {
+  const canonicalizeUrls = value => normalizeArray(value)
+    .map(url => normalizeText(url))
+    .filter(Boolean)
+    .sort()
+  return {
+    product_name: normalizeText(item.product_name),
+    product_category: normalizeText(item.product_category),
+    product_model: normalizeText(item.product_model),
+    sn: normalizeSn(item.sn),
+    buy_date: normalizeText(item.buy_date),
+    fault_desc: normalizeText(item.fault_desc),
+    media_urls: canonicalizeUrls(item.media_urls),
+    voucher_urls: canonicalizeUrls(item.voucher_urls),
+    image_urls: canonicalizeUrls(item.image_urls),
+    video_urls: canonicalizeUrls(item.video_urls)
   }
-  return { inWarranty, warrantyStatus }
+}
+
+function canonicalizeRepairRequest(request = {}) {
+  const items = (Array.isArray(request.items) ? request.items : [])
+    .map(item => canonicalizeRepairItem(item))
+    .map(item => JSON.stringify(item))
+    .sort()
+  return {
+    customer_type: normalizeText(request.customer_type),
+    ship_out_info: sanitizeShipInfo(request.ship_out_info),
+    ship_back_info: sanitizeShipInfo(request.ship_back_info),
+    items
+  }
+}
+
+function isSameRepairRequest(left = {}, right = {}) {
+  return JSON.stringify(canonicalizeRepairRequest(left)) === JSON.stringify(canonicalizeRepairRequest(right))
+}
+
+function buildRepairRequestFingerprint(request = {}) {
+  return crypto.createHash('sha256')
+    .update(JSON.stringify(canonicalizeRepairRequest(request)))
+    .digest('hex')
+}
+
+// 统一质保口径：发票签收日优先，无发票时使用 SN 出厂日 + 30 天；旧数据继续兼容采购日期。
+function computeWarrantyState(source = {}) {
+  const state = warrantyPolicy.computeWarrantyState(source)
+  return {
+    expire: state.expire,
+    inWarranty: state.in_warranty,
+    warrantyStatus: state.warranty_status
+  }
 }
 
 function formatTimelineTime(value) {
@@ -595,13 +662,13 @@ function exposeQuoteFields(order = {}) {
 async function findOwnedOrder(userId, orderId) {
   if (!orderId) return null
   const idRes = await db.collection('cicada_orders')
-    .where({ _id: orderId, user_id: userId })
+    .where({ _id: orderId, user_id: userId, is_deleted: db.command.neq(true) })
     .limit(1)
     .get()
   if (idRes.data && idRes.data[0]) return idRes.data[0]
 
   const noRes = await db.collection('cicada_orders')
-    .where({ order_no: orderId, user_id: userId })
+    .where({ order_no: orderId, user_id: userId, is_deleted: db.command.neq(true) })
     .limit(1)
     .get()
   return noRes.data && noRes.data[0] ? noRes.data[0] : null
@@ -621,7 +688,7 @@ function getShipInfo(order = {}, type = 'out') {
   const info = type === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
   return {
     company: info.logistics_company || info.logisticsCompany || info.returnCompany || info.return_company || '',
-    trackingNo: info.logistics_no || info.logisticsNo || info.returnNo || info.return_no || '',
+    trackingNo: info.logistics_no || info.logisticsNo || info.tracking_no || info.trackingNo || info.returnNo || info.return_no || '',
     shippedAt: info.shipped_at || info.shippedAt || order.create_time || ''
   }
 }
@@ -645,6 +712,13 @@ function isCompanyMismatch(inputCompany = '', storedCompany = '') {
   const stored = normalizeExpressCompany(storedCompany)
   if (!input || !stored) return false
   return input !== stored
+}
+
+function resolvePackageAccess(isOwner = false, phoneLast4Matched = false) {
+  return {
+    allowed: Boolean(isOwner || phoneLast4Matched),
+    fullAccess: Boolean(isOwner)
+  }
 }
 
 function getPackageStatus(order = {}) {
@@ -918,7 +992,7 @@ async function findOrderByTrackingNo(trackingNo) {
 
   for (const item of checks) {
     const res = await db.collection('cicada_orders')
-      .where({ [item.field]: trackingNo })
+      .where({ [item.field]: trackingNo, is_deleted: db.command.neq(true) })
       .limit(1)
       .get()
     if (res.data && res.data[0]) {
@@ -999,40 +1073,146 @@ async function checkRateLimit(scope, identity, config) {
   throw new Error('操作过于频繁，请稍后再试')
 }
 
-async function findRecentDuplicateOrder(userId, items = [], now = Date.now()) {
-  const snKeys = Array.from(new Set((items || [])
-    .map(item => normalizeSn(item && item.sn))
-    .filter(Boolean)))
-  if (!userId || !snKeys.length) return null
+async function findRecentDuplicateOrder(userId, request = {}, now = Date.now()) {
+  const requestItems = Array.isArray(request.items) ? request.items : []
+  if (!userId || !requestItems.length) return null
+  const requestFingerprint = buildRepairRequestFingerprint(request)
 
   const since = now - DUPLICATE_ORDER_WINDOW_MS
   const orderRes = await db.collection('cicada_orders')
     .where({
       user_id: userId,
       create_time: db.command.gte(since),
-      status: db.command.neq('cancelled')
+      status: db.command.neq('cancelled'),
+      is_deleted: db.command.neq(true)
     })
-    .field({ order_no: true, create_time: true, status: true })
+    .field({
+      order_no: true,
+      create_time: true,
+      status: true,
+      customer_type: true,
+      ship_out_info: true,
+      ship_back_info: true,
+      request_fingerprint: true
+    })
     .orderBy('create_time', 'desc')
     .limit(20)
     .get()
 
   const orders = orderRes.data || []
   if (!orders.length) return null
-  const orderIds = orders.map(order => order._id).filter(Boolean)
-  if (!orderIds.length) return null
+  for (const order of orders) {
+    if (!order || !order._id) continue
+    if (order.request_fingerprint) {
+      if (order.request_fingerprint === requestFingerprint) return order
+      continue
+    }
 
-  const itemRes = await db.collection('cicada_order_items')
-    .where({
-      order_id: db.command.in(orderIds),
-      sn_normalized: db.command.in(snKeys)
-    })
-    .field({ order_id: true, sn: true, sn_normalized: true })
-    .limit(20)
-    .get()
-  const matched = itemRes.data && itemRes.data[0]
-  if (!matched) return null
-  return orders.find(order => order._id === matched.order_id) || null
+    const itemRes = await db.collection('cicada_order_items')
+      .where({ order_id: order._id })
+      .field({
+        product_name: true,
+        product_category: true,
+        product_model: true,
+        sn: true,
+        buy_date: true,
+        fault_desc: true,
+        media_urls: true,
+        voucher_urls: true,
+        image_urls: true,
+        video_urls: true
+      })
+      .limit(Math.max(100, requestItems.length + 1))
+      .get()
+    const candidateRequest = {
+      customer_type: order.customer_type,
+      ship_out_info: order.ship_out_info,
+      ship_back_info: order.ship_back_info,
+      items: itemRes.data || []
+    }
+    if (isSameRepairRequest(request, candidateRequest)) return order
+  }
+  return null
+}
+
+function buildRepairIdempotencyKey(userId, requestFingerprint) {
+  const digest = crypto.createHash('sha256').update(`${userId}:${requestFingerprint}`).digest('hex')
+  return `repair-submit:${digest}`
+}
+
+async function acquireRepairSubmission(userId, requestFingerprint, now = Date.now()) {
+  const key = buildRepairIdempotencyKey(userId, requestFingerprint)
+  const col = db.collection('cicada_rate_limits')
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const found = await col.where({ key }).limit(1).get()
+    const record = found.data && found.data[0]
+    const lockToken = randomNonce(12)
+    const lockData = {
+      key,
+      scope: 'repair-idempotency',
+      identity: userId,
+      count: 1,
+      reset_time: now + DUPLICATE_ORDER_WINDOW_MS,
+      request_fingerprint: requestFingerprint,
+      state: 'pending',
+      lock_token: lockToken,
+      order_id: '',
+      order_no: '',
+      update_time: now
+    }
+
+    if (!record) {
+      try {
+        await col.add({ ...lockData, create_time: now })
+        return { state: 'owner', key, lockToken }
+      } catch (error) {
+        if (attempt === 2) throw error
+        continue
+      }
+    }
+
+    if (record.state === 'completed' && Number(record.reset_time || 0) > now && record.order_id) {
+      return { state: 'duplicate', orderId: record.order_id, orderNo: record.order_no || record.order_id }
+    }
+
+    const expired = Number(record.reset_time || 0) <= now
+    if (!expired) return { state: 'pending' }
+
+    const takeover = await col.where({
+      _id: record._id,
+      lock_token: record.lock_token || '',
+      update_time: record.update_time
+    }).update(lockData)
+    if (takeover.updated) return { state: 'owner', key, lockToken }
+  }
+
+  return { state: 'pending' }
+}
+
+async function completeRepairSubmission(lock, orderId, orderNo, now = Date.now()) {
+  if (!lock || lock.state !== 'owner') return
+  const result = await db.collection('cicada_rate_limits').where({
+    key: lock.key,
+    lock_token: lock.lockToken,
+    state: 'pending'
+  }).update({
+    state: 'completed',
+    order_id: orderId,
+    order_no: orderNo,
+    update_time: now,
+    reset_time: now + DUPLICATE_ORDER_WINDOW_MS
+  })
+  if (!result.updated) throw new Error('报修提交状态同步失败，请重试')
+}
+
+async function releaseRepairSubmission(lock) {
+  if (!lock || lock.state !== 'owner') return
+  await db.collection('cicada_rate_limits').where({
+    key: lock.key,
+    lock_token: lock.lockToken,
+    state: 'pending'
+  }).remove()
 }
 
 function randomNonce(size = 16) {
@@ -1254,7 +1434,8 @@ async function markOrderWechatPaid(order = {}, transaction = {}) {
   }
 
   // 支付成功优先落账；仅当状态机允许时才推进到 fixing，避免 pending/sent 支付后整单失败
-  if (canTransitionOrderStatus(order.status, 'fixing') && order.status !== 'fixing') {
+  const repairStartBlockReason = getRepairStartBlockReason({ ...order, payment_status: 'paid' })
+  if (!repairStartBlockReason && canTransitionOrderStatus(order.status, 'fixing') && order.status !== 'fixing') {
     updateData.status = 'fixing'
   }
 
@@ -1312,13 +1493,13 @@ async function ensureCustomerForUser(user = {}, orderPhone = '', customerType = 
   const now = Date.now()
   const normalizedCustomerType = ['individual', 'clinic', 'dealer'].includes(customerType) ? customerType : 'clinic'
 
-  // 本次报修可修正历史默认的客户类型；已有代理商档案不因后续选择而降级。
+  // 本次报修可修正历史预设类型；后台维护的自定义类型不被小程序选择覆盖。
   const existing = linkedCustomer || await findCustomerForUser(user)
   if (existing) {
     const updateData = { update_time: now }
     if (phone && !normalizeText(existing.phone)) updateData.phone = phone
     const existingCustomerType = normalizeText(existing.customer_type)
-    if (existingCustomerType !== 'dealer' && existingCustomerType !== normalizedCustomerType) {
+    if (['clinic', 'individual'].includes(existingCustomerType) && existingCustomerType !== normalizedCustomerType) {
       updateData.customer_type = normalizedCustomerType
     }
     await customerCol.doc(existing._id).update(updateData).catch(() => {})
@@ -1353,10 +1534,14 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
   if (!userId || !Array.isArray(items) || !items.length) return
   const now = Date.now()
   const customerId = normalizeText(orderMeta.customer_id)
+  const warrantyOrder = orderMeta.warranty_order || null
   for (const item of items) {
     const sn = normalizeText(item && (item.sn || item.serial))
     if (!sn) continue // 无 SN 不沉淀，避免脏档案
     const snKey = normalizeSn(sn)
+    const warrantyExtension = warrantyOrder
+      ? warrantyPolicy.buildRepairWarrantyExtension(warrantyOrder, [item], now)
+      : null
     try {
       // 优先按规范化键匹配（容错横杠/大小写/空格）；存量未回填时回退精确 SN
       let existRes = await db.collection('cicada_user_devices')
@@ -1388,6 +1573,9 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
           sn_normalized: snKey,
           repair_count: Number(existing.repair_count || 0) + (orderMeta.countRepair ? 1 : 0)
         }
+        if (warrantyExtension) {
+          updatePayload.ext_warranty = warrantyPolicy.appendWarrantyExtension(existing.ext_warranty, warrantyExtension)
+        }
         // 回填 customer_id，让小程序设备与后台 CRM 设备台账合流
         if (customerId && !normalizeText(existing.customer_id)) updatePayload.customer_id = customerId
         await db.collection('cicada_user_devices').doc(existing._id).update(updatePayload)
@@ -1400,17 +1588,38 @@ async function upsertUserDevicesFromItems(user = {}, items = [], orderMeta = {})
           ...baseFields,
           ...trackFields,
           repair_count: orderMeta.countRepair ? 1 : 0,
+          ...(warrantyExtension ? { ext_warranty: [warrantyExtension] } : {}),
           source: 'mini_repair',
           create_time: now
         })
       }
     } catch (e) {
-      // 忽略单条设备沉淀失败
+      if (warrantyExtension && orderMeta.strict_warranty_extension === true) throw e
+      // 普通报修登记时，单条设备沉淀失败不阻断主流程。
     }
   }
 }
 
-// 下单时计算订单级质保结论：逐个 SN 优先查已建档设备，其次由提交的购机日期推算。
+async function applyClientRepairWarrantyExtension(user = {}, order = {}) {
+  let customerId = normalizeText(order.customer_id)
+  if (!customerId) {
+    try { customerId = await ensureCustomerForUser(user) } catch (customerErr) { customerId = '' }
+  }
+  const itemKeys = [order._id, order.order_no].filter(Boolean)
+  const itemsRes = itemKeys.length
+    ? await db.collection('cicada_order_items').where({ order_id: db.command.in(itemKeys) }).get()
+    : { data: [] }
+  await upsertUserDevicesFromItems(user, itemsRes.data || [], {
+    order_no: order.order_no,
+    order_id: order._id,
+    status: 'completed',
+    customer_id: customerId,
+    warranty_order: order,
+    strict_warranty_extension: true
+  })
+}
+
+// 下单时计算订单级质保结论：只信任已建档设备上的服务端质保资料。
 // 返回 { in_warranty, warranty_status, charge_type }；charge_type 仅为默认建议，
 // 人为损坏等不在保情形由工程师在报价时最终判定（可覆盖）。
 async function computeOrderWarranty(userId, items = []) {
@@ -1431,16 +1640,13 @@ async function computeOrderWarranty(userId, items = []) {
         device = null
       }
     }
-    // 已建档设备用其质保数据；客户端不可伪造 warranty_expire/months。
-    // 未建档时仅保留购机日期，质保期限等待后台/CRM 补录。
-    const source = device || {
-      buy_date: item && item.buy_date
-    }
-    const expire = deriveWarrantyExpire(source)
-    if (!expire) continue
+    // 客户端提交的购机日期只作登记信息，不能作为自动判保凭证。
+    // 历史采购日期兼容仅适用于已建档、由服务端维护的设备资料。
+    const source = device || {}
+    const warrantyState = computeWarrantyState(source)
+    if (!warrantyState.expire) continue
     anyEvaluated = true
-    const { inWarranty } = computeWarrantyStatus(expire, source.ext_warranty)
-    if (inWarranty) anyInWarranty = true
+    if (warrantyState.inWarranty) anyInWarranty = true
   }
   if (!anyEvaluated) {
     return { in_warranty: false, warranty_status: 'unknown', charge_type: 'pending' }
@@ -1489,12 +1695,13 @@ module.exports = {
       }
 
       const phoneLast4Matched = Boolean(storedLast4 && inputLast4 && storedLast4 === inputLast4)
-      if (!isOwner && !phoneLast4Matched) return { code: 0, data: null }
+      const packageAccess = resolvePackageAccess(isOwner, phoneLast4Matched)
+      if (!packageAccess.allowed) return { code: 0, data: null }
       if (isCompanyMismatch(inputCompany, matchedCompany)) {
         return { code: -1, msg: '快递公司与工单记录不一致，请切换后重试。' }
       }
 
-      const fullAccess = true
+      const { fullAccess } = packageAccess
       if (matchedType !== 'invoice') order = await refreshOrderTrack(order, matchedType)
       // 设备型号：取工单首个维修产品名，供卡片底部「工单号+型号」防混淆展示
       let model = ''
@@ -1517,7 +1724,7 @@ module.exports = {
           model: fullAccess ? model : '',
           matchedType,
           phoneLast4Matched,
-          privacyLimited: false,
+          privacyLimited: !fullAccess,
           out: buildPackageSegment(order, 'out', fullAccess),
           back: matchedType === 'invoice' ? buildInvoicePackageSegment(order, fullAccess) : buildPackageSegment(order, 'back', fullAccess)
         }
@@ -1529,6 +1736,7 @@ module.exports = {
 
   async createOrder(params) {
     let orderId = ''
+    let idempotencyLock = null
     try {
       const { token, ship_out_info, ship_back_info, items } = params
       const user = await verifyUserToken(token)
@@ -1549,6 +1757,10 @@ module.exports = {
       if (items.some(item => !normalizeText(item && item.sn))) {
         return { code: -1, msg: '产品序列号不能为空' }
       }
+      const snError = getOrderItemSnError(items)
+      if (snError) {
+        return { code: -1, msg: snError }
+      }
       if (items.some(item => !normalizeText(item && item.fault_desc))) {
         return { code: -1, msg: '故障描述不能为空' }
       }
@@ -1562,19 +1774,44 @@ module.exports = {
         return { code: -1, msg: '请完善产品回寄信息' }
       }
 
+      const safeShipOut = sanitizeShipInfo(ship_out_info)
+      const safeShipBack = sanitizeShipInfo(ship_back_info)
+      const safeItems = items.map(item => sanitizeOrderItemInput(item))
+      const repairRequest = {
+        customer_type: customerType,
+        ship_out_info: safeShipOut,
+        ship_back_info: safeShipBack,
+        items: safeItems
+      }
       const linkedCustomer = await findCustomerForUser(user)
       const now = Date.now()
-      const duplicateOrder = await findRecentDuplicateOrder(user._id, items, now)
+      const requestFingerprint = buildRepairRequestFingerprint(repairRequest)
+      const duplicateOrder = await findRecentDuplicateOrder(user._id, repairRequest, now)
       if (duplicateOrder) {
         return {
           code: 0,
-          msg: '检测到该设备刚提交过报修，已为您返回最近工单',
+          msg: '检测到相同报修刚提交过，已为您返回最近工单',
           data: {
             order_id: duplicateOrder._id,
             order_no: duplicateOrder.order_no || duplicateOrder._id,
             duplicate: true
           }
         }
+      }
+      idempotencyLock = await acquireRepairSubmission(user._id, requestFingerprint, now)
+      if (idempotencyLock.state === 'duplicate') {
+        return {
+          code: 0,
+          msg: '检测到相同报修刚提交过，已为您返回最近工单',
+          data: {
+            order_id: idempotencyLock.orderId,
+            order_no: idempotencyLock.orderNo,
+            duplicate: true
+          }
+        }
+      }
+      if (idempotencyLock.state !== 'owner') {
+        return { code: -1, msg: '相同报修正在提交，请稍后在工单列表查看' }
       }
       const order_no = genOrderNo()
       // 身份桥：未验证手机号只作当前 OpenID 档案的联系信息
@@ -1590,15 +1827,13 @@ module.exports = {
         customerId = ''
       }
       // 在保/过保自动判定：用于区分免费(在保质量问题)/收费(过保或人为损坏)维修
-      const safeShipOut = sanitizeShipInfo(ship_out_info)
-      const safeShipBack = sanitizeShipInfo(ship_back_info)
-      const safeItems = items.map(item => sanitizeOrderItemInput(item))
       const warranty = await computeOrderWarranty(user._id, safeItems)
       const newOrder = {
         order_no,
         user_id: user._id,
         customer_id: customerId,
         customer_type: customerType,
+        request_fingerprint: requestFingerprint,
         status: 'pending',
         ship_out_info: safeShipOut,
         ship_back_info: safeShipBack,
@@ -1636,6 +1871,7 @@ module.exports = {
       await upsertUserDevicesFromItems(user, safeItems, { order_no, order_id: orderId, status: 'pending', countRepair: true, customer_id: customerId })
       await sendOrderSubscription({ ...newOrder, _id: orderId }, 'repair_submitted', '报修申请已提交')
       await subscribeOrderTrack(persistedOrder, 'out')
+      await completeRepairSubmission(idempotencyLock, orderId, order_no)
       return { code: 0, msg: '提交成功', data: { order_id: orderId, order_no } }
     } catch (e) {
       if (orderId) {
@@ -1644,6 +1880,7 @@ module.exports = {
           db.collection('cicada_order_items').where({ order_id: orderId }).remove()
         ]).catch(() => {})
       }
+      await releaseRepairSubmission(idempotencyLock).catch(() => {})
       return fail(e)
     }
   },
@@ -1654,7 +1891,7 @@ module.exports = {
       const user = await verifyUserToken(token)
       const pagination = normalizePage(page, pageSize)
       const res = await db.collection('cicada_orders')
-        .where({ user_id: user._id })
+        .where({ user_id: user._id, is_deleted: db.command.neq(true) })
         .orderBy('create_time', 'desc')
         .skip((pagination.page - 1) * pagination.pageSize)
         .limit(pagination.pageSize)
@@ -1706,8 +1943,8 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       const res = await db.collection('cicada_orders')
-        .where({ user_id: user._id })
-        .field({ status: true, total_price: true, payment_status: true, invoice_info: true })
+        .where({ user_id: user._id, is_deleted: db.command.neq(true) })
+        .field({ status: true, total_price: true, payment_status: true, payment_method: true, invoice_info: true })
         .limit(1000)
         .get()
 
@@ -1716,7 +1953,7 @@ module.exports = {
         fixing: 0, shipped: 0, completed: 0, cancelled: 0
       }
       const miniStatusBuckets = { pending: 0, fixing: 0, shipped: 0 }
-      const todo = { unfinished: 0, payment: 0, receipt: 0, invoice: 0 }
+      const todo = { unfinished: 0, payment: 0, receipt: 0, invoice: 0, invoiceVisible: 0 }
       ;(res.data || []).forEach(order => {
         const status = String(order.status || '').trim()
         if (Object.prototype.hasOwnProperty.call(byStatus, status)) byStatus[status] += 1
@@ -1729,8 +1966,12 @@ module.exports = {
         if (status === 'shipped') todo.receipt += 1
         const invoiceInfo = order.invoice_info || {}
         const invoiceStatus = normalizeText(invoiceInfo.status)
+        const invoiceIssued = Boolean(invoiceInfo.invoice_no) || ['已开具', '已寄出', '已签收'].includes(invoiceStatus)
+        if (invoiceIssued || (!getInvoiceRequestBlockReason(order) && invoiceStatus !== '无需开票')) {
+          todo.invoiceVisible += 1
+        }
         const invoiceClosed = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收'].includes(invoiceStatus)
-        if (hasPayableAmount && isPaymentConfirmedStatus(paymentStatus) && !invoiceInfo.need_invoice && !invoiceClosed) {
+        if (!getInvoiceRequestBlockReason(order) && !invoiceInfo.need_invoice && !invoiceClosed) {
           todo.invoice += 1
         }
       })
@@ -1753,7 +1994,7 @@ module.exports = {
     try {
       const user = await verifyUserToken(token)
       const pagination = normalizePage(page, pageSize)
-      const where = { user_id: user._id, 'invoice_info.need_invoice': true }
+      const where = { user_id: user._id, 'invoice_info.need_invoice': true, is_deleted: db.command.neq(true) }
       const col = db.collection('cicada_orders')
 
       const [countRes, listRes] = await Promise.all([
@@ -1775,6 +2016,12 @@ module.exports = {
           orderStatus: order.status || '',
           paymentStatus: order.payment_status || '',
           invoiceType: info.invoice_type || '',
+          taxCategory: info.tax_category || INVOICE_TAX_CATEGORY,
+          itemName: info.item_name || INVOICE_ITEM_NAME,
+          deliveryMethod: info.delivery_method || (info.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+          fulfillmentMode: info.fulfillment_mode || 'manual',
+          archiveStatus: info.archive_status || 'pending',
+          archiveOrderNo: info.archive_order_no || order.order_no || '',
           titleType: info.title_type || '',
           title: info.title || '',
           taxNo: info.tax_no || '',
@@ -1915,7 +2162,7 @@ module.exports = {
       let history = []
       if (orderIds.length) {
         const ordersRes = await db.collection('cicada_orders')
-          .where({ _id: db.command.in(orderIds), user_id: user._id })
+          .where({ _id: db.command.in(orderIds), user_id: user._id, is_deleted: db.command.neq(true) })
           .field({ order_no: true, status: true, create_time: true })
           .orderBy('create_time', 'desc').limit(10).get()
         history = (ordersRes.data || []).map(o => ({
@@ -1931,8 +2178,7 @@ module.exports = {
       }
 
       // 优先用已存到期日；无则由购机日期+质保月数推算，使仅有购机日期的设备也能判定在保
-      const expireRaw = device ? deriveWarrantyExpire(device) : ''
-      const { inWarranty, warrantyStatus } = computeWarrantyStatus(expireRaw, device && device.ext_warranty)
+      const warrantyState = device ? computeWarrantyState(device) : { expire: '', inWarranty: false, warrantyStatus: 'unknown' }
 
       return {
         code: 0,
@@ -1943,9 +2189,12 @@ module.exports = {
           productCategory: device ? (device.product_category || '') : '',
           model: device ? (device.model || '') : '',
           buyDate: device ? (device.buy_date || '') : '',
-          warrantyExpire: expireRaw || '',
-          warrantyStatus,
-          inWarranty,
+          warrantyStartDate: device ? (device.warranty_start_date || '') : '',
+          invoiceReceivedDate: device ? (device.invoice_received_date || '') : '',
+          manufactureDate: device ? (device.manufacture_date || '') : '',
+          warrantyExpire: warrantyState.expire || '',
+          warrantyStatus: warrantyState.warrantyStatus,
+          inWarranty: warrantyState.inWarranty,
           maintenanceCycle: device ? (device.maintenance_cycle || '') : '',
           history
         }
@@ -2062,10 +2311,9 @@ module.exports = {
       const now = Date.now()
       const reasonText = normalizeText(reason)
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
-      // 归档路径：设备尚未拆检（pending/sent/received）→ 直接取消归档；
-      // 已进入检测/维修（inspecting/fixing）→ 设备在维修中心，标记待回寄，由售后安排原路寄回后再结案。
-      const returnableEarly = ['pending', 'sent', 'received']
-      const canArchiveNow = returnableEarly.includes(order.status)
+      // 只有尚未寄出的报修可以直接取消；已有寄入物流或已进入运输/入库/处理流程时必须安排回寄。
+      const hasInboundShipment = Boolean(getShipInfo(order, 'out').trackingNo)
+      const canArchiveNow = order.status === 'pending' && !hasInboundShipment
       const archiveNote = canArchiveNow
         ? '客户拒绝维修报价，工单已自动取消归档。'
         : '客户拒绝维修报价，设备将原路寄回，售后将尽快为您安排回寄后归档。'
@@ -2093,7 +2341,8 @@ module.exports = {
         updateData.archive_status = 'pending_return'
       }
 
-      await db.collection('cicada_orders').doc(order._id).update(updateData)
+      const updateRes = await db.collection('cicada_orders').doc(order._id).update(updateData)
+      if (!updateRes.updated) return { code: -1, msg: '工单更新失败，请刷新后重试' }
       await logOrderEvent({
         order,
         action: 'reject_quote',
@@ -2114,6 +2363,7 @@ module.exports = {
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (order.status === 'completed') {
+        await applyClientRepairWarrantyExtension(user, order)
         return { code: 0, data: { status: 'completed', ...exposeQuoteFields(order) } }
       }
       if (order.status !== 'shipped') {
@@ -2125,6 +2375,9 @@ module.exports = {
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
       const updateData = {
         status: 'completed',
+        ...(order.archive_status || order.quote_status === 'rejected'
+          ? { needs_return: false, archive_status: 'archived' }
+          : {}),
         received_confirm_time: now,
         update_time: now,
         timeline: [
@@ -2142,18 +2395,8 @@ module.exports = {
         after: { status: updateData.status }
       })
 
-      // 维修完成即沉淀/更新设备档案，带上 customer_id（旧单缺失时即时回填）
-      let customerId = normalizeText(order.customer_id)
-      if (!customerId) {
-        try { customerId = await ensureCustomerForUser(user) } catch (customerErr) { customerId = '' }
-      }
-      const itemKeys = [order._id, order.order_no].filter(Boolean)
-      const itemsRes = itemKeys.length
-        ? await db.collection('cicada_order_items').where({ order_id: db.command.in(itemKeys) }).get()
-        : { data: [] }
-      await upsertUserDevicesFromItems(user, itemsRes.data || [], {
-        order_no: order.order_no, order_id: order._id, status: 'completed', customer_id: customerId
-      })
+      // 维修完成即沉淀设备档案；写入失败会显式返回，重复确认时按工单ID幂等补写。
+      await applyClientRepairWarrantyExtension(user, order)
 
       // 与 admin 标记完成保持一致，只发送一次工单完成提醒。
       await sendOrderSubscription({ ...order, ...updateData }, 'order_completed', '维修已完成')
@@ -2243,20 +2486,8 @@ module.exports = {
           .get()
       ])
 
-      const now = Date.now()
       const list = (listRes.data || []).map(device => {
-        let warrantyStatus = 'unknown'
-        let inWarranty = false
-        const expireRaw = device.warranty_expire || ''
-        if (expireRaw) {
-          const expireTs = new Date(`${expireRaw}T23:59:59`).getTime()
-          if (!Number.isNaN(expireTs)) {
-            inWarranty = now <= expireTs
-            warrantyStatus = inWarranty
-              ? (Array.isArray(device.ext_warranty) && device.ext_warranty.length ? 'extended' : 'in_warranty')
-              : 'expired'
-          }
-        }
+        const warrantyState = computeWarrantyState(device)
         return {
           id: device._id,
           sn: device.sn || '',
@@ -2264,9 +2495,12 @@ module.exports = {
           productCategory: device.product_category || '',
           model: device.model || '',
           buyDate: device.buy_date || '',
-          warrantyExpire: expireRaw,
-          warrantyStatus,
-          inWarranty,
+          warrantyStartDate: device.warranty_start_date || '',
+          invoiceReceivedDate: device.invoice_received_date || '',
+          manufactureDate: device.manufacture_date || '',
+          warrantyExpire: warrantyState.expire,
+          warrantyStatus: warrantyState.warrantyStatus,
+          inWarranty: warrantyState.inWarranty,
           lastOrderNo: device.last_order_no || '',
           lastRepairStatus: device.last_repair_status || '',
           lastRepairTime: device.last_repair_time || 0,
@@ -2281,13 +2515,12 @@ module.exports = {
   },
 
   // 微信小程序支付：确认报价并创建预支付订单
-  async createWechatPayPayment({ token, order_id }) {
+  async createWechatPayPayment({ token, order_id, payer_code = '' }) {
     try {
       const user = await verifyUserToken(token)
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       assertOrderPayable(order)
-      if (!user.openid) return { code: -1, msg: '当前用户缺少微信 openid，请重新登录后再支付' }
       if (!['issued', 'confirmed'].includes(order.quote_status)) {
         return { code: -1, msg: '当前工单暂无可支付报价' }
       }
@@ -2302,12 +2535,15 @@ module.exports = {
       if (amountFen <= 0) return { code: -1, msg: '当前工单暂无待支付金额' }
 
       const payConfig = getWechatPayConfig()
+      const payerOpenid = await getWechatPaymentPayerOpenid(payer_code, payConfig)
       const existingOutTradeNo = normalizeOutTradeNo(order.wechat_pay_out_trade_no)
       const existingPrepayId = normalizeText(order.wechat_pay_prepay_id)
+      const existingPayerOpenid = normalizeText(order.wechat_pay_payer_openid)
       const existingAmountFen = Number(order.wechat_pay_amount || 0) || 0
       const existingCreatedAt = Number(order.wechat_pay_create_time || 0) || 0
       const existingPayAlive = existingOutTradeNo &&
         existingPrepayId &&
+        existingPayerOpenid === payerOpenid &&
         existingAmountFen === amountFen &&
         Date.now() - existingCreatedAt < 90 * 60 * 1000
       if (existingPayAlive) {
@@ -2334,7 +2570,7 @@ module.exports = {
           currency: 'CNY'
         },
         payer: {
-          openid: user.openid
+          openid: payerOpenid
         }
       }, payConfig)
 
@@ -2355,6 +2591,7 @@ module.exports = {
         payment_status: 'pending',
         wechat_pay_out_trade_no: outTradeNo,
         wechat_pay_prepay_id: data.prepay_id,
+        wechat_pay_payer_openid: payerOpenid,
         wechat_pay_amount: amountFen,
         wechat_pay_create_time: now,
         update_time: now
@@ -2543,10 +2780,8 @@ module.exports = {
       const order = await findOwnedOrder(user._id, targetOrderId)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (order.status === 'cancelled') return { code: -1, msg: '已取消工单不可申请开票' }
-      const billable = Number(order.total_price || 0) > 0 && isPaymentConfirmedStatus(order.payment_status)
-      if (!billable) {
-        return { code: -1, msg: '仅已付款或已核款工单可申请开票' }
-      }
+      const invoiceBlockReason = getInvoiceRequestBlockReason(order)
+      if (invoiceBlockReason) return { code: -1, msg: invoiceBlockReason }
       const oldInvoiceStatus = normalizeText((order.invoice_info || {}).status)
       if (['开具中', '已开具', '已寄出', '已签收'].includes(oldInvoiceStatus)) {
         return { code: -1, msg: '发票已进入开具流程，如需修改请联系客服' }
@@ -2581,6 +2816,16 @@ module.exports = {
         need_invoice: true,
         status: '待开票',
         invoice_type: invoiceKind,
+        tax_category: INVOICE_TAX_CATEGORY,
+        item_name: INVOICE_ITEM_NAME,
+        delivery_method: isPaperSpecial ? 'postal' : 'electronic',
+        fulfillment_mode: 'manual',
+        archive_status: 'pending',
+        archive_order_id: order._id,
+        archive_order_no: order.order_no || '',
+        service_completed_time: order.completed_time || order.complete_time || order.update_time || now,
+        settlement_time: order.payment_paid_time || order.update_time || now,
+        expected_delivery_days: isPaperSpecial ? '7-15' : '1-3',
         title_type: invoiceTitleType,
         title: invoiceTitle,
         tax_no: invoiceTaxNo,
@@ -2605,7 +2850,7 @@ module.exports = {
           ...timeline,
           {
             title: '客户已提交开票申请',
-            desc: `${invoiceInfo.invoice_type}：${invoiceInfo.title}`,
+            desc: `${invoiceInfo.invoice_type}：${invoiceInfo.title}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}`,
             time: now,
             done: true
           }
@@ -2662,3 +2907,15 @@ module.exports = {
     }
   }
 }
+
+Object.defineProperty(module.exports, '__test__', {
+  value: Object.freeze({
+    acquireRepairSubmission,
+    buildRepairRequestFingerprint,
+    completeRepairSubmission,
+    getOrderItemSnError,
+    isSameRepairRequest,
+    releaseRepairSubmission,
+    resolvePackageAccess
+  })
+})

@@ -14,7 +14,7 @@ Multi-platform dental equipment repair management system (牙医仪器检修). T
 ```bash
 # Mini Program (inside docte-master/)
 npm run dev:mp-weixin     # builds to unpackage/dist/dev/mp-weixin
-npm run check             # alias for build:mp-weixin — the only sanity check (no lint/tests)
+npm run check             # build:mp-weixin + check:client-secrets + check:package-size (local acceptance gate)
 
 # PC Admin (inside pc-admin/)
 npm install

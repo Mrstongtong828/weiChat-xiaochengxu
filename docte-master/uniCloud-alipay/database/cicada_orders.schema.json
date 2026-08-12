@@ -19,6 +19,27 @@
     "order_no": {
       "bsonType": "string"
     },
+    "is_deleted": {
+      "bsonType": "bool",
+      "description": "后台逻辑删除标记；true 时不再出现在正常业务查询中"
+    },
+    "deleted_time": {
+      "bsonType": "timestamp",
+      "description": "后台逻辑删除时间"
+    },
+    "deleted_by": {
+      "bsonType": "string",
+      "description": "执行逻辑删除的管理员 ID"
+    },
+    "deleted_by_name": {
+      "bsonType": "string",
+      "description": "执行逻辑删除的管理员名称快照"
+    },
+    "delete_reason": {
+      "bsonType": "string",
+      "maxLength": 500,
+      "description": "后台逻辑删除原因"
+    },
     "user_id": {
       "bsonType": "string"
     },
@@ -28,12 +49,20 @@
     },
     "customer_type": {
       "bsonType": "string",
-      "enum": [
-        "clinic",
-        "dealer",
-        "individual"
-      ],
-      "description": "下单时客户类型快照"
+      "minLength": 1,
+      "maxLength": 40,
+      "description": "下单时客户类型快照；后台工单支持自定义类型"
+    },
+    "biz_user": {
+      "bsonType": "string",
+      "maxLength": 40,
+      "description": "后台录单时填写的对接业务员快照"
+    },
+    "request_fingerprint": {
+      "bsonType": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "description": "客户端报修完整请求的 SHA-256 指纹，用于十分钟内幂等判定"
     },
     "status": {
       "bsonType": "string",
@@ -47,6 +76,20 @@
         "completed",
         "cancelled"
       ]
+    },
+    "needs_return": {
+      "bsonType": "bool",
+      "description": "设备是否需要由售后安排回寄；客户拒绝报价且设备已寄入时为 true"
+    },
+    "archive_status": {
+      "bsonType": "string",
+      "enum": [
+        "active",
+        "pending_return",
+        "returned",
+        "archived"
+      ],
+      "description": "拒修归档进度：待回寄、已回寄、已归档；重新报价后恢复 active"
     },
     "in_warranty": {
       "bsonType": "bool",
@@ -127,6 +170,10 @@
     },
     "wechat_pay_out_trade_no": {
       "bsonType": "string"
+    },
+    "wechat_pay_payer_openid": {
+      "bsonType": "string",
+      "description": "创建当前微信预支付单时绑定的付款人 openid，用于避免跨账号复用 prepay_id"
     },
     "wechat_pay_transaction_id": {
       "bsonType": "string"

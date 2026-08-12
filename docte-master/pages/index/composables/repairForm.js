@@ -1,3 +1,5 @@
+import { REPAIR_PRODUCT_MODEL_OTHER_LABEL } from '../../../config/repair-product-models.mjs'
+
 export const defaultRepairForm = () => ({
 	customerType: '',
 	logisticsCompany: '顺丰快递',
@@ -14,6 +16,11 @@ export const defaultRepairForm = () => ({
 
 export const createRepairProduct = (id = 1) => ({
 	id,
+	productId: '',
+	isCustomName: false,
+	isCustomModel: false,
+	customModel: '',
+	modelPickerOptions: [REPAIR_PRODUCT_MODEL_OTHER_LABEL],
 	name: '',
 	category: '',
 	model: '',
@@ -26,3 +33,7 @@ export const createRepairProduct = (id = 1) => ({
 	snInfo: null,
 	snLoading: false
 })
+
+export const getRepairProductModelValue = (product = {}) => String(
+	product.isCustomModel ? (product.customModel || product.model) : product.model
+).trim()

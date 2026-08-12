@@ -1,5 +1,6 @@
 import { unwrapCloudResult, withToken } from './cloudHelpers.js'
 import { importCloudObject } from '@/utils/cloud.js'
+import { repairProductOptions } from '@/config/repair-products.js'
 
 let userCloudObject = null
 let publicCloudObject = null
@@ -48,6 +49,22 @@ const normalizeCategory = (item = {}) => ({
 	status: item.status,
 	sort: item.sort || 0
 })
+
+const normalizeProductOption = (item = {}) => {
+	const id = item._id || item.id || item.productId || item.product_id || item.value || ''
+	const name = item.product_name || item.productName || item.name || item.title || item.label || ''
+	const model = item.model || item.product_model || item.productModel || ''
+	return {
+		...item,
+		id,
+		value: id || name,
+		name,
+		label: item.label || name,
+		model,
+		initials: item.initials || '',
+		searchKeywords: item.searchKeywords || [name, model, item.initials].filter(Boolean).join(' ').toLowerCase()
+	}
+}
 
 /**
  * 获取用户设备列表
@@ -114,4 +131,25 @@ export const deleteProduct = (id) => getUserCloudObject()
 export const getProductCategories = async () => {
 	const list = await getPublicCloudObject().getCategories({}).then(unwrapCloudResult)
 	return Array.isArray(list) ? list.map(normalizeCategory) : []
+}
+
+/**
+ * 获取报修表单产品名称下拉选项
+ * 后端预留方法：cicada-client-public.getRepairProductOptions
+ * 建议返回 { list: [{ id, product_name/name, model }] }
+ */
+export const getRepairProductOptions = async (params = {}) => {
+	try {
+		const data = await getPublicCloudObject()
+			.getRepairProductOptions(params)
+			.then(unwrapCloudResult)
+		const list = Array.isArray(data) ? data : (data.list || data.data || [])
+		const normalized = Array.isArray(list)
+			? list.map(normalizeProductOption).filter((item) => item.label)
+			: []
+		if (normalized.length) return normalized
+	} catch (error) {
+		console.warn('repair product options fallback:', error)
+	}
+	return repairProductOptions.map(normalizeProductOption)
 }

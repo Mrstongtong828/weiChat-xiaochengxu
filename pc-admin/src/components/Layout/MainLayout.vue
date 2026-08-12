@@ -2,23 +2,23 @@
   <div class="main-layout">
     <div class="mobile-mask" :class="{ show: isMobile && sidebarOpen }" @click="sidebarOpen = false"></div>
 
-    <div class="sidebar" :class="{ open: sidebarOpen }">
+    <div class="sidebar" :class="{ open: sidebarOpen, collapsed }">
       <div class="sidebar-logo">
         <div class="logo-card">
           <img src="/brand/cicada-admin-logo.png" alt="CICADA 思科达">
         </div>
       </div>
       <div class="nav-label">MAIN NAVIGATION</div>
-      <el-menu :default-active="activeMenu" class="el-menu-vertical" @select="handleMenuSelect">
-        <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><span>工作台首页</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><span>报修工单管理</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('finance')" index="finance"><el-icon><Money /></el-icon><span>财务中心</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('logistics')" index="logistics"><el-icon><Van /></el-icon><span>物流管理</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><span>配件库存管理</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><span>客户管理</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><span>产品故障知识库</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><span>投诉与建议</span></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><span>小程序配置</span></el-menu-item>
+      <el-menu :default-active="activeMenu" class="el-menu-vertical" :collapse="collapsed && !isMobile" :collapse-transition="false" @select="handleMenuSelect">
+        <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><template #title>工作台首页</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><template #title>报修工单管理</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('finance')" index="finance"><el-icon><Money /></el-icon><template #title>财务中心</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('logistics')" index="logistics"><el-icon><Van /></el-icon><template #title>物流管理</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><template #title>配件库存管理</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><template #title>客户管理</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><template #title>产品故障知识库</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><template #title>投诉与建议</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><template #title>小程序配置</template></el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <div class="status-card">
@@ -37,7 +37,7 @@
     <div class="main-container">
       <div class="top-header">
         <div class="header-left">
-          <el-icon class="hamburger" @click="sidebarOpen = !sidebarOpen"><Fold /></el-icon>
+          <el-icon class="hamburger" @click="toggleSidebar"><Expand v-if="collapsed" /><Fold v-else /></el-icon>
           <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
         </div>
         <div class="header-actions">
@@ -140,7 +140,7 @@
         </template>
         <template v-else-if="!miniappLoading">
           <el-empty description="尚未配置小程序二维码">
-            <p class="miniapp-qr-note">请在「系统设置 → 隐私与合规 → 小程序体验版二维码」上传后，此处即可扫码预览。</p>
+            <p class="miniapp-qr-note">请在「系统设置 → 联系与公众号 → 小程序体验版二维码」上传后，此处即可扫码预览。</p>
             <el-button v-if="canManageSettings" type="primary" @click="goSettings">前往设置上传</el-button>
           </el-empty>
         </template>
@@ -175,6 +175,7 @@ const router = useRouter()
 const route = useRoute()
 const isMobile = ref(false)
 const sidebarOpen = ref(false)
+const collapsed = ref(localStorage.getItem('adminSidebarCollapsed') === '1')
 const notificationVisible = ref(false)
 const notificationLoading = ref(false)
 const notificationGroups = ref([])
@@ -274,6 +275,15 @@ const goSettings = () => {
 const checkMobile = () => {
   isMobile.value = window.innerWidth <= 768
   if (!isMobile.value) sidebarOpen.value = false
+}
+
+const toggleSidebar = () => {
+  if (isMobile.value) {
+    sidebarOpen.value = !sidebarOpen.value
+  } else {
+    collapsed.value = !collapsed.value
+    try { localStorage.setItem('adminSidebarCollapsed', collapsed.value ? '1' : '0') } catch (e) { /* ignore */ }
+  }
 }
 
 const syncProfileFromStorage = () => {
@@ -567,7 +577,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   z-index: 1001;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, width 0.3s ease;
   flex-shrink: 0;
   backdrop-filter: blur(18px);
 }
@@ -742,6 +752,30 @@ onUnmounted(() => {
   text-align: center;
   font-size: 12px;
   line-height: 20px;
+}
+@media screen and (min-width: 769px) {
+  .sidebar.collapsed {
+    width: var(--sidebar-collapsed-width, 80px);
+  }
+  .sidebar.collapsed .sidebar-logo,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .sidebar-footer {
+    display: none;
+  }
+  .sidebar.collapsed .el-menu-vertical {
+    --el-menu-collapse-width: 62px;
+    padding: 0 8px 10px;
+  }
+  .sidebar.collapsed :deep(.el-menu-item) {
+    padding: 0 !important;
+    justify-content: center;
+  }
+  .sidebar.collapsed :deep(.el-menu-item .el-icon) {
+    margin-right: 0;
+  }
+  .sidebar.collapsed :deep(.el-menu-item.is-active::after) {
+    display: none;
+  }
 }
 .main-container { flex: 1; display: flex; flex-direction: column; min-width: 0; background: transparent; }
 .top-header {

@@ -3,27 +3,27 @@ const test = require('node:test')
 
 const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
 
-test('收费工单未确认到账时禁止回寄发货', () => {
-  assert.match(getReturnShipmentBlockReason({
+test('收费工单未确认到账时也允许后台回寄发货', () => {
+  assert.equal(getReturnShipmentBlockReason({
     total_price: 120,
     charge_type: 'paid',
     payment_status: 'pending'
-  }), /尚未确认到账/)
+  }), '')
 })
 
-test('已付款、免费和明确在保工单允许回寄', () => {
+test('付款状态和收费类型不影响后台回寄', () => {
   assert.equal(getReturnShipmentBlockReason({ total_price: 120, charge_type: 'paid', payment_status: 'paid' }), '')
   assert.equal(getReturnShipmentBlockReason({ total_price: 0, charge_type: 'free', payment_status: 'pending' }), '')
   assert.equal(getReturnShipmentBlockReason({ total_price: 0, charge_type: 'warranty', warranty_status: 'in_warranty' }), '')
 })
 
-test('质保状态未知时不能按零金额免费放行', () => {
-  assert.match(getReturnShipmentBlockReason({
+test('质保状态未知的零金额工单也允许后台回寄', () => {
+  assert.equal(getReturnShipmentBlockReason({
     total_price: 0,
     charge_type: 'pending',
     warranty_status: 'unknown',
     payment_status: 'pending'
-  }), /尚未确认到账/)
+  }), '')
 })
 
 test('同一工单同一物流段允许幂等保存相同运单号', () => {
@@ -36,4 +36,9 @@ test('跨工单或跨物流段复用运单号会被识别为冲突', () => {
   const sameOrderOtherSegment = { _id: 'order-1', ship_out_info: { logisticsNo: 'SF1234567890' } }
   assert.equal(findTrackingConflict([otherOrder], 'SF1234567890', 'order-1', 'back'), otherOrder)
   assert.equal(findTrackingConflict([sameOrderOtherSegment], 'SF1234567890', 'order-1', 'back'), sameOrderOtherSegment)
+})
+
+test('历史 tracking_no 字段同样参与运单冲突检测', () => {
+  const historicalOrder = { _id: 'order-2', ship_out_info: { tracking_no: 'SF1234567890' } }
+  assert.equal(findTrackingConflict([historicalOrder], 'SF1234567890', 'order-1', 'back'), historicalOrder)
 })

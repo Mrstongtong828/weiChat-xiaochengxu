@@ -6,7 +6,9 @@ import path from 'path'
 // 保持原始像素尺寸（避免高分屏发虚），仅在体积确实变小时才覆盖。
 // 原图已提交 git，可随时 revert。
 const dir = 'static'
-const files = fs.readdirSync(dir).filter(f => /\.(png|jpe?g)$/i.test(f))
+const requestedFiles = process.argv.slice(2)
+const files = (requestedFiles.length ? requestedFiles : fs.readdirSync(dir))
+  .filter(f => /\.(png|jpe?g)$/i.test(f))
 let before = 0
 let after = 0
 for (const f of files) {

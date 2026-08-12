@@ -50,6 +50,10 @@
     "phone": {
       "bsonType": "string"
     },
+    "email": {
+      "bsonType": "string",
+      "description": "后台员工找回密码邮箱，统一存储为小写"
+    },
     "name": {
       "bsonType": "string"
     },

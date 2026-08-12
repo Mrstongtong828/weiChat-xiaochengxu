@@ -2,7 +2,8 @@
   "name": "cicada-admin-customer",
   "version": "1.0.0",
   "dependencies": {
-    "cicada-admin-auth": "file:../common/cicada-admin-auth"
+    "cicada-admin-auth": "file:../common/cicada-admin-auth",
+    "cicada-warranty-policy": "file:../common/cicada-warranty-policy"
   },
   "cloudfunction-config": {
     "path": "/cicada-admin-customer"

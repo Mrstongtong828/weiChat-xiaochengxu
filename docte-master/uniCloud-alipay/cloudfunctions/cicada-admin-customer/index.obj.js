@@ -1,12 +1,21 @@
 const db = uniCloud.database()
 const dbCmd = db.command
 const { createAdminAuthError, toAdminErrorResponse, normalizeAdminAuthResult, isAdminTokenExpired } = loadAdminAuthModule()
+const warrantyPolicy = loadWarrantyPolicyModule()
 
 function loadAdminAuthModule() {
   try {
     return require('cicada-admin-auth')
   } catch (packageError) {
     return require('../common/cicada-admin-auth')
+  }
+}
+
+function loadWarrantyPolicyModule() {
+  try {
+    return require('cicada-warranty-policy')
+  } catch (packageError) {
+    return require('../common/cicada-warranty-policy')
   }
 }
 
@@ -27,8 +36,8 @@ const PERMISSIONS = {
   export: ['admin']                  // 导出
 }
 
-const CUSTOMER_TYPES = ['clinic', 'dealer', 'individual']
 const CUSTOMER_SOURCES = ['miniapp', 'offline', 'dealer_referral']
+const MAX_CUSTOMER_TYPE_LENGTH = 40
 const MAX_PAGE_SIZE = 100
 const WARRANTY_ALERT_SCAN_LIMIT = 5000
 
@@ -79,6 +88,11 @@ function getPermissionConfigForRole(role) {
 }
 
 function normalizeText(v) { return String(v == null ? '' : v).trim() }
+function isValidCustomerType(v) {
+  if (typeof v !== 'string') return false
+  const type = normalizeText(v)
+  return !!type && type.length <= MAX_CUSTOMER_TYPE_LENGTH
+}
 
 // SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
 // 口径必须与 cicada-client-order / cicada-admin-order 中的同名函数保持一致。
@@ -131,38 +145,10 @@ function toTimestamp(dateStr) {
   return Number.isFinite(t) ? t : 0
 }
 
-// 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串
-function addMonthsToDateStr(dateStr, months) {
-  const s = normalizeText(dateStr)
-  const m = Number(months)
-  if (!s || !Number.isFinite(m) || m <= 0) return ''
-  const d = new Date(`${s}T00:00:00`)
-  if (Number.isNaN(d.getTime())) return ''
-  d.setMonth(d.getMonth() + m)
-  const y = d.getFullYear()
-  const mo = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${mo}-${day}`
-}
-
-// 计算设备实际质保到期（取基础质保与所有延保中的最晚值）与状态。
-// 仅在明确填写质保月数时才由采购日期推算；资料缺失保持 unknown，避免误判收费。
+// 计算设备实际质保到期与状态，和工单/小程序共用同一套起算及延保规则。
 function computeWarranty(device) {
-  let expire = normalizeText(device.warranty_expire)
-  const months = Number(device.warranty_months)
-  if (!expire && normalizeText(device.buy_date) && Number.isFinite(months) && months > 0) {
-    expire = addMonthsToDateStr(device.buy_date, months)
-  }
-  let expireTs = toTimestamp(expire)
-  const exts = Array.isArray(device.ext_warranty) ? device.ext_warranty : []
-  for (const ext of exts) {
-    const ts = toTimestamp(ext && ext.new_expire)
-    if (ts > expireTs) { expireTs = ts; expire = normalizeText(ext.new_expire) }
-  }
-  let status = 'unknown'
-  if (expireTs > 0) status = Date.now() <= expireTs ? 'in_warranty' : 'expired'
-  if (exts.length > 0 && status === 'in_warranty') status = 'extended'
-  return { effective_expire: expire, warranty_state: status }
+  const state = warrantyPolicy.computeWarrantyState(device)
+  return { effective_expire: state.expire, warranty_state: state.warranty_status }
 }
 
 async function writeLog(ctx, operator, action, target, detail) {
@@ -328,6 +314,9 @@ function buildWarrantyAlert(device, customer, now) {
     model: device.model || '',
     sn: device.sn || '',
     buy_date: device.buy_date || '',
+    warranty_start_date: device.warranty_start_date || '',
+    invoice_received_date: device.invoice_received_date || '',
+    manufacture_date: device.manufacture_date || '',
     warranty_months: Number(device.warranty_months || 0) || 0,
     warranty_expire: device.warranty_expire || '',
     effective_expire: warranty.effective_expire,
@@ -441,7 +430,8 @@ module.exports = {
 
       const where = {}
       if (statusFilter !== 'all') where.status = statusFilter === 'cancelled' ? 'cancelled' : dbCmd.neq('cancelled')
-      if (customerType && CUSTOMER_TYPES.includes(customerType)) where.customer_type = customerType
+      if (customerType.length > MAX_CUSTOMER_TYPE_LENGTH) return { code: -1, msg: '客户类型不能超过40个字符' }
+      if (customerType) where.customer_type = customerType
       if (dealerId) where.dealer_id = dealerId
       if (tagFilter) where.tags = tagFilter // 数组字段：包含该标签即命中
 
@@ -524,7 +514,8 @@ module.exports = {
       data.name = normalizeText(data.name)
       data.phone = normalizeText(data.phone)
       if (!data.name) return { code: -1, msg: '客户名称不能为空' }
-      if (data.customer_type && !CUSTOMER_TYPES.includes(data.customer_type)) return { code: -1, msg: '客户类型不正确' }
+      data.customer_type = normalizeText(data.customer_type || 'clinic')
+      if (!isValidCustomerType(data.customer_type)) return { code: -1, msg: '客户类型不能为空且不能超过40个字符' }
       if (data.source && !CUSTOMER_SOURCES.includes(data.source)) return { code: -1, msg: '客户来源不正确' }
       if (data.phone && !isValidPhone(data.phone)) return { code: -1, msg: '手机号格式不正确' }
 
@@ -574,7 +565,10 @@ module.exports = {
         data.name = normalizeText(data.name)
         if (!data.name) return { code: -1, msg: '客户名称不能为空' }
       }
-      if (data.customer_type && !CUSTOMER_TYPES.includes(data.customer_type)) return { code: -1, msg: '客户类型不正确' }
+      if (Object.prototype.hasOwnProperty.call(data, 'customer_type')) {
+        data.customer_type = normalizeText(data.customer_type)
+        if (!isValidCustomerType(data.customer_type)) return { code: -1, msg: '客户类型不能为空且不能超过40个字符' }
+      }
       if (data.source && !CUSTOMER_SOURCES.includes(data.source)) return { code: -1, msg: '客户来源不正确' }
       if (Object.prototype.hasOwnProperty.call(data, 'phone')) {
         data.phone = normalizeText(data.phone)
@@ -652,6 +646,9 @@ module.exports = {
         purchase_channel: d.purchase_channel || '',
         dealer_name: d.dealer_name || '',
         buy_date: d.buy_date || '',
+        warranty_start_date: d.warranty_start_date || '',
+        invoice_received_date: d.invoice_received_date || '',
+        manufacture_date: d.manufacture_date || '',
         warranty_months: Number(d.warranty_months || 0) || 0,
         warranty_expire: d.warranty_expire || '',
         maintenance_cycle: d.maintenance_cycle || '',
@@ -714,6 +711,15 @@ module.exports = {
         if (dup.data.length) return { code: -1, msg: `SN[${sn}]已被其他设备占用` }
       }
 
+      let existingDevice = null
+      if (dv._id) {
+        const existingDeviceRes = await db.collection('cicada_user_devices').doc(dv._id).get()
+        existingDevice = existingDeviceRes.data && existingDeviceRes.data[0]
+        if (!existingDevice || normalizeText(existingDevice.customer_id) !== customerId) {
+          return { code: -1, msg: '设备不存在或不属于当前客户' }
+        }
+      }
+
       const data = {
         product_category: normalizeText(dv.product_category),
         product_name: productName,
@@ -723,10 +729,15 @@ module.exports = {
         purchase_channel: normalizeText(dv.purchase_channel),
         dealer_name: normalizeText(dv.dealer_name),
         buy_date: normalizeText(dv.buy_date),
-        warranty_months: Number(dv.warranty_months || 0) || 0,
+        warranty_start_date: normalizeText(dv.warranty_start_date),
+        invoice_received_date: normalizeText(dv.invoice_received_date),
+        manufacture_date: normalizeText(dv.manufacture_date),
+        warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
         warranty_expire: normalizeText(dv.warranty_expire),
         maintenance_cycle: normalizeText(dv.maintenance_cycle),
-        ext_warranty: Array.isArray(dv.ext_warranty) ? dv.ext_warranty : [],
+        ext_warranty: Array.isArray(dv.ext_warranty)
+          ? dv.ext_warranty
+          : (Array.isArray(existingDevice && existingDevice.ext_warranty) ? existingDevice.ext_warranty : []),
         update_time: Date.now()
       }
 
@@ -795,7 +806,7 @@ module.exports = {
       let history = []
       if (orderIds.length) {
         const ordersRes = await db.collection('cicada_orders')
-          .where({ _id: dbCmd.in(orderIds) })
+          .where({ _id: dbCmd.in(orderIds), is_deleted: dbCmd.neq(true) })
           .field({ order_no: true, status: true, create_time: true })
           .orderBy('create_time', 'desc').limit(10).get()
         history = (ordersRes.data || []).map(o => ({ id: o._id, orderNo: o.order_no, status: o.status, createTime: o.create_time }))
@@ -810,12 +821,17 @@ module.exports = {
 
       // 关联客户名称（便于后台核对归属）
       let customerName = ''
+      let customerType = ''
       const customerId = device ? normalizeText(device.customer_id) : ''
       if (customerId) {
         try {
           const cr = await db.collection('cicada_customers').doc(customerId).get()
           customerName = (cr.data && cr.data[0] && cr.data[0].name) || ''
-        } catch (e) { customerName = '' }
+          customerType = (cr.data && cr.data[0] && cr.data[0].customer_type) || ''
+        } catch (e) {
+          customerName = ''
+          customerType = ''
+        }
       }
 
       return {
@@ -826,10 +842,14 @@ module.exports = {
           deviceId: device ? device._id : '',
           customerId,
           customerName,
+          customerType,
           productName: device ? (device.product_name || '') : '',
           productCategory: device ? (device.product_category || '') : '',
           model: device ? (device.model || '') : '',
           buyDate: device ? (device.buy_date || '') : '',
+          warrantyStartDate: device ? (device.warranty_start_date || '') : '',
+          invoiceReceivedDate: device ? (device.invoice_received_date || '') : '',
+          manufactureDate: device ? (device.manufacture_date || '') : '',
           warrantyMonths: device ? (Number(device.warranty_months || 0) || 0) : 0,
           warrantyExpire: warranty.effective_expire || '',
           warrantyStatus: warranty.warranty_state,
@@ -883,8 +903,8 @@ module.exports = {
       const c = cur.data && cur.data[0]
       if (!c) return { code: -1, msg: '客户不存在' }
       // 按 (customer_id 或 user_id) 关联，换绑/历史单都不丢
-      const orFilters = [{ customer_id: id }]
-      if (c.user_id) orFilters.push({ user_id: c.user_id })
+      const orFilters = [{ customer_id: id, is_deleted: dbCmd.neq(true) }]
+      if (c.user_id) orFilters.push({ user_id: c.user_id, is_deleted: dbCmd.neq(true) })
 
       const res = await db.collection('cicada_orders')
         .where(dbCmd.or(orFilters)).orderBy('create_time', 'desc').limit(200).get()
@@ -1056,7 +1076,8 @@ module.exports = {
 
       const where = {}
       if (statusFilter !== 'all') where.status = statusFilter === 'cancelled' ? 'cancelled' : dbCmd.neq('cancelled')
-      if (customerType && CUSTOMER_TYPES.includes(customerType)) where.customer_type = customerType
+      if (customerType.length > MAX_CUSTOMER_TYPE_LENGTH) return { code: -1, msg: '客户类型不能超过40个字符' }
+      if (customerType) where.customer_type = customerType
       if (tagFilter) where.tags = tagFilter
 
       const res = await db.collection('cicada_customers').where(where).orderBy('create_time', 'desc').limit(5000).get()
@@ -1106,7 +1127,21 @@ module.exports = {
       if (!rows.length) return { code: -1, msg: '没有可导入的数据' }
       if (rows.length > 1000) return { code: -1, msg: '单次最多导入 1000 条' }
 
-      const TYPE_ALIAS = { '企业': 'clinic', '终端诊所': 'clinic', '诊所': 'clinic', '签约代理商（齿科）': 'dealer', '经销商': 'dealer', '个人散户': 'individual', '散户': 'individual', '个人': 'individual', clinic: 'clinic', dealer: 'dealer', individual: 'individual' }
+      const TYPE_ALIAS = {
+        '门诊/医院': 'clinic',
+        '企业': 'clinic',
+        '终端诊所': 'clinic',
+        '诊所': 'clinic',
+        '代理商/经销商': 'dealer',
+        '签约代理商（齿科）': 'dealer',
+        '经销商': 'dealer',
+        '个人散户': 'individual',
+        '散户': 'individual',
+        '个人': 'individual',
+        clinic: 'clinic',
+        dealer: 'dealer',
+        individual: 'individual'
+      }
       const col = db.collection('cicada_customers')
       const now = Date.now()
       const failed = []
@@ -1118,8 +1153,10 @@ module.exports = {
         const rowNo = i + 1
         const name = normalizeText(r.name)
         const phone = normalizeText(r.phone)
+        const rawCustomerType = normalizeText(r.customer_type)
         if (!name) { failed.push({ row: rowNo, name, reason: '客户名称为空' }); continue }
         if (phone && !isValidPhone(phone)) { failed.push({ row: rowNo, name, reason: '手机号格式不正确' }); continue }
+        if (rawCustomerType.length > MAX_CUSTOMER_TYPE_LENGTH) { failed.push({ row: rowNo, name, reason: '客户类型超过40个字符' }); continue }
         if (phone) {
           if (seenPhones.has(phone)) { failed.push({ row: rowNo, name, reason: '文件内手机号重复' }); continue }
           const dup = await col.where({ phone, status: dbCmd.neq('cancelled') }).limit(1).get()
@@ -1131,7 +1168,7 @@ module.exports = {
           name,
           contact: normalizeText(r.contact),
           phone,
-          customer_type: TYPE_ALIAS[normalizeText(r.customer_type)] || 'clinic',
+          customer_type: TYPE_ALIAS[rawCustomerType] || rawCustomerType || 'clinic',
           source: 'offline',
           address: normalizeText(r.address),
           credit_code: normalizeText(r.credit_code),

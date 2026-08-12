@@ -342,7 +342,9 @@ const fieldValue = (fieldItem, order, context = {}) => {
     validUntil: formatDate(order.paymentDeadline || order.payment_deadline),
     quoteRemark: quote.remark,
     settlementNo: order.settlementNo || order.settlement_no || ((order.id || '') + '-JS'),
-    completedAt: formatDate(order.completedTime || order.completed_time || order.updateTime),
+    completedAt: context.docType === 'repair_order'
+      ? ''
+      : formatDate(order.completedTime || order.completed_time || order.completeTime || order.complete_time),
     paymentStatus: paymentLabel(order.paymentStatus || order.payment_status),
     paymentMethod: paymentMethodLabel(order.paymentMethod || order.payment_method),
     refundStatus: refundLabel(order.refundStatus || order.refund_status),
@@ -470,7 +472,7 @@ const buildRepairSection = (order, config) => {
     : ''
   const completion = footerFields.length
     ? '<table class="repair-completion"><tbody>' + footerFields.map(item =>
-        '<tr><th>' + escapeHtml(item.label) + '</th><td>' + escapeHtml(fieldValue(item, order) || '') + '</td></tr>'
+        '<tr><th>' + escapeHtml(item.label) + '</th><td>' + escapeHtml(fieldValue(item, order, { docType: 'repair_order' }) || '') + '</td></tr>'
       ).join('') + '</tbody></table>'
     : ''
   const signatures = config.showSignature && signatureFields.length

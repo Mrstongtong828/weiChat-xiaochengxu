@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Browser automation / test / stale build artifacts
+.playwright-cli/
+test-results/
+dist-stale-*/

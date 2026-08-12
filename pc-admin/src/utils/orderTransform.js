@@ -1,5 +1,23 @@
 import { toChineseStatus } from './orderStatus.js'
 
+const resolveUrlValue = (value) => {
+  if (typeof value === 'string') return value.trim()
+  if (!value || typeof value !== 'object') return ''
+  const candidates = [
+    value.resolvedUrl,
+    value.previewUrl,
+    value.tempFileURL,
+    value.tempUrl,
+    value.url,
+    value.fileUrl,
+    value.fileID,
+    value.fileId,
+    value.path
+  ]
+  const resolved = candidates.find(candidate => typeof candidate === 'string' && candidate.trim())
+  return resolved ? resolved.trim() : ''
+}
+
 const normalizeUrlArray = (...values) => {
   return values.reduce((urls, value) => {
     if (Array.isArray(value)) {
@@ -9,7 +27,7 @@ const normalizeUrlArray = (...values) => {
       urls.push(value)
     }
     return urls
-  }, []).filter(Boolean)
+  }, []).map(resolveUrlValue).filter(Boolean)
 }
 
 const normalizeOrderItems = (order) => {
@@ -118,8 +136,12 @@ export const transformOrder = (order) => {
     // 报修方信息
     clinicName: shipBack.unit || '',
     customerName: shipBack.name || '',
+    contactName: shipBack.name || shipOut.name || '',
     phone: shipBack.phone || '',
     address: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
+    customerAddress: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
+    receivedDate: shipOut.received_at || shipOut.receivedAt || '',
+    bizUser: order.biz_user || order.bizUser || (order.customer && order.customer.biz_user) || '',
     // 下单用户类型快照：clinic / dealer / individual（优先订单字段，其次 CRM 摘要）
     customerType: order.customer_type || order.customerType || (order.customer && order.customer.customer_type) || '',
 
@@ -129,15 +151,20 @@ export const transformOrder = (order) => {
     senderUnit: shipOut.unit || '',
     senderAddress: `${shipOut.region || ''} ${shipOut.detail || ''}`.trim(),
     returnAddress: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
-    logisticsCompany: shipOut.logistics_company || '',
-    logisticsNo: shipOut.logistics_no || '',
-    returnCompany: shipBack.logistics_company || '',
-    returnNo: shipBack.logistics_no || '',
+    logisticsCompany: shipOut.logistics_company || shipOut.logisticsCompany || '',
+    logisticsNo: shipOut.logistics_no || shipOut.logisticsNo || shipOut.tracking_no || shipOut.trackingNo || '',
+    returnCompany: shipBack.logistics_company || shipBack.logisticsCompany || shipBack.return_company || shipBack.returnCompany || '',
+    returnNo: shipBack.logistics_no || shipBack.logisticsNo || shipBack.tracking_no || shipBack.trackingNo || shipBack.return_no || shipBack.returnNo || '',
 
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
     productName: firstItem.product_name || order.product_name || '',
+    productCategory: firstItem.product_category || order.product_category || '',
     productCode: firstItem.product_code || firstItem.productCode || firstItem.code || order.product_code || order.productCode || order.code || '',
+    deviceSn: firstItem.sn || order.sn || '',
+    buyDate: firstItem.buy_date || order.buy_date || '',
+    warrantyMonths: Number(firstItem.warranty_months || order.warranty_months || 0) || 0,
+    warrantyExpire: firstItem.warranty_expire || order.warranty_expire || '',
     fault: firstItem.fault_desc || order.fault_desc || '',
     images,
     itemsList,
@@ -150,6 +177,8 @@ export const transformOrder = (order) => {
     // 状态
     status: toChineseStatus(order.status),
     statusEn: order.status,
+    needsReturn: order.needs_return === true || order.needsReturn === true,
+    archiveStatus: order.archive_status || order.archiveStatus || '',
     slaInfo: order.sla_info || order.slaInfo || null,
 
     // 在保快照（下单时判定，后台 SN 回填后可重算）
@@ -188,6 +217,12 @@ export const transformOrder = (order) => {
     // 发票信息（内部登记，不代表已接入税控开票）
     needInvoice: invoiceInfo.need_invoice || false,
     invoiceType: invoiceInfo.invoice_type || '',
+    invoiceTaxCategory: invoiceInfo.tax_category || '修理修配劳务',
+    invoiceItemName: invoiceInfo.item_name || '牙科设备检修服务费',
+    invoiceDeliveryMethod: invoiceInfo.delivery_method || (invoiceInfo.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+    invoiceFulfillmentMode: invoiceInfo.fulfillment_mode || 'manual',
+    invoiceArchiveStatus: invoiceInfo.archive_status || 'pending',
+    invoiceArchiveOrderNo: invoiceInfo.archive_order_no || order.order_no || '',
     invoiceTitleType: invoiceInfo.title_type || '',
     invoiceTitle: invoiceInfo.title || '',
     taxId: invoiceInfo.tax_no || '',
@@ -203,6 +238,7 @@ export const transformOrder = (order) => {
     invoiceRemark: invoiceInfo.remark || '',
     invoiceUrl: invoiceInfo.invoice_url || invoiceInfo.file_url || '',
     invoicePdfUrl: invoiceInfo.pdf_url || invoiceInfo.invoice_url || invoiceInfo.file_url || '',
+    invoiceFileId: invoiceInfo.invoice_file_id || '',
     invoiceNo: invoiceInfo.invoice_no || '',
     invoiceDate: invoiceInfo.invoice_date || '',
     invoiceMailCompany: invoiceInfo.mail_company || '',

@@ -16,3 +16,11 @@ docte-master-*.zip
 .codegraph/
 # Claude Code 本地配置与技能
 .claude/
+# 本地 Agent 配置与技能
+.agents/
+# 导出/输出产物（如保修政策 docx）
+output/
+# 浏览器自动化、测试与旧构建产物
+.playwright-cli/
+test-results/
+dist-stale-*/

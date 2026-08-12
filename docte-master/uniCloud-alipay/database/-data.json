@@ -41,22 +41,64 @@
   ],
   "cicada_product_categories": [
     {
-      "_id": "cat001",
-      "category_name": "手机",
+      "_id": "cat-root-measure",
+      "category_name": "根治、根测系列",
       "status": "上架",
-      "sort": 1
+      "sort": 10
     },
     {
-      "_id": "cat002",
-      "category_name": "平板电脑",
+      "_id": "cat-implant",
+      "category_name": "种植机系列",
       "status": "上架",
-      "sort": 2
+      "sort": 20
     },
     {
-      "_id": "cat003",
-      "category_name": "笔记本电脑",
+      "_id": "cat-electric-motor",
+      "category_name": "牙科电动马达系列",
       "status": "上架",
-      "sort": 3
+      "sort": 30
+    },
+    {
+      "_id": "cat-led-curing",
+      "category_name": "LED光固化系列",
+      "status": "上架",
+      "sort": 40
+    },
+    {
+      "_id": "cat-obturation",
+      "category_name": "热牙胶充填系列",
+      "status": "上架",
+      "sort": 50
+    },
+    {
+      "_id": "cat-high-speed",
+      "category_name": "高速手机系列",
+      "status": "上架",
+      "sort": 60
+    },
+    {
+      "_id": "cat-low-speed-handpiece",
+      "category_name": "低速手机系列",
+      "status": "上架",
+      "sort": 70
+    },
+    {
+      "_id": "cat-low-speed-motor",
+      "category_name": "低速马达",
+      "status": "上架",
+      "sort": 80
+    },
+    {
+      "_id": "cat-cleaner",
+      "category_name": "清洗机",
+      "status": "上架",
+      "sort": 90
+    },
+    {
+      "_id": "cat-sandblaster",
+      "category_name": "超声喷砂洁牙机",
+      "status": "上架",
+      "sort": 100
     }
   ]
 }

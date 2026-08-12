@@ -6,6 +6,14 @@ const expressProvider = loadExpressProvider()
 const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
 const { buildLogisticsReadiness } = require('./logistics-readiness')
 const { reconcileTrackCache } = require('./logistics-policy')
+const {
+  MANUAL_CONFIRMABLE_PAYMENT_STATUSES,
+  assertManualPaymentConfirmationAllowed,
+  getPaymentConfirmationStatusUpdate,
+  resolveManualPaymentMethod
+} = require('./payment-confirmation-policy')
+const { getInvoiceRequestBlockReason, INVOICE_ITEM_NAME, INVOICE_TAX_CATEGORY } = loadInvoicePolicyModule()
+const warrantyPolicy = loadWarrantyPolicyModule()
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
@@ -63,7 +71,7 @@ function createWorkflowFallback() {
   const ORDER_STATUS_TRANSITIONS = {
     pending: ['sent', 'received', 'cancelled'],
     sent: ['received', 'cancelled'],
-    received: ['inspecting', 'fixing', 'cancelled'],
+    received: ['inspecting', 'fixing', 'shipped', 'cancelled'],
     inspecting: ['fixing', 'shipped', 'cancelled'],
     fixing: ['shipped', 'completed', 'cancelled'],
     shipped: ['completed'],
@@ -80,9 +88,11 @@ function createWorkflowFallback() {
   const ALL_ROLES = Object.keys(ROLE_LABELS)
   const PERMISSIONS = {
     view_order: ALL_ROLES,
+    create_order: ['admin', 'engineer', 'support'],
     export_order: ALL_ROLES,
     get_stats: ALL_ROLES,
     get_workflow_config: ALL_ROLES,
+    delete_order: ['admin'],
     update_status: ['admin', 'engineer'],
     import_logistics: ['admin', 'engineer'],
     issue_quote: ['admin', 'engineer'],
@@ -120,6 +130,24 @@ function createWorkflowFallback() {
     if (!isKnownOrderStatus(from) || !isKnownOrderStatus(to)) return false
     return from === to || getAllowedStatusTransitions(from).includes(to)
   }
+  const getRepairStartBlockReason = (order = {}) => {
+    const quoteStatus = String(order.quote_status || order.quoteStatus || '').trim()
+    const authorizationStatus = String(order.authorization_status || order.authorizationStatus || '').trim()
+    const paymentStatus = String(order.payment_status || order.paymentStatus || '').trim()
+    const chargeType = String(order.charge_type || order.chargeType || '').trim()
+    const warrantyStatus = String(order.warranty_status || order.warrantyStatus || '').trim()
+    const total = Number(order.total_price || order.totalPrice || 0) || 0
+    if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
+    if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
+    if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
+    if (total <= 0 && (
+      paymentStatus !== 'not_required'
+      || chargeType !== 'free'
+      || order.in_warranty !== true
+      || !['in_warranty', 'extended'].includes(warrantyStatus)
+    )) return '零元维修必须先完成质保免收费核验'
+    return ''
+  }
   const assertOrderStatusTransition = (fromStatus = '', toStatus = '') => {
     const from = String(fromStatus || '').trim()
     const to = String(toStatus || '').trim()
@@ -143,9 +171,12 @@ function createWorkflowFallback() {
     ORDER_STATUS,
     assertOrderStatusTransition,
     assertRolePermission,
+    getOrderStatusLabel,
     getWorkflowConfigForRole,
     hasRolePermission,
-    isKnownRole
+    isKnownRole,
+    canTransitionOrderStatus,
+    getRepairStartBlockReason
   }
 }
 
@@ -165,9 +196,12 @@ const {
   ORDER_STATUS,
   assertOrderStatusTransition,
   assertRolePermission,
+  getOrderStatusLabel,
   getWorkflowConfigForRole,
   hasRolePermission,
-  isKnownRole
+  isKnownRole,
+  canTransitionOrderStatus,
+  getRepairStartBlockReason
 } = loadWorkflowModule()
 
 async function verifyAdminToken(token) {
@@ -257,7 +291,8 @@ function getDirectTodoMatchCond(todoType = '') {
   if (!type) return {}
   if (type === 'inbound') return { status: dbCmd.in(['pending', 'sent']) }
   if (type === 'payment') return { payment_status: 'uploaded', total_price: dbCmd.gt(0) }
-  if (type === 'return') return { status: dbCmd.in(['fixing', 'inspecting']), payment_status: 'paid' }
+  // 待回寄包含“已签收拒修”和“处理中待发货”两类，无法用单个 AND 条件等价表达，走 JS 精确筛选。
+  if (type === 'return') return null
   return null
 }
 
@@ -268,7 +303,7 @@ function getTodoCountMatchCond(todoType = '') {
   if (type === 'quote') {
     return {
       status: dbCmd.in(['received', 'inspecting', 'fixing']),
-      quote_status: dbCmd.in(['pending', 'draft', 'rejected'])
+      quote_status: dbCmd.in(['pending', 'draft'])
     }
   }
   if (type === 'invoice') {
@@ -298,11 +333,12 @@ function collectDeviceModelsFromOrders(orders = []) {
 
 async function fetchAdminOrderPage(matchCond, pagination) {
   const offset = (pagination.page - 1) * pagination.pageSize
+  const activeMatchCond = withActiveOrderFilter(matchCond)
   const [countRes, pageRes] = await Promise.all([
-    db.collection('cicada_orders').where(matchCond).count(),
+    db.collection('cicada_orders').where(activeMatchCond).count(),
     db.collection('cicada_orders')
       .aggregate()
-      .match(matchCond)
+      .match(activeMatchCond)
       .sort({ create_time: -1 })
       .skip(offset)
       .limit(pagination.pageSize)
@@ -353,11 +389,13 @@ function maskPhone(phone) {
 }
 
 // 批量解析工单关联的 CRM 客户（优先 customer_id，回退 user_id），附加客户摘要供列表展示
-// 安全：CRM 主手机号属客户档案敏感信息，仅 admin 可见完整号（与 CRM view_phone=admin-only 对齐），
+// 安全：CRM 主手机号属客户档案敏感信息，仅 admin/superadmin 可见完整号（与 CRM view_phone 对齐），
 // 其余角色（engineer/finance/support）一律脱敏，避免工单列表旁路 CRM 脱敏策略。
 async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
   if (!Array.isArray(orders) || !orders.length) return
-  const canViewFullPhone = String(currentAdmin && currentAdmin.role || '').toLowerCase() === 'admin'
+  const canViewFullPhone = ['admin', 'superadmin'].includes(
+    String(currentAdmin && currentAdmin.role || '').toLowerCase()
+  )
   const customerIds = [...new Set(orders.map(o => normalizeText(o.customer_id)).filter(Boolean))]
   const userIds = [...new Set(orders.filter(o => !normalizeText(o.customer_id)).map(o => normalizeText(o.user_id)).filter(Boolean))]
   const byId = {}
@@ -387,7 +425,10 @@ async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
     o.customer = {
       id: c._id,
       name: c.name || '',
+      contact: c.contact || '',
       phone: displayPhone,
+      address: c.address || '',
+      biz_user: c.biz_user || '',
       customer_type: crmType,
       tags: Array.isArray(c.tags) ? c.tags : []
     }
@@ -417,7 +458,13 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
 
 async function countOrdersByMatch(matchCond, todoType = '') {
   try {
-    const res = await db.collection('cicada_orders').where(matchCond).count()
+    if (normalizeText(todoType) === 'return') {
+      const orders = await fetchOrderBatches({
+        status: dbCmd.in(['received', 'inspecting', 'fixing'])
+      }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT })
+      return orders.filter(order => matchesTodoType(order, todoType)).length
+    }
+    const res = await db.collection('cicada_orders').where(withActiveOrderFilter(matchCond)).count()
     return res.total || 0
   } catch (e) {
     const orders = await fetchOrderBatches({ status: dbCmd.neq('cancelled') }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT })
@@ -721,11 +768,95 @@ function normalizeText(value) {
   return String(value === undefined || value === null ? '' : value).trim()
 }
 
+function loadWarrantyPolicyModule() {
+  try {
+    return require('cicada-warranty-policy')
+  } catch (packageError) {
+    return require('../common/cicada-warranty-policy')
+  }
+}
+
+function loadInvoicePolicyModule() {
+  try {
+    return require('cicada-invoice-policy')
+  } catch (packageError) {
+    return require('../common/cicada-invoice-policy')
+  }
+}
+
+async function findInvoiceNumberConflict(invoiceNo, excludeOrderId = '') {
+  const normalizedInvoiceNo = normalizeText(invoiceNo)
+  if (!normalizedInvoiceNo) return null
+  const where = { 'invoice_info.invoice_no': normalizedInvoiceNo }
+  if (excludeOrderId) where._id = dbCmd.neq(excludeOrderId)
+  const result = await db.collection('cicada_orders')
+    .where(where)
+    .field({ _id: true, order_no: true })
+    .limit(1)
+    .get()
+  return result.data && result.data[0] ? result.data[0] : null
+}
+
+function withActiveOrderFilter(matchCond = {}) {
+  return { ...matchCond, is_deleted: dbCmd.neq(true) }
+}
+
+function isDeletedOrder(order = {}) {
+  return order.is_deleted === true
+}
+
+function getBatchDeleteBlockReason(order = {}) {
+  if (isDeletedOrder(order)) return '工单已删除'
+  if (!['pending', 'cancelled'].includes(normalizeText(order.status))) {
+    return '仅已提交或已取消的工单可以删除'
+  }
+
+  const paymentStatus = normalizeText(order.payment_status || order.paymentStatus)
+  const paymentProofs = order.payment_proofs || order.paymentProofs || []
+  if (['uploaded', 'paid', 'refunded'].includes(paymentStatus)
+    || normalizeText(order.wechat_pay_transaction_id)
+    || (Array.isArray(paymentProofs) && paymentProofs.length)) {
+    return '工单已有付款或付款凭证记录'
+  }
+
+  if (['processing', 'refunded'].includes(normalizeText(order.refund_status))) {
+    return '工单已有退款记录'
+  }
+
+  const invoice = order.invoice_info || {}
+  if (invoice.need_invoice === true
+    || normalizeText(invoice.invoice_no || invoice.invoiceNo)
+    || normalizeText(invoice.file_url || invoice.fileUrl || invoice.invoice_url || invoice.invoiceUrl)
+    || ['开具中', '已开具', '已寄出', '已签收'].includes(normalizeText(invoice.status))) {
+    return '工单已有开票申请或发票记录'
+  }
+
+  if (order.inventory_deducted === true || normalizeText(order.inventory_status)) {
+    return '工单已有库存处理记录'
+  }
+
+  if (['issued', 'confirmed'].includes(normalizeText(order.quote_status)) || Number(order.total_price || 0) > 0) {
+    return '工单已有正式报价记录'
+  }
+
+  return ''
+}
+
+function normalizeCustomerType(value, fallback = '') {
+  if (value !== undefined && value !== null && typeof value !== 'string') {
+    throw new Error('客户类型格式不正确')
+  }
+  const customerType = normalizeText(value)
+  if (!customerType) return fallback
+  if (customerType.length > 40) throw new Error('客户类型不能超过40个字符')
+  return customerType
+}
+
 function getOrderShipInfo(order = {}, segment = 'out') {
   const info = segment === 'back' ? (order.ship_back_info || {}) : (order.ship_out_info || {})
   return {
     company: normalizeText(info.logistics_company || info.logisticsCompany || info.return_company || info.returnCompany),
-    trackingNo: normalizeText(info.logistics_no || info.logisticsNo || info.return_no || info.returnNo),
+    trackingNo: normalizeText(info.logistics_no || info.logisticsNo || info.tracking_no || info.trackingNo || info.return_no || info.returnNo),
     phone: normalizeText(info.phone || info.mobile || info.receiver_phone || info.receiverPhone || info.recipient_phone)
   }
 }
@@ -783,17 +914,21 @@ function buildStatusTimestampUpdate(order = {}, nextStatus = '', now = Date.now(
 function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
   const currentStatus = normalizeText(order.status)
   const next = normalizeText(nextStatus)
+  if (next === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
+    const repairStartBlockReason = getRepairStartBlockReason(order)
+    if (repairStartBlockReason) return repairStartBlockReason
+  }
   if (next === 'received' && ['pending', 'sent'].includes(currentStatus)) {
     const inbound = getOrderShipInfo(order, 'out')
     const arrivalState = normalizeText(order.arrival_confirm_status)
     if (!inbound.trackingNo) return '请先录入寄入物流单号，再确认设备入库'
     if (arrivalState === 'pending') return '请先完成设备入库确认，不能直接修改为已签收'
   }
-  if (next === 'shipped' && ['inspecting', 'fixing'].includes(currentStatus)) {
+  if (next === 'shipped' && ['received', 'inspecting', 'fixing'].includes(currentStatus)) {
     const returned = getOrderShipInfo(order, 'back')
     if (!returned.trackingNo) return '请先录入回寄物流单号，再标记为已回寄'
-    const unpaidReason = blockShipUnpaidReason(order)
-    if (unpaidReason) return unpaidReason
+    const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
+    if (shipmentBlockReason) return shipmentBlockReason
   }
   return ''
 }
@@ -804,13 +939,17 @@ async function validateTrackingNoBeforeSave(order, rawNo, company, segment = 'ba
   const conflictFields = [
     { field: 'ship_out_info.logistics_no', segment: 'out' },
     { field: 'ship_out_info.logisticsNo', segment: 'out' },
+    { field: 'ship_out_info.tracking_no', segment: 'out' },
+    { field: 'ship_out_info.trackingNo', segment: 'out' },
     { field: 'ship_back_info.logistics_no', segment: 'back' },
     { field: 'ship_back_info.logisticsNo', segment: 'back' },
+    { field: 'ship_back_info.tracking_no', segment: 'back' },
+    { field: 'ship_back_info.trackingNo', segment: 'back' },
     { field: 'ship_back_info.return_no', segment: 'back' },
     { field: 'ship_back_info.returnNo', segment: 'back' }
   ]
   const conflictRes = await db.collection('cicada_orders').where(dbCmd.or(
-    conflictFields.map(item => ({ [item.field]: localCheck.value }))
+    conflictFields.map(item => ({ [item.field]: localCheck.value, is_deleted: dbCmd.neq(true) }))
   )).limit(20).get()
   const conflict = findTrackingConflict(conflictRes.data, localCheck.value, order._id, segment)
   if (conflict) {
@@ -861,40 +1000,15 @@ function attachVerifiedTrackCache(updateData, order, segment, trackCheck) {
   }
 }
 
-// 回寄发货前置校验：需付费工单（有金额且非免费/在保）必须已确认到账才能录入发货。
-// 免费/在保（total_price=0 或 charge_type='free'）无需付款，放行。返回拦截原因或 ''。
-function blockShipUnpaidReason(order = {}) {
+// 回寄业务策略集中在此。付款核销与实物维修流程独立，未付款不阻止后台回寄。
+function getReturnShipmentPolicyBlockReason(order = {}) {
+  if (normalizeText(order.status) === 'received'
+    && order.needs_return !== true
+    && normalizeText(order.archive_status) !== 'pending_return'
+    && normalizeText(order.quote_status) !== 'rejected') {
+    return '普通已签收工单需先进入检测或处理，只有拒修工单可以直接回寄'
+  }
   return getReturnShipmentBlockReason(order)
-}
-
-// ============ 一键开票适配层（对接微信电子发票 / 开票服务商）============
-// 拿到服务商 API 凭证后，只需在 callInvoiceProvider 内实现"开票+查结果"，其余闭环已就绪。
-// 未配置时抛出明确错误：「一键开票」按钮会提示"开票服务商未配置"，绝不会误判为成功。
-function getInvoiceProviderConfig() {
-  return {
-    provider: getEnvValue('INVOICE_PROVIDER'),             // 服务商标识，如 nuonuo / baiwang
-    appKey: getEnvValue('INVOICE_PROVIDER_APP_KEY'),
-    appSecret: getEnvValue('INVOICE_PROVIDER_APP_SECRET'),
-    apiBase: getEnvValue('INVOICE_PROVIDER_API_BASE'),
-    sellerTaxNo: getEnvValue('INVOICE_SELLER_TAX_NO'),     // 销方税号
-    taxCode: getEnvValue('INVOICE_TAX_CODE'),              // 商品税收分类编码（维修服务）
-    taxRate: getEnvValue('INVOICE_TAX_RATE'),              // 税率，如 0.06
-    pushWechat: getEnvValue('INVOICE_PUSH_WECHAT') === '1' // 是否推送到微信电子发票卡包
-  }
-}
-
-// 调用开票服务商：开票 + 查结果，约定返回 { invoice_no, invoice_date, invoice_url }
-// TODO[发票服务商]：按所签服务商（诺诺/百望等）API 文档在此实现下单开票 + 轮询/回调取版式文件URL。
-async function callInvoiceProvider(req) {
-  const cfg = getInvoiceProviderConfig()
-  if (!cfg.provider || !cfg.appKey || !cfg.appSecret || !cfg.apiBase) {
-    throw new Error('开票服务商未配置：请先配置环境变量 INVOICE_PROVIDER / INVOICE_PROVIDER_APP_KEY / INVOICE_PROVIDER_APP_SECRET / INVOICE_PROVIDER_API_BASE，并在 callInvoiceProvider 内对接服务商开票接口')
-  }
-  // ↓↓↓ 在此实现：1) 调服务商开票接口下单（带 req.title/tax_no/amount/cfg.taxCode 等）
-  //              2) 轮询或回调查开票结果，拿到版式文件URL / 发票号码 / 开票日期
-  //              3) 如 cfg.pushWechat，调用微信电子发票推送到客户卡包 ↓↓↓
-  throw new Error(`开票服务商[${cfg.provider}]开票接口待对接（callInvoiceProvider 未实现）`)
-  // 实现完成后返回：return { invoice_no, invoice_date, invoice_url }
 }
 
 // SN 规范化键：大写、去除所有空格与横杠，用于容错检索匹配。
@@ -903,41 +1017,226 @@ function normalizeSn(value) {
   return normalizeText(value).toUpperCase().replace(/[\s-]+/g, '')
 }
 
-// 将 YYYY-MM-DD 加 N 个月，返回 YYYY-MM-DD；无效输入返回空串（与 client-order 口径一致）
-function addMonthsToDateStr(dateStr, months) {
-  const s = normalizeText(dateStr)
-  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (!m) return ''
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  if (Number.isNaN(d.getTime())) return ''
-  d.setMonth(d.getMonth() + Number(months || 0))
-  const yyyy = d.getFullYear()
-  const mm = String(d.getMonth() + 1).padStart(2, '0')
-  const dd = String(d.getDate()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd}`
+function normalizeArray(value) {
+  if (!Array.isArray(value)) return []
+  return value.map(item => normalizeText(item)).filter(Boolean)
 }
 
-// 由设备/工单项推算质保到期日：优先显式截止日，否则仅在明确填写月数时计算。
-function deriveWarrantyExpire(source = {}) {
-  const stored = normalizeText(source.warranty_expire)
-  if (stored) return stored
-  const months = Number(source.warranty_months)
-  if (!Number.isFinite(months) || months <= 0) return ''
-  return addMonthsToDateStr(source.buy_date, months)
+function extractValidPhone(value) {
+  const digits = normalizeText(value).replace(/\D/g, '')
+  return /^1\d{10}$/.test(digits) ? digits : ''
+}
+
+function genOrderNo() {
+  const d = new Date()
+  const pad = n => String(n).padStart(2, '0')
+  const datePart = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+  return 'DR' + datePart + crypto.randomBytes(4).toString('hex').toUpperCase()
+}
+
+function sanitizeManualShipInfo(info = {}) {
+  const source = info && typeof info === 'object' ? info : {}
+  const region = source.region
+  return {
+    name: normalizeText(source.name).slice(0, 40),
+    phone: extractValidPhone(source.phone) || normalizeText(source.phone).replace(/\D/g, '').slice(0, 20),
+    unit: normalizeText(source.unit).slice(0, 80),
+    region: Array.isArray(region) ? region.map(item => normalizeText(item).slice(0, 40)).filter(Boolean).slice(0, 4) : [],
+    detail: normalizeText(source.detail).slice(0, 200),
+    logistics_company: normalizeText(source.logistics_company || source.logisticsCompany).slice(0, 40),
+    logistics_no: normalizeText(source.logistics_no || source.logisticsNo || source.trackingNo).replace(/\s/g, '').slice(0, 40),
+    received_at: normalizeText(source.received_at || source.receivedAt || source.receive_date || source.receiveDate).slice(0, 20)
+  }
+}
+
+function sanitizeManualOrderItem(item = {}) {
+  const data = {
+    product_name: normalizeText(item.product_name || item.productName).slice(0, 80),
+    product_category: normalizeText(item.product_category || item.productCategory).slice(0, 80),
+    product_model: normalizeText(item.product_model || item.productModel || item.model).slice(0, 80),
+    sn: normalizeText(item.sn || item.serial).slice(0, 80),
+    buy_date: normalizeText(item.buy_date || item.buyDate).slice(0, 20),
+    warranty_start_date: normalizeText(item.warranty_start_date || item.warrantyStartDate).slice(0, 20),
+    invoice_received_date: normalizeText(item.invoice_received_date || item.invoiceReceivedDate).slice(0, 20),
+    manufacture_date: normalizeText(item.manufacture_date || item.manufactureDate).slice(0, 20),
+    warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
+    warranty_expire: normalizeText(item.warranty_expire || item.warrantyExpire).slice(0, 20),
+    fault_desc: normalizeText(item.fault_desc || item.faultDesc).slice(0, 2000),
+    media_urls: normalizeArray(item.media_urls || item.mediaUrls).slice(0, 12),
+    voucher_urls: normalizeArray(item.voucher_urls || item.voucherUrls).slice(0, 12),
+    image_urls: normalizeArray(item.image_urls || item.imageUrls).slice(0, 12),
+    video_urls: normalizeArray(item.video_urls || item.videoUrls).slice(0, 6)
+  }
+  data.sn_normalized = normalizeSn(data.sn)
+  return data
+}
+
+async function ensureManualOrderCustomer(customer = {}, shipOutInfo = {}, shipBackInfo = {}) {
+  const rawCustomer = customer && typeof customer === 'object' ? customer : {}
+  const customerId = normalizeText(rawCustomer.customer_id || rawCustomer._id)
+  const phone = extractValidPhone(rawCustomer.phone || shipOutInfo.phone || shipBackInfo.phone)
+  const customerType = normalizeCustomerType(rawCustomer.customer_type || rawCustomer.customerType, 'clinic')
+
+  if (customerId) {
+    const res = await db.collection('cicada_customers').doc(customerId).get()
+    const existing = res.data && res.data[0]
+    if (!existing || existing.status === 'cancelled') throw new Error('客户档案不存在或已注销')
+    const updateData = { update_time: Date.now() }
+    if (phone && !normalizeText(existing.phone)) updateData.phone = phone
+    if (normalizeText(rawCustomer.contact) && !normalizeText(existing.contact)) updateData.contact = normalizeText(rawCustomer.contact).slice(0, 40)
+    if (normalizeText(rawCustomer.address || shipBackInfo.detail) && !normalizeText(existing.address)) updateData.address = normalizeText(rawCustomer.address || shipBackInfo.detail).slice(0, 200)
+    if (normalizeText(rawCustomer.biz_user || rawCustomer.bizUser) && !normalizeText(existing.biz_user)) updateData.biz_user = normalizeText(rawCustomer.biz_user || rawCustomer.bizUser).slice(0, 40)
+    if (Object.keys(updateData).length > 1) {
+      await db.collection('cicada_customers').doc(customerId).update(updateData).catch(() => {})
+    }
+    return {
+      customer_id: customerId,
+      user_id: existing.user_id || '',
+      customer_type: existing.customer_type || customerType,
+      customer: existing
+    }
+  }
+
+  if (phone) {
+    const found = await db.collection('cicada_customers')
+      .where({ phone, status: dbCmd.neq('cancelled') })
+      .limit(1)
+      .get()
+    const existing = found.data && found.data[0]
+    if (existing) {
+      const updateData = { update_time: Date.now() }
+      if (normalizeText(rawCustomer.name) && !normalizeText(existing.name)) updateData.name = normalizeText(rawCustomer.name).slice(0, 80)
+      if (normalizeText(rawCustomer.contact) && !normalizeText(existing.contact)) updateData.contact = normalizeText(rawCustomer.contact).slice(0, 40)
+      if (normalizeText(rawCustomer.address || shipBackInfo.detail) && !normalizeText(existing.address)) updateData.address = normalizeText(rawCustomer.address || shipBackInfo.detail).slice(0, 200)
+      if (normalizeText(rawCustomer.biz_user || rawCustomer.bizUser) && !normalizeText(existing.biz_user)) updateData.biz_user = normalizeText(rawCustomer.biz_user || rawCustomer.bizUser).slice(0, 40)
+      if (Object.keys(updateData).length > 1) {
+        await db.collection('cicada_customers').doc(existing._id).update(updateData).catch(() => {})
+      }
+      return {
+        customer_id: existing._id,
+        user_id: existing.user_id || '',
+        customer_type: existing.customer_type || customerType,
+        customer: existing
+      }
+    }
+  }
+
+  const name = normalizeText(rawCustomer.name || rawCustomer.clinic_name || rawCustomer.clinicName || shipBackInfo.unit || shipOutInfo.unit || shipOutInfo.name)
+  if (!name) throw new Error('客户名称不能为空')
+  const now = Date.now()
+  const doc = {
+    name: name.slice(0, 80),
+    contact: normalizeText(rawCustomer.contact || shipOutInfo.name || shipBackInfo.name).slice(0, 40),
+    phone,
+    customer_type: customerType,
+    source: 'offline',
+    address: normalizeText(rawCustomer.address || shipBackInfo.detail || shipOutInfo.detail).slice(0, 200),
+    dealer_id: normalizeText(rawCustomer.dealer_id).slice(0, 80),
+    biz_user: normalizeText(rawCustomer.biz_user || rawCustomer.bizUser).slice(0, 40),
+    tags: Array.isArray(rawCustomer.tags) ? rawCustomer.tags.map(item => normalizeText(item)).filter(Boolean) : [],
+    remark: normalizeText(rawCustomer.remark).slice(0, 500),
+    user_id: '',
+    openid: '',
+    status: 'active',
+    create_time: now,
+    update_time: now
+  }
+  const res = await db.collection('cicada_customers').add(doc)
+  return {
+    customer_id: res.id,
+    user_id: '',
+    customer_type: customerType,
+    customer: { ...doc, _id: res.id },
+    created: true
+  }
+}
+
+async function upsertManualCustomerDevices(customerInfo = {}, items = [], orderMeta = {}) {
+  if (!customerInfo.customer_id || !Array.isArray(items) || !items.length) return
+  const now = Date.now()
+  for (const item of items) {
+    const sn = normalizeText(item && item.sn)
+    if (!sn) continue
+    const snKey = normalizeSn(sn)
+    try {
+      let existRes = await db.collection('cicada_user_devices')
+        .where({ sn_normalized: snKey })
+        .limit(1)
+        .get()
+      if (!existRes.data || !existRes.data.length) {
+        existRes = await db.collection('cicada_user_devices').where({ sn }).limit(1).get()
+      }
+      const existing = existRes.data && existRes.data[0]
+      const baseFields = {
+        user_id: customerInfo.user_id || (existing && existing.user_id) || '',
+        product_category: item.product_category || (existing && existing.product_category) || '',
+        product_name: item.product_name || (existing && existing.product_name) || '已登记设备',
+        model: item.product_model || (existing && existing.model) || '',
+        sn,
+        sn_normalized: snKey,
+        buy_date: item.buy_date || (existing && existing.buy_date) || '',
+        warranty_start_date: item.warranty_start_date || (existing && existing.warranty_start_date) || '',
+        invoice_received_date: item.invoice_received_date || (existing && existing.invoice_received_date) || '',
+        manufacture_date: item.manufacture_date || (existing && existing.manufacture_date) || '',
+        last_order_no: orderMeta.order_no || (existing && existing.last_order_no) || '',
+        last_order_id: orderMeta.order_id || (existing && existing.last_order_id) || '',
+        last_repair_status: orderMeta.status || (existing && existing.last_repair_status) || '',
+        last_repair_time: now,
+        update_time: now
+      }
+      if (!existing || !normalizeText(existing.customer_id) || normalizeText(existing.customer_id) === customerInfo.customer_id) {
+        baseFields.customer_id = customerInfo.customer_id
+      }
+      if (item.warranty_start_date) baseFields.warranty_start_date = item.warranty_start_date
+      if (item.invoice_received_date) baseFields.invoice_received_date = item.invoice_received_date
+      if (item.manufacture_date) baseFields.manufacture_date = item.manufacture_date
+      if (item.warranty_months > 0) baseFields.warranty_months = item.warranty_months
+      if (item.warranty_expire) baseFields.warranty_expire = item.warranty_expire
+      if (existing) {
+        await db.collection('cicada_user_devices').doc(existing._id).update({
+          ...baseFields,
+          repair_count: Number(existing.repair_count || 0) + 1
+        })
+      } else {
+        await db.collection('cicada_user_devices').add({
+          ...baseFields,
+          repair_count: 1,
+          source: 'admin_manual_order',
+          create_time: now
+        })
+      }
+    } catch (e) {
+      console.warn('代客建单设备沉淀失败:', e && e.message)
+    }
+  }
+}
+
+async function applyRepairWarrantyExtension(order = {}, now = Date.now()) {
+  const itemKeys = [order._id, order.order_no].filter(Boolean)
+  if (!itemKeys.length) return
+  const itemsRes = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+  const items = itemsRes.data || []
+  for (const item of items) {
+    const sn = normalizeText(item && item.sn)
+    if (!sn) continue
+    const extension = warrantyPolicy.buildRepairWarrantyExtension(order, [item], now)
+    if (!extension) continue
+    const snKey = normalizeSn(sn)
+    let deviceRes = await db.collection('cicada_user_devices').where({ sn_normalized: snKey }).limit(1).get()
+    if (!deviceRes.data || !deviceRes.data.length) {
+      deviceRes = await db.collection('cicada_user_devices').where({ sn }).limit(1).get()
+    }
+    const device = deviceRes.data && deviceRes.data[0]
+    if (!device) continue
+    const extensions = warrantyPolicy.appendWarrantyExtension(device.ext_warranty, extension)
+    if (extensions.length !== (Array.isArray(device.ext_warranty) ? device.ext_warranty.length : 0)) {
+      await db.collection('cicada_user_devices').doc(device._id).update({ ext_warranty: extensions, update_time: now })
+    }
+  }
 }
 
 function computeWarrantyState(source = {}) {
-  const expire = deriveWarrantyExpire(source)
-  if (!expire) return { warranty_status: 'unknown', in_warranty: false, expire: '' }
-  const expireTs = new Date(`${expire}T23:59:59`).getTime()
-  if (Number.isNaN(expireTs)) return { warranty_status: 'unknown', in_warranty: false, expire: '' }
-  const inWarranty = Date.now() <= expireTs
-  const hasExtended = Array.isArray(source.ext_warranty) && source.ext_warranty.length
-  return {
-    warranty_status: inWarranty ? (hasExtended ? 'extended' : 'in_warranty') : 'expired',
-    in_warranty: inWarranty,
-    expire
-  }
+  return warrantyPolicy.computeWarrantyState(source)
 }
 
 // 重算工单级在保结论：逐个 SN 优先查已建档设备，否则用工单项购机日期推算。
@@ -963,20 +1262,28 @@ async function computeOrderWarrantyFromItems(items = []) {
       } catch (e) { device = null }
     }
     const hasItemWarranty = Boolean(normalizeText(item && item.warranty_expire))
-      || (Number(item && item.warranty_months) > 0 && Boolean(normalizeText(item && item.buy_date)))
+      || Boolean(normalizeText(item && (item.warranty_start_date || item.invoice_received_date || item.manufacture_date || item.buy_date)))
     const source = hasItemWarranty ? {
       ...(device || {}),
       buy_date: item && item.buy_date,
+      warranty_start_date: item && item.warranty_start_date,
+      invoice_received_date: item && item.invoice_received_date,
+      manufacture_date: item && item.manufacture_date,
       warranty_months: item && item.warranty_months,
-      warranty_expire: item && item.warranty_expire
-    } : (device || {})
+      warranty_expire: item && item.warranty_expire,
+      repair_warranty_match: normalizeText(item && item.coverage_reason) === 'repair_warranty'
+    } : {
+      ...(device || {}),
+      repair_warranty_match: normalizeText(item && item.coverage_reason) === 'repair_warranty'
+    }
     const warrantyState = computeWarrantyState(source)
     if (warrantyState.warranty_status === 'unknown') continue
     if (item) item.warranty_status = warrantyState.warranty_status
     anyEvaluated = true
     if (warrantyState.in_warranty) anyInWarranty = true
     const coverageResult = normalizeText(item && item.coverage_result)
-    const isExplicitFree = coverageResult === 'free'
+    const coverageReason = normalizeText(item && item.coverage_reason)
+    const isExplicitFree = coverageResult === 'free' && warrantyPolicy.isFreeCoverageReason(coverageReason)
     const isExplicitPaid = ['paid', 'partial', 'not_covered'].includes(coverageResult)
     const isPendingCoverage = warrantyState.in_warranty && !coverageResult
     if (isPendingCoverage || coverageResult === 'pending') anyPendingReview = true
@@ -1008,6 +1315,7 @@ async function isOrderWarrantyFreeConfirmed(order = {}) {
   if (!items.length) return false
   return items.every(item =>
     normalizeText(item.coverage_result) === 'free'
+    && warrantyPolicy.isFreeCoverageReason(item.coverage_reason)
     && ['in_warranty', 'extended'].includes(normalizeText(item.warranty_status || order.warranty_status))
   )
 }
@@ -1034,10 +1342,18 @@ function matchesTodoType(order = {}, todoType = '') {
   const totalPrice = Number(order.total_price || 0)
 
   if (type === 'inbound') return ['pending', 'sent'].includes(status)
-  if (type === 'quote') return ['received', 'inspecting', 'fixing'].includes(status) && !['issued', 'confirmed'].includes(quoteStatus)
+  if (type === 'quote') return ['received', 'inspecting', 'fixing'].includes(status) && ['pending', 'draft'].includes(quoteStatus)
   if (type === 'payment') return totalPrice > 0 && paymentStatus === 'uploaded'
   if (type === 'invoice') return Boolean(invoiceInfo.need_invoice) && ['待开票', '开具中', '未发票'].includes(invoiceInfo.status || '待开票')
-  if (type === 'return') return ['fixing', 'inspecting'].includes(status) && paymentStatus === 'paid'
+  if (type === 'return') {
+    if (status === 'received') {
+      return order.needs_return === true
+        || order.archive_status === 'pending_return'
+        || quoteStatus === 'rejected'
+    }
+    return ['fixing', 'inspecting'].includes(status)
+      && ['issued', 'confirmed', 'rejected'].includes(quoteStatus)
+  }
   if (type === 'exception') return status !== 'cancelled' && Boolean(order.admin_exception || order.exception_reason)
   return true
 }
@@ -1087,6 +1403,17 @@ function buildReturnShippingInfo(order, item, now) {
     logistics_no: item.returnNo,
     shipped_at: now
   }
+}
+
+function buildArchiveStatusUpdate(order = {}, nextStatus = '') {
+  const isRejectReturn = order.needs_return === true
+    || order.archive_status === 'pending_return'
+    || order.archive_status === 'returned'
+    || order.quote_status === 'rejected'
+  if (!isRejectReturn) return {}
+  if (nextStatus === 'shipped') return { needs_return: false, archive_status: 'returned' }
+  if (nextStatus === 'completed') return { needs_return: false, archive_status: 'archived' }
+  return {}
 }
 
 function normalizeLogisticsImportRows(rows, type = 'return') {
@@ -1166,6 +1493,7 @@ function buildLogisticsImportUpdate(order, item, type, now, importDate = '') {
     updateData.ship_out_info = buildShipOutImportInfo(order, item, eventTime)
   } else {
     updateData.ship_back_info = buildShipBackImportInfo(order, item, eventTime)
+    Object.assign(updateData, buildArchiveStatusUpdate(order, 'shipped'))
   }
 
   if (shouldAppendTimeline) {
@@ -1185,14 +1513,15 @@ function buildLogisticsImportUpdate(order, item, type, now, importDate = '') {
 
 async function findOrderByNo(orderNo) {
   const orderNoRes = await db.collection('cicada_orders')
-    .where({ order_no: orderNo })
+    .where(withActiveOrderFilter({ order_no: orderNo }))
     .limit(1)
     .get()
   if (orderNoRes.data && orderNoRes.data[0]) return orderNoRes.data[0]
 
   try {
     const idRes = await db.collection('cicada_orders').doc(orderNo).get()
-    return idRes.data && idRes.data[0] ? idRes.data[0] : null
+    const order = idRes.data && idRes.data[0] ? idRes.data[0] : null
+    return order && !isDeletedOrder(order) ? order : null
   } catch (e) {
     return null
   }
@@ -1251,6 +1580,8 @@ function normalizeQuoteDetailRows(rows, type = 'services') {
         part_id: normalizeText(item.part_id || item.partId || item._id),
         part_code: normalizeText(item.part_code || item.partCode || item.code || item.no),
         model: normalizeText(item.model || item.part_model || item.partModel),
+        device_sn: normalizeText(item.device_sn || item.deviceSn),
+        warranty_eligible: item.warranty_eligible === true || item.warrantyEligible === true,
         name: base.name || '配件费用'
       }
     }
@@ -1485,7 +1816,7 @@ function getInvalidPartNumberFields(part = {}) {
   }).map(field => field.label)
 }
 
-// canViewCost：采购成本属敏感商业数据，仅 admin/finance 可见；engineer 等角色不下发成本字段
+// canViewCost：采购成本属敏感商业数据，仅 admin/superadmin/finance 可见；engineer 等角色不下发成本字段
 function mapPartForClient(part = {}, canViewCost = true) {
   const stock = Number(part.stock || 0) || 0
   const warningThreshold = Number(part.warning_threshold || 0) || 0
@@ -1646,12 +1977,13 @@ async function outboundOrderInventory(order = {}, actor = {}, now = Date.now(), 
       flows.push({ ...flow, _id: addRes.id })
     }
 
+    const completedAt = Date.now()
     await db.collection('cicada_orders').doc(order._id).update({
       inventory_deducted: true,
-      inventory_deduct_time: now,
+      inventory_deduct_time: completedAt,
       inventory_status: 'outbound',
       inventory_processing_at: 0,
-      update_time: now
+      update_time: completedAt
     })
   } catch (error) {
     for (const item of deducted.reverse()) {
@@ -1761,10 +2093,11 @@ function buildQuoteData(quote = {}, now, order = {}) {
     throw new Error('请填写有效报价项目和金额')
   }
 
-  // 维修质保期（月），随报价发给客户，0 表示沿用全局质保政策
-  const warrantyMonths = Math.max(0, parseInt(
-    quote.quote_warranty_months ?? quote.warranty_months ?? quote.warrantyMonths ?? 0, 10
-  ) || 0)
+  // 付费且含全新原厂配件更换时，维修件延保固定为三个月。
+  const hasWarrantyEligiblePart = quoteDetail.parts.some(item => item.warranty_eligible === true && item.quantity > 0)
+  const warrantyMonths = totalPrice > 0 && hasWarrantyEligiblePart
+    ? warrantyPolicy.DEFAULT_REPAIR_PART_WARRANTY_MONTHS
+    : 0
 
   return {
     quote_items: quoteItems,
@@ -1784,15 +2117,33 @@ function buildQuoteData(quote = {}, now, order = {}) {
   }
 }
 
+function getMediaUrl(value = '') {
+  if (typeof value === 'string') return value.trim()
+  if (!value || typeof value !== 'object') return ''
+  const candidates = [
+    value.resolvedUrl,
+    value.previewUrl,
+    value.tempFileURL,
+    value.tempUrl,
+    value.url,
+    value.fileUrl,
+    value.fileID,
+    value.fileId,
+    value.path
+  ]
+  const resolved = candidates.find(candidate => typeof candidate === 'string' && candidate.trim())
+  return resolved ? resolved.trim() : ''
+}
+
 function isCloudFileId(value = '') {
-  return String(value || '').startsWith('cloud://')
+  return getMediaUrl(value).startsWith('cloud://')
 }
 
 // 从若干凭证里收集 cloud:// fileID（去重）
 function collectProofCloudFileIds(proofs = []) {
   if (!Array.isArray(proofs)) return []
   return proofs
-    .map((proof = {}) => proof.fileID || proof.fileId || proof.url)
+    .map((proof = {}) => getMediaUrl(proof.fileID || proof.fileId || proof.url))
     .filter(isCloudFileId)
 }
 
@@ -1840,7 +2191,10 @@ function collectItemMediaCloudFileIds(itemsList = []) {
   ;(Array.isArray(itemsList) ? itemsList : []).forEach(item => {
     ITEM_MEDIA_FIELDS.forEach(field => {
       const arr = item && item[field]
-      if (Array.isArray(arr)) arr.forEach(u => { if (isCloudFileId(u)) ids.push(u) })
+      if (Array.isArray(arr)) arr.forEach(value => {
+        const url = getMediaUrl(value)
+        if (isCloudFileId(url)) ids.push(url)
+      })
     })
   })
   return ids
@@ -1854,7 +2208,10 @@ function applyItemMediaUrlMap(itemsList = [], urlMap = {}) {
     const next = { ...item }
     ITEM_MEDIA_FIELDS.forEach(field => {
       if (Array.isArray(next[field])) {
-        next[field] = next[field].map(u => (isCloudFileId(u) && urlMap[u]) ? urlMap[u] : u)
+        next[field] = next[field].map(value => {
+          const url = getMediaUrl(value)
+          return (isCloudFileId(url) && urlMap[url]) ? urlMap[url] : url
+        }).filter(Boolean)
       }
     })
     return next
@@ -1896,7 +2253,7 @@ async function fetchOrderBatches(matchCond = {}, { withItems = false, maxRows = 
 
     let query = db.collection('cicada_orders')
       .aggregate()
-      .match(matchCond)
+      .match(withActiveOrderFilter(matchCond))
       .sort({ create_time: -1 })
       .skip(offset)
       .limit(Math.min(batchSize, remaining || batchSize))
@@ -2119,6 +2476,257 @@ module.exports = {
     }
   },
 
+  // 后台代客新建工单：用于客户不会/不便通过小程序提交报修的线下受理场景
+  async createAdminOrder(params) {
+    let orderId = ''
+    try {
+      const currentAdmin = requireAdminPermission(this, 'create_order')
+      const requestParams = pickParam(this, params)
+      const {
+        customer = {},
+        ship_out_info,
+        ship_back_info,
+        items,
+        status = 'pending',
+        admin_remark = '',
+        print_remark = ''
+      } = requestParams
+
+      const safeShipOut = sanitizeManualShipInfo(ship_out_info)
+      const safeShipBack = sanitizeManualShipInfo(ship_back_info)
+      const safeItems = (Array.isArray(items) ? items : []).map(item => sanitizeManualOrderItem(item))
+      if (!safeItems.length) return { code: -1, msg: '请至少填写一个维修产品' }
+      if (safeItems.some(item => !item.product_name)) return { code: -1, msg: '产品名称不能为空' }
+      if (safeItems.some(item => !item.product_model)) return { code: -1, msg: '产品型号不能为空' }
+      if (safeItems.some(item => !item.sn)) return { code: -1, msg: '产品序列号不能为空' }
+      if (safeItems.some(item => !item.fault_desc)) return { code: -1, msg: '故障描述不能为空' }
+      if (safeItems.some(item => item.fault_desc.length > 2000)) return { code: -1, msg: '故障描述不能超过2000字' }
+      if (!safeShipOut.name || !extractValidPhone(safeShipOut.phone) || !safeShipOut.detail) {
+        return { code: -1, msg: '请完善客户寄入联系人、手机号和地址' }
+      }
+      if (!safeShipBack.name || !extractValidPhone(safeShipBack.phone) || !safeShipBack.detail) {
+        return { code: -1, msg: '请完善回寄联系人、手机号和地址' }
+      }
+
+      const normalizedStatus = normalizeText(status) || 'pending'
+      if (!['pending', 'sent', 'received'].includes(normalizedStatus)) {
+        return { code: -1, msg: '新建工单初始状态只能为已提交、运输中或已签收' }
+      }
+      if (normalizedStatus === 'sent' && !safeShipOut.logistics_no) {
+        return { code: -1, msg: '运输中工单必须填写寄入物流单号' }
+      }
+
+      const customerInfo = await ensureManualOrderCustomer(customer, safeShipOut, safeShipBack)
+      if (!safeShipBack.unit) safeShipBack.unit = (customerInfo.customer && customerInfo.customer.name) || safeShipOut.unit || safeShipBack.name
+
+      const now = Date.now()
+      const order_no = genOrderNo()
+      const warranty = await computeOrderWarrantyFromItems(safeItems)
+      const timeline = [
+        {
+          title: '后台代客创建报修单',
+          desc: `${currentAdmin.name || currentAdmin.username || '工作人员'} 已代客户录入售后报修信息`,
+          time: now,
+          done: true
+        }
+      ]
+      if (normalizedStatus === 'sent') {
+        timeline.push({
+          title: '已记录寄入物流',
+          desc: `${safeShipOut.logistics_company || '物流'} ${safeShipOut.logistics_no}`,
+          time: now,
+          done: true
+        })
+      }
+      if (normalizedStatus === 'received') {
+        timeline.push({
+          title: '设备已到店/已签收',
+          desc: '后台创建时已确认设备到达维修点',
+          time: now,
+          done: true
+        })
+      }
+
+      const newOrder = {
+        order_no,
+        user_id: customerInfo.user_id || '',
+        customer_id: customerInfo.customer_id || '',
+        customer_type: customerInfo.customer_type || 'clinic',
+        biz_user: normalizeText(customer && (customer.biz_user || customer.bizUser)).slice(0, 40),
+        status: normalizedStatus,
+        ship_out_info: safeShipOut,
+        ship_back_info: safeShipBack,
+        engineer_id: '',
+        total_price: 0,
+        quote_status: 'pending',
+        payment_status: 'pending',
+        in_warranty: warranty.in_warranty,
+        warranty_status: warranty.warranty_status,
+        charge_type: warranty.charge_type,
+        arrival_confirm_status: normalizedStatus === 'received' ? 'confirmed' : 'pending',
+        admin_remark: normalizeText(admin_remark).slice(0, 1000),
+        print_remark: normalizeText(print_remark).slice(0, 500),
+        create_source: 'admin_manual',
+        created_by_admin_id: currentAdmin._id || '',
+        created_by_admin_name: currentAdmin.name || currentAdmin.username || currentAdmin.nickname || '',
+        timeline,
+        status_enter_time: now,
+        status_update_time: now,
+        update_time: now,
+        create_time: now
+      }
+      if (normalizedStatus === 'received') {
+        newOrder.arrival_confirmed_at = now
+        newOrder.arrival_confirmed_by = currentAdmin._id || ''
+        newOrder.arrival_confirmed_name = currentAdmin.name || currentAdmin.username || currentAdmin.nickname || ''
+      }
+
+      const orderRes = await db.collection('cicada_orders').add(newOrder)
+      orderId = orderRes.id
+      await Promise.all(safeItems.map(item => db.collection('cicada_order_items').add({ ...item, order_id: orderId })))
+      await upsertManualCustomerDevices(customerInfo, safeItems, { order_no, order_id: orderId, status: normalizedStatus })
+
+      const persistedOrder = { ...newOrder, _id: orderId }
+      await logOrderEvent({
+        order: persistedOrder,
+        action: 'create_order',
+        actor: currentAdmin,
+        before: {},
+        after: {
+          source: 'admin_manual',
+          status: normalizedStatus,
+          customer_id: customerInfo.customer_id,
+          customer_created: Boolean(customerInfo.created),
+          item_count: safeItems.length
+        }
+      })
+      if (safeShipOut.logistics_no) await subscribeOrderLogistics(persistedOrder, 'out')
+      if (newOrder.user_id) await sendOrderSubscription(persistedOrder, 'repair_submitted', '工作人员已为您创建报修工单')
+
+      return {
+        code: 0,
+        msg: '工单创建成功',
+        data: {
+          order_id: orderId,
+          order_no,
+          customer_id: customerInfo.customer_id,
+          status: normalizedStatus
+        }
+      }
+    } catch (e) {
+      if (orderId) {
+        await Promise.all([
+          db.collection('cicada_orders').doc(orderId).remove(),
+          db.collection('cicada_order_items').where({ order_id: orderId }).remove()
+        ]).catch(() => {})
+      }
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 管理员批量逻辑删除误建工单。保留工单、明细和审计记录，避免破坏财务与售后追溯。
+  async batchDeleteOrders(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'delete_order')
+      const requestParams = pickParam(this, params)
+      const reason = normalizeText(requestParams.reason)
+      const confirmText = normalizeText(requestParams.confirm_text || requestParams.confirmText)
+      const rows = Array.isArray(requestParams.orders) ? requestParams.orders : []
+
+      if (!rows.length) return { code: -1, msg: '请至少选择一个要删除的工单' }
+      if (rows.length > 50) return { code: -1, msg: '单次最多删除50个工单' }
+      if (reason.length < 2) return { code: -1, msg: '删除原因至少填写2个字' }
+      if (reason.length > 500) return { code: -1, msg: '删除原因不能超过500字' }
+
+      const normalizedRows = rows.map(row => ({
+        order_id: normalizeText(row && (row.order_id || row.orderId || row._id)),
+        order_no: normalizeText(row && (row.order_no || row.orderNo || row.id))
+      }))
+      if (normalizedRows.some(row => !row.order_id || !row.order_no)) {
+        return { code: -1, msg: '所选工单信息不完整，请刷新列表后重试' }
+      }
+      const uniqueIds = [...new Set(normalizedRows.map(row => row.order_id))]
+      if (uniqueIds.length !== normalizedRows.length) return { code: -1, msg: '所选工单中存在重复项' }
+
+      const expectedConfirmText = `确认删除${normalizedRows.length}个工单`
+      if (confirmText !== expectedConfirmText) {
+        return { code: -1, msg: `请输入“${expectedConfirmText}”确认批量删除` }
+      }
+
+      const found = await db.collection('cicada_orders')
+        .where({ _id: dbCmd.in(uniqueIds) })
+        .limit(50)
+        .get()
+      const orderMap = new Map((found.data || []).map(order => [order._id, order]))
+      const deleted = []
+      const failures = []
+      const now = Date.now()
+      const deletedByName = currentAdmin.name || currentAdmin.username || currentAdmin.nickname || ''
+
+      for (const requested of normalizedRows) {
+        const order = orderMap.get(requested.order_id)
+        if (!order) {
+          failures.push({ order_id: requested.order_id, order_no: requested.order_no, reason: '工单不存在' })
+          continue
+        }
+        if (normalizeText(order.order_no) !== requested.order_no) {
+          failures.push({ order_id: requested.order_id, order_no: requested.order_no, reason: '工单号与工单ID不匹配，请刷新后重试' })
+          continue
+        }
+
+        const blockReason = getBatchDeleteBlockReason(order)
+        if (blockReason) {
+          failures.push({ order_id: order._id, order_no: order.order_no || requested.order_no, reason: blockReason })
+          continue
+        }
+
+        const updateRes = await db.collection('cicada_orders')
+          .where({ _id: order._id, is_deleted: dbCmd.neq(true) })
+          .update({
+            is_deleted: true,
+            deleted_time: now,
+            deleted_by: currentAdmin._id || '',
+            deleted_by_name: deletedByName,
+            delete_reason: reason,
+            update_time: now
+          })
+        if (!updateRes.updated) {
+          failures.push({ order_id: order._id, order_no: order.order_no || requested.order_no, reason: '工单状态已变化，请刷新后重试' })
+          continue
+        }
+
+        await logOrderEvent({
+          order,
+          source: 'admin',
+          action: 'delete_order',
+          actor: currentAdmin,
+          before: {
+            status: order.status || '',
+            payment_status: order.payment_status || '',
+            quote_status: order.quote_status || '',
+            is_deleted: false
+          },
+          after: { is_deleted: true, deleted_time: now, delete_reason: reason }
+        })
+        deleted.push({ order_id: order._id, order_no: order.order_no || requested.order_no })
+      }
+
+      return {
+        code: 0,
+        msg: failures.length ? '批量删除已完成，部分工单未删除' : '批量删除成功',
+        data: {
+          requested_count: normalizedRows.length,
+          deleted_count: deleted.length,
+          failed_count: failures.length,
+          deleted,
+          failures
+        }
+      }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 获取后台工单列表（支持筛选/分页）
   async getAdminOrderList(params) {
     try {
@@ -2143,18 +2751,15 @@ module.exports = {
 
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
+      const compactKeyword = normalizedKeyword.replace(/[\s-]+/g, '')
       const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
-      const normalizedCustomerType = normalizeText(customerType || customer_type)
-      if (normalizedCustomerType && !['clinic', 'dealer', 'individual'].includes(normalizedCustomerType)) {
-        return { code: -1, msg: '用户类型不正确' }
-      }
+      const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
       const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
-      // customer_type 为订单快照等值字段，可直接下推；有 CRM 回退场景时 JS 过滤仍会兜底
-      if (directMatchCond && normalizedCustomerType) directMatchCond.customer_type = normalizedCustomerType
-      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedSlaLevel
+      // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
+      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
 
       let list = []
       let total = 0
@@ -2164,10 +2769,6 @@ module.exports = {
       if (canUseDirectQuery) {
         const pageResult = await fetchAdminOrderPage(directMatchCond, pagination)
         list = await enrichAdminOrdersForList(pageResult.rawOrders, currentAdmin)
-        // 快照为空、靠 CRM 回填类型的工单不在 DB 等值结果里；当前以订单快照筛选为准
-        if (normalizedCustomerType) {
-          list = list.filter(order => normalizeText(order.customer_type) === normalizedCustomerType)
-        }
         total = pageResult.total
         deviceModels = collectDeviceModelsFromOrders(list)
       } else {
@@ -2180,9 +2781,7 @@ module.exports = {
         //           绝不能下推可能误删有效行的条件（keyword/设备型号/SLA/发票状态默认值等仍留在 JS）。
         // 1) 在保状态：独立等值字段，系统写入值规范，直接下推
         if (normalizedWarrantyStatus) fallbackMatchCond.warranty_status = normalizedWarrantyStatus
-        // 1.5) 用户类型快照：下单写入的 customer_type，可等值下推
-        if (normalizedCustomerType) fallbackMatchCond.customer_type = normalizedCustomerType
-        // 2) 直接型待办(inbound/payment/return)的 DB 条件与 matchesTodoType 完全等价；
+        // 2) 直接型待办(inbound/payment)的 DB 条件与 matchesTodoType 完全等价；
         //    仅在未显式指定 status 时下推，避免与 status 参数的交集语义冲突（该冲突场景交给 JS 兜底）
         if (!status) {
           const directTodoCond = getDirectTodoMatchCond(todoType)
@@ -2219,13 +2818,22 @@ module.exports = {
             order.ship_back_info && order.ship_back_info.phone,
             order.ship_back_info && order.ship_back_info.unit,
             order.ship_out_info && order.ship_out_info.logistics_no,
+            order.ship_out_info && order.ship_out_info.logisticsNo,
+            order.ship_out_info && order.ship_out_info.tracking_no,
+            order.ship_out_info && order.ship_out_info.trackingNo,
             order.ship_back_info && order.ship_back_info.logistics_no,
+            order.ship_back_info && order.ship_back_info.logisticsNo,
+            order.ship_back_info && order.ship_back_info.tracking_no,
+            order.ship_back_info && order.ship_back_info.trackingNo,
+            order.ship_back_info && order.ship_back_info.return_no,
+            order.ship_back_info && order.ship_back_info.returnNo,
             ...productModels,
             ...productSns
           ].filter(Boolean).join(' ').toLowerCase()
+          const compactSearchableText = searchableText.replace(/[\s-]+/g, '')
 
           return matchesTodoType(order, todoType) &&
-            (!normalizedKeyword || searchableText.includes(normalizedKeyword)) &&
+            (!normalizedKeyword || searchableText.includes(normalizedKeyword) || (compactKeyword && compactSearchableText.includes(compactKeyword))) &&
             (!normalizedDeviceModel || productModels.includes(normalizedDeviceModel)) &&
             (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
             (!normalizedWarrantyStatus || normalizeText(order.warranty_status) === normalizedWarrantyStatus) &&
@@ -2277,7 +2885,7 @@ module.exports = {
       // 使用聚合查询联表获取工单项目
       const res = await db.collection('cicada_orders')
         .aggregate()
-        .match({ _id: order_id })
+        .match(withActiveOrderFilter({ _id: order_id }))
         .lookup({
           from: 'cicada_order_items',
           localField: '_id',
@@ -2700,6 +3308,7 @@ module.exports = {
       const res = await db.collection('cicada_orders').doc(order_id).update({
         status,
         ...buildStatusTimestampUpdate(order, status, now),
+        ...buildArchiveStatusUpdate(order, status),
         update_time: now
       })
       if (!res.updated) return { code: -1, msg: '工单不存在' }
@@ -2717,6 +3326,9 @@ module.exports = {
       }
       if (sceneMap[status] && order.status !== status) {
         await sendOrderSubscription({ ...order, status }, sceneMap[status])
+      }
+      if (status === 'completed') {
+        await applyRepairWarrantyExtension({ ...order, status }, now)
       }
       return { code: 0 }
     } catch (e) {
@@ -2841,10 +3453,10 @@ module.exports = {
           continue
         }
         if (importType === 'return') {
-          const unpaidReason = getReturnShipmentBlockReason(order)
-          if (unpaidReason) {
+          const shipmentBlockReason = getReturnShipmentBlockReason(order)
+          if (shipmentBlockReason) {
             summary.fail += 1
-            summary.errors.push({ orderNo: item.orderNo, reason: unpaidReason })
+            summary.errors.push({ orderNo: item.orderNo, reason: shipmentBlockReason })
             continue
           }
         }
@@ -2959,7 +3571,7 @@ module.exports = {
       const now = Date.now()
       for (const item of validRows) {
         const found = await db.collection('cicada_orders')
-          .where({ order_no: item.order_no })
+          .where(withActiveOrderFilter({ order_no: item.order_no }))
           .limit(1)
           .get()
         const order = found.data[0]
@@ -2977,10 +3589,10 @@ module.exports = {
           results.push({ ...item, success: false, reason: '已完成工单的回寄单号已锁定，不可修改' })
           continue
         }
-        // 未支付拦截：需付费工单必须先确认到账才能录入发货物流
-        const unpaidReason = blockShipUnpaidReason(order)
-        if (unpaidReason) {
-          results.push({ ...item, success: false, reason: unpaidReason })
+        // 集中校验回寄业务策略；付款状态不作为后台发货前置条件。
+        const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
+        if (shipmentBlockReason) {
+          results.push({ ...item, success: false, reason: shipmentBlockReason })
           continue
         }
         // 录入源头防错：单号格式 + 快递公司一致性校验，不符直接拦截该行
@@ -2998,6 +3610,7 @@ module.exports = {
           ship_back_info: shipBackInfo,
           status: 'shipped',
           ...buildStatusTimestampUpdate(order, 'shipped', now),
+          ...buildArchiveStatusUpdate(order, 'shipped'),
           timeline: [
             ...timeline,
             {
@@ -3126,11 +3739,11 @@ module.exports = {
           summary.errors.push({ orderNo: item.orderNo, reason: '已完成工单的回寄单号已锁定，不可修改' })
           continue
         }
-        // 未支付拦截：需付费工单必须先确认到账才能录入发货物流
-        const unpaidReason = blockShipUnpaidReason(order)
-        if (unpaidReason) {
+        // 集中校验回寄业务策略；付款状态不作为后台发货前置条件。
+        const shipmentBlockReason = getReturnShipmentPolicyBlockReason(order)
+        if (shipmentBlockReason) {
           summary.fail += 1
-          summary.errors.push({ orderNo: item.orderNo, reason: unpaidReason })
+          summary.errors.push({ orderNo: item.orderNo, reason: shipmentBlockReason })
           continue
         }
         // 录入源头防错：单号格式 + 快递公司一致性校验
@@ -3149,6 +3762,7 @@ module.exports = {
         let updateData = {
           status: 'shipped',
           ...buildStatusTimestampUpdate(order, 'shipped', now),
+          ...buildArchiveStatusUpdate(order, 'shipped'),
           ship_back_info: buildReturnShippingInfo(order, item, now),
           timeline: [
             ...timeline,
@@ -3267,10 +3881,16 @@ module.exports = {
         if (!owned) return false
         const nextMonths = Math.max(0, Number(item.warranty_months || 0) || 0)
         const nextExpire = normalizeText(item.warranty_expire)
+        const nextStart = normalizeText(item.warranty_start_date)
+        const nextInvoiceDate = normalizeText(item.invoice_received_date)
+        const nextManufactureDate = normalizeText(item.manufacture_date)
         const nextCoverage = normalizeText(item.coverage_result)
         const nextReason = normalizeText(item.coverage_reason)
         return nextMonths !== Math.max(0, Number(owned.warranty_months || 0) || 0)
           || nextExpire !== normalizeText(owned.warranty_expire)
+          || nextStart !== normalizeText(owned.warranty_start_date)
+          || nextInvoiceDate !== normalizeText(owned.invoice_received_date)
+          || nextManufactureDate !== normalizeText(owned.manufacture_date)
           || nextCoverage !== normalizeText(owned.coverage_result)
           || nextReason !== normalizeText(owned.coverage_reason)
       })
@@ -3292,21 +3912,37 @@ module.exports = {
           sn,
           sn_normalized: normalizeSn(sn),
           buy_date: normalizeText(item.buy_date),
-          warranty_months: Math.max(0, Number(item.warranty_months || 0) || 0),
+          warranty_start_date: normalizeText(item.warranty_start_date),
+          invoice_received_date: normalizeText(item.invoice_received_date),
+          manufacture_date: normalizeText(item.manufacture_date),
+          warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
           warranty_expire: normalizeText(item.warranty_expire),
           coverage_result: coverageResult,
           coverage_reason: normalizeText(item.coverage_reason),
           coverage_note: normalizeText(item.coverage_note).slice(0, 500)
         }
+        if (coverageResult === 'free' && !warrantyPolicy.isFreeCoverageReason(patch.coverage_reason)) {
+          return { code: -1, msg: '免费维修必须确认原厂质量缺陷，或确认同故障同更换件的维修延保' }
+        }
         await db.collection('cicada_order_items').doc(itemId).update(patch).catch(() => {})
         Object.assign(owned, patch) // 同步内存副本，供下方在保重算
 
         // 工单内明确补录的质保信息同步回 SN 设备档案，供后续报修复用。
-        const hasExplicitWarranty = Boolean(patch.warranty_expire) || patch.warranty_months > 0
+        const hasExplicitWarranty = Boolean(
+          patch.warranty_expire
+          || patch.warranty_start_date
+          || patch.invoice_received_date
+          || patch.manufacture_date
+          || patch.buy_date
+          || patch.warranty_months > 0
+        )
         if (sn && hasExplicitWarranty) {
           const devicePatch = {
             warranty_months: patch.warranty_months,
             warranty_expire: patch.warranty_expire,
+            warranty_start_date: patch.warranty_start_date,
+            invoice_received_date: patch.invoice_received_date,
+            manufacture_date: patch.manufacture_date,
             update_time: now
           }
           if (patch.buy_date) devicePatch.buy_date = patch.buy_date
@@ -3366,22 +4002,62 @@ module.exports = {
       const found = await db.collection('cicada_orders').doc(order_id).get()
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
+      if (nextStatus !== '无需开票') {
+        const invoiceBlockReason = getInvoiceRequestBlockReason(order)
+        if (invoiceBlockReason) return { code: -1, msg: invoiceBlockReason }
+      }
       const oldInvoice = order.invoice_info || {}
       const nextInvoiceType = normalizeText(invoice.invoice_type || invoice.invoiceType) || oldInvoice.invoice_type || '电子普通发票'
+      const requestedFulfillmentMode = normalizeText(invoice.fulfillment_mode || invoice.fulfillmentMode)
+      if (requestedFulfillmentMode && requestedFulfillmentMode !== 'manual') return { code: -1, msg: '当前仅支持财务人工开票并登记' }
+      const nextFulfillmentMode = 'manual'
+      const nextDeliveryMethod = nextInvoiceType === '纸质专用发票' ? 'postal' : 'electronic'
       const nextMailCompany = normalizeText(invoice.mail_company || invoice.mailCompany)
       const nextMailNo = normalizeText(invoice.mail_no || invoice.mailNo)
       const nextMailTime = normalizeText(invoice.mail_time || invoice.mailTime)
       const nextReceivedTime = normalizeText(invoice.received_time || invoice.receivedTime)
+      const resolvedMailCompany = nextMailCompany || oldInvoice.mail_company || ''
+      const resolvedMailNo = nextMailNo || oldInvoice.mail_no || ''
+      const resolvedMailTime = nextMailTime || oldInvoice.mail_time || ''
       if (nextInvoiceType !== '纸质专用发票' && (nextMailCompany || nextMailNo || nextMailTime || nextReceivedTime)) {
         return { code: -1, msg: '电子普通发票无需登记邮寄物流' }
       }
-      // 电子发票链接/号码/日期：财务开具后回填，客户端「已开票」据此复制下载（兼容 file_url 旧字段）
+      if (nextInvoiceType !== '纸质专用发票' && ['已寄出', '已签收'].includes(nextStatus)) {
+        return { code: -1, msg: '电子普通发票无需使用邮寄状态' }
+      }
       const nextInvoiceUrl = normalizeText(invoice.invoice_url || invoice.file_url || invoice.fileUrl || invoice.url) || oldInvoice.invoice_url || oldInvoice.file_url || ''
+      const nextPdfUrl = normalizeText(invoice.pdf_url || invoice.pdfUrl || invoice.invoice_file_id || invoice.invoiceFileId) || oldInvoice.pdf_url || nextInvoiceUrl
+      const nextInvoiceNo = normalizeText(invoice.invoice_no || invoice.invoiceNo) || oldInvoice.invoice_no || ''
+      const nextInvoiceDate = normalizeText(invoice.invoice_date || invoice.invoiceDate) || oldInvoice.invoice_date || ''
+      if (['已开具', '已寄出', '已签收'].includes(nextStatus) && (!nextInvoiceNo || !nextInvoiceDate)) {
+        return { code: -1, msg: '标记已开票前必须填写发票号码和开票日期' }
+      }
+      const invoiceNumberConflict = await findInvoiceNumberConflict(nextInvoiceNo, order_id)
+      if (invoiceNumberConflict) {
+        return { code: -1, msg: `发票号码已绑定工单 ${invoiceNumberConflict.order_no || invoiceNumberConflict._id}` }
+      }
+      if (nextInvoiceType === '纸质专用发票' && ['已寄出', '已签收'].includes(nextStatus) && (!resolvedMailCompany || !resolvedMailNo)) {
+        return { code: -1, msg: '标记已寄出前必须填写快递公司和快递单号' }
+      }
+      const archiveStatus = nextStatus === '已签收' || (nextDeliveryMethod === 'electronic' && nextStatus === '已开具')
+        ? 'archived'
+        : (nextStatus === '已寄出' ? 'in_transit' : (nextStatus === '已开具' ? 'pending_delivery' : 'pending'))
       const invoiceInfo = {
         ...oldInvoice,
         need_invoice: nextStatus !== '无需开票',
         status: nextStatus,
         invoice_type: nextInvoiceType,
+        tax_category: INVOICE_TAX_CATEGORY,
+        item_name: INVOICE_ITEM_NAME,
+        delivery_method: nextDeliveryMethod,
+        fulfillment_mode: nextFulfillmentMode,
+        issued_channel: nextFulfillmentMode,
+        archive_status: archiveStatus,
+        archive_order_id: order._id,
+        archive_order_no: order.order_no || '',
+        service_completed_time: oldInvoice.service_completed_time || order.completed_time || order.complete_time || order.update_time || now,
+        settlement_time: oldInvoice.settlement_time || order.payment_paid_time || order.update_time || now,
+        expected_delivery_days: nextDeliveryMethod === 'postal' ? '7-15' : '1-3',
         title_type: normalizeText(invoice.title_type || invoice.titleType) || oldInvoice.title_type || 'company',
         title: normalizeText(invoice.title) || oldInvoice.title || '',
         tax_no: normalizeText(invoice.tax_no || invoice.taxNo) || oldInvoice.tax_no || '',
@@ -3395,13 +4071,14 @@ module.exports = {
         recipient_address: normalizeText(invoice.recipient_address || invoice.recipientAddress) || oldInvoice.recipient_address || '',
         remark: normalizeText(invoice.remark) || oldInvoice.remark || '',
         invoice_url: nextInvoiceUrl,
-        pdf_url: normalizeText(invoice.pdf_url || invoice.pdfUrl) || oldInvoice.pdf_url || nextInvoiceUrl,
-        invoice_no: normalizeText(invoice.invoice_no || invoice.invoiceNo) || oldInvoice.invoice_no || '',
-        invoice_date: normalizeText(invoice.invoice_date || invoice.invoiceDate) || oldInvoice.invoice_date || '',
+        pdf_url: nextPdfUrl,
+        invoice_file_id: nextPdfUrl && !/^https?:\/\//i.test(nextPdfUrl) ? nextPdfUrl : (oldInvoice.invoice_file_id || ''),
+        invoice_no: nextInvoiceNo,
+        invoice_date: nextInvoiceDate,
         // 专票（纸质）邮寄信息：增值税专用发票需邮寄纸质件，登记物流便于客户跟踪与对账
-        mail_company: nextMailCompany || oldInvoice.mail_company || '',
-        mail_no: nextMailNo || oldInvoice.mail_no || '',
-        mail_time: nextMailTime || oldInvoice.mail_time || '',
+        mail_company: nextDeliveryMethod === 'postal' ? resolvedMailCompany : '',
+        mail_no: nextDeliveryMethod === 'postal' ? resolvedMailNo : '',
+        mail_time: nextDeliveryMethod === 'postal' ? resolvedMailTime : '',
         received_time: nextStatus === '已签收' ? (nextReceivedTime || oldInvoice.received_time || now) : (nextReceivedTime || oldInvoice.received_time || ''),
         update_time: now
       }
@@ -3415,7 +4092,7 @@ module.exports = {
         const title = nextInvoiceType === '纸质专用发票' ? '纸质发票已开具' : '电子发票已开具'
         const desc = nextInvoiceType === '纸质专用发票'
           ? '纸质专票已开具，待财务登记寄送物流。'
-          : (nextInvoiceUrl ? '可在「发票与开票」复制链接查看并下载' : `发票抬头：${invoiceInfo.title || '-'}`)
+          : `发票号码：${invoiceInfo.invoice_no}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}`
         nextTimeline.push({
           title,
           desc,
@@ -3458,69 +4135,6 @@ module.exports = {
     }
   },
 
-  // 一键开票：财务确认到账后，调用开票服务商 API 自动开票并回填（对接微信电子发票/服务商）
-  async issueInvoice(params) {
-    try {
-      const currentAdmin = requireAdminPermission(this, 'update_invoice')
-      const { order_id } = pickParam(this, params)
-      if (!order_id) return { code: -1, msg: '缺少工单ID' }
-      const found = await db.collection('cicada_orders').doc(order_id).get()
-      const order = found.data && found.data[0]
-      if (!order) return { code: -1, msg: '工单不存在' }
-      const oldInvoice = order.invoice_info || {}
-
-      // 业务前置校验
-      if (!oldInvoice.need_invoice) return { code: -1, msg: '该工单尚无开票申请' }
-      if (oldInvoice.status === '已开具') return { code: -1, msg: '该工单发票已开具' }
-      // ⭐ 必须财务先确认到账，才能开票
-      if (order.payment_status !== 'paid') {
-        return { code: -1, msg: '需财务先确认到账（payment_status=paid）后才能开票' }
-      }
-
-      // 组装开票请求（抬头/税号来自客户申请，金额取工单结算/报价金额）
-      const req = {
-        order_no: order.order_no || '',
-        invoice_type: oldInvoice.invoice_type || '电子普通发票',
-        title_type: oldInvoice.title_type || 'company',
-        title: normalizeText(oldInvoice.title),
-        tax_no: normalizeText(oldInvoice.tax_no),
-        email: normalizeText(oldInvoice.email),
-        amount: Number(order.total_price || 0)
-      }
-      if (!req.title) return { code: -1, msg: '缺少发票抬头，无法开票' }
-      if (req.title_type === 'company' && !req.tax_no) return { code: -1, msg: '企业抬头缺少税号' }
-      if (!(req.amount > 0)) return { code: -1, msg: '开票金额需大于 0，请先发布报价/确认结算金额' }
-
-      // 调用服务商开票（未对接时抛错，不会误判成功）
-      const result = await callInvoiceProvider(req)
-
-      const now = Date.now()
-      const invoiceInfo = {
-        ...oldInvoice,
-        need_invoice: true,
-        status: '已开具',
-        invoice_no: normalizeText(result && result.invoice_no) || oldInvoice.invoice_no || '',
-        invoice_date: normalizeText(result && result.invoice_date) || oldInvoice.invoice_date || '',
-        invoice_url: normalizeText(result && (result.invoice_url || result.pdf_url)) || oldInvoice.invoice_url || '',
-        issued_time: now,
-        issued_channel: 'provider',
-        update_time: now
-      }
-      const upd = await db.collection('cicada_orders').doc(order_id).update({ invoice_info: invoiceInfo, update_time: now })
-      if (!upd.updated) return { code: -1, msg: '工单更新失败' }
-      await logOrderEvent({
-        order,
-        action: 'issue_invoice',
-        actor: currentAdmin,
-        before: { invoice_info: oldInvoice },
-        after: { invoice_info: invoiceInfo }
-      })
-      return { code: 0, data: invoiceInfo }
-    } catch (e) {
-      return { code: -1, msg: e.message }
-    }
-  },
-
   // 后台手动填写/发布维修报价
   async updateOrderQuote(params) {
     try {
@@ -3535,6 +4149,24 @@ module.exports = {
 
       const warrantyFreeConfirmed = await isOrderWarrantyFreeConfirmed(order)
       const quoteData = buildQuoteData(quote, now, { ...order, warranty_free_confirmed: warrantyFreeConfirmed })
+      const warrantyParts = quoteData.quote_detail.parts.filter(item => item.warranty_eligible === true && item.quantity > 0)
+      if (quoteData.quote_status === 'issued' && warrantyParts.length) {
+        const itemKeys = [order._id, order.order_no].filter(Boolean)
+        const itemRes = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+        const deviceSns = [...new Set((itemRes.data || []).map(item => normalizeText(item.sn)).filter(Boolean))]
+        const normalizedDeviceSns = new Map(deviceSns.map(sn => [normalizeSn(sn), sn]))
+        for (const part of warrantyParts) {
+          const assignedKey = normalizeSn(part.device_sn)
+          if (!assignedKey && deviceSns.length === 1) {
+            part.device_sn = deviceSns[0]
+            continue
+          }
+          if (!assignedKey || !normalizedDeviceSns.has(assignedKey)) {
+            return { code: -1, msg: '全新原厂更换件必须关联本工单中的设备SN，才能承诺3个月维修件延保' }
+          }
+          part.device_sn = normalizedDeviceSns.get(assignedKey)
+        }
+      }
       const timeline = Array.isArray(order.timeline) ? order.timeline : []
       const updateData = {
         ...quoteData
@@ -3546,6 +4178,8 @@ module.exports = {
         updateData.payment_status = isWarrantyFree
           ? 'not_required'
           : (order.payment_status === 'paid' ? 'paid' : 'pending')
+        updateData.needs_return = false
+        updateData.archive_status = 'active'
       }
 
       if (quoteData.quote_status === 'issued') {
@@ -3603,7 +4237,7 @@ module.exports = {
   async updatePaymentStatus(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'confirm_payment')
-      const { order_id, status, reason = '' } = pickParam(this, params)
+      const { order_id, status, reason = '', payment_method = '' } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const paymentStatus = normalizeText(status || 'paid')
       if (!PAYMENT_STATUS.includes(paymentStatus)) return { code: -1, msg: '付款状态不正确' }
@@ -3617,13 +4251,10 @@ module.exports = {
       if (paymentStatus === 'rejected' && !rejectReason) {
         return { code: -1, msg: '驳回转账凭证时必须填写原因' }
       }
-
-      let inventoryResult = null
+      let confirmedPaymentMethod = ''
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
-        inventoryResult = await outboundOrderInventory(order, currentAdmin, now)
-        if (inventoryResult && inventoryResult.skipped && /正在进行/.test(inventoryResult.reason || '')) {
-          throw new Error('配件出库仍在处理中，请先完成库存恢复或重试后再确认付款')
-        }
+        assertManualPaymentConfirmationAllowed(order)
+        confirmedPaymentMethod = resolveManualPaymentMethod(order, payment_method)
       }
 
       const updateData = {
@@ -3633,7 +4264,14 @@ module.exports = {
       }
 
       if (paymentStatus === 'paid') {
-        updateData.payment_paid_time = now
+        if (order.payment_status !== 'paid') {
+          updateData.payment_method = confirmedPaymentMethod
+          updateData.payment_paid_time = now
+          Object.assign(updateData, getPaymentConfirmationStatusUpdate(order, now, canTransitionOrderStatus))
+          if (updateData.status === 'fixing' && getRepairStartBlockReason({ ...order, payment_status: 'paid' })) {
+            delete updateData.status
+          }
+        }
         updateData.payment_reject_reason = ''
         updateData.payment_reject_time = 0
       }
@@ -3650,7 +4288,9 @@ module.exports = {
           paymentStatus === 'paid'
             ? {
                 title: '付款已核销',
-                desc: '后台已确认客户付款到账。',
+                desc: updateData.status === 'fixing'
+                  ? '财务已确认对公付款到账，工单已进入处理中。'
+                  : '财务已确认对公付款到账。',
                 time: now,
                 done: true
               }
@@ -3663,14 +4303,51 @@ module.exports = {
         ]
       }
 
-      const res = await db.collection('cicada_orders').doc(order_id).update(updateData)
-      if (!res.updated) return { code: -1, msg: '工单不存在' }
+      const isNewPaymentConfirmation = paymentStatus === 'paid' && order.payment_status !== 'paid'
+      const updateMatch = {
+        _id: order_id,
+        status: order.status,
+        payment_status: dbCmd.in(MANUAL_CONFIRMABLE_PAYMENT_STATUSES)
+      }
+      if (order.update_time) updateMatch.update_time = order.update_time
+      const res = isNewPaymentConfirmation
+        ? await db.collection('cicada_orders').where(updateMatch).update(updateData)
+        : await db.collection('cicada_orders').doc(order_id).update(updateData)
+      if (!res.updated) {
+        return {
+          code: -1,
+          msg: isNewPaymentConfirmation ? '工单状态已变化，请刷新后重新确认收款' : '工单不存在'
+        }
+      }
+
+      let inventoryResult = null
+      if (isNewPaymentConfirmation) {
+        try {
+          inventoryResult = await outboundOrderInventory({ ...order, ...updateData }, currentAdmin, Date.now())
+        } catch (inventoryError) {
+          inventoryResult = {
+            skipped: true,
+            warning: true,
+            reason: `付款已确认，但配件未自动出库：${inventoryError.message || '请到库存管理核对'}`,
+            flows: []
+          }
+        }
+      }
       await logOrderEvent({
         order,
         action: paymentStatus === 'rejected' ? 'reject_payment_proof' : 'confirm_payment',
         actor: currentAdmin,
-        before: { payment_status: order.payment_status || 'pending' },
-        after: { payment_status: paymentStatus, reason: rejectReason }
+        before: {
+          payment_status: order.payment_status || 'pending',
+          payment_method: order.payment_method || '',
+          status: order.status || ''
+        },
+        after: {
+          payment_status: paymentStatus,
+          payment_method: updateData.payment_method || order.payment_method || '',
+          status: updateData.status || order.status || '',
+          reason: rejectReason
+        }
       })
 
       if (paymentStatus === 'paid' && order.payment_status !== 'paid') {
@@ -3915,7 +4592,7 @@ module.exports = {
   async getSettlementList(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'view_settlement')
-      const { paymentStatus = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
+      const { paymentStatus = '', paymentMethod = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
       const matchCond = {
@@ -3923,6 +4600,11 @@ module.exports = {
         quote_status: dbCmd.in(['issued', 'confirmed', 'rejected'])
       }
       if (paymentStatus) matchCond.payment_status = paymentStatus
+      if (paymentMethod === 'corporate') {
+        matchCond.payment_method = dbCmd.in(['offline_transfer', 'bank_transfer'])
+      } else if (paymentMethod === 'wechat_pay') {
+        matchCond.payment_method = 'wechat_pay'
+      }
       const fallback = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
       // 整批一次换取凭证临时链接，避免每单一次 getTempFileURL 的 N+1
       const settlementProofIds = []
@@ -3953,6 +4635,7 @@ module.exports = {
         customer_name: (order.ship_back_info && (order.ship_back_info.unit || order.ship_back_info.name)) || '',
         contact_phone: (order.ship_back_info && order.ship_back_info.phone) || '',
         quote_status: order.quote_status || 'pending',
+        status: order.status || '',
         payment_status: order.payment_status || 'pending',
         payment_proofs: order.payment_proofs || [],
         total_price: Number(order.total_price || 0),
@@ -4083,7 +4766,7 @@ module.exports = {
 
       // 当月完工工单（完工时间近似取 update_time），仅取 engineer_id，JS 侧按工程师聚合
       const ordersRes = await db.collection('cicada_orders')
-        .where({ status: 'completed', update_time: dbCmd.gte(monthStart).and(dbCmd.lt(monthEnd)) })
+        .where(withActiveOrderFilter({ status: 'completed', update_time: dbCmd.gte(monthStart).and(dbCmd.lt(monthEnd)) }))
         .field({ engineer_id: true })
         .limit(2000)
         .get()
@@ -4117,20 +4800,32 @@ module.exports = {
   async getStatistics(params) {
     try {
       requireAdminPermission(this, 'get_stats')
+      const { includeStatusBreakdown = false } = pickParam(this, params)
       const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
 
-      const [pendingRes, todayRes] = await Promise.all([
+      const [pendingRes, todayRes, statusResults] = await Promise.all([
         db.collection('cicada_orders').where({
-          status: dbCmd.in(['pending', 'sent', 'received'])
+          status: dbCmd.in(['pending', 'sent', 'received']),
+          is_deleted: dbCmd.neq(true)
         }).count(),
-        db.collection('cicada_orders').where({ create_time: dbCmd.gte(todayStart) }).count()
+        db.collection('cicada_orders').where(withActiveOrderFilter({ create_time: dbCmd.gte(todayStart) })).count(),
+        includeStatusBreakdown
+          ? Promise.all(ORDER_STATUS.map(status => (
+              db.collection('cicada_orders').where(withActiveOrderFilter({ status })).count()
+            )))
+          : Promise.resolve(null)
       ])
+
+      const statusBreakdown = statusResults
+        ? Object.fromEntries(ORDER_STATUS.map((status, index) => [status, Number(statusResults[index].total || 0)]))
+        : undefined
 
       return {
         code: 0,
         data: {
           pendingCount: pendingRes.total,
-          todayCount: todayRes.total
+          todayCount: todayRes.total,
+          ...(statusBreakdown ? { statusBreakdown } : {})
         }
       }
     } catch (e) {
@@ -4147,7 +4842,7 @@ module.exports = {
         { key: 'quote', title: '待报价', desc: '已签收/处理中但未发布报价', count: 0 },
         { key: 'payment', title: '待核销', desc: '客户已上传付款凭证', count: 0 },
         { key: 'invoice', title: '待开票', desc: '客户已提交发票申请', count: 0 },
-        { key: 'return', title: '待回寄', desc: '已付款但尚未回寄', count: 0 },
+        { key: 'return', title: '待回寄', desc: '已报价或拒修且尚未回寄', count: 0 },
         { key: 'exception', title: '异常工单', desc: '需要人工介入处理', count: 0 }
       ]
 
@@ -4190,7 +4885,7 @@ module.exports = {
         addOrderGroup({
           key: 'quote', title: '待报价', severity: 'info', roles: ['admin', 'engineer', 'support'],
           filter: order => matchesTodoType(order, 'quote'),
-          description: order => `当前状态：${ORDER_STATUS_LABELS[order.status] || order.status || '待处理'}`
+          description: order => `当前状态：${getOrderStatusLabel(order.status || '待处理')}`
         })
         addOrderGroup({
           key: 'payment', title: '待核销', severity: 'warning', roles: ['admin', 'finance'],
@@ -4276,7 +4971,7 @@ module.exports = {
 
       const orderRes = await db.collection('cicada_orders').doc(orderId).get()
       const order = orderRes.data && orderRes.data[0]
-      if (!order) return { code: -1, msg: '工单不存在' }
+      if (!order || isDeletedOrder(order)) return { code: -1, msg: '工单不存在' }
       const shipInfo = getOrderShipInfo(order, segment)
       const existingCache = (order.track_cache && order.track_cache[segment]) || {}
       const providerConfig = expressProvider.getConfig()
@@ -4463,7 +5158,10 @@ module.exports = {
       const rows = (fetched.orders || [])
         .filter(o => {
           const inv = o.invoice_info || {}
-          return inv.need_invoice || inv.status || inv.invoice_no // 客户申请过 / 有开票活动
+          const invoiceStatus = normalizeText(inv.status)
+          const hasIssuedRecord = Boolean(inv.invoice_no) || ['已开具', '已寄出', '已签收'].includes(invoiceStatus)
+          // 已开具的历史记录继续保留用于审计；未完成的旧申请必须重新满足当前开票规则。
+          return hasIssuedRecord || (!getInvoiceRequestBlockReason(o) && (inv.need_invoice || invoiceStatus))
         })
         .map(o => {
           const inv = o.invoice_info || {}
@@ -4475,6 +5173,12 @@ module.exports = {
             total_price: Number(o.total_price || 0),
             status: inv.status || (inv.need_invoice ? '待开票' : '无需开票'),
             invoice_type: normalizeText(inv.invoice_type || ''),
+            tax_category: normalizeText(inv.tax_category || INVOICE_TAX_CATEGORY),
+            item_name: normalizeText(inv.item_name || INVOICE_ITEM_NAME),
+            delivery_method: normalizeText(inv.delivery_method || ''),
+            fulfillment_mode: normalizeText(inv.fulfillment_mode || 'manual'),
+            archive_status: normalizeText(inv.archive_status || 'pending'),
+            archive_order_no: normalizeText(inv.archive_order_no || o.order_no || ''),
             title: normalizeText(inv.title || ''),
             tax_no: normalizeText(inv.tax_no || ''),
             email: normalizeText(inv.email || ''),
@@ -4528,14 +5232,35 @@ module.exports = {
         const invoiceUrl = normalizeText(raw.invoice_url || raw.invoiceUrl || raw['发票链接'])
         const statusIn = normalizeInvoiceStatusValue(normalizeText(raw.status || raw['开票状态']) || (invoiceNo ? '已开具' : '开具中'))
         if (!invoiceNo && !invoiceUrl) { summary.fail += 1; summary.errors.push({ orderNo, reason: '缺少发票号码或发票链接' }); continue }
+        if (['已开具', '已寄出', '已签收'].includes(statusIn) && (!invoiceNo || !invoiceDate)) {
+          summary.fail += 1; summary.errors.push({ orderNo, reason: '已开票记录必须填写发票号码和开票日期' }); continue
+        }
         const order = await findOrderByNo(orderNo)
         if (!order) { summary.fail += 1; summary.errors.push({ orderNo, reason: '工单不存在' }); continue }
         if (order.status === 'cancelled') { summary.fail += 1; summary.errors.push({ orderNo, reason: '已取消工单不可开票' }); continue }
+        const invoiceNumberConflict = await findInvoiceNumberConflict(invoiceNo, order._id)
+        if (invoiceNumberConflict) {
+          summary.fail += 1
+          summary.errors.push({ orderNo, reason: `发票号码已绑定工单 ${invoiceNumberConflict.order_no || invoiceNumberConflict._id}` })
+          continue
+        }
+        const invoiceBlockReason = getInvoiceRequestBlockReason(order)
+        if (invoiceBlockReason) { summary.fail += 1; summary.errors.push({ orderNo, reason: invoiceBlockReason }); continue }
         const oldInvoice = order.invoice_info || {}
         const invoiceInfo = {
           ...oldInvoice,
           need_invoice: true,
           status: statusIn,
+          tax_category: INVOICE_TAX_CATEGORY,
+          item_name: INVOICE_ITEM_NAME,
+          delivery_method: oldInvoice.delivery_method || (oldInvoice.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+          fulfillment_mode: 'manual',
+          issued_channel: 'manual',
+          archive_status: statusIn === '已签收' || (oldInvoice.invoice_type !== '纸质专用发票' && statusIn === '已开具') ? 'archived' : (oldInvoice.archive_status || 'pending'),
+          archive_order_id: order._id,
+          archive_order_no: order.order_no || '',
+          service_completed_time: oldInvoice.service_completed_time || order.completed_time || order.complete_time || order.update_time || now,
+          settlement_time: oldInvoice.settlement_time || order.payment_paid_time || order.update_time || now,
           invoice_no: invoiceNo || oldInvoice.invoice_no || '',
           invoice_date: invoiceDate || oldInvoice.invoice_date || '',
           invoice_url: invoiceUrl || oldInvoice.invoice_url || '',
