@@ -91,7 +91,7 @@ Schemas: `docte-master/uniCloud-alipay/database/*.schema.json`. Init/test data: 
 - **Error codes**: `code: 0` (or `code: 0`/`code: -1` per function) = success/failure convention; `code: 401` = unauthorized.
 - **Mini-program navigation**: all pages use `navigationStyle: "custom"`.
 - **Mini-program API layer** (`api/*.js`): wraps uniCloud cloud-object / cloud-function calls directly; no HTTP gateway or HTTPS fallback (the old `utils/request.js` layer was removed).
-- **Company page content is settings-driven**: the 公司介绍 page「产品矩阵」 product images (`company_product_root_canal/restoration/implant/prevention_image` in `cicada_settings`) and 「产品视频」 list come from `api/content.js` (`getCompanyProductImages` / `getGuides`); unset items fall back to built-in static assets.
+- **Company and video content**: the 公司介绍 page「产品矩阵」 images (`company_product_root_canal/restoration/implant/prevention_image` in `cicada_settings`) come from `api/content.js` and fall back to built-in assets. The homepage「产品视频」 entry opens the fixed CICADA service-account profile; the separate homepage installation/maintenance video remains settings-driven through guide media.
 - **WeChat AppID**: `wx25289fbe4a3bf011` (manifest.json). uniCloud provider: Alipay Cloud (`uniCloud-alipay`).
 - **WeChat Pay architecture**: the mini program already uses uni-app's `uni.requestPayment` to open the WeChat cashier. It does **not** use the `uni-pay` cloud module. `cicada-client-order` creates JSAPI prepay orders by calling WeChat Pay API v3 directly, signs client parameters, verifies/decrypts callbacks, and confirms payment by querying WeChat; `cicada-admin-order` owns refund and manual reconciliation. Never treat the client success callback as paid state, and never move `WX_PAY_*` secrets into client code. See `docte-master/uniCloud-alipay/微信支付与一键开票配置.md`.
 - **Invoice policy**: WeChat Pay orders never enter the invoice workflow. Only completed and paid/reconciled corporate transfers (`offline_transfer`/`bank_transfer`) may request an invoice. Finance manually issues it outside the system, then registers the status, number, date, and optional cloud-storage archive file with `updateInvoiceStatus`. The mini program shows structured invoice details instead of opening a PDF URL. Automatic/provider invoicing is intentionally unsupported. The shared rule lives in `common/cicada-invoice-policy`.
@@ -100,7 +100,7 @@ Schemas: `docte-master/uniCloud-alipay/database/*.schema.json`. Init/test data: 
 
 ### Git remotes (non-obvious)
 
-Three remotes are configured: `origin` → `huaxie602/docte` (the issue/PRD tracker referenced below), `weichat` → `Mrstongtong828/weiChat-xiaochengxu`, `data-guard` → `Mrstongtong828/data-guard`. Feature branches (e.g. `su/after-sales-launch-config`) track **`weichat`**, so a bare `git push` goes there, **not** `origin`. Check the branch's upstream before pushing and don't assume `origin`.
+Four remotes are configured: `origin` → `huaxie602/docte` (the issue/PRD tracker referenced below), `weichat` → `Mrstongtong828/weiChat-xiaochengxu`, `cicada` → `Mrstongtong828/CICADA-`, and `data-guard` → `Mrstongtong828/data-guard`. Feature branches commonly track **`weichat`**, so a bare `git push` may not update `origin` or `cicada`. Check the branch's upstream and use an explicit remote/refspec when publishing.
 
 ### Adding things
 
