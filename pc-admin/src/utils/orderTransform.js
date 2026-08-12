@@ -54,6 +54,7 @@ const normalizeOrderItems = (order) => {
     warranty_months: Number(item.warranty_months || 0) || 0,
     warranty_expire: item.warranty_expire || '',
     warranty_status: item.warranty_status || item.warrantyStatus || '',
+    manual_warranty_status: item.manual_warranty_status || item.manualWarrantyStatus || 'pending',
     coverage_result: item.coverage_result || item.coverageResult || '',
     coverage_reason: item.coverage_reason || item.coverageReason || '',
     coverage_note: item.coverage_note || item.coverageNote || '',
@@ -109,6 +110,28 @@ const normalizeQuoteDetail = (order = {}) => {
 }
 
 // 后端工单数据转换为前端格式
+const normalizeRepairRecord = (order = {}) => {
+  const record = order.repair_record || order.repairRecord || {}
+  const rawPhotos = Array.isArray(record && record.photos) ? record.photos : []
+  return {
+    content: record && record.content || '',
+    parts: Array.isArray(record && record.parts) ? record.parts.map((part = {}) => ({
+      partId: part.part_id || part.partId || '',
+      partCode: part.part_code || part.partCode || part.code || '',
+      name: part.name || part.part_name || '',
+      model: part.model || part.part_model || '',
+      quantity: Number(part.quantity || 1) || 1
+    })) : [],
+    photos: rawPhotos.map((photo) => ({
+      fileID: photo && typeof photo === 'object' ? (photo.fileID || photo.fileId || photo.url || '') : photo,
+      url: resolveUrlValue(photo)
+    })).filter(photo => photo.url),
+    engineerId: record && (record.engineer_id || record.engineerId) || '',
+    engineerName: record && (record.engineer_name || record.engineerName) || '',
+    updateTime: Number(record && (record.update_time || record.updateTime) || 0) || 0
+  }
+}
+
 export const transformOrder = (order) => {
   if (!order) return null
 
@@ -189,6 +212,7 @@ export const transformOrder = (order) => {
     // 工程师和时间线
     engineerId: order.engineer_id || '',
     timeline: order.timeline || [],
+    repairRecord: normalizeRepairRecord(order),
 
     // 报价/付款
     quoteDetail,

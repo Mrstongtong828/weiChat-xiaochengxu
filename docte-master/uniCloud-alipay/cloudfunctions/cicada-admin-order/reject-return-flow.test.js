@@ -98,7 +98,7 @@ test('已签收订单不能绕过回寄运单直接改成已回寄', async () =>
   assert.equal(updatedOrder, null)
 })
 
-test('普通已签收维修单不能跳过检测直接回寄', async () => {
+test('未确认方案的正常已签收维修单不能直接回寄', async () => {
   activeOrder = {
     ...order,
     quote_status: 'issued',
@@ -113,8 +113,29 @@ test('普通已签收维修单不能跳过检测直接回寄', async () => {
 
   assert.equal(result.code, 0)
   assert.equal(result.data.success, 0)
-  assert.equal(result.data.errors[0].reason, '普通已签收工单需先进入检测或处理，只有拒修工单可以直接回寄')
+  assert.equal(result.data.errors[0].reason, '维修前必须先确认维修方案')
   assert.equal(updatedOrder, null)
+})
+
+test('已确认付款的已签收维修单可以直接回寄', async () => {
+  activeOrder = {
+    ...order,
+    quote_status: 'confirmed',
+    authorization_status: 'confirmed',
+    payment_status: 'paid',
+    total_price: 100,
+    needs_return: false,
+    archive_status: 'active'
+  }
+  updatedOrder = null
+
+  const result = await service.batchUpdateShipping.call(adminContext, {
+    shippingList: [{ orderNo: 'DR-1', returnCompany: '顺丰速运', returnNo: 'SF123456789012' }]
+  })
+
+  assert.equal(result.code, 0, result.msg)
+  assert.equal(result.data.success, 1)
+  assert.equal(updatedOrder.status, 'shipped')
 })
 
 test('拒修设备回寄后结案会推进为已归档', async () => {

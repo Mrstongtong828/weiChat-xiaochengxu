@@ -181,6 +181,10 @@
     "quote_detail": {
       "bsonType": "object"
     },
+    "repair_record": {
+      "bsonType": "object",
+      "description": "工程师轻量维修记录：维修说明、实际使用配件、维修照片和保存人"
+    },
     "quote_items": {
       "bsonType": "array"
     },

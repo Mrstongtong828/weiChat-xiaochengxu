@@ -67,12 +67,9 @@ function getRepairStartBlockReason(order = {}) {
   if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
   if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
   if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
-  if (total <= 0 && (
-    paymentStatus !== 'not_required'
-    || chargeType !== 'free'
-    || order.in_warranty !== true
-    || !['in_warranty', 'extended'].includes(warrantyStatus)
-  )) return '零元维修必须先完成质保免收费核验'
+  if (total <= 0 && (paymentStatus !== 'not_required' || chargeType !== 'free')) {
+    return '零元维修必须先确认质保免费方案'
+  }
   return ''
 }
 

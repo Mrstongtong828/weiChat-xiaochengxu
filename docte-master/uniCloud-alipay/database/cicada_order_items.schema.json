@@ -61,6 +61,10 @@
       "bsonType": "string",
       "description": "本产品质保状态快照：in_warranty / extended / expired / unknown"
     },
+    "manual_warranty_status": {
+      "bsonType": "string",
+      "description": "人工质保判断：pending / in_warranty / expired；报价流程以此判断优先"
+    },
     "coverage_result": {
       "bsonType": "string",
       "description": "本次维修收费结论：pending / free / paid / partial / not_covered"

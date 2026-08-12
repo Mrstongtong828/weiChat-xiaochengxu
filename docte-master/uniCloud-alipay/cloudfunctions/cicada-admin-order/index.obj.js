@@ -137,15 +137,12 @@ function createWorkflowFallback() {
     const chargeType = String(order.charge_type || order.chargeType || '').trim()
     const warrantyStatus = String(order.warranty_status || order.warrantyStatus || '').trim()
     const total = Number(order.total_price || order.totalPrice || 0) || 0
-    if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
-    if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
-    if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
-    if (total <= 0 && (
-      paymentStatus !== 'not_required'
-      || chargeType !== 'free'
-      || order.in_warranty !== true
-      || !['in_warranty', 'extended'].includes(warrantyStatus)
-    )) return '零元维修必须先完成质保免收费核验'
+  if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
+  if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
+  if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
+  if (total <= 0 && (paymentStatus !== 'not_required' || chargeType !== 'free')) {
+    return '零元维修必须先确认质保免费方案'
+  }
     return ''
   }
   const assertOrderStatusTransition = (fromStatus = '', toStatus = '') => {
@@ -364,9 +361,13 @@ async function enrichAdminOrderForList(order = {}, currentAdmin = {}, sharedUrlM
   const orderWithProofs = sharedUrlMap
     ? { ...order, payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], sharedUrlMap) }
     : await enrichPaymentProofs(order)
+  const repairRecord = sharedUrlMap
+    ? applyRepairRecordUrlMap(order.repair_record || order.repairRecord || {}, sharedUrlMap)
+    : (order.repair_record || order.repairRecord || {})
 
   return stripPaymentProofsIfForbidden({
     ...orderWithProofs,
+    repair_record: repairRecord,
     product_name: itemDetail.product_name || '',
     product_model: itemDetail.product_model || '',
     fault_desc: itemDetail.fault_desc || '',
@@ -447,6 +448,8 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
       .forEach(id => allProofFileIds.push(id))
     // item 级媒体（购买凭证/故障图/视频）的 cloud:// 也一并纳入同一批换链接
     collectItemMediaCloudFileIds(order.itemsList || [])
+      .forEach(id => allProofFileIds.push(id))
+    collectRepairPhotoCloudFileIds(order.repair_record || order.repairRecord || [])
       .forEach(id => allProofFileIds.push(id))
   })
   const sharedUrlMap = await fetchTempUrlMap(allProofFileIds)
@@ -1000,13 +1003,15 @@ function attachVerifiedTrackCache(updateData, order, segment, trackCheck) {
   }
 }
 
-// 回寄业务策略集中在此。付款核销与实物维修流程独立，未付款不阻止后台回寄。
+// 回寄以客户已确认的方案为准：收费单已付款，零元单已确认免付。
+// 维修记录是可选补充，不需要先手动把状态改为「处理中」才能回寄。
 function getReturnShipmentPolicyBlockReason(order = {}) {
-  if (normalizeText(order.status) === 'received'
-    && order.needs_return !== true
-    && normalizeText(order.archive_status) !== 'pending_return'
-    && normalizeText(order.quote_status) !== 'rejected') {
-    return '普通已签收工单需先进入检测或处理，只有拒修工单可以直接回寄'
+  const isDirectReturn = order.needs_return === true
+    || normalizeText(order.archive_status) === 'pending_return'
+    || normalizeText(order.quote_status) === 'rejected'
+  if (!isDirectReturn) {
+    const repairStartBlockReason = getRepairStartBlockReason(order)
+    if (repairStartBlockReason) return repairStartBlockReason
   }
   return getReturnShipmentBlockReason(order)
 }
@@ -1249,6 +1254,23 @@ async function computeOrderWarrantyFromItems(items = []) {
   let anyPaid = false
   const evaluatedItems = []
   for (const item of items) {
+    const manualStatus = normalizeText(item && (item.manual_warranty_status || item.manualWarrantyStatus))
+    if (['in_warranty', 'expired'].includes(manualStatus)) {
+      const coverageResult = normalizeText(item && item.coverage_result)
+      const inWarranty = manualStatus === 'in_warranty'
+      if (item) item.warranty_status = manualStatus
+      anyEvaluated = true
+      if (inWarranty) anyInWarranty = true
+      if (coverageResult === 'pending' || !coverageResult) anyPendingReview = true
+      if (inWarranty && coverageResult === 'free') anyFree = true
+      if (['paid', 'partial', 'not_covered'].includes(coverageResult)) anyPaid = true
+      evaluatedItems.push({
+        warranty_status: manualStatus,
+        coverage_result: coverageResult,
+        free: inWarranty && coverageResult === 'free'
+      })
+      continue
+    }
     const sn = normalizeText(item && item.sn)
     let device = null
     if (sn) {
@@ -1305,18 +1327,14 @@ async function computeOrderWarrantyFromItems(items = []) {
 }
 
 async function isOrderWarrantyFreeConfirmed(order = {}) {
-  if (!(order.charge_type === 'free' && Boolean(order.in_warranty) && ['in_warranty', 'extended'].includes(order.warranty_status))) {
-    return false
-  }
   const itemKeys = [order._id, order.order_no].filter(Boolean)
   if (!itemKeys.length) return false
   const res = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
   const items = res.data || []
   if (!items.length) return false
   return items.every(item =>
-    normalizeText(item.coverage_result) === 'free'
-    && warrantyPolicy.isFreeCoverageReason(item.coverage_reason)
-    && ['in_warranty', 'extended'].includes(normalizeText(item.warranty_status || order.warranty_status))
+    normalizeText(item.manual_warranty_status) === 'in_warranty'
+    && normalizeText(item.coverage_result) === 'free'
   )
 }
 
@@ -2062,7 +2080,7 @@ function buildQuoteData(quote = {}, now, order = {}) {
 
   const isWarrantyFree = order.warranty_free_confirmed === true
   if ((status === 'draft' || status === 'issued') && totalPrice <= 0) {
-    if (!isWarrantyFree) throw new Error('仅所有设备均明确为质保免费的工单可以发布零元质保方案')
+    if (!isWarrantyFree) throw new Error('零元质保方案要求所有设备均人工判断在保，且本次结论为质保免费')
     quoteDetail = {
       ...quoteDetail,
       parts: [],
@@ -2216,6 +2234,30 @@ function applyItemMediaUrlMap(itemsList = [], urlMap = {}) {
     })
     return next
   })
+}
+
+function collectRepairPhotoCloudFileIds(record = {}) {
+  const photos = record && Array.isArray(record.photos) ? record.photos : []
+  return photos
+    .map(photo => getMediaUrl(photo && (photo.fileID || photo.fileId || photo.url || photo)))
+    .filter(isCloudFileId)
+}
+
+function applyRepairRecordUrlMap(record = {}, urlMap = {}) {
+  if (!record || typeof record !== 'object') return record
+  const photos = Array.isArray(record.photos) ? record.photos : []
+  return {
+    ...record,
+    photos: photos.map(photo => {
+      const fileID = getMediaUrl(photo && (photo.fileID || photo.fileId || photo.url || photo))
+      if (!fileID) return null
+      return {
+        ...(photo && typeof photo === 'object' ? photo : {}),
+        fileID,
+        url: (isCloudFileId(fileID) && urlMap[fileID]) ? urlMap[fileID] : fileID
+      }
+    }).filter(Boolean)
+  }
 }
 
 async function normalizePaymentProofs(proofs = []) {
@@ -2903,7 +2945,8 @@ module.exports = {
       // 详情页一次性把 item 级媒体 + 订单级支付凭证的 cloud:// 换成临时链接
       const detailUrlMap = await fetchTempUrlMap([
         ...collectItemMediaCloudFileIds(order.itemsList || []),
-        ...collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || [])
+        ...collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || []),
+        ...collectRepairPhotoCloudFileIds(order.repair_record || order.repairRecord || {})
       ])
       const itemsList = applyItemMediaUrlMap(order.itemsList || [], detailUrlMap)
       const itemDetail = (itemsList.length > 0) ? itemsList[0] : {}
@@ -2911,6 +2954,7 @@ module.exports = {
       const orderData = stripPaymentProofsIfForbidden({
         ...order,
         payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], detailUrlMap),
+        repair_record: applyRepairRecordUrlMap(order.repair_record || order.repairRecord || {}, detailUrlMap),
         product_name: itemDetail.product_name || '',
         product_model: itemDetail.product_model || '',
         fault_desc: itemDetail.fault_desc || '',
@@ -3855,6 +3899,64 @@ module.exports = {
     }
   },
 
+  // 轻量维修记录：只保存工程师的实际作业快照，不触发报价配件出库或库存扣减。
+  async saveRepairRecord(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_remarks')
+      const { order_id, orderId, content, parts, photos } = pickParam(this, params)
+      const targetOrderId = order_id || orderId
+      if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
+
+      const orderRes = await db.collection('cicada_orders').doc(targetOrderId).get()
+      const order = orderRes.data && orderRes.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+
+      const normalizedContent = normalizeText(content)
+      if (normalizedContent.length > 1000) return { code: -1, msg: '维修说明不能超过1000字' }
+      const rawParts = Array.isArray(parts) ? parts : []
+      if (rawParts.length > 30) return { code: -1, msg: '实际使用配件不能超过30项' }
+      const normalizedParts = rawParts.map((part = {}) => {
+        const quantity = Number(part.quantity)
+        if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('配件数量必须为正整数')
+        return {
+          part_id: normalizeText(part.part_id || part.partId || part._id),
+          part_code: normalizeText(part.part_code || part.partCode || part.code),
+          name: normalizeText(part.name || part.part_name),
+          model: normalizeText(part.model || part.part_model),
+          quantity
+        }
+      }).filter(part => part.part_id || part.part_code || part.name)
+
+      const rawPhotos = Array.isArray(photos) ? photos : []
+      if (rawPhotos.length > 6) return { code: -1, msg: '维修照片最多上传6张' }
+      const normalizedPhotos = rawPhotos
+        .map(photo => getMediaUrl(photo && (photo.fileID || photo.fileId || photo.url || photo)))
+        .filter(isCloudFileId)
+      if (normalizedPhotos.length !== rawPhotos.length) return { code: -1, msg: '维修照片格式无效' }
+
+      const now = Date.now()
+      const repairRecord = {
+        content: normalizedContent,
+        parts: normalizedParts,
+        photos: normalizedPhotos,
+        engineer_id: normalizeText(currentAdmin._id || currentAdmin.id),
+        engineer_name: normalizeText(currentAdmin.name || currentAdmin.username || currentAdmin.nickname) || '后台人员',
+        update_time: now
+      }
+      await db.collection('cicada_orders').doc(targetOrderId).update({ repair_record: repairRecord, update_time: now })
+      await logOrderEvent({
+        order,
+        action: 'save_repair_record',
+        actor: currentAdmin,
+        before: { repair_record: order.repair_record || {} },
+        after: { repair_record: repairRecord }
+      })
+      return { code: 0, data: repairRecord }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 保存工单产品/设备信息（后台按 SN 回填后落库），并按新 SN 重算工单在保快照
   async saveOrderItems(params) {
     try {
@@ -3885,6 +3987,7 @@ module.exports = {
         const nextInvoiceDate = normalizeText(item.invoice_received_date)
         const nextManufactureDate = normalizeText(item.manufacture_date)
         const nextCoverage = normalizeText(item.coverage_result)
+        const nextManualWarrantyStatus = normalizeText(item.manual_warranty_status || item.manualWarrantyStatus)
         const nextReason = normalizeText(item.coverage_reason)
         return nextMonths !== Math.max(0, Number(owned.warranty_months || 0) || 0)
           || nextExpire !== normalizeText(owned.warranty_expire)
@@ -3892,6 +3995,7 @@ module.exports = {
           || nextInvoiceDate !== normalizeText(owned.invoice_received_date)
           || nextManufactureDate !== normalizeText(owned.manufacture_date)
           || nextCoverage !== normalizeText(owned.coverage_result)
+          || nextManualWarrantyStatus !== normalizeText(owned.manual_warranty_status)
           || nextReason !== normalizeText(owned.coverage_reason)
       })
       if (changesWarrantyEvidence) assertRolePermission(currentAdmin, 'issue_quote')
@@ -3906,6 +4010,10 @@ module.exports = {
         const coverageResult = ['pending', 'free', 'paid', 'partial', 'not_covered'].includes(rawCoverageResult)
           ? rawCoverageResult
           : ''
+        const rawManualWarrantyStatus = normalizeText(item.manual_warranty_status || item.manualWarrantyStatus)
+        const manualWarrantyStatus = ['pending', 'in_warranty', 'expired'].includes(rawManualWarrantyStatus)
+          ? rawManualWarrantyStatus
+          : 'pending'
         const patch = {
           product_category: normalizeText(item.product_category),
           product_model: normalizeText(item.product_model),
@@ -3917,12 +4025,13 @@ module.exports = {
           manufacture_date: normalizeText(item.manufacture_date),
           warranty_months: warrantyPolicy.DEFAULT_PRODUCT_WARRANTY_MONTHS,
           warranty_expire: normalizeText(item.warranty_expire),
+          manual_warranty_status: manualWarrantyStatus,
           coverage_result: coverageResult,
           coverage_reason: normalizeText(item.coverage_reason),
           coverage_note: normalizeText(item.coverage_note).slice(0, 500)
         }
-        if (coverageResult === 'free' && !warrantyPolicy.isFreeCoverageReason(patch.coverage_reason)) {
-          return { code: -1, msg: '免费维修必须确认原厂质量缺陷，或确认同故障同更换件的维修延保' }
+        if (coverageResult === 'free' && manualWarrantyStatus !== 'in_warranty') {
+          return { code: -1, msg: '质保免费必须先人工判断设备在保' }
         }
         await db.collection('cicada_order_items').doc(itemId).update(patch).catch(() => {})
         Object.assign(owned, patch) // 同步内存副本，供下方在保重算
@@ -4147,13 +4256,19 @@ module.exports = {
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
 
+      const itemKeys = [order._id, order.order_no].filter(Boolean)
+      const itemRes = itemKeys.length
+        ? await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
+        : { data: [] }
+      const orderItems = itemRes.data || []
+      if (quote.status === 'issued' && orderItems.some(item => !['in_warranty', 'expired'].includes(normalizeText(item.manual_warranty_status)))) {
+        return { code: -1, msg: '发布报价前，请先逐台完成人工质保判断' }
+      }
       const warrantyFreeConfirmed = await isOrderWarrantyFreeConfirmed(order)
       const quoteData = buildQuoteData(quote, now, { ...order, warranty_free_confirmed: warrantyFreeConfirmed })
       const warrantyParts = quoteData.quote_detail.parts.filter(item => item.warranty_eligible === true && item.quantity > 0)
       if (quoteData.quote_status === 'issued' && warrantyParts.length) {
-        const itemKeys = [order._id, order.order_no].filter(Boolean)
-        const itemRes = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
-        const deviceSns = [...new Set((itemRes.data || []).map(item => normalizeText(item.sn)).filter(Boolean))]
+        const deviceSns = [...new Set(orderItems.map(item => normalizeText(item.sn)).filter(Boolean))]
         const normalizedDeviceSns = new Map(deviceSns.map(sn => [normalizeSn(sn), sn]))
         for (const part of warrantyParts) {
           const assignedKey = normalizeSn(part.device_sn)

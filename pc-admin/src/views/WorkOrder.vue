@@ -612,12 +612,16 @@
                     <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="采购日期" style="width:100%;" />
                   </div>
                   <div class="warranty-entry-row">
+                    <div class="warranty-entry-head">
+                      <strong>质保资料（选填）</strong>
+                      <span>发票和出厂日期仅作辅助参考，不影响人工质保判断和报价。</span>
+                    </div>
                     <div>
-                      <span>发票签收日</span>
+                      <span>发票签收日（选填）</span>
                       <el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期" clearable style="width:100%;" />
                     </div>
                     <div>
-                      <span>SN出厂日</span>
+                      <span>SN出厂日（选填）</span>
                       <el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时使用" clearable style="width:100%;" />
                     </div>
                     <div>
@@ -625,28 +629,31 @@
                       <span>统一12个月</span>
                     </div>
                     <div>
-                      <span>质保截止</span>
+                      <span>质保截止（选填）</span>
                       <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接指定" clearable style="width:100%;" />
                     </div>
                     <p>{{ itemWarrantyPreview(item).detail }}</p>
                   </div>
                   <div class="coverage-review-row">
                     <div class="coverage-review-head">
-                      <strong>本次质保结论</strong>
-                      <span>设备是否在保与本次是否免费分开判断</span>
+                      <strong>人工质保判断</strong>
+                      <span>报价前必填；人工判断优先于日期资料</span>
                     </div>
                     <div class="coverage-fields-grid">
+                      <el-select v-model="item.manual_warranty_status" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择是否在保">
+                        <el-option v-for="option in manualWarrantyStatusOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                      </el-select>
                       <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择本次结论" clearable>
                         <el-option v-for="option in coverageResultOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
                       </el-select>
-                      <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择判断原因" clearable>
+                      <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="判断原因（选填）" clearable>
                         <el-option v-for="option in coverageReasonOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
                       </el-select>
                     </div>
                     <el-input
                       v-model="item.coverage_note"
                       :disabled="!canPerformOrderAction('issue_quote')"
-                      placeholder="可补充核验依据，例如凭证、故障原因或不保原因"
+                      placeholder="补充说明（选填），例如凭证、故障原因或不保原因"
                       maxlength="200"
                       show-word-limit
                     ></el-input>
@@ -682,7 +689,7 @@
                 </div>
                 <div class="product-detail-actions">
                   <el-button type="primary" :loading="savingOrderItems" @click="saveOrderItemsInfo">保存设备信息</el-button>
-                  <span class="product-detail-tip">零元质保方案需要每台设备都明确选择“质保免费”；仅在保但未核验不会自动免收费。</span>
+                  <span class="product-detail-tip">报价前请逐台选择人工判断“在保/过保”；零元质保方案需要每台设备选择“质保免费”，判断原因仅作选填补充。</span>
                 </div>
               </div>
               <p v-else class="empty-text">暂无产品明细</p>
@@ -1147,10 +1154,83 @@
             </div>
           </el-tab-pane>
           <el-tab-pane label="维修/回寄" name="service">
+            <div class="drawer-section repair-record-section">
+              <div class="drawer-section-head">
+                <p class="drawer-section-title">维修记录</p>
+                <el-tag v-if="currentOrder.repairRecord && currentOrder.repairRecord.updateTime" type="success" size="small">已保存</el-tag>
+                <el-tag v-else type="info" size="small">待补充</el-tag>
+              </div>
+              <el-alert
+                v-if="!hasRepairRecord && isRepairingOrder"
+                title="建议回寄前补充维修说明和实际使用配件"
+                type="warning"
+                :closable="false"
+                show-icon
+              />
+              <div class="repair-record-field">
+                <strong>实际维修说明</strong>
+                <el-input
+                  v-model="repairRecordForm.content"
+                  type="textarea"
+                  :rows="4"
+                  maxlength="1000"
+                  show-word-limit
+                  placeholder="填写本次维修处理内容，例如故障原因、维修项目和测试结果"
+                />
+              </div>
+              <div class="repair-record-field">
+                <strong>实际使用配件</strong>
+                <span class="section-helper">仅记录实际使用情况，不会再次扣减库存。</span>
+                <div v-if="repairRecordForm.parts.length" class="repair-parts-list">
+                  <div v-for="part in repairRecordForm.parts" :key="part.key" class="repair-part-row">
+                    <el-checkbox v-model="part.used">实际使用</el-checkbox>
+                    <span class="repair-part-name">{{ part.name || '未命名配件' }}</span>
+                    <span v-if="part.partCode" class="repair-part-code">{{ part.partCode }}</span>
+                    <span v-if="part.model" class="repair-part-code">{{ part.model }}</span>
+                    <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" />
+                  </div>
+                </div>
+                <span v-else class="empty-text">当前报价未包含配件，可仅填写维修说明。</span>
+              </div>
+              <div class="repair-record-field">
+                <strong>维修照片</strong>
+                <span class="section-helper">可选，最多 6 张；支持 JPG、PNG、WEBP，单张不超过 10MB。</span>
+                <div class="repair-photo-list">
+                  <div v-for="(photo, index) in repairRecordForm.photos" :key="photo.fileID || photo.url || index" class="repair-photo-item">
+                    <el-image :src="photo.url" :preview-src-list="repairPhotoPreviewUrls" fit="cover" preview-teleported />
+                    <el-button link type="danger" size="small" @click="removeRepairPhoto(index)">删除</el-button>
+                  </div>
+                  <label v-if="repairRecordForm.photos.length < 6" class="repair-photo-upload">
+                    <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="repairPhotoUploading" @change="handleRepairPhotoSelect" />
+                    <span>{{ repairPhotoUploading ? '上传中...' : '上传照片' }}</span>
+                  </label>
+                </div>
+              </div>
+              <el-button
+                v-if="canPerformOrderAction('update_remarks')"
+                type="primary"
+                size="small"
+                :loading="repairRecordSaving"
+                @click="saveCurrentRepairRecord"
+              >保存维修记录</el-button>
+            </div>
             <div class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">回寄物流</p>
-                <el-tag :type="currentOrder.returnNo ? 'success' : 'info'" size="small">{{ currentOrder.returnNo ? '已录入' : '待回寄' }}</el-tag>
+                <div class="return-logistics-actions">
+                  <el-tag :type="currentOrder.returnNo ? 'success' : 'info'" size="small">{{ currentOrder.returnNo ? '已录入' : '待回寄' }}</el-tag>
+                  <el-tooltip :content="returnLogisticsHint" placement="top">
+                    <span>
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :disabled="!canRecordReturnLogistics"
+                        @click="openReturnLogisticsDialog"
+                      >录入回寄物流</el-button>
+                    </span>
+                  </el-tooltip>
+                </div>
               </div>
               <div class="drawer-info-grid">
                 <div class="drawer-info-item">
@@ -1695,7 +1775,7 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -2501,6 +2581,27 @@ const getOrderStatusValue = (order = {}) => {
   return order.statusEn || toEnglishStatus(order.status || '')
 }
 
+const getReturnShipmentBlockReason = (order = {}) => {
+  const currentStatus = getOrderStatusValue(order)
+  if (!['received', 'inspecting', 'fixing'].includes(currentStatus)) {
+    return '当前工单状态不能录入回寄物流'
+  }
+  if (order.quoteStatus === 'rejected' || order.needsReturn === true || order.archiveStatus === 'pending_return') {
+    return ''
+  }
+  const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
+  const quoteConfirmed = (order.quoteStatus || order.quote_status) === 'confirmed'
+  const authorizationConfirmed = (order.authorizationStatus || order.authorization_status) === 'confirmed'
+  const paymentStatus = order.paymentStatus || order.payment_status
+  const paymentReady = total > 0
+    ? paymentStatus === 'paid'
+    : paymentStatus === 'not_required' && (order.chargeType || order.charge_type) === 'free'
+  if (!quoteConfirmed) return '请先等待客户确认维修方案'
+  if (!authorizationConfirmed) return '请先等待客户确认维修授权'
+  if (!paymentReady) return total > 0 ? '请先确认客户已付款' : '请先确认零元质保方案'
+  return ''
+}
+
 const getAllowedStatusOptions = (order = {}) => {
   if (!order || !canPerformOrderAction('update_status')) return []
   const currentStatus = getOrderStatusValue(order)
@@ -2521,17 +2622,27 @@ const getAllowedStatusOptions = (order = {}) => {
           && ['in_warranty', 'extended'].includes(warrantyStatus)
       if (!quoteConfirmed || !authorizationConfirmed || !paymentReady) return false
     }
-    if (currentStatus === 'received' && targetStatus === 'shipped') {
-      const isRejectReturn = order.quoteStatus === 'rejected'
-        || order.needsReturn === true
-        || order.archiveStatus === 'pending_return'
-      if (!isRejectReturn) return false
+    if (['received', 'inspecting', 'fixing'].includes(currentStatus) && targetStatus === 'shipped') {
+      if (getReturnShipmentBlockReason(order)) return false
     }
     return targetStatus !== currentStatus && transitions.includes(targetStatus)
   })
 }
 
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
+const canRecordReturnLogistics = computed(() => (
+  Boolean(currentOrder.value)
+  && canPerformOrderAction('import_logistics')
+  && !currentOrder.value.returnNo
+  && canMoveOrderToStatus(currentOrder.value, '已回寄')
+))
+const returnLogisticsHint = computed(() => {
+  if (!currentOrder.value) return '请选择工单'
+  if (!canPerformOrderAction('import_logistics')) return '当前角色无权录入回寄物流'
+  if (currentOrder.value.returnNo) return '回寄物流已录入，等待结案'
+  if (canRecordReturnLogistics.value) return '填写物流公司和回寄单号后，工单将更新为已回寄'
+  return getReturnShipmentBlockReason(currentOrder.value) || '当前工单不可回寄'
+})
 
 const getTransitionableOrders = (status, source = selectedOrders.value) => {
   return source.filter(order => order.status !== status && canMoveOrderToStatus(order, status))
@@ -2763,6 +2874,9 @@ const canManuallyRegisterInvoice = computed(() => (
   && currentOrder.value.statusEn === 'completed'
 ))
 const remarkSaving = ref(false)
+const repairRecordSaving = ref(false)
+const repairPhotoUploading = ref(false)
+const repairRecordForm = reactive({ content: '', parts: [], photos: [] })
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
 const refunding = ref(false)
@@ -2788,6 +2902,46 @@ const logisticsCompanyOptions = [
 ]
 const quickShipForm = reactive({ returnCompany: '顺丰速运', returnNo: '' })
 const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
+
+const hasRepairRecord = computed(() => Boolean(
+  repairRecordForm.content.trim()
+  || repairRecordForm.parts.some(part => part.used)
+  || repairRecordForm.photos.length
+))
+const isRepairingOrder = computed(() => currentOrder.value && currentOrder.value.statusEn === 'fixing')
+const repairPhotoPreviewUrls = computed(() => repairRecordForm.photos.map(photo => photo.url).filter(Boolean))
+
+const createRepairPart = (part = {}, used = false, index = 0) => ({
+  key: `${part.partId || part.part_id || part.partCode || part.part_code || part.name || 'part'}-${index}`,
+  partId: part.partId || part.part_id || part._id || '',
+  partCode: part.partCode || part.part_code || part.code || '',
+  name: part.name || part.part_name || '',
+  model: part.model || part.part_model || '',
+  quantity: Math.max(1, Number(part.quantity || 1) || 1),
+  used
+})
+
+const resetRepairRecordForm = (order = {}) => {
+  const saved = order.repairRecord || {}
+  repairRecordForm.content = saved.content || ''
+  repairRecordForm.photos = (saved.photos || []).map(photo => ({
+    fileID: photo.fileID || photo.fileId || photo.url || '',
+    url: photo.url || photo.fileID || photo.fileId || ''
+  })).filter(photo => photo.fileID || photo.url)
+  const savedParts = Array.isArray(saved.parts) ? saved.parts : []
+  const savedByKey = new Map(savedParts.map(part => [part.partId || part.part_id || part.partCode || part.part_code || part.name, part]))
+  const quoteParts = getQuoteSummary(order).parts || []
+  repairRecordForm.parts = quoteParts.map((part, index) => {
+    const key = part.partId || part.part_id || part.partCode || part.part_code || part.code || part.name || part.part_name
+    return createRepairPart(savedByKey.get(key) || part, Boolean(savedByKey.get(key)), index)
+  })
+  savedParts.forEach((part, index) => {
+    const key = part.partId || part.part_id || part.partCode || part.part_code || part.name
+    if (!repairRecordForm.parts.some(item => (item.partId || item.partCode || item.name) === key)) {
+      repairRecordForm.parts.push(createRepairPart(part, true, quoteParts.length + index))
+    }
+  })
+}
 
 const createQuoteRow = (item = {}, type = 'services') => ({
   localId: item.localId || `quote-${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -2825,11 +2979,17 @@ const quoteDeviceSnOptions = computed(() => [...new Set(
 )])
 
 const coverageResultOptions = [
-  { value: 'pending', label: '待人工核验' },
+  { value: 'pending', label: '暂不判断收费方式' },
   { value: 'free', label: '质保免费' },
   { value: 'paid', label: '收费维修' },
   { value: 'partial', label: '部分收费' },
   { value: 'not_covered', label: '在保但不保' }
+]
+
+const manualWarrantyStatusOptions = [
+  { value: 'pending', label: '未判断' },
+  { value: 'in_warranty', label: '人工判断：在保' },
+  { value: 'expired', label: '人工判断：过保' }
 ]
 
 const coverageReasonOptions = [
@@ -2876,9 +3036,10 @@ const quoteAutoTotal = computed(() => quotePartsFee.value + quoteServicesFee.val
 const quoteTotal = computed(() => Number(quoteForm.finalPrice) || quoteAutoTotal.value)
 const isCurrentOrderWarrantyFree = computed(() => {
   const order = currentOrder.value || {}
-  return order.chargeType === 'free'
-    && Boolean(order.inWarranty)
-    && ['in_warranty', 'extended'].includes(order.warrantyStatus)
+  const items = Array.isArray(order.itemsList) ? order.itemsList : []
+  return items.length > 0 && items.every(item =>
+    item.manual_warranty_status === 'in_warranty' && item.coverage_result === 'free'
+  )
 })
 const currentOrderProductKeywords = computed(() => {
   const order = currentOrder.value || {}
@@ -3168,6 +3329,7 @@ const openDrawer = (row) => {
   invoiceForm.mailNo = row.invoiceMailNo || ''
   invoiceForm.mailTime = row.invoiceMailTime || ''
   resetQuoteForm(row)
+  resetRepairRecordForm(row)
   drawerVisible.value = true
 }
 
@@ -3322,13 +3484,14 @@ const saveOrderItemsInfo = async () => {
       manufacture_date: it.manufacture_date || '',
       warranty_months: 12,
       warranty_expire: it.warranty_expire || '',
+      manual_warranty_status: it.manual_warranty_status || 'pending',
       coverage_result: it.coverage_result || '',
       coverage_reason: it.coverage_reason || '',
       coverage_note: it.coverage_note || ''
     }))
   if (!items.length) { ElMessage.warning('无可保存的产品明细'); return }
-  if (items.some(item => item.coverage_result === 'free' && !['quality_issue', 'repair_warranty'].includes(item.coverage_reason))) {
-    ElMessage.warning('质保免费必须选择“非人为质量问题”或“同故障同更换件维修延保”')
+  if (items.some(item => item.coverage_result === 'free' && item.manual_warranty_status !== 'in_warranty')) {
+    ElMessage.warning('质保免费前，请先人工判断设备为在保')
     return
   }
   savingOrderItems.value = true
@@ -3355,15 +3518,15 @@ const currentOrderWarrantyHint = computed(() => {
   const order = currentOrder.value || {}
   const status = order.warrantyStatus || ''
   if (order.chargeType === 'free' && (order.inWarranty || status === 'in_warranty' || status === 'extended')) {
-    return { show: true, type: 'success', text: '所有设备已核验为质保免费，可发布零元质保方案' }
+    return { show: true, type: 'success', text: '所有设备已人工判断为在保且本次结论为质保免费，可发布零元质保方案' }
   }
   if (order.inWarranty || status === 'in_warranty' || status === 'extended') {
-    return { show: true, type: 'warning', text: '设备仍在质保期内，但需逐台选择本次质保结论后才能决定是否免费' }
+    return { show: true, type: 'warning', text: '请逐台完成人工质保判断；零元方案还需选择本次结论为质保免费' }
   }
   if (status === 'expired') {
-    return { show: true, type: 'error', text: '该设备已超出质保期，维修收取全额工时、上门及配件费用' }
+    return { show: true, type: 'error', text: '设备已人工判断为过保，可继续发布收费报价' }
   }
-  return { show: true, type: 'warning', text: '质保信息待补充：请填写质保月数或截止日期后再确认收费方式' }
+  return { show: true, type: 'warning', text: '质保资料可选填；请逐台选择人工判断为在保或过保后再发布报价' }
 })
 
 const loadPickerParts = async () => {
@@ -3794,6 +3957,15 @@ const handleBatchComplete = async () => {
   }
 }
 
+const openReturnLogisticsDialog = () => {
+  const order = currentOrder.value
+  if (!order || !canRecordReturnLogistics.value) return
+  currentQuickOrder.value = order
+  quickShipForm.returnCompany = order.returnCompany || '顺丰速运'
+  quickShipForm.returnNo = order.returnNo || ''
+  quickShipDialogVisible.value = true
+}
+
 const confirmQuickShip = async () => {
   if (!currentQuickOrder.value) return
   if (!canPerformOrderAction('import_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
@@ -3924,9 +4096,15 @@ const saveOrderQuote = async (status = 'draft') => {
   }
   const payload = buildQuotePayload(status)
   const total = Number(payload.finalPrice) || quoteAutoTotal.value
+  const orderItems = currentOrder.value.itemsList || []
+
+  if (status === 'issued' && orderItems.some(item => !['in_warranty', 'expired'].includes(item.manual_warranty_status))) {
+    ElMessage.warning('发布报价前，请先逐台选择人工质保判断：在保或过保')
+    return
+  }
 
   if (total <= 0 && !isCurrentOrderWarrantyFree.value) {
-    ElMessage.warning('发布零元质保方案前，请先在设备明细中将每台设备标记为“质保免费”并保存')
+    ElMessage.warning('发布零元质保方案前，请将每台设备人工判断为“在保”，并将本次结论选择为“质保免费”后保存')
     return
   }
 
@@ -4225,6 +4403,70 @@ const saveRemarks = async () => {
     ElMessage.error(error.message || '备注保存失败')
   } finally {
     remarkSaving.value = false
+  }
+}
+
+const handleRepairPhotoSelect = async (event) => {
+  const raw = event.target.files && event.target.files[0]
+  event.target.value = ''
+  if (!raw) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(raw.type)) {
+    ElMessage.warning('请上传 JPG、PNG 或 WEBP 图片')
+    return
+  }
+  if (repairRecordForm.photos.length >= 6) {
+    ElMessage.warning('维修照片最多上传 6 张')
+    return
+  }
+  repairPhotoUploading.value = true
+  try {
+    const orderKey = String(currentOrder.value && (currentOrder.value.id || currentOrder.value._id) || 'order').replace(/[^a-zA-Z0-9_-]/g, '_')
+    const uploaded = await uploadFileToCloud(raw, `repair/${orderKey}/`, 10 * 1024 * 1024)
+    repairRecordForm.photos.push({ fileID: uploaded.fileUrl, url: uploaded.tempUrl || uploaded.fileUrl })
+  } catch (error) {
+    ElMessage.error(error.message || '维修照片上传失败')
+  } finally {
+    repairPhotoUploading.value = false
+  }
+}
+
+const removeRepairPhoto = (index) => {
+  repairRecordForm.photos.splice(index, 1)
+}
+
+const saveCurrentRepairRecord = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('update_remarks')) {
+    ElMessage.error('当前角色无权保存维修记录')
+    return
+  }
+  repairRecordSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const result = await saveRepairRecord(token, currentOrder.value._id, {
+      content: repairRecordForm.content,
+      parts: repairRecordForm.parts.filter(part => part.used).map(part => ({
+        part_id: part.partId,
+        part_code: part.partCode,
+        name: part.name,
+        model: part.model,
+        quantity: part.quantity
+      })),
+      photos: repairRecordForm.photos.map(photo => photo.fileID || photo.url).filter(Boolean)
+    })
+    ElMessage.success('维修记录已保存')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
+    if (fresh) {
+      currentOrder.value = fresh
+      resetRepairRecordForm(fresh)
+    } else if (result) {
+      currentOrder.value.repairRecord = result
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '维修记录保存失败')
+  } finally {
+    repairRecordSaving.value = false
   }
 }
 
@@ -4583,8 +4825,22 @@ const confirmExportExcel = async () => {
 .drawer-section p { margin: 0; }
 .drawer-section-title { font-weight: 700; color: #1d2129; font-size: 15px; margin: 0 0 6px !important; }
 .drawer-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
+.return-logistics-actions { display: flex; align-items: center; gap: 8px; flex: none; }
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
+.repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }
+.repair-record-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.repair-record-field > strong { color: #1d2129; font-size: 14px; }
+.repair-parts-list { display: flex; flex-direction: column; gap: 6px; }
+.repair-part-row { display: grid; grid-template-columns: 92px minmax(120px, 1fr) minmax(80px, auto) minmax(80px, auto) 112px; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #dde8e1; border-radius: 6px; background: #fff; }
+.repair-part-name { min-width: 0; color: #1d2129; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repair-part-code { color: #697a91; font-family: 'Consolas', 'Menlo', monospace; font-size: 12px; overflow-wrap: anywhere; }
+.repair-part-row :deep(.el-input-number) { width: 100%; }
+.repair-photo-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.repair-photo-item, .repair-photo-upload { width: 86px; height: 106px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid #d9e4dd; border-radius: 6px; background: #fff; overflow: hidden; }
+.repair-photo-item :deep(.el-image) { width: 76px; height: 76px; }
+.repair-photo-upload { cursor: pointer; color: #1677ff; font-size: 12px; }
+.repair-photo-upload input { width: 1px; height: 1px; opacity: 0; position: absolute; }
 .customer-section { background: #eef6ff; }
 .product-overview-section { background: #fff8f0; }
 .drawer-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
@@ -4714,6 +4970,9 @@ const confirmExportExcel = async () => {
 .sn-fields-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-bottom: 0; }
 .sn-warranty-expire { font-size: 13px; color: #86909c; margin: 2px 0 4px; }
 .warranty-entry-row { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)) minmax(220px, 1.5fr); align-items: end; gap: 8px; margin: 0; padding: 8px 10px; border: 1px solid #ffe0a3; border-radius: 8px; background: #fffaf0; }
+.warranty-entry-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; }
+.warranty-entry-head strong { color: #7a5200; font-size: 14px; }
+.warranty-entry-head span { color: #8a6a2f !important; font-size: 12px !important; font-weight: 400 !important; }
 .warranty-entry-row > div > span { display: block; margin-bottom: 4px; color: #4e5969; font-size: 13px; font-weight: 600; }
 .warranty-entry-row :deep(.el-input-number) { width: 100%; }
 .warranty-entry-row > p { margin: 0; color: #7a5200; font-size: 13px; line-height: 1.45; align-self: center; }
@@ -4838,6 +5097,8 @@ const confirmExportExcel = async () => {
   .drawer-tabs :deep(.el-tabs__item) { padding: 0 10px; }
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
+  .repair-part-row { grid-template-columns: 92px minmax(0, 1fr) 92px; }
+  .repair-part-code { grid-column: 2 / -1; }
   .quote-stage { padding-left: 0; }
   .quote-stage:not(:last-child)::before { display: none; }
   .quote-stage-head { margin-left: 0; }

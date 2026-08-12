@@ -123,6 +123,14 @@ export const updateInvoiceStatus = (token, orderId, status, invoice = {}) => {
   })
 }
 
+export const saveRepairRecord = (token, orderId, record = {}) => {
+  return request.post(`${API_BASE.adminOrder}/saveRepairRecord`, {
+    token,
+    order_id: orderId,
+    ...record
+  })
+}
+
 // 更新/发布维修报价
 export const updateOrderQuote = (token, orderId, quote = {}) => {
   return request.post(`${API_BASE.adminOrder}/updateOrderQuote`, {
