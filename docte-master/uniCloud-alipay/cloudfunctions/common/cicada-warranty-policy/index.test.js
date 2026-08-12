@@ -7,7 +7,8 @@ const {
   buildRepairWarrantyExtension,
   computeWarrantyState,
   getBaseWarrantyExpire,
-  isFreeCoverageReason
+  isFreeCoverageReason,
+  isWarrantyFreeItemSet
 } = require('./index')
 
 test('uses invoice date first and defaults the unified warranty to 12 months', () => {
@@ -58,6 +59,20 @@ test('free coverage requires an original quality issue or a manually matched rep
   assert.equal(isFreeCoverageReason('repair_warranty'), true)
   assert.equal(isFreeCoverageReason('human_damage'), false)
   assert.equal(isFreeCoverageReason(''), false)
+})
+
+test('warranty-free confirmation requires every evaluated item to be free and in warranty', () => {
+  const warranty = { in_warranty: true, warranty_status: 'in_warranty', charge_type: 'free' }
+  assert.equal(isWarrantyFreeItemSet([
+    { coverage_result: 'free', coverage_reason: 'quality_issue', warranty_status: 'in_warranty' }
+  ], warranty), true)
+  assert.equal(isWarrantyFreeItemSet([
+    { coverage_result: 'free', coverage_reason: 'quality_issue', warranty_status: 'in_warranty' },
+    { coverage_result: '', coverage_reason: '', warranty_status: 'unknown' }
+  ], warranty), false)
+  assert.equal(isWarrantyFreeItemSet([
+    { coverage_result: 'free', coverage_reason: 'human_damage', warranty_status: 'in_warranty' }
+  ], warranty), false)
 })
 
 test('multi-device repair extensions only include eligible parts assigned to that device', () => {

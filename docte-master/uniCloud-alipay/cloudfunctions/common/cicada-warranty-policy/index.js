@@ -150,6 +150,22 @@ function isFreeCoverageReason(value) {
   return ['quality_issue', 'repair_warranty'].includes(normalizeText(value))
 }
 
+function isWarrantyFreeItemSet(items = [], order = {}) {
+  if (!(order.charge_type === 'free'
+    && Boolean(order.in_warranty)
+    && ['in_warranty', 'extended'].includes(normalizeText(order.warranty_status)))) {
+    return false
+  }
+  if (!Array.isArray(items) || !items.length) return false
+  return items.every(item => {
+    const itemStatus = normalizeText(item && item.warranty_status)
+    const status = itemStatus || computeWarrantyState(item).warranty_status
+    return normalizeText(item && item.coverage_result) === 'free'
+      && isFreeCoverageReason(item && item.coverage_reason)
+      && ['in_warranty', 'extended'].includes(status)
+  })
+}
+
 function buildRepairWarrantyExtension(order = {}, items = [], now = Date.now()) {
   const paymentStatus = normalizeText(order.payment_status || order.paymentStatus)
   const total = Number(order.total_price || order.totalPrice || 0) || 0
@@ -196,6 +212,7 @@ module.exports = {
   getEffectiveWarranty,
   computeWarrantyState,
   isFreeCoverageReason,
+  isWarrantyFreeItemSet,
   buildRepairWarrantyExtension,
   appendWarrantyExtension
 }

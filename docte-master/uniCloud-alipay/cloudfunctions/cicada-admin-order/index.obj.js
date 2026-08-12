@@ -135,6 +135,7 @@ function createWorkflowFallback() {
     const authorizationStatus = String(order.authorization_status || order.authorizationStatus || '').trim()
     const paymentStatus = String(order.payment_status || order.paymentStatus || '').trim()
     const chargeType = String(order.charge_type || order.chargeType || '').trim()
+    const isFreeCharge = order.charge_type === 'free' || chargeType === 'free'
     const warrantyStatus = String(order.warranty_status || order.warrantyStatus || '').trim()
     const total = Number(order.total_price || order.totalPrice || 0) || 0
     if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
@@ -142,7 +143,7 @@ function createWorkflowFallback() {
     if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
     if (total <= 0 && (
       paymentStatus !== 'not_required'
-      || chargeType !== 'free'
+      || !isFreeCharge
       || order.in_warranty !== true
       || !['in_warranty', 'extended'].includes(warrantyStatus)
     )) return '零元维修必须先完成质保免收费核验'
@@ -1305,19 +1306,12 @@ async function computeOrderWarrantyFromItems(items = []) {
 }
 
 async function isOrderWarrantyFreeConfirmed(order = {}) {
-  if (!(order.charge_type === 'free' && Boolean(order.in_warranty) && ['in_warranty', 'extended'].includes(order.warranty_status))) {
-    return false
-  }
   const itemKeys = [order._id, order.order_no].filter(Boolean)
   if (!itemKeys.length) return false
   const res = await db.collection('cicada_order_items').where({ order_id: dbCmd.in(itemKeys) }).get()
   const items = res.data || []
-  if (!items.length) return false
-  return items.every(item =>
-    normalizeText(item.coverage_result) === 'free'
-    && warrantyPolicy.isFreeCoverageReason(item.coverage_reason)
-    && ['in_warranty', 'extended'].includes(normalizeText(item.warranty_status || order.warranty_status))
-  )
+  const warranty = await computeOrderWarrantyFromItems(items)
+  return warrantyPolicy.isWarrantyFreeItemSet(items, warranty)
 }
 
 function normalizeInvoiceStatusFilter(value = '') {
@@ -3924,7 +3918,8 @@ module.exports = {
         if (coverageResult === 'free' && !warrantyPolicy.isFreeCoverageReason(patch.coverage_reason)) {
           return { code: -1, msg: '免费维修必须确认原厂质量缺陷，或确认同故障同更换件的维修延保' }
         }
-        await db.collection('cicada_order_items').doc(itemId).update(patch).catch(() => {})
+        const itemUpdate = await db.collection('cicada_order_items').doc(itemId).update(patch)
+        if (!itemUpdate.updated) return { code: -1, msg: '设备信息保存失败，请刷新工单后重试' }
         Object.assign(owned, patch) // 同步内存副本，供下方在保重算
 
         // 工单内明确补录的质保信息同步回 SN 设备档案，供后续报修复用。
