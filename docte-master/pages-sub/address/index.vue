@@ -155,8 +155,19 @@ import {
 	deleteAddress as removeAddressRemote
 } from '@/api/content'
 import { toCustomerErrorMessage } from '@/utils/customer-error.js'
+import { createPrivateStorageKey, isSessionRequestCurrent } from '@/pages/index/composables/sessionPrivacy.js'
 
-const STORAGE_KEY = 'receiverAddressList'
+const STORAGE_KEY_BASE = 'receiverAddressList'
+const getStorageKey = () => createPrivateStorageKey(STORAGE_KEY_BASE, uni.getStorageSync('userInfo') || {})
+const captureAddressSession = () => ({
+	token: String(uni.getStorageSync('token') || ''),
+	storageKey: getStorageKey()
+})
+const isAddressSessionCurrent = (session = {}) => Boolean(
+	session.storageKey
+	&& session.storageKey === getStorageKey()
+	&& isSessionRequestCurrent(session.token, uni.getStorageSync('token'))
+)
 
 // 本地临时 id（云端未同步）前缀
 const isLocalId = (id) => String(id || '').startsWith('addr-')
@@ -199,27 +210,38 @@ const sortedAddresses = computed(() => [...addresses.value].sort((a, b) => {
 }))
 
 onMounted(() => {
+	if (!uni.getStorageSync('token') || !getStorageKey()) {
+		addresses.value = []
+		uni.redirectTo({ url: '/pages/login/index' })
+		return
+	}
 	loadAddresses()
 })
 
 const loadAddresses = async () => {
+	const session = captureAddressSession()
+	if (!session.token || !session.storageKey) {
+		addresses.value = []
+		return
+	}
 	// 本地缓存秒显
-	const saved = uni.getStorageSync(STORAGE_KEY)
+	const saved = uni.getStorageSync(session.storageKey)
 	addresses.value = Array.isArray(saved) ? saved.map(normalizeAddress) : []
-	ensureOneDefault()
+	ensureOneDefault(session.storageKey)
 	// 云端为准
 	try {
 		const list = await getAddressList()
+		if (!isAddressSessionCurrent(session)) return
 		addresses.value = (Array.isArray(list) ? list : []).map(normalizeAddress)
-		ensureOneDefault()
-		persistAddresses()
+		ensureOneDefault(session.storageKey)
+		persistAddresses(session.storageKey)
 	} catch (error) {
 		console.warn('load addresses from cloud failed, using local cache:', error)
 	}
 }
 
-const persistAddresses = () => {
-	uni.setStorageSync(STORAGE_KEY, addresses.value)
+const persistAddresses = (storageKey = getStorageKey()) => {
+	if (storageKey && storageKey === getStorageKey()) uni.setStorageSync(storageKey, addresses.value)
 }
 
 const normalizePhone = (value) => String(value || '').replace(/\D/g, '')
@@ -244,11 +266,11 @@ const normalizeContactPhones = (phones = []) => {
 
 const createId = () => `addr-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
 
-const ensureOneDefault = () => {
+const ensureOneDefault = (storageKey = getStorageKey()) => {
 	if (!addresses.value.length) return
 	if (!addresses.value.some((item) => item.isDefault)) {
 		addresses.value[0].isDefault = true
-		persistAddresses()
+		persistAddresses(storageKey)
 		return
 	}
 	let found = false
@@ -389,6 +411,8 @@ const saveAddress = async () => {
 	}
 
 	if (!validatePhones()) return
+	const session = captureAddressSession()
+	if (!isAddressSessionCurrent(session)) return
 	addressSaving.value = true
 
 	const now = Date.now()
@@ -405,16 +429,6 @@ const saveAddress = async () => {
 		updatedAt: now
 	}
 
-	// 乐观更新本地，便于离线可用
-	let next = addresses.value.filter((item) => item.id !== payload.id)
-	if (payload.isDefault) {
-		next = next.map((item) => ({ ...item, isDefault: false }))
-	}
-	next.unshift(payload)
-	addresses.value = next
-	ensureOneDefault()
-	persistAddresses()
-
 	const isEdit = !isLocalId(payload.id)
 	uni.showLoading({ title: '保存中', mask: true })
 	try {
@@ -423,6 +437,7 @@ const saveAddress = async () => {
 		} else {
 			await addAddress(toRemotePayload(payload))
 		}
+		if (!isAddressSessionCurrent(session)) return
 		uni.hideLoading()
 		uni.showToast({ title: '已保存', icon: 'success' })
 		await loadAddresses()
@@ -433,11 +448,7 @@ const saveAddress = async () => {
 	} catch (error) {
 		uni.hideLoading()
 		console.warn('save address to cloud failed:', error)
-		uni.showToast({ title: toCustomerErrorMessage(error, '已保存在本机'), icon: 'none' })
-		setTimeout(() => {
-			showForm.value = false
-			form.value = emptyForm()
-		}, 800)
+		uni.showToast({ title: toCustomerErrorMessage(error, '保存失败，请重试'), icon: 'none' })
 	} finally {
 		addressSaving.value = false
 	}
@@ -445,19 +456,17 @@ const saveAddress = async () => {
 
 const setDefault = async (id) => {
 	const target = addresses.value.find((item) => item.id === id)
-	addresses.value = addresses.value.map((item) => ({
-		...item,
-		isDefault: item.id === id
-	}))
-	persistAddresses()
-	uni.showToast({ title: '已设为默认', icon: 'success' })
-
 	if (!target || isLocalId(id)) return
+	const session = captureAddressSession()
+	if (!isAddressSessionCurrent(session)) return
 	try {
 		await updateAddress({ ...toRemotePayload(target), isDefault: true })
+		if (!isAddressSessionCurrent(session)) return
 		await loadAddresses()
+		uni.showToast({ title: '已设为默认', icon: 'success' })
 	} catch (error) {
 		console.warn('set default cloud sync failed:', error)
+		uni.showToast({ title: toCustomerErrorMessage(error, '设置默认地址失败'), icon: 'none' })
 	}
 }
 
@@ -469,19 +478,19 @@ const deleteAddress = (id) => {
 		confirmColor: '#EF4444',
 		success: async (res) => {
 			if (!res.confirm) return
-			addresses.value = addresses.value.filter((item) => item.id !== id)
-			ensureOneDefault()
-			persistAddresses()
-			showForm.value = false
-			form.value = emptyForm()
-			uni.showToast({ title: '已删除', icon: 'success' })
-
 			if (isLocalId(id)) return
+			const session = captureAddressSession()
+			if (!isAddressSessionCurrent(session)) return
 			try {
 				await removeAddressRemote(id)
+				if (!isAddressSessionCurrent(session)) return
 				await loadAddresses()
+				showForm.value = false
+				form.value = emptyForm()
+				uni.showToast({ title: '已删除', icon: 'success' })
 			} catch (error) {
 				console.warn('delete address cloud sync failed:', error)
+				uni.showToast({ title: toCustomerErrorMessage(error, '删除失败，请重试'), icon: 'none' })
 			}
 		}
 	})

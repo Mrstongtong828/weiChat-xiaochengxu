@@ -353,18 +353,18 @@
         <div class="mp-phone-header">{{ policyPreviewTab === 'warranty' ? '保修政策' : '收费指南' }}</div>
         <div class="mp-phone-body">
           <template v-if="policyPreviewTab === 'warranty'">
-            <div v-if="warrantyPolicyDocument?.mobileHtml" class="mp-rich" v-html="warrantyPolicyDocument.mobileHtml"></div>
+            <div v-if="warrantyPolicyDocument?.mobileHtml" class="mp-rich" v-html="safeWarrantyDocumentHtml"></div>
             <template v-else-if="previewWarrantySections.length">
               <div v-for="(section, index) in previewWarrantySections" :key="index" class="mp-warranty-section">
                 <div class="mp-warranty-section-title">{{ section.title || '未命名分块' }}</div>
-                <div class="mp-rich" v-html="section.content"></div>
+                <div class="mp-rich" v-html="sanitizeRuntimeHtml(section.content)"></div>
               </div>
             </template>
-            <div v-else-if="config.warranty" class="mp-rich" v-html="config.warranty"></div>
+            <div v-else-if="config.warranty" class="mp-rich" v-html="safeWarrantyHtml"></div>
             <div v-else class="mp-empty">暂无保修政策内容</div>
           </template>
           <template v-else>
-            <div v-if="feePolicyDocument?.mobileHtml" class="mp-rich" v-html="feePolicyDocument.mobileHtml"></div>
+            <div v-if="feePolicyDocument?.mobileHtml" class="mp-rich" v-html="safeFeeDocumentHtml"></div>
             <div v-else-if="feeTiers.length" class="mp-fee-table">
               <div class="mp-fee-row mp-fee-head"><span>收费项</span><span>标准价</span></div>
               <div v-for="(t, i) in feeTiers" :key="i" class="mp-fee-row">
@@ -372,7 +372,7 @@
                 <span class="mp-fee-price">¥{{ t.price || 0 }}<i v-if="t.unit">/{{ t.unit }}</i></span>
               </div>
             </div>
-            <div v-if="!feePolicyDocument?.mobileHtml && config.feePolicy" class="mp-rich" v-html="config.feePolicy"></div>
+            <div v-if="!feePolicyDocument?.mobileHtml && config.feePolicy" class="mp-rich" v-html="safeFeeHtml"></div>
             <div v-if="!feePolicyDocument?.mobileHtml && !feeTiers.length && !config.feePolicy" class="mp-empty">暂无收费办法内容</div>
           </template>
         </div>
@@ -416,6 +416,7 @@ import PrintTemplateEditor from '../components/PrintTemplateEditor.vue'
 import RichEditor from '../components/RichEditor.vue'
 import PolicyDocumentImporter from '../components/PolicyDocumentImporter.vue'
 import { normalizePolicyHtml } from '../utils/policyHtml.js'
+import { sanitizeRuntimeHtml } from '../utils/runtimeHtml.js'
 import { parsePolicyDocumentSetting, serializePolicyDocumentSetting } from '../utils/policyDocument.js'
 import { parsePrintTemplates } from '../utils/orderPrint.js'
 import { DEFAULT_CORPORATE_ACCOUNT } from '../config/corporateAccount.js'
@@ -435,6 +436,11 @@ const warrantyPolicyDocument = ref(null)
 const feePolicyDocument = ref(null)
 // 保修政策分块（小程序按块渲染），存 warranty_policy_sections（JSON 数组 [{title, content}]）
 const warrantySections = ref([])
+
+const safeWarrantyDocumentHtml = computed(() => sanitizeRuntimeHtml(warrantyPolicyDocument.value?.mobileHtml || ''))
+const safeFeeDocumentHtml = computed(() => sanitizeRuntimeHtml(feePolicyDocument.value?.mobileHtml || ''))
+const safeWarrantyHtml = computed(() => sanitizeRuntimeHtml(config.warranty))
+const safeFeeHtml = computed(() => sanitizeRuntimeHtml(config.feePolicy))
 
 // 小程序页面效果预览（保修政策页 / 收费指南页）
 const policyPreviewVisible = ref(false)

@@ -29,7 +29,7 @@ const downloadWorkbook = async (workbook, filename) => {
 export const downloadInvoiceTemplate = async () => {
   const rows = [
     ['工单编号', '发票号码', '开票日期', '开票状态', '发票链接'],
-    ['DR2026... (请填写真实编号)', '24417000000123456789', '2026-06-04', '已开具', 'https://...（选填，电子发票PDF链接）']
+    ['DR2026... (请填写真实编号)', '24417000000123456789', '2026-06-04', '已开具', 'https://...（选填，发票归档链接）']
   ]
   const workbook = new ExcelJS.Workbook()
   const worksheet = workbook.addWorksheet('批量开票导入模板')
@@ -91,7 +91,7 @@ export const parseInvoiceExcelFile = (file) => {
 export const exportInvoiceRows = async (list = []) => {
   const workbook = new ExcelJS.Workbook()
   const ws = workbook.addWorksheet('开票申请清单')
-  ws.addRow(['工单号', '客户', '金额(元)', '开票状态', '发票抬头', '税号', '发票号码', '开票日期', '专票邮寄公司', '专票邮寄单号', '发票链接'])
+  ws.addRow(['工单号', '客户', '金额(元)', '开票状态', '发票抬头', '税号', '发票号码', '开票日期', '历史邮寄公司', '历史邮寄单号', '发票链接'])
   list.forEach(r => {
     ws.addRow([
       r.order_no, r.customer, Number(r.total_price || 0).toFixed(2), r.status,

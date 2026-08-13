@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+	canRejectRepairQuote,
 	canUploadPaymentProofForOrder,
   getCloudFileId,
   getPreviewUrl,
   isCloudFileId
 } from './uploadUtils.js'
+
+test('quote rejection is blocked while a transfer proof is awaiting reconciliation', () => {
+	const baseOrder = { id: 'order-1', quoteStatus: 'issued', paymentStatus: 'pending', paymentProofs: [] }
+	assert.equal(canRejectRepairQuote(baseOrder), true)
+	assert.equal(canRejectRepairQuote({ ...baseOrder, paymentStatus: 'uploaded' }), false)
+	assert.equal(canRejectRepairQuote({ ...baseOrder, paymentProofs: [{ fileID: 'cloud://proof.jpg' }] }), false)
+	assert.equal(canRejectRepairQuote({ ...baseOrder, paymentStatus: 'paid' }), false)
+})
 
 test('allows proof upload only for active payable orders pending verification', () => {
 	const baseOrder = { id: 'order-1', statusKey: 'fixing', quoteStatus: 'issued' }

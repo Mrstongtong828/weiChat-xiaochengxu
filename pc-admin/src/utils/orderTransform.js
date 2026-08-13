@@ -243,7 +243,7 @@ export const transformOrder = (order) => {
     invoiceType: invoiceInfo.invoice_type || '',
     invoiceTaxCategory: invoiceInfo.tax_category || '修理修配劳务',
     invoiceItemName: invoiceInfo.item_name || '牙科设备检修服务费',
-    invoiceDeliveryMethod: invoiceInfo.delivery_method || (invoiceInfo.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+    invoiceDeliveryMethod: invoiceInfo.delivery_method || 'manual',
     invoiceFulfillmentMode: invoiceInfo.fulfillment_mode || 'manual',
     invoiceArchiveStatus: invoiceInfo.archive_status || 'pending',
     invoiceArchiveOrderNo: invoiceInfo.archive_order_no || order.order_no || '',

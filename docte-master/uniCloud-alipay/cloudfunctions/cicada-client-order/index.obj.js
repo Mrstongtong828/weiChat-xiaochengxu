@@ -6,7 +6,14 @@ const expressProvider = loadExpressProvider()
 const { getSubscriptionTemplateKey, buildSubscriptionData } = loadSubscriptionMessageModule()
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
 const { getMiniStatusBucket } = require('./order-status')
-const { getInvoiceRequestBlockReason, INVOICE_ITEM_NAME, INVOICE_TAX_CATEGORY } = loadInvoicePolicyModule()
+const {
+  getInvoiceRequestBlockReason,
+  INVOICE_DELIVERY_METHOD,
+  INVOICE_EXPECTED_WORKING_DAYS,
+  INVOICE_ITEM_NAME,
+  INVOICE_TAX_CATEGORY,
+  INVOICE_TYPE
+} = loadInvoicePolicyModule()
 const {
   PAYMENT_PROOF_ALLOWED_PAYMENT_STATUSES,
   PAYMENT_PROOF_ALLOWED_QUOTE_STATUSES,
@@ -945,13 +952,13 @@ function buildInvoicePackageSegment(order = {}, fullAccess = false) {
   const timeline = trackingNo
     ? mergeAdjacentTimeline([
       {
-        title: '纸质发票寄出',
+        title: '发票寄出',
         desc: `${company || '物流'} ${trackingNo}`.trim(),
         time: formatTimelineTime(info.mail_time || info.update_time || order.update_time),
         pending: false
       },
       ...(status === '已签收' ? [{
-        title: '纸质发票已签收',
+        title: '发票已签收',
         desc: '发票物流已签收，请交由财务归档。',
         time: formatTimelineTime(info.received_time || info.update_time || order.update_time),
         pending: false
@@ -2018,7 +2025,7 @@ module.exports = {
           invoiceType: info.invoice_type || '',
           taxCategory: info.tax_category || INVOICE_TAX_CATEGORY,
           itemName: info.item_name || INVOICE_ITEM_NAME,
-          deliveryMethod: info.delivery_method || (info.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+          deliveryMethod: info.delivery_method || INVOICE_DELIVERY_METHOD,
           fulfillmentMode: info.fulfillment_mode || 'manual',
           archiveStatus: info.archive_status || 'pending',
           archiveOrderNo: info.archive_order_no || order.order_no || '',
@@ -2306,6 +2313,9 @@ module.exports = {
       }
       if (order.payment_status === 'paid') {
         return { code: -1, msg: '工单已支付，不能拒绝报价' }
+      }
+      if (order.payment_status === 'uploaded' || (Array.isArray(order.payment_proofs) && order.payment_proofs.length)) {
+        return { code: -1, msg: '付款凭证正在等待财务核销，暂不能选择不维修' }
       }
 
       const now = Date.now()
@@ -2745,33 +2755,17 @@ module.exports = {
     }
   },
 
-  // 客户提交电子发票申请
+  // 客户提交发票申请
   async applyInvoice({
     token,
     orderId = '',
     order_id = '',
-    invoiceType = '电子普通发票',
-    invoice_type = '',
     titleType = 'company',
     title_type = '',
     title = '',
     taxNo = '',
     tax_no = '',
     email = '',
-    registerAddress = '',
-    register_address = '',
-    registerPhone = '',
-    register_phone = '',
-    bankName = '',
-    bank_name = '',
-    bankAccount = '',
-    bank_account = '',
-    recipientName = '',
-    recipient_name = '',
-    recipientPhone = '',
-    recipient_phone = '',
-    recipientAddress = '',
-    recipient_address = '',
     remark = ''
   }) {
     try {
@@ -2787,8 +2781,6 @@ module.exports = {
         return { code: -1, msg: '发票已进入开具流程，如需修改请联系客服' }
       }
 
-      const invoiceKind = normalizeText(invoice_type || invoiceType || '电子普通发票') || '电子普通发票'
-      const isPaperSpecial = invoiceKind === '纸质专用发票'
       const invoiceTitle = normalizeText(title)
       const invoiceTitleType = normalizeText(title_type || titleType || 'company') || 'company'
       const invoiceTaxNo = normalizeText(tax_no || taxNo)
@@ -2797,46 +2789,34 @@ module.exports = {
       if (invoiceTitleType === 'company' && !invoiceTaxNo) return { code: -1, msg: '请填写税号' }
       if (!invoiceEmail) return { code: -1, msg: '请填写接收邮箱' }
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invoiceEmail)) return { code: -1, msg: '接收邮箱格式不正确' }
-      if (isPaperSpecial) {
-        if (invoiceTitleType !== 'company') return { code: -1, msg: '纸质专票必须使用企业抬头' }
-        if (!normalizeText(register_address || registerAddress)) return { code: -1, msg: '请填写注册地址' }
-        if (!normalizeText(register_phone || registerPhone)) return { code: -1, msg: '请填写注册电话' }
-        if (!normalizeText(bank_name || bankName)) return { code: -1, msg: '请填写开户行' }
-        if (!normalizeText(bank_account || bankAccount)) return { code: -1, msg: '请填写银行账号' }
-        if (!normalizeText(recipient_name || recipientName)) return { code: -1, msg: '请填写收票人' }
-        const normalizedRecipientPhone = normalizeText(recipient_phone || recipientPhone).replace(/\D/g, '')
-        if (!/^1[3-9]\d{9}$/.test(normalizedRecipientPhone)) return { code: -1, msg: '收票手机号格式不正确' }
-        if (!normalizeText(recipient_address || recipientAddress)) return { code: -1, msg: '请填写收票地址' }
-      }
-
       const now = Date.now()
       const oldInvoice = order.invoice_info || {}
       const invoiceInfo = {
         ...oldInvoice,
         need_invoice: true,
         status: '待开票',
-        invoice_type: invoiceKind,
+        invoice_type: INVOICE_TYPE,
         tax_category: INVOICE_TAX_CATEGORY,
         item_name: INVOICE_ITEM_NAME,
-        delivery_method: isPaperSpecial ? 'postal' : 'electronic',
+        delivery_method: INVOICE_DELIVERY_METHOD,
         fulfillment_mode: 'manual',
         archive_status: 'pending',
         archive_order_id: order._id,
         archive_order_no: order.order_no || '',
         service_completed_time: order.completed_time || order.complete_time || order.update_time || now,
         settlement_time: order.payment_paid_time || order.update_time || now,
-        expected_delivery_days: isPaperSpecial ? '7-15' : '1-3',
+        expected_delivery_days: INVOICE_EXPECTED_WORKING_DAYS,
         title_type: invoiceTitleType,
         title: invoiceTitle,
         tax_no: invoiceTaxNo,
         email: invoiceEmail,
-        register_address: normalizeText(register_address || registerAddress),
-        register_phone: normalizeText(register_phone || registerPhone),
-        bank_name: normalizeText(bank_name || bankName),
-        bank_account: normalizeText(bank_account || bankAccount),
-        recipient_name: normalizeText(recipient_name || recipientName),
-        recipient_phone: normalizeText(recipient_phone || recipientPhone).replace(/\D/g, ''),
-        recipient_address: normalizeText(recipient_address || recipientAddress),
+        register_address: '',
+        register_phone: '',
+        bank_name: '',
+        bank_account: '',
+        recipient_name: '',
+        recipient_phone: '',
+        recipient_address: '',
         remark: normalizeText(remark),
         apply_time: oldInvoice.apply_time || now,
         update_time: now
@@ -2850,7 +2830,7 @@ module.exports = {
           ...timeline,
           {
             title: '客户已提交开票申请',
-            desc: `${invoiceInfo.invoice_type}：${invoiceInfo.title}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}`,
+            desc: `${invoiceInfo.title}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}；预计 ${INVOICE_EXPECTED_WORKING_DAYS} 个工作日`,
             time: now,
             done: true
           }

@@ -148,3 +148,23 @@ test('已经到账的工单不能拒绝报价', async () => {
   assert.equal(result.msg, '工单已支付，不能拒绝报价')
   assert.equal(state.update, null)
 })
+
+test('付款凭证待核销时不能选择不维修', async () => {
+  const result = await rejectCurrentOrder({ status: 'fixing', payment_status: 'uploaded' })
+
+  assert.equal(result.code, -1)
+  assert.equal(result.msg, '付款凭证正在等待财务核销，暂不能选择不维修')
+  assert.equal(state.update, null)
+})
+
+test('已有付款凭证时不能绕过状态选择不维修', async () => {
+  const result = await rejectCurrentOrder({
+    status: 'fixing',
+    payment_status: 'pending',
+    payment_proofs: [{ file_id: 'cloud://proof.jpg' }]
+  })
+
+  assert.equal(result.code, -1)
+  assert.equal(result.msg, '付款凭证正在等待财务核销，暂不能选择不维修')
+  assert.equal(state.update, null)
+})

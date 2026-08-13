@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { countStatusBreakdown, countStatusBuckets, deriveDisplayStatus, getRepairProgressNodes, getStatusBucket } from './statusMeta.js'
+import { countStatusBreakdown, countStatusBuckets, deriveDisplayStatus, getRepairProgressNodes, getStatusBucket, isWarrantyFreeOrderSnapshot } from './statusMeta.js'
 
 test('待处理工单显示为待寄出，同时保留报修已提交的进度节点', () => {
   assert.equal(deriveDisplayStatus({ status: 'pending' }), '待寄出')
@@ -62,7 +62,39 @@ test('付费工单在财务确认到账前不提前进入维修进度', () => {
   assert.equal(nodes[2].state, 'pending')
 })
 
-test('客户拒绝报价后显示待回寄而不是待付款或维修中', () => {
-  assert.equal(deriveDisplayStatus({ status: 'received', quoteStatus: 'rejected' }), '拒修待回寄')
-  assert.equal(deriveDisplayStatus({ status: 'fixing', quote_status: 'rejected' }), '拒修待回寄')
+test('客户选择不维修后显示待回寄而不是待付款或维修中', () => {
+	assert.equal(deriveDisplayStatus({ status: 'received', quoteStatus: 'rejected' }), '不维修待回寄')
+	assert.equal(deriveDisplayStatus({ status: 'fixing', quote_status: 'rejected' }), '不维修待回寄')
+})
+
+test('质保免费方案不会进入付款状态', () => {
+	const warrantyFree = {
+		status: 'fixing',
+		chargeType: 'free',
+		inWarranty: true,
+		warrantyStatus: 'in_warranty',
+		totalFee: 0,
+		paymentStatus: 'not_required'
+	}
+
+	assert.equal(deriveDisplayStatus({ ...warrantyFree, quoteStatus: 'issued' }), '待确认质保方案')
+	assert.equal(deriveDisplayStatus({ ...warrantyFree, quoteStatus: 'confirmed' }), '维修中')
+})
+
+test('只有后端确认无需付款的零元质保方案才按免费流程展示', () => {
+	const snapshot = {
+		chargeType: 'free',
+		inWarranty: true,
+		warrantyStatus: 'in_warranty',
+		totalFee: 0,
+		paymentStatus: 'not_required',
+		quoteStatus: 'issued'
+	}
+
+	assert.equal(isWarrantyFreeOrderSnapshot(snapshot), true)
+	assert.equal(isWarrantyFreeOrderSnapshot({ ...snapshot, totalFee: 88 }), false)
+	assert.equal(isWarrantyFreeOrderSnapshot({ ...snapshot, paymentStatus: 'pending' }), false)
+	assert.equal(isWarrantyFreeOrderSnapshot({ ...snapshot, paymentStatus: '' }), false)
+	assert.equal(isWarrantyFreeOrderSnapshot({ ...snapshot, quoteStatus: 'rejected' }), false)
+	assert.equal(isWarrantyFreeOrderSnapshot({ ...snapshot, quoteStatus: 'confirmed' }), true)
 })

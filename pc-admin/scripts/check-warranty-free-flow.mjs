@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import assert from 'node:assert/strict'
+import { resolveZeroPriceWarrantyAction } from '../src/utils/warrantyQuote.js'
 
 const projectRoot = process.cwd()
 const repoRoot = path.resolve(projectRoot, '..')
@@ -14,13 +16,38 @@ const workflow = readRepo('docte-master', 'uniCloud-alipay', 'cloudfunctions', '
 const warrantyPolicy = readRepo('docte-master', 'uniCloud-alipay', 'cloudfunctions', 'common', 'cicada-warranty-policy', 'index.js')
 const adminView = fs.readFileSync(path.join(projectRoot, 'src', 'views', 'WorkOrder.vue'), 'utf8')
 
+assert.equal(
+  resolveZeroPriceWarrantyAction({
+    order: { chargeType: 'pending', inWarranty: false, warrantyStatus: 'unknown' },
+    items: [{ _id: 'item-1', coverage_result: 'free', coverage_reason: 'quality_issue' }]
+  }),
+  'save',
+  'a zero-price quote should save valid local warranty decisions before publishing'
+)
+assert.equal(
+  resolveZeroPriceWarrantyAction({
+    order: { chargeType: 'pending', inWarranty: true, warrantyStatus: 'in_warranty' },
+    items: [{ _id: 'item-1', coverage_result: 'free', coverage_reason: 'human_damage' }]
+  }),
+  'block',
+  'an invalid free reason must not be auto-saved as warranty-free'
+)
+assert.equal(
+  resolveZeroPriceWarrantyAction({
+    order: { charge_type: 'free', in_warranty: true, warranty_status: 'in_warranty' },
+    items: []
+  }),
+  'publish',
+  'a confirmed backend warranty snapshot can publish without another save'
+)
+
 const requirements = [
-  ['admin only allows zero amount when every item is explicitly warranty-free', adminOrder, /仅所有设备均明确为质保免费的工单可以发布零元质保方案/],
+  ['admin only allows zero amount when every item is explicitly warranty-free', adminOrder, /warranty_free_confirmed\s*===\s*true[\s\S]*零元质保方案要求所有设备均人工判断在保，且本次结论为质保免费/],
   ['admin stores item-level coverage result', adminOrder, /coverage_result/],
   ['admin view requires explicit warranty-free item decision', adminView, /将每台设备标记为“质保免费”/],
   ['admin marks warranty-free payment as not required', adminOrder, /payment_status\s*=\s*isWarrantyFree\s*\?\s*'not_required'/],
   ['paid quotes do not inherit warranty not-required status', adminOrder, /order\.payment_status\s*===\s*'paid'\s*\?\s*'paid'\s*:\s*'pending'/],
-  ['shipping explicitly allows charge_type free', adminOrder, /order\.charge_type\s*===\s*'free'/],
+  ['shipping explicitly allows charge_type free', adminOrder, /paymentStatus\s*!==\s*'not_required'\s*\|\|\s*chargeType\s*!==\s*'free'/],
   ['client rejects unverified zero-amount confirmation', clientOrder, /该零元方案未通过在保校验/],
   ['client records warranty authorization', clientOrder, /客户已确认零元质保方案，无需付款/],
   ['mini program exposes warranty confirmation action', miniProgram, /确认质保维修/],
@@ -28,7 +55,7 @@ const requirements = [
   ['mini program declares payment unnecessary', miniProgram, /无需微信支付或上传付款凭证/],
   ['mini program skips payment status for warranty-free orders', statusMeta, /\['paid', 'not_required'\]\.includes\(payment\)/],
   ['mini program advances past payment progress', statusMeta, /\['paid', 'not_required'\]\.includes\(order\.paymentStatus\)/],
-  ['admin permits zero amount only for warranty-free orders', adminView, /total\s*<=\s*0\s*&&\s*!isCurrentOrderWarrantyFree\.value/],
+  ['admin auto-saves valid item decisions before a zero-price quote', adminView, /zeroPriceWarrantyAction\s*===\s*'save'[\s\S]*saveOrderItemsInfo/],
   ['warranty evidence changes require quote permission', adminOrder, /changesWarrantyEvidence[\s\S]*assertRolePermission\(currentAdmin, 'issue_quote'\)/],
   ['unified product warranty defaults to 12 months', warrantyPolicy, /DEFAULT_PRODUCT_WARRANTY_MONTHS\s*=\s*12/],
   ['missing invoice falls back to factory date plus 30 days', warrantyPolicy, /addDaysToDateStr\(manufactureDate, 30\)/],
@@ -36,7 +63,7 @@ const requirements = [
   ['repair start requires quote and customer authorization', workflow, /维修前必须先确认维修方案[\s\S]*维修前必须取得客户授权/],
   ['paid replacement parts receive a scoped repair extension', warrantyPolicy, /same_fault_same_replaced_part/],
   ['scoped repair warranty requires a manual fault-and-part match', warrantyPolicy, /scope === 'same_fault_same_replaced_part' && source\.repair_warranty_match !== true/],
-  ['free repair requires an allowed policy reason', adminOrder, /warrantyPolicy\.isFreeCoverageReason\(patch\.coverage_reason\)/],
+  ['free repair requires an allowed policy reason', adminOrder, /coverageResult\s*===\s*'free'\s*&&\s*warrantyPolicy\.isFreeCoverageReason\(coverageReason\)/],
   ['repair warranty duration is fixed to three months', warrantyPolicy, /const months = DEFAULT_REPAIR_PART_WARRANTY_MONTHS/],
   ['mini program states the correct one-way warranty freight policy', miniProgram, /客户承担寄入厂家运费，厂家承担维修完成后的单程回寄运费/],
   ['admin exposes all policy exclusion categories', adminView, /improper_disinfection[\s\S]*voltage_damage[\s\S]*unauthorized_repair[\s\S]*label_or_sn_damage[\s\S]*force_majeure_or_uninsured_transport/]

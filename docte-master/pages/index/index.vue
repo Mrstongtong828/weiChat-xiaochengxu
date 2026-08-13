@@ -403,6 +403,9 @@
 						</view>
 					</view>
 					<view v-if="!filteredTrackOrders.length" class="empty-hint compact track-empty">当前状态暂无工单记录。</view>
+					<view v-if="orderHasMore" class="order-load-more tap" :class="{ disabled: orderLoadingMore }" @click="loadMoreOrders">
+						{{ orderLoadingMore ? '加载中...' : '加载更多维修记录' }}
+					</view>
 				</view>
 			</view>
 
@@ -506,7 +509,7 @@
 					<view class="invoice-hero-icon"><view class="glyph glyph-invoice"><view class="glyph-extra"></view></view></view>
 					<view>
 						<text>对公转账开票申请</text>
-						<text>检修完成且对公款项核销后可申请；微信支付订单不提供开票。</text>
+						<text>检修完成核销后可申请</text>
 					</view>
 				</view>
 				<view class="invoice-status-board">
@@ -531,18 +534,12 @@
 						<text class="tap" @click="cancelInvoiceApply">更换工单</text>
 					</view>
 					<view class="repair-form-card invoice-form-card">
-						<view class="invoice-type-row">
-							<view v-for="item in invoiceKindOptions" :key="item.value" class="tap" :class="{ on: invoiceForm.invoiceType === item.value }" @click="selectInvoiceKind(item.value)">
-								<text>{{ item.label }}</text>
-								<text>{{ item.desc }}</text>
-							</view>
-						</view>
 						<view class="invoice-service-item">
 							<view><text>税收分类</text><text>修理修配劳务</text></view>
 							<view><text>发票项目</text><text>牙科设备检修服务费</text></view>
 						</view>
 						<view class="invoice-type-row">
-							<view v-for="item in invoiceTitleTypes" :key="item.value" class="tap" :class="{ on: invoiceForm.titleType === item.value, disabled: isPaperInvoice && item.value !== 'company' }" @click="selectInvoiceTitleType(item.value)">
+							<view v-for="item in invoiceTitleTypes" :key="item.value" class="tap" :class="{ on: invoiceForm.titleType === item.value }" @click="selectInvoiceTitleType(item.value)">
 								<text>{{ item.label }}</text>
 								<text>{{ item.desc }}</text>
 							</view>
@@ -558,47 +555,14 @@
 						</view>
 						<view class="repair-field">
 							<text><text class="required-star">*</text>接收邮箱</text>
-							<input v-model="invoiceForm.email" :placeholder="isPaperInvoice ? '用于接收开票进度通知' : '用于接收电子发票'" placeholder-class="input-placeholder" />
+							<input v-model="invoiceForm.email" placeholder="用于接收开票通知" placeholder-class="input-placeholder" />
 						</view>
-						<template v-if="isPaperInvoice">
-							<view class="repair-field">
-								<text><text class="required-star">*</text>注册地址</text>
-								<input v-model="invoiceForm.registerAddress" placeholder="营业执照上的注册地址" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
-								<text><text class="required-star">*</text>注册电话</text>
-								<input v-model="invoiceForm.registerPhone" placeholder="注册登记的联系电话" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
-								<text><text class="required-star">*</text>开户银行</text>
-								<input v-model="invoiceForm.bankName" placeholder="基本户开户银行全称" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
-								<text><text class="required-star">*</text>银行账号</text>
-								<input v-model="invoiceForm.bankAccount" placeholder="对公银行账号" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
-								<text><text class="required-star">*</text>收票人</text>
-								<input v-model="invoiceForm.recipientName" placeholder="纸质发票收件人姓名" placeholder-class="input-placeholder" />
-							</view>
-							<view class="repair-field">
-								<text><text class="required-star">*</text>收票手机号</text>
-								<input v-model="invoiceForm.recipientPhone" placeholder="收件人手机号" placeholder-class="input-placeholder" type="number" maxlength="11" />
-							</view>
-							<view class="repair-field">
-								<text><text class="required-star">*</text>收票地址</text>
-								<input v-model="invoiceForm.recipientAddress" placeholder="纸质发票邮寄地址" placeholder-class="input-placeholder" />
-							</view>
-						</template>
 						<view class="repair-field last">
 							<text>备注</text>
 							<input v-model="invoiceForm.remark" placeholder="选填，如开票特殊说明" placeholder-class="input-placeholder" />
 						</view>
 					</view>
-					<view class="invoice-tip">
-						<text v-if="isPaperInvoice">纸质专用发票仅支持企业抬头，预计 7-15 个工作日寄出，请确保收票信息准确无误。</text>
-						<text v-else>电子普通发票预计 1-3 个工作日开具，小程序会同步号码、日期、抬头和金额等信息。</text>
-					</view>
+					<view class="invoice-tip"><text>预计 7-15 个工作日完成开票，小程序会同步号码、日期、抬头和金额等信息。</text></view>
 					<view class="primary-button tap save-button" :class="{ disabled: invoiceSubmitting }" @click="submitInvoiceApply">{{ invoiceSubmitting ? '提交中...' : '确认提交' }}</view>
 				</view>
 
@@ -629,13 +593,16 @@
 								{{ getInvoiceStatusKey(order) === 'available' ? '申请开票' : getInvoiceMeta(order).label }}
 							</view>
 						</view>
+						</view>
+						<view v-if="!invoiceTodoOrders.length" class="empty-hint compact">暂无可申请开票的订单。</view>
+						<view v-if="orderHasMore" class="order-load-more tap" :class="{ disabled: orderLoadingMore }" @click="loadMoreOrders">
+							{{ orderLoadingMore ? '加载中...' : '加载更多维修记录' }}
+						</view>
 					</view>
-					<view v-if="!invoiceTodoOrders.length" class="empty-hint compact">暂无可申请开票的订单。</view>
-				</view>
 
 				<view v-else class="invoice-list">
 					<view v-for="order in invoiceIssuedOrders" :key="order.id" class="invoice-issued-card">
-						<view class="invoice-issued-ribbon">{{ order.invoiceType === '纸质专用发票' ? '纸质专票' : '电子发票' }}</view>
+						<view class="invoice-issued-ribbon">发票</view>
 						<view class="invoice-issued-head">
 							<view>
 								<text>{{ order.invoiceTitle || '发票抬头待同步' }}</text>
@@ -648,21 +615,26 @@
 							<view><text>开票日期</text><text>{{ order.invoiceDate || '待同步' }}</text></view>
 							<view><text>税收分类</text><text>{{ order.invoiceTaxCategory || '修理修配劳务' }}</text></view>
 							<view><text>发票项目</text><text>{{ order.invoiceItemName || '牙科设备检修服务费' }}</text></view>
-							<view><text>开票状态</text><text>{{ order.invoiceType === '纸质专用发票' ? (order.invoiceStatus || getInvoiceMeta(order).stage) : getInvoiceMeta(order).stage }}</text></view>
-							<view v-if="order.invoiceType === '纸质专用发票'"><text>邮寄快递</text><text>{{ order.invoiceMailCompany || '待寄出' }}</text></view>
-							<view v-else><text>电子凭证</text><text>发票信息已同步</text></view>
-							<view v-if="order.invoiceType === '纸质专用发票' && order.invoiceMailNo"><text>邮寄单号</text><text>{{ order.invoiceMailNo }}</text></view>
+							<view><text>开票状态</text><text>{{ getInvoiceMeta(order).stage }}</text></view>
+							<view><text>发票信息</text><text>已同步</text></view>
 						</view>
 						<view class="invoice-order-actions">
-							<view class="ghost-button tap" @click="openOrderDetail(order)">查看工单</view>
-							<view v-if="order.invoiceType === '纸质专用发票'" class="primary-button tap" :class="{ disabled: !order.invoiceMailNo }" @click="copyInvoiceMailNo(order)">
-								{{ order.invoiceMailNo ? (copied === 'invMail-' + order.id ? '已复制邮寄单号' : '复制邮寄单号') : '待财务寄出' }}
+							<view class="ghost-button tap" @click="copyInvoiceInfo(order)">复制发票信息</view>
+							<view
+								v-if="getInvoiceDocumentAction(order).visible"
+								class="primary-button tap"
+								:class="{ disabled: getInvoiceDocumentAction(order).disabled || openingInvoiceId === order.id }"
+								@click="openInvoiceDocument(order)"
+							>
+								{{ openingInvoiceId === order.id ? '打开中...' : getInvoiceDocumentAction(order).label }}
 							</view>
-							<view v-else class="primary-button tap" @click="copyInvoiceInfo(order)">复制发票信息</view>
+						</view>
+						</view>
+						<view v-if="!invoiceIssuedOrders.length" class="empty-hint compact">暂无已开具的发票。</view>
+						<view v-if="orderHasMore" class="order-load-more tap" :class="{ disabled: orderLoadingMore }" @click="loadMoreOrders">
+							{{ orderLoadingMore ? '加载中...' : '加载更多维修记录' }}
 						</view>
 					</view>
-					<view v-if="!invoiceIssuedOrders.length" class="empty-hint compact">暂无已开具的发票。</view>
-				</view>
 			</view>
 
 			<view v-else-if="activeModule === 'order-detail'" class="module-content">
@@ -774,11 +746,11 @@
 					</view>
 					<view v-else class="empty-hint compact">暂无处理记录。</view>
 				</view>
-				<view class="module-section-head single"><text>维修报价</text></view>
+				<view class="module-section-head single"><text>{{ isWarrantyFreeOrder(detailOrder) ? '质保维修方案' : '维修报价' }}</text></view>
 				<view class="billing-card quote-sheet-card quote-payment-panel">
 					<view class="billing-head">
 						<view>
-							<text>维修报价单</text>
+							<text>{{ isWarrantyFreeOrder(detailOrder) ? '质保维修方案' : '维修报价单' }}</text>
 							<text>{{ getBillingMeta(detailOrder).desc }}</text>
 						</view>
 						<text :class="['tag', 'tag-' + getBillingMeta(detailOrder).tone]">{{ getBillingMeta(detailOrder).label }}</text>
@@ -789,19 +761,19 @@
 					<view v-if="detailQuoteGroups.length" class="quote-line-list quote-group-list">
 						<view v-for="group in detailQuoteGroups" :key="group.key" class="quote-group">
 							<view class="quote-group-head">
-								<text>{{ group.title }}</text>
-								<text>{{ formatMoney(group.total) }}</text>
+								<text>{{ isWarrantyFreeOrder(detailOrder) ? group.title.replace('费用', '项目') : group.title }}</text>
+								<text v-if="!isWarrantyFreeOrder(detailOrder)">{{ formatMoney(group.total) }}</text>
 							</view>
 							<view v-for="(item, index) in group.items" :key="group.key + item.name + index" class="quote-line-item">
 								<view class="quote-line-copy">
 									<text>{{ item.name || `费用项目 ${index + 1}` }}</text>
 									<text v-if="item.desc">{{ item.desc }}</text>
-									<view class="quote-line-fees">
+									<view v-if="!isWarrantyFreeOrder(detailOrder)" class="quote-line-fees">
 										<text v-if="item.unitPrice">单价 {{ formatMoney(item.unitPrice) }}</text>
 										<text v-if="item.quantity">数量 {{ item.quantity }}</text>
 									</view>
 								</view>
-								<text class="quote-line-price">{{ formatMoney(getQuoteDetailRowTotal(item)) }}</text>
+								<text v-if="!isWarrantyFreeOrder(detailOrder)" class="quote-line-price">{{ formatMoney(getQuoteDetailRowTotal(item)) }}</text>
 							</view>
 						</view>
 					</view>
@@ -810,34 +782,38 @@
 							<view class="quote-line-copy">
 								<text>{{ item.name || `维修项目 ${index + 1}` }}</text>
 								<text v-if="item.desc">{{ item.desc }}</text>
-								<view class="quote-line-fees">
+								<view v-if="!isWarrantyFreeOrder(detailOrder)" class="quote-line-fees">
 									<text v-if="item.partsFee">配件 {{ formatMoney(item.partsFee) }}</text>
 									<text v-if="item.laborFee">工时 {{ formatMoney(item.laborFee) }}</text>
 								</view>
 							</view>
-							<text class="quote-line-price">{{ formatMoney(getQuoteItemTotal(item)) }}</text>
+							<text v-if="!isWarrantyFreeOrder(detailOrder)" class="quote-line-price">{{ formatMoney(getQuoteItemTotal(item)) }}</text>
 						</view>
 					</view>
 					<view v-else-if="getQuoteTotal(detailOrder)" class="billing-empty">
 						<text>维修费用已由售后确认，合计 {{ getBillingAmountText(detailOrder) }}。如需费用明细可联系售后客服。</text>
 					</view>
 					<view v-else class="billing-empty">
-						<text>工程师检测完成后，这里会显示维修项目、费用明细和下一步操作。</text>
+						<text>{{ isWarrantyFreeOrder(detailOrder) ? '本次维修已通过质保免费核验，请确认方案后授权维修。' : '工程师检测完成后，这里会显示维修项目、费用明细和下一步操作。' }}</text>
 					</view>
-					<view class="quote-total-box">
+					<view v-if="isWarrantyFreeOrder(detailOrder)" class="quote-warranty-free-summary">
+						<text>本次为质保免费维修方案</text>
+						<text>确认方案后，售后将直接进入维修流程。</text>
+					</view>
+					<view v-else class="quote-total-box">
 						<view class="quote-total-main">
 							<text>应付金额</text>
 							<text>{{ getBillingAmountText(detailOrder) }}</text>
 						</view>
 						<text>{{ getPaymentMeta(detailOrder).desc }}</text>
 					</view>
-					<text v-if="detailPaymentDeadlineText" class="quote-payment-note">请在 {{ detailPaymentDeadlineText }} 前完成付款</text>
-					<view v-if="detailOrder.paymentStatus === 'rejected'" class="payment-reject-notice">
+					<text v-if="!isWarrantyFreeOrder(detailOrder) && detailPaymentDeadlineText" class="quote-payment-note">请在 {{ detailPaymentDeadlineText }} 前完成付款</text>
+					<view v-if="!isWarrantyFreeOrder(detailOrder) && detailOrder.paymentStatus === 'rejected'" class="payment-reject-notice">
 						<text class="payment-reject-title">转账凭证被驳回</text>
 						<text class="payment-reject-reason">{{ detailOrder.paymentRejectReason || '请核对付款信息后重新上传凭证。' }}</text>
 					</view>
-					<PaymentMethodSelector v-if="showPaymentMethodSelector(detailOrder)" v-model="selectedPaymentMethod" />
-					<view v-if="showTransferPaymentPanel(detailOrder)" class="transfer-account-card">
+					<PaymentMethodSelector v-if="!isWarrantyFreeOrder(detailOrder) && showPaymentMethodSelector(detailOrder)" v-model="selectedPaymentMethod" />
+					<view v-if="!isWarrantyFreeOrder(detailOrder) && showTransferPaymentPanel(detailOrder)" class="transfer-account-card">
 						<text class="transfer-account-title">企业对公转账</text>
 						<view class="transfer-account-row">
 							<text class="transfer-account-label">收款单位</text>
@@ -874,7 +850,7 @@
 							</view>
 						</view>
 					</view>
-					<view v-if="detailPaymentProofs.length" class="payment-proof-grid billing-proof-grid">
+					<view v-if="!isWarrantyFreeOrder(detailOrder) && detailPaymentProofs.length" class="payment-proof-grid billing-proof-grid">
 						<view v-for="(proof, index) in detailPaymentProofs" :key="proof.id || proof.url || index" class="payment-proof-thumb tap" @click="previewPaymentProof(index)">
 							<image class="payment-proof-image" :src="getPaymentProofPreviewUrl(proof)" mode="aspectFill"></image>
 							<text>{{ proof.time || '已上传' }}</text>
@@ -890,12 +866,12 @@
 						<view v-if="showTransferProofAction(detailOrder)" class="primary-button tap detail-action-button transfer-proof-button" :class="{ disabled: getPaymentProofAction(detailOrder).disabled }" @click="handlePaymentProofAction(detailOrder)">
 							{{ getPaymentProofAction(detailOrder).text }}
 						</view>
-						<text v-else-if="getPaymentProofAction(detailOrder).hint" class="quote-secondary-hint">{{ getPaymentProofAction(detailOrder).hint }}</text>
+						<text v-else-if="!isWarrantyFreeOrder(detailOrder) && getPaymentProofAction(detailOrder).hint" class="quote-secondary-hint">{{ getPaymentProofAction(detailOrder).hint }}</text>
 						<button v-if="detailQuoteVisible && detailOrder.paymentStatus !== 'paid'" class="quote-contact-action tap" open-type="contact">
 							<text>有疑问？联系客服</text>
 						</button>
 						<view v-if="canRejectQuote(detailOrder)" class="quote-reject-action tap" @click="rejectRepairQuoteAction(detailOrder)">
-							<text>拒绝维修</text>
+							<text>选择不维修</text>
 						</view>
 					</view>
 				</view>
@@ -1235,6 +1211,9 @@
 						</view>
 					</view>
 					<view v-if="!filteredOrderList.length" class="empty-hint compact">当前筛选条件下没有订单。</view>
+					<view v-if="orderHasMore" class="order-load-more tap" :class="{ disabled: orderLoadingMore }" @click="loadMoreOrders">
+						{{ orderLoadingMore ? '加载中...' : '加载更多维修记录' }}
+					</view>
 				</view>
 			</view>
 
@@ -1949,7 +1928,9 @@ import {
 	getMyDevices,
 	updateRepairOutboundLogistics
 } from '@/api/repair'
-import { formatInvoiceDisplayText, getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
+import { formatInvoiceDisplayText, getInvoiceDocumentAction, getInvoiceMeta, getInvoiceStatusKey, invoiceFlow } from './composables/invoiceFlow'
+import { clearLocalAuthSession, createEmptyPrivateSessionState, createPrivateStorageKey, isSessionRequestCurrent, requiresPrivateSession } from './composables/sessionPrivacy'
+import { appendOrderPage, createOrderPaginationState, normalizeOrderPage } from './composables/orderPagination'
 import { downloadCloudFile, getCloudTempFileURL } from '@/utils/cloud.js'
 import { updateProfile, logout as logoutRemote } from '@/api/auth'
 import { normalizePolicyHtml } from '@/utils/policyHtml.js'
@@ -1999,12 +1980,14 @@ import {
 	getOrderStatusTone,
 	getRepairProgressNodes,
 	invoiceTodoStatusKeys,
+	isWarrantyFreeOrderSnapshot,
 	normalizeRepairStatus,
 	normalizeStatusTab,
 	packageStatusMeta,
 	resolveStatusKey
 } from './composables/statusMeta'
 import {
+	canRejectRepairQuote,
 	canUploadPaymentProofForOrder,
 	compressForUpload,
 	getCloudFileId,
@@ -2077,6 +2060,7 @@ const activeOrdersTab = ref('全部')
 const trackSearchKeyword = ref('')
 const activeInvoiceTab = ref('待开票')
 const activeInvoiceOrderId = ref('')
+const openingInvoiceId = ref('')
 const trackDetailOrder = ref('')
 const orderDetailOrder = ref('')
 const packageQueryLoading = ref(false)
@@ -2239,18 +2223,10 @@ const currentPackage = computed(() => {
 	return r[activePackageTab.value] || r.out
 })
 const invoiceForm = ref({
-	invoiceType: '电子普通发票',
 	titleType: 'company',
 	title: '',
 	taxNo: '',
 	email: '',
-	registerAddress: '',
-	registerPhone: '',
-	bankName: '',
-	bankAccount: '',
-	recipientName: '',
-	recipientPhone: '',
-	recipientAddress: '',
 	remark: ''
 })
 const addressForm = ref({
@@ -2298,6 +2274,11 @@ const showBottomTabbar = computed(() => pageBootReady.value && !activeModule.val
 const trackOrders = ref([])
 
 const orderList = ref([])
+const initialOrderPagination = createOrderPaginationState(30)
+const orderPage = ref(initialOrderPagination.page)
+const orderPageSize = ref(initialOrderPagination.pageSize)
+const orderHasMore = ref(initialOrderPagination.hasMore)
+const orderLoadingMore = ref(initialOrderPagination.loadingMore)
 
 const productList = ref([])
 
@@ -2425,12 +2406,11 @@ const docFallbacks = {
 	'guide-invoice': {
 		title: '开票指南',
 		icon: 'invoice',
-		lead: '支持多种发票类型，在线申请，极速送达。',
+		lead: '检修完成核销后可在线提交开票申请。',
 		paperTitle: '思科达自助开票指南',
 		sections: [
-			{ title: '一、开票申请流程', lines: ['维修完成并支付后，在「维修订单」中选择对应订单。', '点击「申请开票」按钮，选择发票类型（电子普票/纸质专票）。', '录入单位抬头、税号及接收邮箱/地址，确认提交。'] },
-			{ title: '二、发票类型说明', lines: ['增值税普通发票：默认开具电子发票，发送至您的预留邮箱。', '增值税专用发票：需上传开票资料，纸质发票将于 3 个工作日内寄出。'] },
-			{ title: '三、开票时效', lines: ['电子发票申请后 24 小时内开具；纸质发票每周二、周五统一邮寄。'], marker: '' }
+			{ title: '一、开票申请流程', lines: ['检修完成且对公款项核销后，在「发票与开票」中选择对应订单。', '点击「申请开票」按钮，录入发票抬头、税号和接收邮箱，确认提交。'] },
+			{ title: '二、开票时效', lines: ['申请提交后预计 7-15 个工作日完成开票。'], marker: '' }
 		]
 	}
 }
@@ -2943,7 +2923,17 @@ const normalizeOrder = (item = {}) => {
 	const quoteStatus = merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending')
 	const paymentStatus = merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending')
 	const arrivalConfirmStatus = merged.arrivalConfirmStatus || merged.arrival_confirm_status || ''
-	const displayStatus = deriveDisplayStatus({ statusKey, quoteStatus, paymentStatus, review: merged.review, arrivalConfirmStatus })
+	const displayStatus = deriveDisplayStatus({
+		statusKey,
+		quoteStatus,
+		paymentStatus,
+		review: merged.review,
+		arrivalConfirmStatus,
+		chargeType: merged.chargeType || merged.charge_type || '',
+		inWarranty: Boolean(merged.inWarranty ?? merged.in_warranty),
+		warrantyStatus: merged.warrantyStatus || merged.warranty_status || '',
+		totalFee
+	})
 	const displayTone = arrivalConfirmStatus === 'pending' ? 'warn' : meta.tone
 	const displayReached = arrivalConfirmStatus === 'pending' ? Math.max(1, meta.reached) : meta.reached
 
@@ -2991,6 +2981,7 @@ const normalizeOrder = (item = {}) => {
 		invoiceFulfillmentMode: merged.invoiceFulfillmentMode || merged.fulfillmentMode || merged.fulfillment_mode || invoiceInfo.fulfillment_mode || 'manual',
 		invoiceArchiveStatus: merged.invoiceArchiveStatus || merged.archiveStatus || merged.archive_status || invoiceInfo.archive_status || '',
 		invoiceUrl: merged.invoiceUrl || merged.invoice_url || invoiceInfo.invoice_url,
+		invoicePdfUrl: merged.invoicePdfUrl || merged.invoice_pdf_url || merged.pdfUrl || merged.pdf_url || invoiceInfo.pdf_url || invoiceInfo.invoice_url || invoiceInfo.file_url || '',
 		quoteStatus,
 		needsReturn: merged.needsReturn === true || merged.needs_return === true,
 		archiveStatus: merged.archiveStatus || merged.archive_status || '',
@@ -3025,7 +3016,7 @@ const getPaymentProofPreviewUrl = (proof = {}) => {
 	return (fileID && paymentProofTempUrls.value[fileID]) || getPreviewUrl(proof)
 }
 
-const resolvePaymentProofUrls = async (orders = []) => {
+const resolvePaymentProofUrls = async (orders = [], sessionToken = uni.getStorageSync('token')) => {
 	const fileIDs = [...new Set((Array.isArray(orders) ? orders : [])
 		.flatMap((order = {}) => Array.isArray(order.paymentProofs) ? order.paymentProofs : [])
 		.map(getCloudFileId)
@@ -3035,6 +3026,7 @@ const resolvePaymentProofUrls = async (orders = []) => {
 
 	try {
 		const result = await getCloudTempFileURL(unresolved)
+		if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 		const nextUrls = { ...paymentProofTempUrls.value }
 		const fileList = result && Array.isArray(result.fileList) ? result.fileList : []
 		for (const item of fileList) {
@@ -3065,6 +3057,11 @@ const writeStorage = (key, value) => {
 		console.warn('write storage fallback:', key, error)
 	}
 }
+
+const getPrivateStorageKey = (baseKey) => createPrivateStorageKey(
+	baseKey,
+	currentUser.value && Object.keys(currentUser.value).length ? currentUser.value : (uni.getStorageSync('userInfo') || {})
+)
 
 const warrantyStatusLabels = { in_warranty: '保修中', extended: '延保中', expired: '已过保', unknown: '保修信息待同步' }
 const normalizeProduct = (item = {}) => {
@@ -3763,7 +3760,7 @@ const mergeOrderDetailItems = (orders = [], details = []) => {
 	return orders.map((order) => detailMap[order.id] ? { ...order, ...detailMap[order.id] } : order)
 }
 
-const hydrateOrderDetails = async (orders = []) => {
+const hydrateOrderDetails = async (orders = [], sessionToken = uni.getStorageSync('token')) => {
 	const pendingOrders = orders.filter((order) => order && order.recordId && !order.productName && !order.productModel && !order.productSerial)
 	if (!pendingOrders.length) return
 
@@ -3774,12 +3771,52 @@ const hydrateOrderDetails = async (orders = []) => {
 		.filter((result) => result.status === 'fulfilled')
 		.map((result) => normalizeOrder(result.value))
 		.filter((order) => order.id)
-	if (!details.length) return
-	await resolvePaymentProofUrls(details)
+	if (!details.length || !isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
+	await resolvePaymentProofUrls(details, sessionToken)
+	if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 
 	const applyDetails = (list) => mergeOrderDetailItems(list, details)
 	orderList.value = applyDetails(orderList.value)
 	trackOrders.value = applyDetails(trackOrders.value)
+}
+
+const resetOrderPagination = () => {
+	const state = createOrderPaginationState(orderPageSize.value)
+	orderPage.value = state.page
+	orderHasMore.value = state.hasMore
+	orderLoadingMore.value = state.loadingMore
+}
+
+const loadOrderPage = async ({ append = false, sessionToken = uni.getStorageSync('token') } = {}) => {
+	const capturedToken = String(sessionToken || '')
+	if (!capturedToken || (append && (!orderHasMore.value || orderLoadingMore.value))) return false
+	const requestedPage = append ? orderPage.value + 1 : 1
+	if (append) orderLoadingMore.value = true
+	try {
+		const data = await getRepairList({ page: requestedPage, size: orderPageSize.value })
+		if (!isSessionRequestCurrent(capturedToken, uni.getStorageSync('token'))) return false
+		const pageResult = normalizeOrderPage(data, orderPageSize.value, append ? orderList.value.length : 0)
+		const normalized = pageResult.list.map(normalizeOrder).filter((item) => item.id)
+		const nextOrders = append ? appendOrderPage(orderList.value, normalized) : normalized
+		orderList.value = nextOrders
+		trackOrders.value = nextOrders
+		orderPage.value = requestedPage
+		orderHasMore.value = pageResult.hasMore
+		resolvePaymentProofUrls(normalized, capturedToken)
+		hydrateOrderDetails(normalized, capturedToken).catch((error) => console.warn('repair detail hydrate failed:', error))
+		return true
+	} finally {
+		if (isSessionRequestCurrent(capturedToken, uni.getStorageSync('token'))) orderLoadingMore.value = false
+	}
+}
+
+const loadMoreOrders = async () => {
+	try {
+		await loadOrderPage({ append: true })
+	} catch (error) {
+		console.warn('load more repair orders failed:', error)
+		uni.showToast({ title: '更多维修记录加载失败，请重试', icon: 'none' })
+	}
 }
 
 const detailOrder = computed(() => {
@@ -3865,12 +3902,7 @@ const detailOrderComplaints = computed(() => {
 
 const detailQuoteVisible = computed(() => ['issued', 'confirmed', 'rejected'].includes(detailOrder.value.quoteStatus))
 
-const isWarrantyFreeOrder = (order = {}) => Boolean(
-	order.chargeType === 'free'
-	&& order.inWarranty
-	&& ['in_warranty', 'extended'].includes(order.warrantyStatus)
-	&& ['issued', 'confirmed'].includes(order.quoteStatus)
-)
+const isWarrantyFreeOrder = isWarrantyFreeOrderSnapshot
 
 const detailWarrantyText = computed(() => {
 	const m = Number(detailOrder.value.quoteWarrantyMonths || 0)
@@ -4059,14 +4091,14 @@ watch(
 )
 
 const getRejectedQuoteFlowDesc = (order = {}) => {
-	if (order.statusKey === 'cancelled') return '您已拒绝该维修报价，工单已取消。'
-	if (['shipped', 'completed'].includes(order.statusKey) || order.returnLogisticsNo) return '您已拒绝该维修报价，设备已回寄。'
-	return '您已拒绝该维修报价，售后将安排设备回寄。'
+	if (order.statusKey === 'cancelled') return '您已选择不维修，工单已取消。'
+	if (['shipped', 'completed'].includes(order.statusKey) || order.returnLogisticsNo) return '您已选择不维修，设备已回寄。'
+	return '您已选择不维修，售后将安排设备回寄。'
 }
 
 const getQuoteMeta = (order = {}) => {
 	if (!order.id) return { label: '待同步', tone: 'muted', desc: '请选择一个工单查看报价。' }
-	if (order.quoteStatus === 'rejected') return { label: '已拒绝', tone: 'warn', desc: getRejectedQuoteFlowDesc(order) }
+	if (order.quoteStatus === 'rejected') return { label: '不维修', tone: 'warn', desc: getRejectedQuoteFlowDesc(order) }
 	if ((!Array.isArray(order.quoteItems) || !order.quoteItems.length) && !order.quoteDetail) return { label: '待检测', tone: 'muted', desc: '工程师检测完成后会生成正式报价。' }
 	if (order.authorizationStatus === 'confirmed') return { label: '已确认', tone: 'ok', desc: '报价已确认，工程师可继续维修。' }
 	return { label: '待确认', tone: 'warn', desc: '请确认维修项目、配件、工时和总价后再授权维修。' }
@@ -4102,7 +4134,7 @@ const getPaymentMeta = (order = {}) => {
 const getBillingAmountText = (order = {}) => {
 	const total = getQuoteTotal(order)
 	if (isWarrantyFreeOrder(order)) return '¥0.00（质保免收费）'
-	if (order.quoteStatus === 'rejected') return total ? `${formatMoney(total)}（已拒绝）` : '报价已拒绝'
+	if (order.quoteStatus === 'rejected') return total ? `${formatMoney(total)}（不维修）` : '已选择不维修'
 	return total ? formatMoney(total) : '待售后报价'
 }
 
@@ -4319,16 +4351,16 @@ const openLinkedOrder = (orderId = '') => {
 	uni.showToast({ title: '请登录后在“我的维修单”查看该工单', icon: 'none' })
 }
 
-// 拒绝维修报价（仅报价已发布、未支付时可用）
-const canRejectQuote = (order = {}) => Boolean(order.id && order.quoteStatus === 'issued' && order.paymentStatus !== 'paid')
+// 选择不维修（仅方案已发布、未支付时可用）
+const canRejectQuote = (order = {}) => canRejectRepairQuote(order)
 
 const rejectRepairQuoteAction = (order = {}) => {
 	if (!canRejectQuote(order) || actionSubmitting.value) return
 	uni.showModal({
-		title: '拒绝维修报价',
+		title: '选择不维修',
 		editable: true,
-		placeholderText: '可填写拒绝原因（选填）',
-		confirmText: '确认拒绝',
+		placeholderText: '可填写不维修原因（选填）',
+		confirmText: '确认不维修',
 		cancelText: '再想想',
 		success: async ({ confirm, content }) => {
 			if (!confirm || actionSubmitting.value) return
@@ -4338,7 +4370,7 @@ const rejectRepairQuoteAction = (order = {}) => {
 				await rejectRepairQuote(order.recordId || order.id, content || '')
 				await refreshOrderFromServer(order)
 				uni.hideLoading()
-				uni.showToast({ title: '已拒绝报价', icon: 'success' })
+				uni.showToast({ title: '已选择不维修', icon: 'success' })
 			} catch (error) {
 				uni.hideLoading()
 				uni.showToast({ title: toCustomerErrorMessage(error, '操作失败'), icon: 'none' })
@@ -4563,30 +4595,14 @@ const previewPaymentProof = (index = 0) => {
 
 const resetInvoiceForm = (order = {}) => {
 	invoiceForm.value = {
-		invoiceType: '电子普通发票',
 		titleType: 'company',
 		title: order.invoiceTitle || addressForm.value.unit || '',
 		taxNo: order.taxNo || '',
 		email: order.invoiceEmail || '',
-		registerAddress: '',
-		registerPhone: '',
-		bankName: '',
-		bankAccount: '',
-		// 收票人默认取回寄地址联系人，减少重复填写
-		recipientName: addressForm.value.name || '',
-		recipientPhone: addressForm.value.phone || '',
-		recipientAddress: [addressForm.value.region, addressForm.value.detail].filter(Boolean).join(' '),
 		remark: ''
 	}
 }
 
-// 发票种类双选：电子普票 / 纸质专票（专票强制企业抬头，后端同规则）
-const invoiceKindOptions = [
-	{ value: '电子普通发票', label: '电子普通发票', desc: '数电票，预计 1-3 个工作日' },
-	{ value: '纸质专用发票', label: '纸质专用发票', desc: '财务审核，预计 7-15 个工作日寄出' }
-]
-
-const isPaperInvoice = computed(() => invoiceForm.value.invoiceType === '纸质专用发票')
 const canChooseInvoiceTitle = typeof uni.chooseInvoiceTitle === 'function'
 
 const chooseWechatInvoiceTitle = () => {
@@ -4594,17 +4610,9 @@ const chooseWechatInvoiceTitle = () => {
 	uni.chooseInvoiceTitle({
 		success: (result = {}) => {
 			const isCompany = Number(result.type) === 0
-			if (isPaperInvoice.value && !isCompany) {
-				uni.showToast({ title: '纸质专票请选择企业抬头', icon: 'none' })
-				return
-			}
 			invoiceForm.value.titleType = isCompany ? 'company' : 'personal'
 			invoiceForm.value.title = String(result.title || '').trim()
 			invoiceForm.value.taxNo = isCompany ? String(result.taxNumber || '').trim() : ''
-			if (result.companyAddress) invoiceForm.value.registerAddress = result.companyAddress
-			if (result.telephone) invoiceForm.value.registerPhone = result.telephone
-			if (result.bankName) invoiceForm.value.bankName = result.bankName
-			if (result.bankAccount) invoiceForm.value.bankAccount = result.bankAccount
 		},
 		fail: (error) => {
 			if (!String(error && error.errMsg || '').includes('cancel')) {
@@ -4614,22 +4622,8 @@ const chooseWechatInvoiceTitle = () => {
 	})
 }
 
-const selectInvoiceKind = (value) => {
-	invoiceForm.value.invoiceType = value
-	if (value === '纸质专用发票') invoiceForm.value.titleType = 'company'
-}
-
 const selectInvoiceTitleType = (value) => {
-	if (isPaperInvoice.value && value !== 'company') {
-		uni.showToast({ title: '纸质专票仅支持企业抬头', icon: 'none' })
-		return
-	}
 	invoiceForm.value.titleType = value
-}
-
-const copyInvoiceMailNo = (order = {}) => {
-	if (!order.invoiceMailNo) return
-	copyOne(order.invoiceMailNo, 'invMail-' + order.id)
 }
 
 const startInvoiceApply = (order = {}) => {
@@ -4678,46 +4672,15 @@ const submitInvoiceApply = async () => {
 		return
 	}
 
-	// 纸质专票：7 个收票/注册字段前端预校验（口径与后端 applyInvoice 一致）
-	if (invoiceForm.value.invoiceType === '纸质专用发票') {
-		const paperRequired = [
-			['registerAddress', '请填写注册地址'],
-			['registerPhone', '请填写注册电话'],
-			['bankName', '请填写开户银行'],
-			['bankAccount', '请填写银行账号'],
-			['recipientName', '请填写收票人'],
-			['recipientAddress', '请填写收票地址']
-		]
-		for (const [field, msg] of paperRequired) {
-			if (!String(invoiceForm.value[field] || '').trim()) {
-				uni.showToast({ title: msg, icon: 'none' })
-				return
-			}
-		}
-		const recipientPhone = String(invoiceForm.value.recipientPhone || '').replace(/\D/g, '')
-		if (!/^1[3-9]\d{9}$/.test(recipientPhone)) {
-			uni.showToast({ title: '收票手机号格式不正确', icon: 'none' })
-			return
-		}
-	}
-
 	invoiceSubmitting.value = true
 	try {
 		await requestStatusSubscription('invoice_apply')
 		await applyInvoice({
 			orderId: order.recordId || order.id,
-			invoiceType: invoiceForm.value.invoiceType,
 			titleType: invoiceForm.value.titleType,
 			title: invoiceForm.value.title.trim(),
 			taxNo: invoiceForm.value.titleType === 'company' ? invoiceForm.value.taxNo.trim() : '',
 			email: invoiceForm.value.email.trim(),
-			registerAddress: String(invoiceForm.value.registerAddress || '').trim(),
-			registerPhone: String(invoiceForm.value.registerPhone || '').trim(),
-			bankName: String(invoiceForm.value.bankName || '').trim(),
-			bankAccount: String(invoiceForm.value.bankAccount || '').trim(),
-			recipientName: String(invoiceForm.value.recipientName || '').trim(),
-			recipientPhone: String(invoiceForm.value.recipientPhone || '').trim(),
-			recipientAddress: String(invoiceForm.value.recipientAddress || '').trim(),
 			remark: invoiceForm.value.remark.trim()
 		})
 
@@ -4748,6 +4711,42 @@ const copyInvoiceInfo = (order = {}) => {
 	})
 }
 
+const openInvoiceDocument = async (order = {}) => {
+	const sourceOrder = resolveOrderRecord(order)
+	const action = getInvoiceDocumentAction(sourceOrder)
+	if (!action.visible || openingInvoiceId.value) return
+	if (action.disabled) {
+		uni.showToast({ title: '发票原件尚未上传', icon: 'none' })
+		return
+	}
+
+	openingInvoiceId.value = sourceOrder.id || order.id || 'invoice'
+	try {
+		uni.showLoading({ title: '下载中' })
+		const isWebFile = /^https?:\/\//i.test(action.fileUrl)
+		const downloadRes = isWebFile
+			? await uni.downloadFile({ url: action.fileUrl })
+			: await downloadCloudFile(action.fileUrl)
+		if (isWebFile && Number(downloadRes.statusCode) !== 200) {
+			throw new Error(`发票下载失败（HTTP ${downloadRes.statusCode || '未知'}）`)
+		}
+		const filePath = downloadRes && downloadRes.tempFilePath
+		if (!filePath) throw new Error('发票下载后未生成临时文件')
+		uni.hideLoading()
+		await uni.openDocument({
+			filePath,
+			fileType: 'pdf',
+			showMenu: true
+		})
+	} catch (error) {
+		console.warn('open invoice document failed:', error)
+		uni.hideLoading()
+		uni.showToast({ title: '发票下载或打开失败，请稍后重试', icon: 'none' })
+	} finally {
+		openingInvoiceId.value = ''
+	}
+}
+
 const handleInvoiceAction = (order = {}) => {
 	const sourceOrder = resolveOrderRecord(order)
 	const status = getInvoiceStatusKey(sourceOrder)
@@ -4765,29 +4764,39 @@ const handleInvoiceAction = (order = {}) => {
 }
 
 const restoreLocalBusinessState = () => {
-	const records = readStorage(feedbackRecordKey, [])
+	const feedbackKey = getPrivateStorageKey(feedbackRecordKey)
+	const surveyKey = getPrivateStorageKey(surveyRecordKey)
+	const records = feedbackKey ? readStorage(feedbackKey, []) : []
 	feedbackRecords.value = Array.isArray(records) ? records : []
-	const surveys = readStorage(surveyRecordKey, [])
+	const surveys = surveyKey ? readStorage(surveyKey, []) : []
 	surveyRecords.value = Array.isArray(surveys) ? surveys : []
 }
 
 const saveFeedbackRecords = () => {
-	writeStorage(feedbackRecordKey, feedbackRecords.value)
+	const key = getPrivateStorageKey(feedbackRecordKey)
+	if (key) writeStorage(key, feedbackRecords.value)
 }
 
 const saveSurveyRecords = () => {
-	writeStorage(surveyRecordKey, surveyRecords.value)
+	const key = getPrivateStorageKey(surveyRecordKey)
+	if (key) writeStorage(key, surveyRecords.value)
 }
 
 // 拉取服务端反馈单，覆盖本地缓存，使后台处理状态与官方回复实时同步
 const syncFeedbackRecords = async () => {
+	const sessionToken = String(uni.getStorageSync('token') || '')
+	if (!sessionToken) {
+		feedbackRecords.value = []
+		return
+	}
 	try {
 		const res = await getComplaintList({ page: 1, pageSize: 10 })
+		if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 		const list = (res && res.list) || []
 		if (!Array.isArray(list)) return
 		feedbackRecords.value = list.map(normalizeFeedbackRecord)
 		saveFeedbackRecords()
-		await resolveFeedbackRecordImageUrls(feedbackRecords.value)
+		await resolveFeedbackRecordImageUrls(feedbackRecords.value, sessionToken)
 	} catch (error) {
 		// 网络/登录异常时保留本地缓存，不打断页面
 		console.warn('sync feedback records fallback:', error)
@@ -4800,7 +4809,7 @@ const getFeedbackRecordImageUrl = (image = {}) => {
 	return (fileID && feedbackImageTempUrls.value[fileID]) || getPreviewUrl(item)
 }
 
-const resolveFeedbackRecordImageUrls = async (records = []) => {
+const resolveFeedbackRecordImageUrls = async (records = [], sessionToken = uni.getStorageSync('token')) => {
 	const fileIDs = [...new Set((Array.isArray(records) ? records : [])
 		.flatMap((record = {}) => Array.isArray(record.images) ? record.images : [])
 		.map((image) => getCloudFileId(typeof image === 'string' ? { url: image } : image))
@@ -4810,6 +4819,7 @@ const resolveFeedbackRecordImageUrls = async (records = []) => {
 
 	try {
 		const result = await getCloudTempFileURL(unresolved)
+		if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 		const nextUrls = { ...feedbackImageTempUrls.value }
 		const fileList = result && Array.isArray(result.fileList) ? result.fileList : []
 		for (const item of fileList) {
@@ -4972,6 +4982,12 @@ const openModule = (id, type) => {
 		beginRepairLogin()
 		return
 	}
+	if (requiresPrivateSession(id) && !hasLoginToken()) {
+		previousModule.value = activeModule.value
+		activeModule.value = 'login'
+		uni.showToast({ title: '请先登录后查看', icon: 'none' })
+		return
+	}
 
 	previousModule.value = activeModule.value
 	activeModule.value = id
@@ -5061,13 +5077,38 @@ const openOrderDetail = (order) => {
 
 // 报修表单：自动带入默认寄出和回寄地址（仅填空字段，不覆盖用户已填）
 const cachedDefaultAddress = ref(null)
+const clearPrivateSessionState = ({ closePrivateModule = true } = {}) => {
+	const empty = createEmptyPrivateSessionState()
+	orderList.value = empty.orderList
+	trackOrders.value = empty.trackOrders
+	productList.value = empty.productList
+	feedbackRecords.value = empty.feedbackRecords
+	paymentProofTempUrls.value = empty.paymentProofTempUrls
+	detailAttachmentTempUrls.value = empty.detailAttachmentTempUrls
+	feedbackImageTempUrls.value = empty.feedbackImageTempUrls
+	trackDetailOrder.value = empty.trackDetailOrder
+	orderDetailOrder.value = empty.orderDetailOrder
+	activeInvoiceOrderId.value = empty.activeInvoiceOrderId
+	cachedDefaultAddress.value = empty.cachedDefaultAddress
+	savedAddressOptions.value = []
+	showSavedAddressPicker.value = false
+	resetFeedbackForm()
+	resetInvoiceForm()
+	resetOrderPagination()
+	if (closePrivateModule && requiresPrivateSession(activeModule.value)) {
+		activeModule.value = ''
+		previousModule.value = ''
+	}
+}
 const prefillRepairAddress = async () => {
 	if (!hasLoginToken()) return
+	const sessionToken = String(uni.getStorageSync('token') || '')
 	const form = repairForm.value
 	if ((form.senderName || form.senderPhone || form.senderAddress) && (form.receiverName || form.receiverPhone || form.receiverAddress)) return
 	try {
 		if (!cachedDefaultAddress.value) {
 			const list = await getAddressList()
+			if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 			if (Array.isArray(list) && list.length) {
 				cachedDefaultAddress.value = list.find((item) => item.isDefault) || list[0]
 			}
@@ -5104,9 +5145,11 @@ const openSavedAddressPicker = async (target) => {
 		uni.showToast({ title: '请先登录后选择常用地址', icon: 'none' })
 		return
 	}
+	const sessionToken = String(uni.getStorageSync('token') || '')
 	savedAddressTarget.value = target
 	try {
 		const list = await getAddressList()
+		if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 		savedAddressOptions.value = Array.isArray(list) ? list : []
 		if (!savedAddressOptions.value.length) {
 			uni.showToast({ title: '暂无常用地址，请先新增', icon: 'none' })
@@ -5183,7 +5226,9 @@ const normalizeRepairProducts = (products = []) => {
 
 const restoreRepairDraft = () => {
 	try {
-		const draft = uni.getStorageSync(repairDraftKey)
+		const key = getPrivateStorageKey(repairDraftKey)
+		if (!key) return
+		const draft = uni.getStorageSync(key)
 		if (!draft || (!draft.repairForm && !draft.repairProducts)) return
 
 		repairForm.value = {
@@ -5200,7 +5245,9 @@ const restoreRepairDraft = () => {
 
 const persistRepairDraft = () => {
 	try {
-		uni.setStorageSync(repairDraftKey, {
+		const key = getPrivateStorageKey(repairDraftKey)
+		if (!key) return false
+		uni.setStorageSync(key, {
 			repairForm: repairForm.value,
 			repairProducts: repairProducts.value,
 			trackingLater: trackingLater.value,
@@ -5339,7 +5386,8 @@ const clearRepairForm = (notify = true) => {
 	repairSectionOpen.value = { user: true, products: true, sender: true, receiver: true }
 	repairProductSeed = 1
 	repairMediaSeed = 1
-	uni.removeStorageSync(repairDraftKey)
+	const key = getPrivateStorageKey(repairDraftKey)
+	if (key) uni.removeStorageSync(key)
 	showRepairTools.value = false
 	if (notify) uni.showToast({ title: '已清空', icon: 'none' })
 }
@@ -6029,7 +6077,8 @@ const submitRepair = async () => {
 			trackingNo: payload.trackingNo,
 			trackingPending: payload.trackingPending
 		}
-		uni.removeStorageSync(repairDraftKey)
+		const key = getPrivateStorageKey(repairDraftKey)
+		if (key) uni.removeStorageSync(key)
 		openModule('repair-success')
 		loadRemoteContent()
 	} catch (error) {
@@ -6562,6 +6611,10 @@ const applyLoginSession = (res = {}) => {
 		return false
 	}
 
+	const previousToken = String(uni.getStorageSync('token') || '')
+	if (previousToken && previousToken !== String(res.token)) {
+		clearPrivateSessionState({ closePrivateModule: false })
+	}
 	try {
 		uni.setStorageSync('token', res.token)
 		uni.setStorageSync('userInfo', res.userInfo || {})
@@ -6595,15 +6648,16 @@ const applyLoginSession = (res = {}) => {
 }
 
 const logoutLocal = async () => {
-	try {
-		await logoutRemote()
-	} catch (error) {
-		uni.removeStorageSync('token')
-		uni.removeStorageSync('userInfo')
-		uni.removeStorageSync('isLoggedIn')
-	}
+	const logoutPromise = logoutRemote()
+	clearLocalAuthSession(uni)
 	currentUser.value = {}
 	logged.value = false
+	clearPrivateSessionState()
+	try {
+		await logoutPromise
+	} catch (error) {
+		console.warn('remote logout failed after local session clear:', error)
+	}
 }
 
 // 用户自助注销账号：二次确认后调用后端软删除+脱敏，并清空本地登录态
@@ -6615,12 +6669,17 @@ const onCancelAccount = () => {
 		confirmColor: '#e54d42',
 		success: async (res) => {
 			if (!res.confirm) return
+			const privateStorageKeys = [repairDraftKey, feedbackRecordKey, surveyRecordKey, 'receiverAddressList']
+				.map(getPrivateStorageKey)
+				.filter(Boolean)
 			try {
 				uni.showLoading({ title: '注销中...', mask: true })
 				await cancelAccount()
 				uni.hideLoading()
 				currentUser.value = {}
 				logged.value = false
+				clearPrivateSessionState()
+				privateStorageKeys.forEach((key) => uni.removeStorageSync(key))
 				uni.showToast({ title: '账号已注销', icon: 'success' })
 			} catch (error) {
 				uni.hideLoading()
@@ -6754,6 +6813,12 @@ onLoad((options = {}) => {
 
 onShow(() => {
 	logBoot('onShow triggered')
+	const token = uni.getStorageSync('token') || ''
+	if (!token && logged.value) {
+		currentUser.value = {}
+		logged.value = false
+		clearPrivateSessionState()
+	}
 	// 每次切回页面都自动重新拉取一次最新的后端数据
 	if (pageBootReady.value) {
 		loadRemoteContent()
@@ -6779,6 +6844,7 @@ onBackPress(() => {
 })
 
 const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
+	const sessionToken = String(uni.getStorageSync('token') || '')
 	const tasks = [
 		getWarrantyPolicy()
 			.then((doc) => updateDoc('warranty', doc))
@@ -6809,29 +6875,26 @@ const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 		refreshFaultTypes({ forceRefresh: forceFaultRefresh, silent: true })
 	]
 
-	if (hasLoginToken()) {
+	if (sessionToken) {
 		tasks.push(
 			getMyDevices({ page: 1, size: 50 })
 			.then((data = {}) => {
+				if (!isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) return
 				const list = Array.isArray(data) ? data : (data.list || [])
 				productList.value = Array.isArray(list) ? list.map(normalizeProduct).filter((item) => item.sn || item.title) : []
 			})
 			.catch((error) => console.warn('device list failed:', error)),
-			getRepairList({ page: 1, size: 30 })
-			.then((data = {}) => {
-				const list = Array.isArray(data) ? data : (data.list || data.data || [])
-				if (!Array.isArray(list)) return
-				const normalized = list.map(normalizeOrder).filter((item) => item.id)
-				orderList.value = normalized
-				trackOrders.value = normalized
-				resolvePaymentProofUrls(normalized)
-				hydrateOrderDetails(normalized).catch((error) => console.warn('repair detail hydrate failed:', error))
-			})
+			loadOrderPage({ sessionToken })
 			.catch((error) => console.warn('repair list failed:', error))
 		)
 	}
 
 	await Promise.allSettled(tasks)
+	if (sessionToken && !isSessionRequestCurrent(sessionToken, uni.getStorageSync('token'))) {
+		currentUser.value = {}
+		logged.value = false
+		clearPrivateSessionState()
+	}
 	maybeShowHomeGuidePopup()
 }
 
@@ -7359,6 +7422,26 @@ onUnmounted(() => {
 .primary-button.disabled {
 	opacity: 0.68;
 	pointer-events: none;
+}
+
+.order-load-more {
+	width: 100%;
+	height: 80rpx;
+	margin-top: 24rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 2rpx solid #C9D7EA;
+	border-radius: 12rpx;
+	background: #FFFFFF;
+	box-sizing: border-box;
+	font-size: 26rpx;
+	font-weight: 600;
+	color: #1E6FE0;
+}
+
+.order-load-more.disabled {
+	opacity: 0.6;
 }
 
 .status-tabs {
@@ -12867,6 +12950,30 @@ onUnmounted(() => {
 	font-size: 23rpx;
 	line-height: 1.5;
 	color: #6B7C97;
+}
+
+.quote-warranty-free-summary {
+	margin-top: 28rpx;
+	padding: 22rpx 24rpx;
+	display: flex;
+	flex-direction: column;
+	gap: 8rpx;
+	border: 2rpx solid #BDEBD3;
+	border-radius: 16rpx;
+	background: #F0FDF7;
+	box-sizing: border-box;
+}
+
+.quote-warranty-free-summary text:first-child {
+	font-size: 27rpx;
+	font-weight: 700;
+	color: #0F8A4F;
+}
+
+.quote-warranty-free-summary text:last-child {
+	font-size: 23rpx;
+	line-height: 1.5;
+	color: #376B55;
 }
 
 .quote-status-note,

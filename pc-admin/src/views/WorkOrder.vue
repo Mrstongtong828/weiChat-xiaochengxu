@@ -983,38 +983,29 @@
               <div class="drawer-section-head">
                 <div>
                   <p class="drawer-section-title">发票处理</p>
-                  <p class="section-helper">仅已完工且已核销的对公转账进入发票流程；微信支付订单不开票。</p>
+                  <p class="section-helper">已完工且已支付的订单可进入发票流程。</p>
                 </div>
                 <el-tag :type="getInvoiceType(normalizeInvoiceStatus(currentOrder))" size="small">{{ normalizeInvoiceStatus(currentOrder) }}</el-tag>
               </div>
               <div class="invoice-summary-grid">
                 <div><span>客户申请</span><strong>{{ currentOrder.needInvoice ? '需要开票' : '无需开票' }}</strong></div>
-                <div><span>发票类型</span><strong>{{ currentOrder.invoiceType || invoiceForm.invoiceType || '电子普通发票' }}</strong></div>
+                <div><span>开票时效</span><strong>7-15 个工作日</strong></div>
                 <div><span>开票状态</span><strong>{{ normalizeInvoiceStatus(currentOrder) }}</strong></div>
                 <div><span>税收分类</span><strong>{{ currentOrder.invoiceTaxCategory || '修理修配劳务' }}</strong></div>
                 <div><span>发票项目</span><strong>{{ currentOrder.invoiceItemName || '牙科设备检修服务费' }}</strong></div>
                 <div><span>归档工单</span><strong>{{ currentOrder.invoiceArchiveOrderNo || currentOrder.id }}</strong></div>
               </div>
               <el-alert
-                v-if="!isCorporateTransferPayment(currentOrder.paymentMethod) && !currentOrder.needInvoice"
-                title="微信支付订单不进入发票流程"
-                description="本系统仅处理对公转账订单的开票申请；微信支付完成后直接进入后续维修流程。"
-                type="info"
-                :closable="false"
-                show-icon
-                class="invoice-alert"
-              ></el-alert>
-              <el-alert
-                v-else-if="currentOrder.needInvoice && resolvePaymentStatus(currentOrder) !== 'paid'"
-                title="客户已申请发票，但对公款项尚未核销"
-                description="财务确认银行对公款项到账后，才能人工开具并登记发票。"
+                v-if="currentOrder.needInvoice && resolvePaymentStatus(currentOrder) !== 'paid'"
+                title="客户已申请发票，但款项尚未确认"
+                description="付款完成或财务确认款项到账后，才能人工开具并登记发票。"
                 type="warning"
                 :closable="false"
                 show-icon
                 class="invoice-alert"
               ></el-alert>
               <el-alert
-                v-else-if="isCorporateTransferPayment(currentOrder.paymentMethod) && currentOrder.statusEn !== 'completed'"
+                v-else-if="isInvoicePaymentMethod(currentOrder.paymentMethod) && currentOrder.statusEn !== 'completed'"
                 title="检修服务尚未完工结单"
                 description="工单状态变为已完成后，客户才能申请开票，财务才能登记开票结果。"
                 type="warning"
@@ -1022,22 +1013,20 @@
                 show-icon
                 class="invoice-alert"
               ></el-alert>
-              <div v-if="isCorporateTransferPayment(currentOrder.paymentMethod) && resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.statusEn === 'completed' && !currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
+              <div v-if="isInvoicePaymentMethod(currentOrder.paymentMethod) && resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.statusEn === 'completed' && !currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
                 <strong>本单暂不需要发票</strong>
                 <span>如果客户补充开票需求，可在这里登记发票信息。</span>
                 <el-button v-if="canPerformOrderAction('update_invoice')" size="small" plain @click="invoiceEditorExpanded = true">登记发票</el-button>
               </div>
-              <template v-else-if="isCorporateTransferPayment(currentOrder.paymentMethod) || currentOrder.needInvoice">
+              <template v-else-if="isInvoicePaymentMethod(currentOrder.paymentMethod) || currentOrder.needInvoice">
                 <div class="invoice-editor-heading">
                   <strong>发票信息</strong>
                   <span>带 * 的信息用于开票和客户接收</span>
                 </div>
               <p>是否需要开票：{{currentOrder.needInvoice ? '是' : '否'}}</p>
               <template v-if="currentOrder.needInvoice">
-                <p>发票类型：{{currentOrder.invoiceType || '电子普通发票'}}</p>
                 <p>发票抬头：{{currentOrder.invoiceTitle || '-'}}</p>
                 <p>税号：{{currentOrder.taxId || '-'}}</p>
-                <p v-if="currentOrder.invoiceType === '纸质专用发票'">收票信息：{{currentOrder.invoiceRecipientName || '-'}} / {{currentOrder.invoiceRecipientPhone || '-'}} / {{currentOrder.invoiceRecipientAddress || '-'}}</p>
               </template>
               <el-divider border-style="dashed"></el-divider>
               <p class="drawer-section-title">发票登记</p>
@@ -1049,16 +1038,9 @@
                     <el-option label="未发票" value="未发票"></el-option>
                     <el-option label="开票中" value="开具中"></el-option>
                     <el-option label="已发票" value="已发票"></el-option>
-                    <el-option label="已寄出" value="已寄出"></el-option>
-                    <el-option label="已签收" value="已签收"></el-option>
                   </el-select>
                 </el-form-item>
-                <el-form-item label="发票类型 *">
-                  <el-select v-model="invoiceForm.invoiceType" :disabled="!canPerformOrderAction('update_invoice')" style="width:100%;">
-                    <el-option label="电子普通发票" value="电子普通发票"></el-option>
-                    <el-option label="纸质专用发票" value="纸质专用发票"></el-option>
-                  </el-select>
-                </el-form-item>
+                <el-form-item label="预计时效"><el-input model-value="7-15 个工作日" disabled></el-input></el-form-item>
                 <el-form-item label="开票模式 *">
                   <el-input model-value="人工开票并登记" disabled></el-input>
                 </el-form-item>
@@ -1075,39 +1057,13 @@
                   <el-input v-model="invoiceForm.taxNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="请输入企业税号"></el-input>
                 </el-form-item>
                 <el-form-item label="接收邮箱 *">
-                  <el-input v-model="invoiceForm.email" :disabled="!canPerformOrderAction('update_invoice')" placeholder="电子发票接收邮箱"></el-input>
+                  <el-input v-model="invoiceForm.email" :disabled="!canPerformOrderAction('update_invoice')" placeholder="开票通知接收邮箱"></el-input>
                 </el-form-item>
                 </div>
-                <details v-if="invoiceForm.invoiceType === '纸质专用发票'" class="invoice-detail-disclosure">
-                  <summary><span>纸质专票与收票信息</span><small>注册地址、银行账户和邮寄地址</small></summary>
+                <details class="invoice-detail-disclosure" :open="invoiceStatus === '已发票'">
+                  <summary><span>开票结果</span><small>开票后填写号码、日期和归档信息</small></summary>
                   <div class="invoice-form-grid">
-                  <el-form-item label="注册地址">
-                    <el-input v-model="invoiceForm.registerAddress" :disabled="!canPerformOrderAction('update_invoice')" placeholder="营业执照注册地址"></el-input>
-                  </el-form-item>
-                  <el-form-item label="注册电话">
-                    <el-input v-model="invoiceForm.registerPhone" :disabled="!canPerformOrderAction('update_invoice')" placeholder="税务登记电话"></el-input>
-                  </el-form-item>
-                  <el-form-item label="开户行">
-                    <el-input v-model="invoiceForm.bankName" :disabled="!canPerformOrderAction('update_invoice')" placeholder="基本户开户行"></el-input>
-                  </el-form-item>
-                  <el-form-item label="银行账号">
-                    <el-input v-model="invoiceForm.bankAccount" :disabled="!canPerformOrderAction('update_invoice')" placeholder="对公银行账号"></el-input>
-                  </el-form-item>
-                  <el-form-item label="收票人">
-                    <el-input v-model="invoiceForm.recipientName" :disabled="!canPerformOrderAction('update_invoice')" placeholder="纸质发票收票人"></el-input>
-                  </el-form-item>
-                  <el-form-item label="收票电话">
-                    <el-input v-model="invoiceForm.recipientPhone" :disabled="!canPerformOrderAction('update_invoice')" placeholder="收票人手机号"></el-input>
-                  </el-form-item>
-                  <el-form-item label="收票地址">
-                    <el-input v-model="invoiceForm.recipientAddress" :disabled="!canPerformOrderAction('update_invoice')" placeholder="纸质发票邮寄地址"></el-input>
-                  </el-form-item>
-                  </div>
-                </details>
-                <details class="invoice-detail-disclosure" :open="['已发票', '已寄出', '已签收'].includes(invoiceStatus)">
-                  <summary><span>开票结果与交付信息</span><small>开票后填写号码、日期和寄送信息</small></summary>
-                  <div class="invoice-form-grid">
-                <el-form-item v-if="invoiceForm.invoiceType !== '纸质专用发票'" label="电子发票原件归档">
+                <el-form-item label="发票原件归档">
                   <el-upload
                     action="#"
                     accept="application/pdf,.pdf"
@@ -1123,22 +1079,11 @@
                   <small class="invoice-upload-status">{{ invoiceFileName || (invoiceForm.pdfUrl ? '已保存云存储原件' : '选填，最大 20MB') }}</small>
                 </el-form-item>
                 <el-form-item label="发票号码">
-                  <el-input v-model="invoiceForm.invoiceNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="开具后的电子发票号码"></el-input>
+                  <el-input v-model="invoiceForm.invoiceNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="开具后的发票号码"></el-input>
                 </el-form-item>
                 <el-form-item label="开票日期">
                   <el-input v-model="invoiceForm.invoiceDate" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 2026-06-28"></el-input>
                 </el-form-item>
-                <template v-if="invoiceForm.invoiceType === '纸质专用发票'">
-                  <el-form-item label="快递公司">
-                    <el-input v-model="invoiceForm.mailCompany" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 顺丰速运"></el-input>
-                  </el-form-item>
-                  <el-form-item label="快递单号">
-                    <el-input v-model="invoiceForm.mailNo" :disabled="!canPerformOrderAction('update_invoice')" placeholder="纸质发票寄送单号"></el-input>
-                  </el-form-item>
-                  <el-form-item label="寄出时间">
-                    <el-input v-model="invoiceForm.mailTime" :disabled="!canPerformOrderAction('update_invoice')" placeholder="如 2026-06-28 15:30"></el-input>
-                  </el-form-item>
-                </template>
                 <el-form-item label="备注">
                   <el-input v-model="invoiceForm.remark" :disabled="!canPerformOrderAction('update_invoice')" placeholder="财务备注/特殊说明"></el-input>
                 </el-form-item>
@@ -1787,7 +1732,8 @@ import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
 import { uploadFileToCloud } from '../utils/upload.js'
-import { getPaymentMethodLabel, isCorporateTransferPayment, resolveCorporateAccount } from '../config/corporateAccount.js'
+import { isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
+import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
 const route = useRoute()
@@ -2847,29 +2793,18 @@ const invoiceStatus = ref('无需开票')
 const invoiceFileUploading = ref(false)
 const invoiceFileName = ref('')
 const invoiceForm = reactive({
-  invoiceType: '电子普通发票',
   title: '',
   taxNo: '',
   email: '',
-  registerAddress: '',
-  registerPhone: '',
-  bankName: '',
-  bankAccount: '',
-  recipientName: '',
-  recipientPhone: '',
-  recipientAddress: '',
   remark: '',
   fileUrl: '',
   pdfUrl: '',
   invoiceNo: '',
   invoiceDate: '',
-  mailCompany: '',
-  mailNo: '',
-  mailTime: ''
 })
 const canManuallyRegisterInvoice = computed(() => (
   Boolean(currentOrder.value)
-  && isCorporateTransferPayment(currentOrder.value.paymentMethod)
+  && isInvoicePaymentMethod(currentOrder.value.paymentMethod)
   && resolvePaymentStatus(currentOrder.value) === 'paid'
   && currentOrder.value.statusEn === 'completed'
 ))
@@ -3037,9 +2972,13 @@ const quoteTotal = computed(() => Number(quoteForm.finalPrice) || quoteAutoTotal
 const isCurrentOrderWarrantyFree = computed(() => {
   const order = currentOrder.value || {}
   const items = Array.isArray(order.itemsList) ? order.itemsList : []
-  return items.length > 0 && items.every(item =>
-    item.manual_warranty_status === 'in_warranty' && item.coverage_result === 'free'
-  )
+  return isWarrantyFreeSnapshot(order)
+    && items.length > 0
+    && items.every(item => (
+      item.manual_warranty_status === 'in_warranty'
+      && item.coverage_result === 'free'
+      && ['quality_issue', 'repair_warranty'].includes(item.coverage_reason)
+    ))
 })
 const currentOrderProductKeywords = computed(() => {
   const order = currentOrder.value || {}
@@ -3307,27 +3246,17 @@ const openDrawer = (row) => {
   newStatus.value = (row.quoteStatus === 'rejected' && allowedStatuses.includes('已回寄'))
     ? '已回寄'
     : (allowedStatuses[0] || row.status)
-  invoiceStatus.value = normalizeInvoiceStatus(row)
-  invoiceForm.invoiceType = row.invoiceType || '电子普通发票'
+  const normalizedInvoiceStatus = normalizeInvoiceStatus(row)
+  invoiceStatus.value = ['已寄出', '已签收'].includes(normalizedInvoiceStatus) ? '已发票' : normalizedInvoiceStatus
   invoiceForm.title = row.invoiceTitle || ''
   invoiceForm.taxNo = row.taxId || ''
   invoiceForm.email = row.invoiceEmail || ''
-  invoiceForm.registerAddress = row.invoiceRegisterAddress || ''
-  invoiceForm.registerPhone = row.invoiceRegisterPhone || ''
-  invoiceForm.bankName = row.invoiceBankName || ''
-  invoiceForm.bankAccount = row.invoiceBankAccount || ''
-  invoiceForm.recipientName = row.invoiceRecipientName || ''
-  invoiceForm.recipientPhone = row.invoiceRecipientPhone || ''
-  invoiceForm.recipientAddress = row.invoiceRecipientAddress || ''
   invoiceForm.remark = row.invoiceRemark || ''
   invoiceForm.fileUrl = row.invoiceUrl || ''
   invoiceForm.pdfUrl = row.invoicePdfUrl || ''
   invoiceFileName.value = row.invoicePdfUrl ? '已保存云存储原件' : ''
   invoiceForm.invoiceNo = row.invoiceNo || ''
   invoiceForm.invoiceDate = row.invoiceDate || ''
-  invoiceForm.mailCompany = row.invoiceMailCompany || ''
-  invoiceForm.mailNo = row.invoiceMailNo || ''
-  invoiceForm.mailTime = row.invoiceMailTime || ''
   resetQuoteForm(row)
   resetRepairRecordForm(row)
   drawerVisible.value = true
@@ -3468,9 +3397,11 @@ const openSnHistory = (itemIndex) => {
 }
 
 // 保存工单产品/设备信息并重算在保快照
-const saveOrderItemsInfo = async () => {
+const saveOrderItemsInfo = async (options = {}) => {
+  const showSuccess = options.showSuccess !== false
+  const refreshOrders = options.refreshOrders !== false
   const order = currentOrder.value
-  if (!order || !Array.isArray(order.itemsList) || !order.itemsList.length) return
+  if (!order || !Array.isArray(order.itemsList) || !order.itemsList.length) return false
   const items = order.itemsList
     .filter((it) => it && it._id)
     .map((it) => ({
@@ -3489,25 +3420,31 @@ const saveOrderItemsInfo = async () => {
       coverage_reason: it.coverage_reason || '',
       coverage_note: it.coverage_note || ''
     }))
-  if (!items.length) { ElMessage.warning('无可保存的产品明细'); return }
+  if (!items.length) { ElMessage.warning('无可保存的产品明细'); return false }
   if (items.some(item => item.coverage_result === 'free' && item.manual_warranty_status !== 'in_warranty')) {
     ElMessage.warning('质保免费前，请先人工判断设备为在保')
-    return
+    return false
+  }
+  if (items.some(item => item.coverage_result === 'free' && !['quality_issue', 'repair_warranty'].includes(item.coverage_reason))) {
+    ElMessage.warning('质保免费必须选择“非人为质量问题”或“同故障同更换件维修延保”')
+    return false
   }
   savingOrderItems.value = true
   try {
     const token = localStorage.getItem('adminToken')
     const res = await saveOrderItems(token, order._id, items)
     const data = res && (res.data !== undefined ? res.data : res)
-    if (data && data.warranty_status) {
-      order.warrantyStatus = data.warranty_status
-      order.inWarranty = Boolean(data.in_warranty)
-      order.chargeType = data.charge_type || order.chargeType
+    if (data) {
+      order.warrantyStatus = data.warranty_status ?? data.warrantyStatus ?? order.warrantyStatus
+      order.inWarranty = Boolean(data.in_warranty ?? data.inWarranty ?? order.inWarranty)
+      order.chargeType = data.charge_type ?? data.chargeType ?? order.chargeType
     }
-    ElMessage.success('设备信息已保存')
-    loadOrders()
+    if (showSuccess) ElMessage.success('设备信息已保存')
+    if (refreshOrders) await loadOrders()
+    return true
   } catch (error) {
     ElMessage.error(error.message || '保存失败')
+    return false
   } finally {
     savingOrderItems.value = false
   }
@@ -4025,33 +3962,22 @@ const saveInvoiceStatus = async () => {
     return
   }
   if (!canManuallyRegisterInvoice.value) {
-    ElMessage.error('仅已完工且已核销的对公转账订单可登记发票')
+    ElMessage.error('仅已完工且已支付的订单可登记发票')
     return
   }
   loading.value = true
   try {
     const token = localStorage.getItem('adminToken')
     await updateInvoiceStatus(token, currentOrder.value._id, invoiceStatus.value, {
-      invoice_type: invoiceForm.invoiceType,
       fulfillment_mode: 'manual',
       title: invoiceForm.title,
       taxNo: invoiceForm.taxNo,
       email: invoiceForm.email,
-      register_address: invoiceForm.registerAddress,
-      register_phone: invoiceForm.registerPhone,
-      bank_name: invoiceForm.bankName,
-      bank_account: invoiceForm.bankAccount,
-      recipient_name: invoiceForm.recipientName,
-      recipient_phone: invoiceForm.recipientPhone,
-      recipient_address: invoiceForm.recipientAddress,
       remark: invoiceForm.remark,
       invoice_url: invoiceForm.fileUrl,
       pdf_url: invoiceForm.pdfUrl,
       invoice_no: invoiceForm.invoiceNo,
-      invoice_date: invoiceForm.invoiceDate,
-      mail_company: invoiceForm.mailCompany,
-      mail_no: invoiceForm.mailNo,
-      mail_time: invoiceForm.mailTime
+      invoice_date: invoiceForm.invoiceDate
     })
     ElMessage.success('发票状态已登记')
     await loadOrders()
@@ -4070,7 +3996,7 @@ const handleInvoicePdfSelect = async (uploadFile) => {
   const raw = uploadFile && uploadFile.raw
   if (!raw || invoiceFileUploading.value || !currentOrder.value) return
   if (raw.type !== 'application/pdf' || !/\.pdf$/i.test(raw.name || '')) {
-    ElMessage.warning('电子发票原件仅支持 PDF 文件')
+    ElMessage.warning('发票原件仅支持 PDF 文件')
     return
   }
 
@@ -4080,9 +4006,9 @@ const handleInvoicePdfSelect = async (uploadFile) => {
     const uploaded = await uploadFileToCloud(raw, `invoice/${orderKey}/`, 20 * 1024 * 1024)
     invoiceForm.pdfUrl = uploaded.fileUrl
     invoiceFileName.value = raw.name
-    ElMessage.success('电子发票原件已上传到云存储')
+    ElMessage.success('发票原件已上传到云存储')
   } catch (error) {
-    ElMessage.error(error.message || '电子发票原件上传失败')
+    ElMessage.error(error.message || '发票原件上传失败')
   } finally {
     invoiceFileUploading.value = false
   }
@@ -4103,8 +4029,24 @@ const saveOrderQuote = async (status = 'draft') => {
     return
   }
 
+  const zeroPriceWarrantyAction = resolveZeroPriceWarrantyAction({
+    order: currentOrder.value,
+    items: currentOrder.value.itemsList
+  })
+  if (total <= 0 && zeroPriceWarrantyAction === 'save') {
+    const saved = await saveOrderItemsInfo({ showSuccess: false, refreshOrders: false })
+    if (!saved) return
+    if (!isCurrentOrderWarrantyFree.value) {
+      ElMessage.warning('设备质保核验未通过，请检查质保日期和免费原因后重试')
+      return
+    }
+  }
+  if (total <= 0 && zeroPriceWarrantyAction === 'block') {
+    ElMessage.warning('发布零元质保方案前，请将每台设备标记为“质保免费”并选择免费原因')
+    return
+  }
   if (total <= 0 && !isCurrentOrderWarrantyFree.value) {
-    ElMessage.warning('发布零元质保方案前，请将每台设备人工判断为“在保”，并将本次结论选择为“质保免费”后保存')
+    ElMessage.warning('发布零元质保方案前，请逐台确认人工在保、质保免费及符合政策的免费原因')
     return
   }
 

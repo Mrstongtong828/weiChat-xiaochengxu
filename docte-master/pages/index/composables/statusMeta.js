@@ -97,22 +97,39 @@ export const resolveStatusKey = (order = {}) => {
 	return statusKeyAliases[lower] || 'pending'
 }
 
+export const isWarrantyFreeOrderSnapshot = (order = {}) => {
+	const chargeType = order.chargeType || order.charge_type || ''
+	const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
+	const quoteStatus = order.quoteStatus || order.quote_status || ''
+	const paymentStatus = order.paymentStatus || order.payment_status || ''
+	const inWarranty = order.inWarranty === true || order.in_warranty === true
+	const total = Number(order.totalFee ?? order.total_fee ?? order.totalPrice ?? order.total_price ?? 0) || 0
+	return chargeType === 'free'
+		&& inWarranty
+		&& ['in_warranty', 'extended'].includes(warrantyStatus)
+		&& total <= 0
+		&& paymentStatus === 'not_required'
+		&& ['issued', 'confirmed'].includes(quoteStatus)
+}
+
 // 唯一的显示标签派生：主状态 + 报价/付款子状态 → 细分文案
 export const deriveDisplayStatus = (order = {}) => {
 	const key = resolveStatusKey(order)
 	const quote = order.quoteStatus || order.quote_status || ''
 	const payment = order.paymentStatus || order.payment_status || ''
+	const warrantyFree = isWarrantyFreeOrderSnapshot(order)
 	if (key === 'cancelled') return '已取消'
 	if (key === 'completed') return (order.review || order.reviewTime || order.review_time) ? '已评价' : '已完成'
   if (key === 'shipped') return '已回寄'
   if (order.arrivalConfirmStatus === 'pending' || order.arrival_confirm_status === 'pending') return '已到达，待入库'
-	if (quote === 'rejected' && ['received', 'inspecting', 'fixing'].includes(key)) return '拒修待回寄'
+	if (quote === 'rejected' && ['received', 'inspecting', 'fixing'].includes(key)) return '不维修待回寄'
 	if (key === 'pending') return '待寄出'
 	if (key === 'sent') return '运输中'
 	if (key === 'received') return '已签收'
 	// inspecting / fixing 受报价、付款子状态细分
 	if (payment === 'uploaded') return '待核款'
-	if (quote === 'issued') return '待确认报价'
+	if (quote === 'issued') return warrantyFree ? '待确认质保方案' : '待确认报价'
+	if (warrantyFree && quote === 'confirmed') return '维修中'
 	if (quote === 'confirmed' && !['paid', 'not_required'].includes(payment)) return '待付款'
 	if (key === 'inspecting') return '检测中'
 	return '维修中'

@@ -1,5 +1,19 @@
 export const isCloudFileId = (url = '') => /^cloud:\/\/\S+$/.test(String(url || '').trim())
 
+export const canRejectRepairQuote = (order = {}) => {
+	const paymentStatus = order.paymentStatus || order.payment_status || 'pending'
+	const quoteStatus = order.quoteStatus || order.quote_status || ''
+	const proofs = Array.isArray(order.paymentProofs)
+		? order.paymentProofs
+		: (Array.isArray(order.payment_proofs) ? order.payment_proofs : [])
+	return Boolean(
+		(order.id || order._id || order.order_no) &&
+		quoteStatus === 'issued' &&
+		!['paid', 'uploaded'].includes(paymentStatus) &&
+		proofs.length === 0
+	)
+}
+
 export const canUploadPaymentProofForOrder = (order = {}, quoteTotal = 0) => {
 	const paymentStatus = order.paymentStatus || order.payment_status || 'pending'
 	const quoteStatus = order.quoteStatus || order.quote_status || ''

@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { formatInvoiceDisplayText, getInvoiceMeta, getInvoiceStatusKey, shouldShowInvoiceEntry } from './invoiceFlow.js'
+import { formatInvoiceDisplayText, getInvoiceDocumentAction, getInvoiceMeta, getInvoiceStatusKey, shouldShowInvoiceEntry } from './invoiceFlow.js'
 
 test('paid corporate transfers can request an invoice', () => {
 	assert.equal(getInvoiceStatusKey({
@@ -22,23 +22,32 @@ test('completed status from the normalized order field can request an invoice', 
 	}), 'available')
 })
 
-test('paid WeChat orders do not enter the invoice workflow', () => {
+test('paid WeChat orders can request an invoice', () => {
 	assert.equal(getInvoiceStatusKey({
 		statusKey: 'completed',
 		paymentMethod: 'wechat_pay',
 		paymentStatus: 'paid',
 		totalFee: 680
-	}), 'disabled')
+	}), 'available')
 })
 
-test('stale pending invoice state cannot re-enable invoicing for a WeChat order', () => {
+test('pending invoice state remains visible for an eligible WeChat order', () => {
 	assert.equal(getInvoiceStatusKey({
 		statusKey: 'completed',
 		paymentMethod: 'wechat_pay',
 		paymentStatus: 'paid',
 		totalFee: 680,
 		invoiceStatus: '待开票'
-	}), 'disabled')
+	}), 'processing')
+})
+
+test('unpaid WeChat orders remain unavailable', () => {
+	assert.equal(getInvoiceStatusKey({
+		statusKey: 'completed',
+		paymentMethod: 'wechat_pay',
+		paymentStatus: 'pending',
+		totalFee: 680
+	}), 'unavailable')
 })
 
 test('unconfirmed corporate transfers remain unavailable', () => {
@@ -83,14 +92,13 @@ test('existing invoice records remain visible regardless of payment method', () 
 	}), 'issued')
 })
 
-test('paper invoice processing uses the 7-15 working day service level', () => {
+test('all invoice processing uses the 7-15 working day service level', () => {
 	const meta = getInvoiceMeta({
 		statusKey: 'completed',
 		paymentMethod: 'offline_transfer',
 		paymentStatus: 'paid',
 		totalFee: 680,
-		invoiceStatus: '待开票',
-		invoiceType: '纸质专用发票'
+		invoiceStatus: '待开票'
 	})
 	assert.match(meta.desc, /7-15 个工作日/)
 })
@@ -98,7 +106,7 @@ test('paper invoice processing uses the 7-15 working day service level', () => {
 test('invoice menu entry is shown only for actionable or historical invoice records', () => {
 	assert.equal(shouldShowInvoiceEntry([{
 		statusKey: 'completed', paymentMethod: 'wechat_pay', paymentStatus: 'paid', totalFee: 680
-	}]), false)
+	}]), true)
 	assert.equal(shouldShowInvoiceEntry([{
 		statusKey: 'completed', paymentMethod: 'offline_transfer', paymentStatus: 'paid', totalFee: 680
 	}]), true)
@@ -107,10 +115,9 @@ test('invoice menu entry is shown only for actionable or historical invoice reco
 	}]), true)
 })
 
-test('formats registered electronic invoice fields for in-app display and copy', () => {
+test('formats registered invoice fields for in-app display and copy without an invoice type', () => {
 	assert.equal(formatInvoiceDisplayText({
 		id: 'WO-20260810-001',
-		invoiceType: '电子普通发票',
 		invoiceTaxCategory: '修理修配劳务',
 		invoiceItemName: '牙科设备检修服务费',
 		invoiceTitle: '佛山市示例口腔门诊部',
@@ -118,7 +125,6 @@ test('formats registered electronic invoice fields for in-app display and copy',
 		invoiceDate: '2026-08-10',
 		price: '¥680.00'
 	}), [
-		'发票类型：电子普通发票',
 		'税收分类：修理修配劳务',
 		'发票项目：牙科设备检修服务费',
 		'发票抬头：佛山市示例口腔门诊部',
@@ -127,4 +133,23 @@ test('formats registered electronic invoice fields for in-app display and copy',
 		'开票金额：¥680.00',
 		'工单号：WO-20260810-001'
 	].join('\n'))
+})
+
+test('issued invoice PDF can be viewed and downloaded only after backend upload', () => {
+	assert.deepEqual(getInvoiceDocumentAction({
+		invoiceStatus: '已开具',
+		invoicePdfUrl: 'cloud://invoice/example.pdf'
+	}), {
+		visible: true,
+		disabled: false,
+		label: '查看/下载发票',
+		fileUrl: 'cloud://invoice/example.pdf'
+	})
+	assert.deepEqual(getInvoiceDocumentAction({ invoiceStatus: '已开具' }), {
+		visible: true,
+		disabled: true,
+		label: '发票原件待上传',
+		fileUrl: ''
+	})
+	assert.equal(getInvoiceDocumentAction({ invoiceStatus: '开具中' }).visible, false)
 })

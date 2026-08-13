@@ -14,6 +14,10 @@ export const isCorporateTransferPayment = (method = '') => (
   ['offline_transfer', 'bank_transfer'].includes(String(method || '').trim())
 )
 
+export const isInvoicePaymentMethod = (method = '') => (
+  ['offline_transfer', 'bank_transfer', 'wechat_pay'].includes(String(method || '').trim())
+)
+
 export const getPaymentMethodLabel = (method = '') => ({
   offline_transfer: '对公支付',
   bank_transfer: '对公支付',

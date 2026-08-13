@@ -53,7 +53,7 @@
         </el-radio-group>
       </div>
       <div v-if="previewMode === 'mobile'" class="policy-mobile-shell">
-        <div class="policy-mobile-preview" v-html="modelValue?.mobileHtml"></div>
+        <div class="policy-mobile-preview" v-html="safeMobileHtml"></div>
       </div>
       <div v-else class="policy-original-preview">
         <div v-if="previewLoading" class="policy-preview-loading">正在加载原稿页面…</div>
@@ -73,6 +73,7 @@ import {
   convertPolicyDocument,
   createPolicyDocumentManifest
 } from '../utils/policyDocument.js'
+import { sanitizeRuntimeHtml } from '../utils/runtimeHtml.js'
 
 const props = defineProps({
   modelValue: { type: Object, default: null },
@@ -90,6 +91,7 @@ const pagePreviewUrls = ref([])
 const progress = reactive({ percent: 0, label: '' })
 
 const pageCount = computed(() => props.modelValue?.original?.pages?.length || 0)
+const safeMobileHtml = computed(() => sanitizeRuntimeHtml(props.modelValue?.mobileHtml || ''))
 const updatedAt = computed(() => {
   const timestamp = Number(props.modelValue?.updatedAt)
   if (!timestamp) return ''

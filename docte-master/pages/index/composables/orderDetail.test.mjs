@@ -99,3 +99,15 @@ test('旧工单通用附件字段按图片和视频回显且不重复', () => {
 	])
 	assert.deepEqual(detail.items[0].videos.map((item) => item.url), ['cloud://legacy-video.mp4'])
 })
+
+test('旧时间线中的拒绝报价文案对用户显示为选择不维修', () => {
+	const detail = createOrderDetailView({
+		timeline: [{
+			title: '客户已拒绝维修报价',
+			desc: '客户拒绝维修报价，设备将原路寄回。'
+		}]
+	})
+
+	assert.equal(detail.timeline[0].title, '客户已选择不维修')
+	assert.equal(detail.timeline[0].desc, '客户选择不维修，设备将原路寄回。')
+})

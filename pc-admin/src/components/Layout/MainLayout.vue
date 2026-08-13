@@ -191,7 +191,7 @@ const menuTitles = {
   finance: '财务中心（对账流水 · 开票管理）',
   settlement: '结算管理',
   logistics: '物流管理（批量导入 · 异常预警 · 台账）',
-  invoices: '开票管理（申请·开票·专票邮寄）',
+  invoices: '开票管理（申请·开票·归档）',
   faultdb: '产品分类与故障预设',
   users: '用户管理',
   settings: '小程序图文及政策配置',

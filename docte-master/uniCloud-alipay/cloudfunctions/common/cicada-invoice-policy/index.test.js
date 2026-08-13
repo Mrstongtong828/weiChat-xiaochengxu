@@ -2,10 +2,14 @@ const test = require('node:test')
 const assert = require('node:assert/strict')
 
 const {
+  INVOICE_DELIVERY_METHOD,
+  INVOICE_EXPECTED_WORKING_DAYS,
   INVOICE_ITEM_NAME,
   INVOICE_TAX_CATEGORY,
+  INVOICE_TYPE,
   getInvoiceRequestBlockReason,
-  isCorporateTransferPayment
+  isCorporateTransferPayment,
+  isInvoicePaymentMethod
 } = require('./index')
 
 test('invoice tax classification and item are fixed for repair services', () => {
@@ -13,7 +17,13 @@ test('invoice tax classification and item are fixed for repair services', () => 
   assert.equal(INVOICE_ITEM_NAME, '牙科设备检修服务费')
 })
 
-test('only corporate transfers enter the invoice workflow', () => {
+test('invoice requests use one type and one 7-15 working day service level', () => {
+  assert.equal(INVOICE_TYPE, '发票')
+  assert.equal(INVOICE_DELIVERY_METHOD, 'manual')
+  assert.equal(INVOICE_EXPECTED_WORKING_DAYS, '7-15')
+})
+
+test('corporate transfer detection remains specific to manual reconciliation', () => {
   assert.equal(isCorporateTransferPayment('offline_transfer'), true)
   assert.equal(isCorporateTransferPayment('bank_transfer'), true)
   assert.equal(isCorporateTransferPayment('wechat_pay'), false)
@@ -39,13 +49,29 @@ test('canonical completed status is accepted when a display status is also prese
   }), '')
 })
 
-test('wechat payment is excluded from the invoice workflow', () => {
+test('a completed paid WeChat order can request an invoice', () => {
   assert.equal(getInvoiceRequestBlockReason({
     status: 'completed',
     payment_method: 'wechat_pay',
     payment_status: 'paid',
     total_price: 1280
-  }), '仅对公转账订单支持申请开票')
+  }), '')
+})
+
+test('WeChat Pay and corporate transfers are supported invoice payment methods', () => {
+  assert.equal(isInvoicePaymentMethod('offline_transfer'), true)
+  assert.equal(isInvoicePaymentMethod('bank_transfer'), true)
+  assert.equal(isInvoicePaymentMethod('wechat_pay'), true)
+  assert.equal(isInvoicePaymentMethod('cash'), false)
+})
+
+test('a completed unpaid WeChat order cannot request an invoice', () => {
+  assert.equal(getInvoiceRequestBlockReason({
+    status: 'completed',
+    payment_method: 'wechat_pay',
+    payment_status: 'pending',
+    total_price: 1280
+  }), '付款完成后才能申请开票')
 })
 
 test('unfinished corporate orders cannot request an invoice', () => {

@@ -40,6 +40,10 @@ const formatTime = (value) => {
 	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+const customerFacingRepairText = (value, fallback = '') => text(value, fallback)
+	.replace(/客户已拒绝维修报价/g, '客户已选择不维修')
+	.replace(/客户拒绝维修报价/g, '客户选择不维修')
+
 const normalizeShipInfo = (value = {}) => {
 	const source = value && typeof value === 'object' ? value : {}
 	const region = Array.isArray(source.region) ? source.region.filter(Boolean).join(' ') : text(source.region)
@@ -73,8 +77,8 @@ const normalizeItem = (value = {}, index = 0) => {
 
 const normalizeTimeline = (value) => list(value).map((item = {}, index) => ({
 	id: item.id || item._id || `timeline-${index + 1}`,
-	title: text(item.title || item.statusText, '状态更新'),
-	desc: text(item.desc || item.description || item.content, '暂无补充说明'),
+	title: customerFacingRepairText(item.title || item.statusText, '状态更新'),
+	desc: customerFacingRepairText(item.desc || item.description || item.content, '暂无补充说明'),
 	time: formatTime(item.time || item.createTime || item.create_time || item.updateTime || item.update_time),
 	done: item.done !== false,
 	pending: Boolean(item.pending)

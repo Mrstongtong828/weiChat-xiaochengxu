@@ -103,7 +103,7 @@ export const moduleMap = {
 	fees: { title: '收费指南', subtitle: '文字形式展示收费办法和常见项目' },
 	'guide-quick': { title: '快速指南', subtitle: '快速了解小程序售后流程' },
 	'guide-repair': { title: '报修指南', subtitle: '了解寄修报修的完整流程' },
-	invoices: { title: '发票与开票', subtitle: '申请开票、查看进度与复制电子发票' },
+	invoices: { title: '发票与开票', subtitle: '申请开票、查看进度与复制发票信息' },
 	contact: { title: '联系我们', subtitle: '客服热线、工作时间和寄修地址' },
 	orders: { title: '维修订单', subtitle: '查看全部维修记录与处理状态' },
 	products: { title: '我的产品', subtitle: '已登记设备与保修状态' },

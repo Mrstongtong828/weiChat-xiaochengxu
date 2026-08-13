@@ -23,7 +23,7 @@
             <div class="invoice-detail-panel">
               <div class="invoice-detail-block">
                 <h4>开票资料</h4>
-                <p><span>发票类型</span><strong>{{ row.invoice_type || '电子普通发票' }}</strong></p>
+                <p><span>预计时效</span><strong>7-15 个工作日</strong></p>
                 <p><span>税收分类</span><strong>{{ row.tax_category || '修理修配劳务' }}</strong></p>
                 <p><span>发票项目</span><strong>{{ row.item_name || '牙科设备检修服务费' }}</strong></p>
                 <p><span>抬头类型</span><strong>{{ invoiceTitleTypeLabel(row.title_type) }}</strong></p>
@@ -32,26 +32,13 @@
                 <p><span>邮箱</span><strong>{{ row.email || '待填写' }}</strong></p>
                 <p><span>申请备注</span><strong>{{ row.remark || '无' }}</strong></p>
               </div>
-              <div v-if="isPaperSpecial(row)" class="invoice-detail-block">
-                <h4>纸质专票信息</h4>
-                <p><span>注册地址</span><strong>{{ row.register_address || '待填写' }}</strong></p>
-                <p><span>注册电话</span><strong>{{ row.register_phone || '待填写' }}</strong></p>
-                <p><span>开户行</span><strong>{{ row.bank_name || '待填写' }}</strong></p>
-                <p><span>银行账号</span><strong>{{ row.bank_account || '待填写' }}</strong></p>
-                <p><span>收票人</span><strong>{{ row.recipient_name || '待填写' }}</strong></p>
-                <p><span>收票手机</span><strong>{{ row.recipient_phone || '待填写' }}</strong></p>
-                <p><span>收票地址</span><strong>{{ row.recipient_address || '待填写' }}</strong></p>
-              </div>
               <div class="invoice-detail-block">
-                <h4>开具与寄送</h4>
+                <h4>开具结果</h4>
                 <p><span>发票号码</span><strong>{{ row.invoice_no || '待同步' }}</strong></p>
                 <p><span>开票日期</span><strong>{{ row.invoice_date || '待同步' }}</strong></p>
                 <p><span>开票模式</span><strong>人工开票并登记</strong></p>
                 <p><span>归档工单</span><strong>{{ row.archive_order_no || row.order_no }}</strong></p>
                 <p><span>原件归档</span><strong>{{ row.pdf_url ? '已存入项目云存储' : '未上传' }}</strong></p>
-                <p v-if="isPaperSpecial(row)"><span>专票物流</span><strong>{{ row.mail_no ? `${row.mail_company || '物流'} ${row.mail_no}` : '待寄出' }}</strong></p>
-                <p v-if="isPaperSpecial(row)"><span>寄出日期</span><strong>{{ row.mail_time || '待同步' }}</strong></p>
-                <p v-if="isPaperSpecial(row)"><span>签收日期</span><strong>{{ row.received_time || '待签收' }}</strong></p>
               </div>
             </div>
           </template>
@@ -64,11 +51,6 @@
         <el-table-column label="开票状态" width="100">
           <template #default="{ row }"><el-tag size="small" :type="statusTag(row.status)">{{ invoiceStatusLabel(row.status) }}</el-tag></template>
         </el-table-column>
-        <el-table-column label="发票类型" width="120">
-          <template #default="{ row }">
-            <el-tag size="small" :type="isPaperSpecial(row) ? 'warning' : 'info'">{{ row.invoice_type || '电子普通发票' }}</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column prop="title" label="抬头" min-width="160" show-overflow-tooltip />
         <el-table-column prop="tax_no" label="税号" min-width="150" show-overflow-tooltip />
         <el-table-column prop="invoice_no" label="发票号码" min-width="160" show-overflow-tooltip />
@@ -79,17 +61,9 @@
             <span v-else class="im-muted">未上传</span>
           </template>
         </el-table-column>
-        <el-table-column label="专票邮寄" min-width="150">
-          <template #default="{ row }">
-            <span v-if="isPaperSpecial(row) && row.mail_no">{{ row.mail_company || '物流' }} · {{ row.mail_no }}</span>
-            <span v-else-if="isPaperSpecial(row)" class="im-muted">待寄出</span>
-            <span v-else class="im-muted">电子票无需邮寄</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openIssue(row)">登记开票</el-button>
-            <el-button v-if="isPaperSpecial(row)" link type="primary" size="small" @click="openMail(row)">专票邮寄</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -98,7 +72,7 @@
       </div>
     </el-card>
 
-    <!-- 登记开票（电子票原件只归档到项目云存储，不展示外部链接） -->
+    <!-- 登记开票：原件上传项目云存储，开具后仅向对应订单客户提供小程序查看/下载 -->
     <el-dialog v-model="issueDialog" title="登记开票" width="480px">
       <el-form :model="issueForm" label-width="92px">
         <el-form-item label="工单号"><el-input v-model="issueForm.order_no" disabled /></el-form-item>
@@ -107,7 +81,7 @@
             <el-option v-for="s in STATUS_OPTIONS" :key="s" :label="invoiceStatusLabel(s)" :value="s" />
           </el-select>
         </el-form-item>
-        <el-form-item label="发票号码"><el-input v-model="issueForm.invoice_no" placeholder="电子/纸质发票号码" /></el-form-item>
+        <el-form-item label="发票号码"><el-input v-model="issueForm.invoice_no" placeholder="发票号码" /></el-form-item>
         <el-form-item label="开票日期"><el-date-picker v-model="issueForm.invoice_date" type="date" value-format="YYYY-MM-DD" placeholder="选择开票日期" style="width: 100%" /></el-form-item>
         <el-form-item label="原件归档">
           <div class="im-pdf-row">
@@ -121,27 +95,6 @@
       <template #footer>
         <el-button @click="issueDialog = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveIssue">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <!-- 专票邮寄录入 -->
-    <el-dialog v-model="mailDialog" title="专票邮寄录入" width="440px">
-      <el-form :model="mailForm" label-width="92px">
-        <el-form-item label="工单号"><el-input v-model="mailForm.order_no" disabled /></el-form-item>
-        <el-form-item label="快递公司"><el-input v-model="mailForm.mail_company" placeholder="如 顺丰速运" /></el-form-item>
-        <el-form-item label="邮寄单号"><el-input v-model="mailForm.mail_no" placeholder="纸质专票快递单号" /></el-form-item>
-        <el-form-item label="邮寄日期"><el-date-picker v-model="mailForm.mail_time" type="date" value-format="YYYY-MM-DD" placeholder="选择邮寄日期" style="width: 100%" /></el-form-item>
-        <el-form-item label="邮寄状态">
-          <el-select v-model="mailForm.status" style="width: 100%">
-            <el-option label="已寄出" value="已寄出" />
-            <el-option label="已签收" value="已签收" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="mailForm.status === '已签收'" label="签收日期"><el-date-picker v-model="mailForm.received_time" type="date" value-format="YYYY-MM-DD" placeholder="选择签收日期" style="width: 100%" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="mailDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveMail">保存</el-button>
       </template>
     </el-dialog>
 
@@ -177,17 +130,15 @@ import { downloadInvoiceTemplate, parseInvoiceExcelFile } from '../utils/invoice
 
 const getToken = () => localStorage.getItem('adminToken')
 const route = useRoute()
-const STATUS_OPTIONS = ['待开票', '开具中', '已开具', '已寄出', '已签收', '无需开票']
+const STATUS_OPTIONS = ['待开票', '开具中', '已开具', '无需开票']
 const INVOICE_STATUS_LABELS = {
   待开票: '资料审核中',
   开具中: '开票中',
   已开具: '已开票',
-  已寄出: '已寄出',
-  已签收: '已签收',
   无需开票: '不可开票'
 }
 const invoiceStatusLabel = (s) => INVOICE_STATUS_LABELS[s] || s || '待同步'
-const statusTag = (s) => ({ '待开票': 'warning', '开具中': 'primary', '已开具': 'success', '已寄出': 'primary', '已签收': 'success', '无需开票': 'info' }[s] || 'info')
+const statusTag = (s) => ({ '待开票': 'warning', '开具中': 'primary', '已开具': 'success', '无需开票': 'info' }[s] || 'info')
 
 const rows = ref([])
 const loading = ref(false)
@@ -196,7 +147,6 @@ const page = ref(1)
 const pageSize = ref(20)
 const filters = reactive({ keyword: '', status: '' })
 const saving = ref(false)
-const isPaperSpecial = (row = {}) => row.invoice_type === '纸质专用发票'
 const invoiceTitleTypeLabel = (type = '') => ({ company: '企业抬头', personal: '个人抬头' }[type] || type || '待填写')
 
 const load = async () => {
@@ -224,8 +174,9 @@ const issueForm = reactive({ _id: '', order_no: '', status: '已开具', invoice
 const issuePdfName = ref('')
 const uploadingPdf = ref(false)
 const openIssue = (row) => {
+  const editableStatus = ['已寄出', '已签收'].includes(row.status) ? '已开具' : row.status
   Object.assign(issueForm, {
-    _id: row._id, order_no: row.order_no, status: row.status === '无需开票' ? '已开具' : row.status,
+    _id: row._id, order_no: row.order_no, status: editableStatus === '无需开票' ? '已开具' : editableStatus,
     invoice_no: row.invoice_no || '', invoice_date: row.invoice_date || '', pdf_url: row.pdf_url || ''
   })
   issuePdfName.value = row.pdf_url ? '已保存云存储原件' : ''
@@ -235,7 +186,7 @@ const onPickPdf = async (uploadFile) => {
   const raw = uploadFile && uploadFile.raw
   if (!raw) return
   if (raw.type !== 'application/pdf' || !/\.pdf$/i.test(raw.name || '')) {
-    ElMessage.warning('电子发票原件仅支持 PDF 文件')
+    ElMessage.warning('发票原件仅支持 PDF 文件')
     return
   }
   uploadingPdf.value = true
@@ -244,7 +195,7 @@ const onPickPdf = async (uploadFile) => {
     const { fileUrl } = await uploadFileToCloud(raw, `invoice/${orderKey}/`, 20 * 1024 * 1024)
     issueForm.pdf_url = fileUrl
     issuePdfName.value = raw.name
-    ElMessage.success('电子发票原件已上传到云存储')
+    ElMessage.success('发票原件已上传到云存储')
   } catch (e) {
     ElMessage.error(e.message || 'PDF上传失败')
   } finally {
@@ -259,34 +210,6 @@ const saveIssue = async () => {
     })
     ElMessage.success('已保存开票登记')
     issueDialog.value = false
-    load()
-  } catch (e) {
-    ElMessage.error(e.message || '保存失败')
-  } finally {
-    saving.value = false
-  }
-}
-
-// ===== 专票邮寄 =====
-const mailDialog = ref(false)
-const mailForm = reactive({ _id: '', order_no: '', status: '已寄出', mail_company: '', mail_no: '', mail_time: '', received_time: '' })
-const openMail = (row) => {
-  if (!isPaperSpecial(row)) {
-    ElMessage.warning('电子普通发票无需登记邮寄物流')
-    return
-  }
-  Object.assign(mailForm, { _id: row._id, order_no: row.order_no, status: row.status === '已签收' ? '已签收' : '已寄出', mail_company: row.mail_company || '', mail_no: row.mail_no || '', mail_time: row.mail_time || '', received_time: row.received_time || '' })
-  mailDialog.value = true
-}
-const saveMail = async () => {
-  if (!mailForm.mail_no) { ElMessage.warning('请填写邮寄单号'); return }
-  saving.value = true
-  try {
-    await updateInvoiceStatus(getToken(), mailForm._id, mailForm.status === '已签收' ? '已签收' : '已寄出', {
-      mail_company: mailForm.mail_company, mail_no: mailForm.mail_no, mail_time: mailForm.mail_time, received_time: mailForm.received_time
-    })
-    ElMessage.success('已登记专票邮寄')
-    mailDialog.value = false
     load()
   } catch (e) {
     ElMessage.error(e.message || '保存失败')

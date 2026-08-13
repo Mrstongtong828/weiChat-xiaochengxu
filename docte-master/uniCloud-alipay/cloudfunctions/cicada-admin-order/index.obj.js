@@ -12,7 +12,14 @@ const {
   getPaymentConfirmationStatusUpdate,
   resolveManualPaymentMethod
 } = require('./payment-confirmation-policy')
-const { getInvoiceRequestBlockReason, INVOICE_ITEM_NAME, INVOICE_TAX_CATEGORY } = loadInvoicePolicyModule()
+const {
+  getInvoiceRequestBlockReason,
+  INVOICE_DELIVERY_METHOD,
+  INVOICE_EXPECTED_WORKING_DAYS,
+  INVOICE_ITEM_NAME,
+  INVOICE_TAX_CATEGORY,
+  INVOICE_TYPE
+} = loadInvoicePolicyModule()
 const warrantyPolicy = loadWarrantyPolicyModule()
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
@@ -1549,7 +1556,7 @@ async function findOrderByNo(orderNo) {
   }
 }
 
-const INVOICE_STATUS = ['无需开票', '待开票', '开具中', '已开具', '已寄出', '已签收']
+const INVOICE_STATUS = ['无需开票', '待开票', '开具中', '已开具']
 const QUOTE_STATUS = ['pending', 'draft', 'issued', 'confirmed', 'rejected']
 const PAYMENT_STATUS = ['pending', 'uploaded', 'paid', 'rejected', 'not_required']
 const DEFAULT_PAYMENT_DEADLINE_DAYS = 7
@@ -4120,49 +4127,37 @@ module.exports = {
         if (invoiceBlockReason) return { code: -1, msg: invoiceBlockReason }
       }
       const oldInvoice = order.invoice_info || {}
-      const nextInvoiceType = normalizeText(invoice.invoice_type || invoice.invoiceType) || oldInvoice.invoice_type || '电子普通发票'
+      const legacyMailStatus = ['已寄出', '已签收'].includes(normalizeText(oldInvoice.status))
       const requestedFulfillmentMode = normalizeText(invoice.fulfillment_mode || invoice.fulfillmentMode)
       if (requestedFulfillmentMode && requestedFulfillmentMode !== 'manual') return { code: -1, msg: '当前仅支持财务人工开票并登记' }
       const nextFulfillmentMode = 'manual'
-      const nextDeliveryMethod = nextInvoiceType === '纸质专用发票' ? 'postal' : 'electronic'
       const nextMailCompany = normalizeText(invoice.mail_company || invoice.mailCompany)
       const nextMailNo = normalizeText(invoice.mail_no || invoice.mailNo)
       const nextMailTime = normalizeText(invoice.mail_time || invoice.mailTime)
       const nextReceivedTime = normalizeText(invoice.received_time || invoice.receivedTime)
-      const resolvedMailCompany = nextMailCompany || oldInvoice.mail_company || ''
-      const resolvedMailNo = nextMailNo || oldInvoice.mail_no || ''
-      const resolvedMailTime = nextMailTime || oldInvoice.mail_time || ''
-      if (nextInvoiceType !== '纸质专用发票' && (nextMailCompany || nextMailNo || nextMailTime || nextReceivedTime)) {
-        return { code: -1, msg: '电子普通发票无需登记邮寄物流' }
-      }
-      if (nextInvoiceType !== '纸质专用发票' && ['已寄出', '已签收'].includes(nextStatus)) {
-        return { code: -1, msg: '电子普通发票无需使用邮寄状态' }
+      if (nextMailCompany || nextMailNo || nextMailTime || nextReceivedTime) {
+        return { code: -1, msg: '当前发票流程不登记邮寄物流' }
       }
       const nextInvoiceUrl = normalizeText(invoice.invoice_url || invoice.file_url || invoice.fileUrl || invoice.url) || oldInvoice.invoice_url || oldInvoice.file_url || ''
       const nextPdfUrl = normalizeText(invoice.pdf_url || invoice.pdfUrl || invoice.invoice_file_id || invoice.invoiceFileId) || oldInvoice.pdf_url || nextInvoiceUrl
       const nextInvoiceNo = normalizeText(invoice.invoice_no || invoice.invoiceNo) || oldInvoice.invoice_no || ''
       const nextInvoiceDate = normalizeText(invoice.invoice_date || invoice.invoiceDate) || oldInvoice.invoice_date || ''
-      if (['已开具', '已寄出', '已签收'].includes(nextStatus) && (!nextInvoiceNo || !nextInvoiceDate)) {
+      if (nextStatus === '已开具' && (!nextInvoiceNo || !nextInvoiceDate)) {
         return { code: -1, msg: '标记已开票前必须填写发票号码和开票日期' }
       }
       const invoiceNumberConflict = await findInvoiceNumberConflict(nextInvoiceNo, order_id)
       if (invoiceNumberConflict) {
         return { code: -1, msg: `发票号码已绑定工单 ${invoiceNumberConflict.order_no || invoiceNumberConflict._id}` }
       }
-      if (nextInvoiceType === '纸质专用发票' && ['已寄出', '已签收'].includes(nextStatus) && (!resolvedMailCompany || !resolvedMailNo)) {
-        return { code: -1, msg: '标记已寄出前必须填写快递公司和快递单号' }
-      }
-      const archiveStatus = nextStatus === '已签收' || (nextDeliveryMethod === 'electronic' && nextStatus === '已开具')
-        ? 'archived'
-        : (nextStatus === '已寄出' ? 'in_transit' : (nextStatus === '已开具' ? 'pending_delivery' : 'pending'))
+      const archiveStatus = nextStatus === '已开具' ? 'archived' : 'pending'
       const invoiceInfo = {
         ...oldInvoice,
         need_invoice: nextStatus !== '无需开票',
         status: nextStatus,
-        invoice_type: nextInvoiceType,
+        invoice_type: legacyMailStatus ? (oldInvoice.invoice_type || INVOICE_TYPE) : INVOICE_TYPE,
         tax_category: INVOICE_TAX_CATEGORY,
         item_name: INVOICE_ITEM_NAME,
-        delivery_method: nextDeliveryMethod,
+        delivery_method: legacyMailStatus ? (oldInvoice.delivery_method || 'postal') : INVOICE_DELIVERY_METHOD,
         fulfillment_mode: nextFulfillmentMode,
         issued_channel: nextFulfillmentMode,
         archive_status: archiveStatus,
@@ -4170,7 +4165,7 @@ module.exports = {
         archive_order_no: order.order_no || '',
         service_completed_time: oldInvoice.service_completed_time || order.completed_time || order.complete_time || order.update_time || now,
         settlement_time: oldInvoice.settlement_time || order.payment_paid_time || order.update_time || now,
-        expected_delivery_days: nextDeliveryMethod === 'postal' ? '7-15' : '1-3',
+        expected_delivery_days: INVOICE_EXPECTED_WORKING_DAYS,
         title_type: normalizeText(invoice.title_type || invoice.titleType) || oldInvoice.title_type || 'company',
         title: normalizeText(invoice.title) || oldInvoice.title || '',
         tax_no: normalizeText(invoice.tax_no || invoice.taxNo) || oldInvoice.tax_no || '',
@@ -4188,11 +4183,10 @@ module.exports = {
         invoice_file_id: nextPdfUrl && !/^https?:\/\//i.test(nextPdfUrl) ? nextPdfUrl : (oldInvoice.invoice_file_id || ''),
         invoice_no: nextInvoiceNo,
         invoice_date: nextInvoiceDate,
-        // 专票（纸质）邮寄信息：增值税专用发票需邮寄纸质件，登记物流便于客户跟踪与对账
-        mail_company: nextDeliveryMethod === 'postal' ? resolvedMailCompany : '',
-        mail_no: nextDeliveryMethod === 'postal' ? resolvedMailNo : '',
-        mail_time: nextDeliveryMethod === 'postal' ? resolvedMailTime : '',
-        received_time: nextStatus === '已签收' ? (nextReceivedTime || oldInvoice.received_time || now) : (nextReceivedTime || oldInvoice.received_time || ''),
+        mail_company: legacyMailStatus ? (oldInvoice.mail_company || '') : '',
+        mail_no: legacyMailStatus ? (oldInvoice.mail_no || '') : '',
+        mail_time: legacyMailStatus ? (oldInvoice.mail_time || '') : '',
+        received_time: legacyMailStatus ? (oldInvoice.received_time || '') : '',
         update_time: now
       }
       if (nextStatus === '已开具') invoiceInfo.issued_time = oldInvoice.issued_time || now
@@ -4202,30 +4196,10 @@ module.exports = {
       const nextTimeline = [...timeline]
       // 首次置为「已开具」时补一条时间线，客户端进度可见
       if (nextStatus === '已开具' && oldInvoice.status !== '已开具') {
-        const title = nextInvoiceType === '纸质专用发票' ? '纸质发票已开具' : '电子发票已开具'
-        const desc = nextInvoiceType === '纸质专用发票'
-          ? '纸质专票已开具，待财务登记寄送物流。'
-          : `发票号码：${invoiceInfo.invoice_no}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}`
         nextTimeline.push({
-          title,
-          desc,
+          title: '发票已开具',
+          desc: `发票号码：${invoiceInfo.invoice_no}；项目：${INVOICE_TAX_CATEGORY} / ${INVOICE_ITEM_NAME}`,
           time: now,
-          done: true
-        })
-      }
-      if (nextInvoiceType === '纸质专用发票' && nextStatus === '已寄出' && oldInvoice.status !== '已寄出') {
-        nextTimeline.push({
-          title: '纸质发票寄出',
-          desc: `${invoiceInfo.mail_company || '物流'} ${invoiceInfo.mail_no || '单号待录入'}`.trim(),
-          time: invoiceInfo.mail_time || now,
-          done: true
-        })
-      }
-      if (nextInvoiceType === '纸质专用发票' && nextStatus === '已签收' && oldInvoice.status !== '已签收') {
-        nextTimeline.push({
-          title: '纸质发票已签收',
-          desc: '发票物流已签收，请交由财务归档。',
-          time: invoiceInfo.received_time || now,
           done: true
         })
       }
@@ -5291,7 +5265,7 @@ module.exports = {
             customer: normalizeText(back.unit || back.name || ''),
             total_price: Number(o.total_price || 0),
             status: inv.status || (inv.need_invoice ? '待开票' : '无需开票'),
-            invoice_type: normalizeText(inv.invoice_type || ''),
+            invoice_type: normalizeText(inv.invoice_type || INVOICE_TYPE),
             tax_category: normalizeText(inv.tax_category || INVOICE_TAX_CATEGORY),
             item_name: normalizeText(inv.item_name || INVOICE_ITEM_NAME),
             delivery_method: normalizeText(inv.delivery_method || ''),
@@ -5353,7 +5327,10 @@ module.exports = {
         const invoiceUrl = normalizeText(raw.invoice_url || raw.invoiceUrl || raw['发票链接'])
         const statusIn = normalizeInvoiceStatusValue(normalizeText(raw.status || raw['开票状态']) || (invoiceNo ? '已开具' : '开具中'))
         if (!invoiceNo && !invoiceUrl) { summary.fail += 1; summary.errors.push({ orderNo, reason: '缺少发票号码或发票链接' }); continue }
-        if (['已开具', '已寄出', '已签收'].includes(statusIn) && (!invoiceNo || !invoiceDate)) {
+        if (!INVOICE_STATUS.includes(statusIn)) {
+          summary.fail += 1; summary.errors.push({ orderNo, reason: '发票状态不正确' }); continue
+        }
+        if (statusIn === '已开具' && (!invoiceNo || !invoiceDate)) {
           summary.fail += 1; summary.errors.push({ orderNo, reason: '已开票记录必须填写发票号码和开票日期' }); continue
         }
         const order = await findOrderByNo(orderNo)
@@ -5368,23 +5345,30 @@ module.exports = {
         const invoiceBlockReason = getInvoiceRequestBlockReason(order)
         if (invoiceBlockReason) { summary.fail += 1; summary.errors.push({ orderNo, reason: invoiceBlockReason }); continue }
         const oldInvoice = order.invoice_info || {}
+        const legacyMailStatus = ['已寄出', '已签收'].includes(normalizeText(oldInvoice.status))
         const invoiceInfo = {
           ...oldInvoice,
           need_invoice: true,
           status: statusIn,
+          invoice_type: legacyMailStatus ? (oldInvoice.invoice_type || INVOICE_TYPE) : INVOICE_TYPE,
           tax_category: INVOICE_TAX_CATEGORY,
           item_name: INVOICE_ITEM_NAME,
-          delivery_method: oldInvoice.delivery_method || (oldInvoice.invoice_type === '纸质专用发票' ? 'postal' : 'electronic'),
+          delivery_method: legacyMailStatus ? (oldInvoice.delivery_method || 'postal') : INVOICE_DELIVERY_METHOD,
           fulfillment_mode: 'manual',
           issued_channel: 'manual',
-          archive_status: statusIn === '已签收' || (oldInvoice.invoice_type !== '纸质专用发票' && statusIn === '已开具') ? 'archived' : (oldInvoice.archive_status || 'pending'),
+          archive_status: statusIn === '已开具' ? 'archived' : 'pending',
           archive_order_id: order._id,
           archive_order_no: order.order_no || '',
           service_completed_time: oldInvoice.service_completed_time || order.completed_time || order.complete_time || order.update_time || now,
           settlement_time: oldInvoice.settlement_time || order.payment_paid_time || order.update_time || now,
+          expected_delivery_days: INVOICE_EXPECTED_WORKING_DAYS,
           invoice_no: invoiceNo || oldInvoice.invoice_no || '',
           invoice_date: invoiceDate || oldInvoice.invoice_date || '',
           invoice_url: invoiceUrl || oldInvoice.invoice_url || '',
+          mail_company: legacyMailStatus ? (oldInvoice.mail_company || '') : '',
+          mail_no: legacyMailStatus ? (oldInvoice.mail_no || '') : '',
+          mail_time: legacyMailStatus ? (oldInvoice.mail_time || '') : '',
+          received_time: legacyMailStatus ? (oldInvoice.received_time || '') : '',
           update_time: now
         }
         if (statusIn === '已开具') invoiceInfo.issued_time = oldInvoice.issued_time || now

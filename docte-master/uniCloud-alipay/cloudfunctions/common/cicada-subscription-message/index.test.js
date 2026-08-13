@@ -104,22 +104,23 @@ test('does not claim an invoice is issued before the invoice status confirms it'
   }, 'order_completed', '维修已完成')
 
   assert.doesNotMatch(completed.thing4.value, /已开具/)
-  assert.match(completed.thing4.value, /开具后/)
+  assert.match(completed.thing4.value, /预计7-15个工作日/)
   assert.ok(completed.thing4.value.length <= 20)
 })
 
-test('completed WeChat Pay orders never prompt the customer to request or download an invoice', () => {
+test('completed paid WeChat Pay orders can prompt the customer to request an invoice', () => {
   const completed = buildSubscriptionData({
     ...order,
+    status: 'completed',
     payment_method: 'wechat_pay',
+    payment_status: 'paid',
     invoice_info: {}
   }, 'order_completed', '维修已完成')
 
-  assert.match(completed.thing4.value, /微信支付订单不提供发票/)
-  assert.doesNotMatch(completed.thing4.value, /申请|下载/)
+  assert.match(completed.thing4.value, /如需发票.*申请/)
 })
 
-test('stale invoice state cannot make an ineligible order promise invoice delivery', () => {
+test('eligible WeChat invoice state uses the same processing hint as corporate transfers', () => {
   const wechat = buildSubscriptionData({
     ...order,
     status: 'completed',
@@ -135,8 +136,7 @@ test('stale invoice state cannot make an ineligible order promise invoice delive
     invoice_info: { need_invoice: true, status: '待开票' }
   }, 'order_completed', '维修已完成')
 
-  assert.match(wechat.thing4.value, /微信支付订单不提供发票/)
-  assert.doesNotMatch(wechat.thing4.value, /开具后/)
+  assert.match(wechat.thing4.value, /预计7-15个工作日/)
   assert.match(unreconciled.thing4.value, /款项核销后可申请发票/)
-  assert.doesNotMatch(unreconciled.thing4.value, /开具后/)
+  assert.doesNotMatch(unreconciled.thing4.value, /预计7-15个工作日/)
 })
