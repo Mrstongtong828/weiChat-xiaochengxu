@@ -236,7 +236,7 @@ export const getUserInfo = () => Promise.resolve(uni.getStorageSync('userInfo') 
 
 export const uploadImage = (filePath) => uploadToCloud(filePath, 'repair/images', 'jpg')
 
-export const uploadVideo = (filePath) => uploadToCloud(filePath, 'repair/videos', 'mp4')
+export const uploadVideo = (filePath, options = {}) => uploadToCloud(filePath, 'repair/videos', 'mp4', options)
 
 export const uploadFeedbackImage = (filePath) => uploadToCloud(filePath, 'feedback/images', 'jpg')
 

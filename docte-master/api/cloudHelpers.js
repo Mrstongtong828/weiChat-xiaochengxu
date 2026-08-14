@@ -37,11 +37,14 @@ export const buildCloudPath = (filePath, dir = 'uploads', fallbackExt = 'jpg') =
   return `${dir}/${Date.now()}_${suffix}.${ext}`
 }
 
-export const uploadToCloud = (filePath, dir = 'uploads', fallbackExt = 'jpg') => new Promise((resolve, reject) => {
-  uniCloud.uploadFile({
+export const uploadToCloud = (filePath, dir = 'uploads', fallbackExt = 'jpg', options = {}) => new Promise((resolve, reject) => {
+  const uploadTask = uniCloud.uploadFile({
     filePath,
     cloudPath: buildCloudPath(filePath, dir, fallbackExt),
     success: (res) => resolve({ url: res.fileID, fileID: res.fileID }),
     fail: reject
   })
+  if (typeof options.onProgress === 'function' && typeof uploadTask?.onProgressUpdate === 'function') {
+    uploadTask.onProgressUpdate(options.onProgress)
+  }
 })

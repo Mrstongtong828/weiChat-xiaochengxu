@@ -144,12 +144,14 @@
 										<image v-if="media.type === 'image'" class="media-image" :src="getPreviewUrl(media)" mode="aspectFill"></image>
 										<view v-else class="media-video">
 											<image v-if="media.coverPath" class="media-image" :src="media.coverPath" mode="aspectFill"></image>
-											<view class="media-video-overlay">
+											<video v-else class="media-video-cover" :src="media.path" :controls="false" :show-center-play-btn="false" :show-play-btn="false" :enable-progress-gesture="false" :muted="true" object-fit="cover"></video>
+											<view class="media-video-overlay" :class="{ uploading: media.uploading }">
 												<view class="glyph glyph-cam"><view class="glyph-extra"></view></view>
-												<text>视频</text>
+												<text>{{ media.uploading ? media.uploadLabel : '视频' }}</text>
+												<view v-if="media.uploading" class="media-upload-progress"><view :style="{ width: `${media.progress || 0}%` }"></view></view>
 											</view>
 										</view>
-										<view class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
+										<view v-if="!media.uploading" class="media-remove tap" @click.stop="removeRepairMedia(index, media.id)">×</view>
 									</view>
 									<view v-if="product.media.length < 3" class="media-add tap" @click="uploadRepairImage(index)">
 										<text>+</text>
@@ -1990,6 +1992,7 @@ import {
 	canRejectRepairQuote,
 	canUploadPaymentProofForOrder,
 	compressForUpload,
+	compressVideoForUpload,
 	getCloudFileId,
 	getPreviewUrl,
 	getUploadedUrl,
@@ -5247,9 +5250,13 @@ const persistRepairDraft = () => {
 	try {
 		const key = getPrivateStorageKey(repairDraftKey)
 		if (!key) return false
+		const draftProducts = repairProducts.value.map((product) => ({
+			...product,
+			media: product.media.filter((media) => !media.uploading)
+		}))
 		uni.setStorageSync(key, {
 			repairForm: repairForm.value,
-			repairProducts: repairProducts.value,
+			repairProducts: draftProducts,
 			trackingLater: trackingLater.value,
 			updateTime: Date.now()
 		})
@@ -5598,7 +5605,7 @@ const uploadRepairVideo = async (index) => {
 	const product = repairProducts.value[index]
 	if (!product || product.media.length >= 3) return
 
-	let loadingShown = false
+	let pendingId = ''
 	try {
 		const chooseRes = await chooseVideoWithPrivacy({
 			sourceType: ['album', 'camera'],
@@ -5611,35 +5618,60 @@ const uploadRepairVideo = async (index) => {
 			return
 		}
 
-		uni.showLoading({ title: '上传中' })
-		loadingShown = true
-		const coverPath = chooseRes.thumbTempFilePath || await getVideoCoverPath(chooseRes.tempFilePath)
-		const uploadRes = await uploadVideo(chooseRes.tempFilePath)
 		repairMediaSeed += 1
-		product.media.push({
-			id: `vid-${repairMediaSeed}`,
+		pendingId = `vid-${repairMediaSeed}`
+		const pendingMedia = {
+			id: pendingId,
 			type: 'video',
 			path: chooseRes.tempFilePath,
-			coverPath,
-			fileID: normalizeUploadFileId(uploadRes),
-			url: normalizeUploadUrl(uploadRes, chooseRes.tempFilePath),
+			coverPath: chooseRes.thumbTempFilePath || '',
+			uploading: true,
+			uploadLabel: '压缩中',
+			progress: 0,
 			duration: chooseRes.duration,
 			size: chooseRes.size
+		}
+		product.media.push(pendingMedia)
+
+		const coverPromise = pendingMedia.coverPath
+			? Promise.resolve(pendingMedia.coverPath)
+			: getVideoCoverPath(chooseRes.tempFilePath)
+		const compressed = await compressVideoForUpload(chooseRes)
+		pendingMedia.uploadLabel = '上传 0%'
+		const [coverPath, uploadRes] = await Promise.all([
+			coverPromise,
+			uploadVideo(compressed.path, {
+				onProgress: ({ progress = 0 } = {}) => {
+					const normalized = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)))
+					pendingMedia.progress = normalized
+					pendingMedia.uploadLabel = `上传 ${normalized}%`
+				}
+			})
+		])
+		Object.assign(pendingMedia, {
+			path: compressed.path,
+			coverPath,
+			fileID: normalizeUploadFileId(uploadRes),
+			url: normalizeUploadUrl(uploadRes, compressed.path),
+			size: compressed.size || chooseRes.size,
+			uploading: false,
+			uploadLabel: '',
+			progress: 100
 		})
-		uni.hideLoading()
-		loadingShown = false
 	} catch (error) {
 		if (isPickerCancel(error)) return
+		if (pendingId) {
+			product.media = product.media.filter((item) => item.id !== pendingId)
+		}
 		console.warn('upload video fallback:', error)
 		uni.showToast({ title: isWechatPrivacyError(error) ? getWechatPrivacyPickerMessage(error) : '视频上传失败', icon: 'none' })
-	} finally {
-		if (loadingShown) uni.hideLoading()
 	}
 }
 
 const previewRepairMedia = (productIndex, media = {}) => {
 	const product = repairProducts.value[productIndex]
 	if (!product) return
+	if (media.uploading) return
 
 	const url = getPreviewUrl(media)
 	if (!url) {
@@ -5691,8 +5723,8 @@ const removeRepairMedia = (productIndex, mediaId) => {
 }
 
 const splitRepairMedia = (media = []) => ({
-	images: media.filter((item) => item.type === 'image').map(getUploadedUrl).filter(Boolean),
-	videos: media.filter((item) => item.type === 'video').map(getUploadedUrl).filter(Boolean)
+	images: media.filter((item) => item.type === 'image' && !item.uploading).map(getUploadedUrl).filter(Boolean),
+	videos: media.filter((item) => item.type === 'video' && !item.uploading).map(getUploadedUrl).filter(Boolean)
 })
 
 const buildRepairPayload = () => {
@@ -5955,6 +5987,11 @@ const scanSn = async (index) => {
 }
 
 const validateRepairForm = () => {
+	if (repairProducts.value.some((product) => product.media.some((media) => media.uploading))) {
+		openRepairSection('products')
+		uni.showToast({ title: '视频正在上传，请稍后提交', icon: 'none' })
+		return false
+	}
 	if (!customerTypeOptions.some((item) => item.value === repairForm.value.customerType)) {
 		openRepairSection('user')
 		uni.showToast({ title: '请选择用户类型', icon: 'none' })
@@ -6594,14 +6631,35 @@ const chooseVideoWithPrivacy = async (options = {}) => {
 	if (!(await ensureWechatPrivacyForAction())) {
 		throw new Error('privacy authorization required')
 	}
+	const pickVideo = async () => {
+		if (typeof uni.chooseMedia === 'function') {
+			const result = await uni.chooseMedia({
+				count: 1,
+				mediaType: ['video'],
+				sourceType: options.sourceType || ['album', 'camera'],
+				maxDuration: options.maxDuration || 60,
+				sizeType: ['compressed']
+			})
+			const file = result?.tempFiles?.[0] || {}
+			return {
+				tempFilePath: file.tempFilePath || '',
+				thumbTempFilePath: file.thumbTempFilePath || '',
+				duration: file.duration,
+				size: file.size,
+				width: file.width,
+				height: file.height
+			}
+		}
+		return uni.chooseVideo(options)
+	}
 	try {
-		return await uni.chooseVideo(options)
+		return await pickVideo()
 	} catch (error) {
 		if (!isWechatPrivacyError(error)) throw error
 		if (isWechatPrivacyScopeUndeclared(error)) throw error
 		resetWechatPrivacyReady()
 		if (!(await ensureWechatPrivacyForAction())) throw error
-		return await uni.chooseVideo(options)
+		return await pickVideo()
 	}
 }
 
@@ -10697,6 +10755,12 @@ onUnmounted(() => {
 	color: #1E6FE0;
 }
 
+.media-video-cover {
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
+
 .media-video-overlay {
 	position: absolute;
 	inset: 0;
@@ -10705,8 +10769,27 @@ onUnmounted(() => {
 	align-items: center;
 	justify-content: center;
 	gap: 8rpx;
-	background: rgba(15, 31, 58, 0.24);
+	background: rgba(15, 31, 58, 0.12);
 	color: #FFFFFF;
+}
+
+.media-video-overlay.uploading {
+	background: rgba(15, 31, 58, 0.64);
+}
+
+.media-upload-progress {
+	width: 104rpx;
+	height: 8rpx;
+	border-radius: 4rpx;
+	overflow: hidden;
+	background: rgba(255, 255, 255, 0.32);
+}
+
+.media-upload-progress view {
+	height: 100%;
+	border-radius: inherit;
+	background: #FFFFFF;
+	transition: width 0.2s ease;
 }
 
 .media-remove {

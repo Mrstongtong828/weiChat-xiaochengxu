@@ -6,6 +6,7 @@ import {
   parsePrintConfig,
   parsePrintTemplates
 } from '../src/utils/orderPrint.js'
+import { transformOrder } from '../src/utils/orderTransform.js'
 
 const order = {
   id: 'SH20260074',
@@ -36,8 +37,33 @@ const order = {
     services_total: 200,
     others_total: 0,
     final_price: 580
+  },
+  logisticsNo: 'SF1464395505986',
+  returnNo: 'SF1464395506001',
+  shippedAt: '2026-06-03',
+  supplier: '思科达医疗器械',
+  freight: 20,
+  repairRecord: {
+    parts: [{ name: '机芯组件', model: 'T-Fine-II', quantity: 1 }]
+  },
+  receivedParts: [{ name: 'Calibration tool', quantity: 3, remark: 'Packed with device' }],
+  receivedPartPhotos: [{ url: 'data:image/png;base64,dGVzdA==' }],
+  receivedPartsReceipt: {
+    status: 'confirmed',
+    confirmed_at: '2026-08-14 14:46:49',
+    confirmed_by_name: 'System Admin'
   }
 }
+
+const customerSubmittedOrder = transformOrder({
+  order_no: 'DR202608131551501EE65BD7',
+  itemsList: [{
+    product_name: '牙胶尖切断器',
+    product_model: 'CV-Fill-P1',
+    sn: 'SN-CUSTOMER-0813',
+    fault_desc: '不发热，换了针没用'
+  }]
+})
 
 const templates = parsePrintTemplates(JSON.stringify({
   quote: { paperSize: 'A5' }
@@ -62,9 +88,25 @@ assert.match(repairHtml, /售后维修单/)
 assert.match(repairHtml, /维修措施/)
 assert.match(repairHtml, /更换机芯、充电顶针/)
 assert.match(repairHtml, /20E19 246/)
+assert.match(repairHtml, /received-part-print-group/)
+assert.match(repairHtml, /Calibration tool/)
+assert.match(repairHtml, /Packed with device/)
+assert.match(repairHtml, /System Admin/)
+assert.match(repairHtml, /data:image\/png;base64,dGVzdA==/)
 assert.match(repairHtml, /维修完成日期/)
+assert.match(repairHtml, /快递单号/)
+assert.match(repairHtml, /SF1464395505986/)
+assert.match(repairHtml, /寄出快递单号/)
+assert.match(repairHtml, /运费（手填）/)
+assert.match(repairHtml, /供货商（手填）/)
+assert.match(repairHtml, /配件明细（手填）/)
+assert.doesNotMatch(repairHtml, /思科达医疗器械/)
+assert.doesNotMatch(repairHtml, /¥20\.00/)
 assert.doesNotMatch(repairHtml, /2026年6月2日/, '维修单完工日期应留空，由工程师手写')
 assert.doesNotMatch(repairHtml, /2026年8月1日/, '维修单不应把更新时间当成完工日期')
+
+const customerSubmittedHtml = buildPrintHtml([customerSubmittedOrder], repairTemplate, 'repair_order')
+assert.match(customerSubmittedHtml, /SN-CUSTOMER-0813/, '客户填写的产品序列号应显示在维修单批号列')
 
 repairTemplate.fields.find(item => item.key === 'batchNo').visible = false
 repairTemplate.fields.push({
@@ -91,6 +133,19 @@ repairHtml = buildPrintHtml([order], repairTemplate, 'repair_order')
 assert.doesNotMatch(repairHtml, /批号/)
 assert.match(repairHtml, /质检结果/)
 assert.match(repairHtml, /功能正常/)
+
+const inspectionTemplate = defaultPrintTemplate('inspection_report')
+const inspectionHtml = buildPrintHtml([order], inspectionTemplate, 'inspection_report')
+assert.match(inspectionHtml, /售后服务检测报告单/)
+assert.match(inspectionHtml, /更换配件清单/)
+assert.match(inspectionHtml, /收货单号/)
+assert.match(inspectionHtml, /机芯组件/)
+assert.match(inspectionHtml, /单价（手填）/)
+assert.match(inspectionHtml, /金额（手填）/)
+assert.match(inspectionHtml, /合计金额（手填）/)
+assert.doesNotMatch(inspectionHtml, /¥380\.00/)
+assert.match(inspectionHtml, /售后部/)
+assert.match(inspectionHtml, /审批/)
 
 const settlementHtml = buildPrintHtml([order], defaultPrintTemplate('settlement'), 'settlement')
 assert.match(settlementHtml, /待财务审核/)

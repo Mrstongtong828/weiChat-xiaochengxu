@@ -22,7 +22,8 @@ const normalizeCompanyName = (value = '') => String(value || '')
   .slice(0, 80)
 
 const DOC_META = [
-  { key: 'repair_order', label: '维修单', title: '售后维修单', orientation: 'landscape' },
+  { key: 'repair_order', label: '售后维修单', title: '售后维修单', orientation: 'landscape' },
+  { key: 'inspection_report', label: '检测报告单', title: '售后服务检测报告单', orientation: 'landscape' },
   { key: 'quote', label: '报价单', title: '维修报价单', orientation: 'portrait' },
   { key: 'settlement', label: '结算单', title: '维修结算单', orientation: 'portrait' },
   { key: 'parts_outbound', label: '配件出库单', title: '配件出库单', orientation: 'portrait', configurable: false }
@@ -42,27 +43,53 @@ const field = (key, label, group, options = {}) => ({
 const FIELD_DEFINITIONS = {
   repair_order: [
     field('receivedAt', '收货日期', 'meta'),
-    field('orderNo', '维修单号', 'meta'),
+    field('orderNo', '维修单号', 'meta', { visible: false }),
+    field('logisticsNo', '快递单号', 'meta'),
+    field('freight', '运费（手填）', 'meta'),
     field('customerName', '客户名称', 'meta'),
-    field('complaintCode', '投诉编码', 'meta'),
+    field('supplier', '供货商（手填）', 'meta'),
+    field('address', '客户名称/地址', 'meta'),
+    field('complaintCode', '投诉编码', 'meta', { visible: false }),
     field('phone', '联系电话', 'meta', { visible: false }),
-    field('address', '联系地址', 'meta', { visible: false }),
     field('sequence', '序列号', 'item', { width: 6 }),
     field('productName', '产品名称', 'item', { width: 10 }),
-    field('productModel', '型号规格', 'item', { width: 9 }),
-    field('unit', '单位', 'item', { width: 5 }),
-    field('quantity', '数量', 'item', { width: 5 }),
+    field('productModel', '型号规格', 'item', { width: 9, visible: false }),
+    field('unit', '单位', 'item', { width: 5, visible: false }),
+    field('quantity', '数量', 'item', { width: 5, visible: false }),
     field('batchNo', '批号', 'item', { width: 9 }),
+    field('partsDetail', '配件明细（手填）', 'item', { width: 13 }),
     field('faultReason', '故障原因', 'item', { width: 13 }),
     field('repairAction', '维修措施', 'item', { width: 17 }),
     field('warrantyScope', '保修范围', 'item', { width: 9 }),
     field('chargeAmount', '收费（元）', 'item', { width: 8 }),
     field('remark', '备注', 'item', { width: 9 }),
+    field('receivedParts', '收货配件明细', 'section'),
     field('completedAt', '维修完成日期', 'footer'),
-    field('salesSignature', '业务部', 'signature'),
+    field('shippedAt', '发货日期', 'footer'),
+    field('returnNo', '寄出快递单号', 'footer'),
+    field('salesSignature', '售后部', 'signature'),
     field('financeSignature', '财务部', 'signature'),
+    field('businessSignature', '业务部', 'signature'),
     field('qualitySignature', '质量部', 'signature'),
-    field('serviceSignature', '售后服务部', 'signature')
+    field('serviceSignature', '售后服务部', 'signature', { visible: false })
+  ],
+  inspection_report: [
+    field('receivedAt', '收货日期', 'meta'),
+    field('orderNo', '收货单号', 'meta'),
+    field('customerName', '客户信息', 'meta'),
+    field('phone', '联系电话', 'meta'),
+    field('address', '客户地址', 'meta'),
+    field('sequence', '序号', 'item', { width: 6 }),
+    field('productName', '产品名称', 'item', { width: 14 }),
+    field('batchNo', '序列号', 'item', { width: 15 }),
+    field('faultReason', '故障描述', 'item', { width: 16 }),
+    field('repairAction', '维修措施', 'item', { width: 29 }),
+    field('remark', '备注', 'item', { width: 12 }),
+    field('reportRemark', '备注说明', 'footer'),
+    field('salesSignature', '售后部', 'signature'),
+    field('engineeringSignature', '工程部', 'signature'),
+    field('qualitySignature', '品质部', 'signature'),
+    field('approvalSignature', '审批', 'signature')
   ],
   quote: [
     field('quoteNo', '报价单号', 'info'),
@@ -110,13 +137,14 @@ const baseTemplate = (docType) => {
     paperSize: 'A4',
     orientation: meta.orientation,
     copies: 1,
-    minRows: meta.key === 'repair_order' ? 4 : 1,
+    minRows: ['repair_order', 'inspection_report'].includes(meta.key) ? (meta.key === 'inspection_report' ? 3 : 6) : 1,
     showLogo: true,
     showSignature: true,
     companyName: DEFAULT_COMPANY_NAME,
     companyNameEn: DEFAULT_COMPANY_NAME_EN,
     logoUrl: DEFAULT_LOGO_URL,
     footer: '感谢您的信任！为了您的设备健康，建议定期维护保养。',
+    notice: meta.key === 'inspection_report' ? '备注：产品在保修期内如需维修，请按公司产品保修卡执行。' : '',
     watermarkEnabled: false,
     watermarkText: '',
     watermarkOpacity: 0.08,
@@ -168,7 +196,7 @@ const normalizeFields = (docType, savedFields) => {
     .map(({ item, index }) => ({
       key: String(item.key),
       label: String(item.label || '自定义项目').slice(0, 30),
-      group: item.group === 'item' && docType === 'repair_order' ? 'item' : 'extra',
+      group: item.group === 'item' && ['repair_order', 'inspection_report'].includes(docType) ? 'item' : 'extra',
       visible: item.visible !== false,
       width: clamp(item.width, 4, 30, 10),
       defaultValue: String(item.defaultValue || '').slice(0, 100),
@@ -208,6 +236,7 @@ export const parsePrintConfig = (value, docType = 'repair_order') => {
     companyNameEn: String(obj.companyNameEn || base.companyNameEn).slice(0, 120),
     logoUrl: String(obj.logoUrl !== undefined ? obj.logoUrl : base.logoUrl).slice(0, 1000),
     footer: String(obj.footer !== undefined ? obj.footer : base.footer).slice(0, 200),
+    notice: String(obj.notice !== undefined ? obj.notice : base.notice).slice(0, 1000),
     watermarkEnabled: Boolean(obj.watermarkEnabled),
     watermarkText: String(obj.watermarkText || '').slice(0, 60),
     watermarkOpacity: clamp(obj.watermarkOpacity, 0.03, 0.3, base.watermarkOpacity),
@@ -327,6 +356,11 @@ const fieldValue = (fieldItem, order, context = {}) => {
   const values = {
     receivedAt: formatDate(order.receivedTime || order.received_at || order.submitTime),
     orderNo: order.id || order.order_no,
+    logisticsNo: order.logisticsNo || order.logistics_no || order.inboundLogisticsNo || '',
+    returnNo: order.returnNo || order.return_no || '',
+    shippedAt: formatDate(order.shippedAt || order.shipped_at || order.returnShipTime || ''),
+    freight: '',
+    supplier: '',
     customerName: order.clinicName || order.customerName,
     complaintCode: order.complaintCode || order.complaint_code || '',
     phone: order.phone,
@@ -341,6 +375,7 @@ const fieldValue = (fieldItem, order, context = {}) => {
     finalPrice: money(quote.finalPrice),
     validUntil: formatDate(order.paymentDeadline || order.payment_deadline),
     quoteRemark: quote.remark,
+    reportRemark: order.printRemark || order.adminRemark || quote.remark || '',
     settlementNo: order.settlementNo || order.settlement_no || ((order.id || '') + '-JS'),
     completedAt: context.docType === 'repair_order'
       ? ''
@@ -367,9 +402,10 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     sequence: index + 1,
     productName: item.product_name,
     productModel: item.product_model,
+    partsDetail: '',
     unit: item.unit || '台',
     quantity: item.quantity || 1,
-    batchNo: item.batch_no || item.batchNo || '',
+    batchNo: item.batch_no || item.batchNo || item.sn || '',
     faultReason: item.fault_reason || item.coverage_note || item.fault_desc,
     repairAction: item.repair_action || item.fix_solution || item.fixSolution || '',
     warrantyScope: item.warranty_scope || coverageMap[item.coverage_result] || item.coverage_result || '',
@@ -444,9 +480,57 @@ const renderCustomFields = (config, order) => {
   return '<div class="document-group"><div class="group-heading">补充项目</div>' + renderInfoTable(fields, order) + '</div>'
 }
 
+const normalizeReceivedParts = (order = {}) => {
+  const rows = Array.isArray(order.receivedParts)
+    ? order.receivedParts
+    : (Array.isArray(order.received_parts) ? order.received_parts : [])
+  return rows.map(item => ({
+    name: item && (item.name || item.part_name) || '',
+    quantity: safeNum(item && (item.quantity ?? item.qty)) || 0,
+    remark: item && (item.remark || item.note) || ''
+  })).filter(item => item.name || item.remark)
+}
+
+const normalizeReceivedPartPhotos = (order = {}) => {
+  const photos = Array.isArray(order.receivedPartPhotos)
+    ? order.receivedPartPhotos
+    : (Array.isArray(order.received_part_photos) ? order.received_part_photos : [])
+  return photos.map(photo => {
+    if (photo && typeof photo === 'object') return photo.url || photo.previewUrl || photo.tempUrl || photo.fileID || ''
+    return String(photo || '')
+  }).filter(url => url && !url.startsWith('cloud://'))
+}
+
+const renderReceivedPartsSection = (order = {}) => {
+  const parts = normalizeReceivedParts(order)
+  const receipt = order.receivedPartsReceipt || order.received_parts_receipt || {}
+  const photoUrls = normalizeReceivedPartPhotos(order)
+  const rows = parts.length
+    ? parts.map(item => `<tr><td>${escapeHtml(item.name || '-')}</td><td class="number-cell">${escapeHtml(item.quantity || '-')}</td><td>${escapeHtml(item.remark || '-')}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty-note">暂无收货配件明细</td></tr>'
+  const receiptText = receipt.status === 'confirmed'
+    ? `已确认签收　签收人：${receipt.confirmed_by_name || '-'}　时间：${formatDateTime(receipt.confirmed_at) || '-'}`
+    : '待确认签收'
+  const photos = photoUrls.length
+    ? `<div class="received-part-print-photos"><span>拍照凭证</span>${photoUrls.map(url => `<img src="${escapeHtml(url)}" alt="收货配件凭证" />`).join('')}</div>`
+    : '<div class="received-part-print-photo-note">拍照凭证：暂无可访问缩略图</div>'
+  return `
+    <div class="document-group received-part-print-group">
+      <div class="group-heading">收货配件明细</div>
+      <table class="line-items received-part-print-table">
+        <thead><tr><th>配件名称</th><th>数量</th><th>备注</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="received-part-print-receipt">${escapeHtml(receiptText)}</div>
+      ${photos}
+    </div>
+  `
+}
+
 const buildRepairSection = (order, config) => {
   const metaFields = activeFields(config, 'meta')
   const itemFields = activeFields(config, 'item')
+  const sectionFields = activeFields(config, 'section')
   const footerFields = activeFields(config, 'footer')
   const signatureFields = activeFields(config, 'signature')
   const sourceItems = Array.isArray(order.itemsList) ? order.itemsList : []
@@ -487,10 +571,92 @@ const buildRepairSection = (order, config) => {
       ${renderHeader(config)}
       ${renderPairedMetaTable(metaFields, order)}
       ${itemTable}
+      ${sectionFields.some(item => item.key === 'receivedParts') ? renderReceivedPartsSection(order) : ''}
       ${completion}
       ${renderCustomFields(config, order)}
       ${signatures}
       ${renderDocumentFooter(config)}
+    </section>
+  `
+}
+
+const findActiveField = (config, key) => activeFields(config, 'meta')
+  .concat(activeFields(config, 'footer'))
+  .find(item => item.key === key)
+
+const inspectionValue = (config, key, order) => {
+  const item = findActiveField(config, key)
+  return item ? fieldValue(item, order, { docType: 'inspection_report' }) : ''
+}
+
+const inspectionLabel = (config, key, fallback) => findActiveField(config, key)?.label || fallback
+
+const getInspectionParts = (order = {}) => {
+  const repairParts = Array.isArray(order.repairRecord?.parts) ? order.repairRecord.parts : []
+  return repairParts.map(item => normalizeLineItem(item, '配件'))
+}
+
+const buildInspectionReportSection = (order, config) => {
+  const itemFields = activeFields(config, 'item')
+  const signatureFields = activeFields(config, 'signature')
+  const sourceItems = Array.isArray(order.itemsList) ? order.itemsList : []
+  const itemRows = Array.from({ length: Math.max(sourceItems.length, config.minRows) }, (_, index) => sourceItems[index] || {})
+  const parts = getInspectionParts(order)
+  const partRows = Array.from({ length: Math.max(parts.length, 6) }, (_, index) => parts[index] || null)
+  const customerLine = [
+    inspectionValue(config, 'customerName', order),
+    inspectionValue(config, 'phone', order),
+    inspectionValue(config, 'address', order)
+  ].filter(Boolean).join('　')
+  const reportRemark = inspectionValue(config, 'reportRemark', order)
+  const notice = config.notice || '备注：产品在保修期内如需维修，请按公司产品保修卡执行。'
+
+  return `
+    <section class="print-section inspection-report-sheet">
+      ${renderWatermark(config)}
+      ${renderHeader(config)}
+      <table class="inspection-meta"><tbody>
+        <tr>
+          <th>${escapeHtml(inspectionLabel(config, 'receivedAt', '收货日期'))}</th>
+          <td>${escapeHtml(inspectionValue(config, 'receivedAt', order))}</td>
+          <th>${escapeHtml(inspectionLabel(config, 'orderNo', '收货单号'))}</th>
+          <td>${escapeHtml(inspectionValue(config, 'orderNo', order))}</td>
+        </tr>
+        <tr>
+          <th>${escapeHtml(inspectionLabel(config, 'customerName', '客户信息'))}</th>
+          <td colspan="3">${escapeHtml(customerLine)}</td>
+        </tr>
+      </tbody></table>
+      <table class="inspection-items">
+        <colgroup>${itemFields.map(item => '<col style="width:' + (safeNum(item.width) || 10) + '%" />').join('')}</colgroup>
+        <thead><tr>${itemFields.map(item => '<th>' + escapeHtml(item.label) + '</th>').join('')}</tr></thead>
+        <tbody>${itemRows.map((item, index) => '<tr>' + itemFields.map(fieldItem =>
+          '<td>' + escapeHtml(itemValue(fieldItem, item, index, order)) + '</td>'
+        ).join('') + '</tr>').join('')}</tbody>
+      </table>
+      <table class="inspection-parts">
+        <thead>
+          <tr><th rowspan="${partRows.length + 1}" class="parts-side-title">更换配件清单</th><th>配件名称</th><th>单位</th><th>数量</th><th>单价（手填）</th><th>金额（手填）</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          ${partRows.map(part => `
+            <tr>
+              <td>${escapeHtml(part?.name || '')}</td>
+              <td>${escapeHtml(part?.unit || '')}</td>
+              <td>${escapeHtml(part?.quantity || '')}</td>
+              <td></td>
+              <td></td>
+              <td>${escapeHtml(part?.spec || '')}</td>
+            </tr>
+          `).join('')}
+          <tr><th colspan="5" class="amount-total">合计金额（手填）：</th><td colspan="2"></td></tr>
+        </tbody>
+      </table>
+      ${reportRemark ? '<div class="inspection-remark"><b>备注：</b>' + escapeHtml(reportRemark) + '</div>' : ''}
+      <div class="inspection-notice">${escapeHtml(notice)}</div>
+      ${config.showSignature && signatureFields.length ? '<div class="department-signatures inspection-signatures">' + signatureFields.map(item =>
+        '<span><b>' + escapeHtml(item.label) + '：</b></span>'
+      ).join('') + '</div>' : ''}
     </section>
   `
 }
@@ -501,7 +667,7 @@ const normalizeLineItem = (item = {}, fallbackName = '项目') => {
   const quantity = safeNum(item.quantity ?? item.qty ?? 1) || 1
   const unitPrice = safeNum(item.unitPrice ?? item.unit_price ?? item.price)
   const amount = safeNum(item.amount ?? (unitPrice * quantity))
-  return { name, spec, quantity, unitPrice, amount }
+  return { name, spec, unit: item.unit || '', quantity, unitPrice, amount }
 }
 
 const renderLineItems = (label, rows, fallbackName) => {
@@ -610,6 +776,7 @@ const buildPartsOutboundSection = (order, config) => {
 }
 
 const buildSection = (order, config, docType) => {
+  if (docType === 'inspection_report') return buildInspectionReportSection(order, config)
   if (docType === 'quote') return buildQuoteSection(order, config)
   if (docType === 'settlement') return buildSettlementSection(order, config)
   if (docType === 'parts_outbound') return buildPartsOutboundSection(order, config)
@@ -713,6 +880,19 @@ export const buildPrintHtml = (printOrders = [], rawConfig = {}, docType = 'repa
           .repair-completion td { height: 8mm; }
           .department-signatures { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8mm; padding: 8mm 1mm 5mm; font-family: SimSun, "Songti SC", serif; font-size: 11pt; }
           .department-signatures span { min-height: 8mm; border-bottom: 1px solid #777; }
+          .inspection-report-sheet .document-header { min-height: 20mm; }
+          .inspection-report-sheet .document-title { font-size: 15pt; }
+          .inspection-meta th { width: 12%; text-align: left; font-family: SimSun, "Songti SC", serif; }
+          .inspection-meta td { width: 38%; font-family: SimSun, "Songti SC", serif; }
+          .inspection-items th, .inspection-parts th { padding: 1.5mm 1mm; text-align: center; font-family: SimSun, "Songti SC", serif; }
+          .inspection-items td { height: 16mm; padding: 1.5mm 1mm; text-align: center; }
+          .inspection-items td:nth-child(n+4) { text-align: left; }
+          .inspection-parts td { height: 7mm; padding: 1.3mm 1mm; text-align: center; }
+          .inspection-parts .parts-side-title { width: 10%; writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 1mm; }
+          .inspection-parts .amount-total { text-align: right; }
+          .inspection-remark { min-height: 10mm; border: 1px solid #111; border-top: 0; padding: 2mm; font-size: 9.5pt; }
+          .inspection-notice { margin-top: 4mm; font-family: SimSun, "Songti SC", serif; font-size: 9.5pt; line-height: 1.7; }
+          .inspection-signatures { padding-top: 7mm; }
           .info-table { margin-top: 4mm; }
           .info-table th { width: 28%; text-align: left; }
           .info-table td { width: 72%; }
@@ -722,6 +902,13 @@ export const buildPrintHtml = (printOrders = [], rawConfig = {}, docType = 'repa
           .line-items td { font-size: 9.5pt; }
           .number-cell { text-align: right; white-space: nowrap; }
           .empty-note { margin: 5mm 0; padding: 4mm; border: 1px dashed #aaa; color: #666; font-size: 10pt; }
+          .received-part-print-table th, .received-part-print-table td { font-size: 9.5pt; }
+          .received-part-print-table th:nth-child(1) { width: 35%; }
+          .received-part-print-table th:nth-child(2) { width: 15%; }
+          .received-part-print-table th:nth-child(3) { width: 50%; }
+          .received-part-print-receipt, .received-part-print-photo-note { margin-top: 2mm; color: #444; font-size: 9pt; }
+          .received-part-print-photos { display: flex; align-items: center; flex-wrap: wrap; gap: 2mm; margin-top: 2mm; color: #444; font-size: 9pt; }
+          .received-part-print-photos img { width: 22mm; height: 22mm; border: 1px solid #bbb; object-fit: cover; }
           .signature-line { margin-top: 10mm; display: flex; justify-content: space-between; font-size: 10.5pt; }
           .document-footer { margin-top: 7mm; padding-top: 2mm; border-top: 1px solid #bbb; display: flex; justify-content: space-between; gap: 10mm; color: #555; font-size: 8.5pt; }
           .watermark { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-28deg); z-index: 0; color: #000; font-size: 46pt; font-weight: 800; white-space: nowrap; pointer-events: none; }
