@@ -9,6 +9,7 @@
     "cicada-order-workflow": "file:../common/cicada-order-workflow",
     "cicada-warranty-policy": "file:../common/cicada-warranty-policy",
     "cicada-subscription-message": "file:../common/cicada-subscription-message",
+    "cicada-subscription-notifier": "file:../common/cicada-subscription-notifier",
     "cicada-wechat-pay-crypto": "file:../common/cicada-wechat-pay-crypto"
   },
   "cloudfunction-config": {

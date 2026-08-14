@@ -8,8 +8,35 @@ function loadExpressProvider() {
   }
 }
 
+function loadSubscriptionNotifier() {
+  try {
+    return require('cicada-subscription-notifier')
+  } catch (packageError) {
+    return require('../common/cicada-subscription-notifier')
+  }
+}
+
+function getEnvValue(...names) {
+  for (const name of names) {
+    const value = process.env[name]
+    if (value) return String(value).trim()
+  }
+  return ''
+}
+
 const expressProvider = loadExpressProvider()
-const { buildInboundLifecycleUpdate, findTrackingMatches, reconcileTrackCache } = require('./logistics-lifecycle')
+const { createSubscriptionNotifier } = loadSubscriptionNotifier()
+const subscriptionNotifier = createSubscriptionNotifier({
+  db,
+  httpclient: uniCloud.httpclient,
+  getEnvValue
+})
+const {
+  buildInboundLifecycleUpdate,
+  findTrackingMatches,
+  reconcileTrackCache,
+  shouldNotifyInboundDelivery
+} = require('./logistics-lifecycle')
 
 function parseFormBody(rawBody = '') {
   return String(rawBody).split('&').reduce((result, pair) => {
@@ -74,6 +101,13 @@ module.exports = {
       }
       if (Object.keys(lifecycleUpdate).length) updateData.update_time = now
       await db.collection('cicada_orders').doc(found.order._id).update(updateData)
+      if (shouldNotifyInboundDelivery(found.segment, existingCache, reconciled.cache)) {
+        await subscriptionNotifier.sendOrderSubscription(
+          { ...found.order, ...updateData },
+          'order_received',
+          '寄修设备已签收'
+        )
+      }
       return { result: true, returnCode: '200', message: '成功' }
     } catch (error) {
       console.warn('kuaidi100 callback failed:', error)

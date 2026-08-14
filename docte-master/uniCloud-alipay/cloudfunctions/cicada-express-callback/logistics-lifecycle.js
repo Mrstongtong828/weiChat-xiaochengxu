@@ -60,6 +60,12 @@ function reconcileTrackCache(existing = {}, incoming = {}) {
   return { accepted: true, reason: 'newer', cache: { ...existing, ...incoming } }
 }
 
+function shouldNotifyInboundDelivery(segment = '', existing = {}, next = {}) {
+  return segment === 'out'
+    && String(existing.state || '') !== '3'
+    && String(next.state || '') === '3'
+}
+
 function buildInboundLifecycleUpdate(order, cache, now) {
   const state = String(cache.state || '')
   const update = {}
@@ -89,4 +95,9 @@ function buildInboundLifecycleUpdate(order, cache, now) {
   return update
 }
 
-module.exports = { buildInboundLifecycleUpdate, findTrackingMatches, reconcileTrackCache }
+module.exports = {
+  buildInboundLifecycleUpdate,
+  findTrackingMatches,
+  reconcileTrackCache,
+  shouldNotifyInboundDelivery
+}
