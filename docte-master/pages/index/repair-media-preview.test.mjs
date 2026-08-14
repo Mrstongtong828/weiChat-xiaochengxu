@@ -23,3 +23,10 @@ test('报修附件图片和视频分别调用微信预览能力', () => {
 	assert.match(previewBlock, /sources: \[\{ url, type: 'video' \}\]/)
 	assert.match(previewBlock, /视频播放失败，请稍后重试/)
 })
+
+test('视频缩略图缺失时使用本地视频首帧作为封面', () => {
+	assert.match(source, /<image v-if="media\.coverPath"[^>]*:src="media\.coverPath"/)
+	assert.match(source, /<video v-else[^>]*class="media-video-cover"[^>]*:src="media\.path"/)
+	assert.match(source, /mediaType: \['video'\]/)
+	assert.match(source, /thumbTempFilePath: file\.thumbTempFilePath \|\| ''/)
+})

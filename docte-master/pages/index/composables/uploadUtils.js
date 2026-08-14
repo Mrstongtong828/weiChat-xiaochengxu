@@ -59,6 +59,26 @@ export const compressForUpload = async (path) => {
 	}
 }
 
+const videoCompressionThreshold = 10 * 1024 * 1024
+
+export const compressVideoForUpload = async (video = {}) => {
+	const path = video.tempFilePath || video.path || ''
+	const size = Number(video.size || 0)
+	if (!path || size <= videoCompressionThreshold || typeof uni.compressVideo !== 'function') {
+		return { path, size }
+	}
+	try {
+		const result = await uni.compressVideo({ src: path, quality: 'medium' })
+		return {
+			path: result?.tempFilePath || path,
+			size: Number(result?.size || size)
+		}
+	} catch (error) {
+		console.warn('compress video failed, use original:', error)
+		return { path, size }
+	}
+}
+
 export const isPickerCancel = (error = {}) => String(error.errMsg || error.message || error || '').toLowerCase().includes('cancel')
 
 export const isAuthError = (error = {}) => /鉴权失败|Token|token/i.test(String(error.message || error.errMsg || ''))

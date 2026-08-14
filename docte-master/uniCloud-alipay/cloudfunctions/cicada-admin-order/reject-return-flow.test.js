@@ -117,6 +117,49 @@ test('未确认方案的正常已签收维修单不能直接回寄', async () =>
   assert.equal(updatedOrder, null)
 })
 
+test('保修期内质保免费单未在线确认也可直接回寄', async () => {
+  activeOrder = {
+    ...order,
+    quote_status: 'issued',
+    payment_status: 'not_required',
+    charge_type: 'free',
+    in_warranty: true,
+    warranty_status: 'in_warranty',
+    total_price: 0,
+    needs_return: false,
+    archive_status: 'active'
+  }
+  updatedOrder = null
+
+  const result = await service.batchUpdateShipping.call(adminContext, {
+    shippingList: [{ orderNo: 'DR-1', returnCompany: '顺丰速运', returnNo: 'SF123456789012' }]
+  })
+
+  assert.equal(result.code, 0, result.msg)
+  assert.equal(result.data.success, 1)
+  assert.equal(updatedOrder.status, 'shipped')
+})
+
+test('已付款未在线确认的已签收维修单可直接回寄', async () => {
+  activeOrder = {
+    ...order,
+    quote_status: 'issued',
+    payment_status: 'paid',
+    total_price: 100,
+    needs_return: false,
+    archive_status: 'active'
+  }
+  updatedOrder = null
+
+  const result = await service.batchUpdateShipping.call(adminContext, {
+    shippingList: [{ orderNo: 'DR-1', returnCompany: '顺丰速运', returnNo: 'SF123456789012' }]
+  })
+
+  assert.equal(result.code, 0, result.msg)
+  assert.equal(result.data.success, 1)
+  assert.equal(updatedOrder.status, 'shipped')
+})
+
 test('已确认付款的已签收维修单可以直接回寄', async () => {
   activeOrder = {
     ...order,

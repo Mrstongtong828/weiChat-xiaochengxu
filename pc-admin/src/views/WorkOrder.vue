@@ -651,21 +651,35 @@
                     </div>
                     <p>{{ itemWarrantyPreview(item).detail }}</p>
                   </div>
-                  <div class="coverage-review-row">
+                  <div class="coverage-review-row" :class="{ 'is-complete': isManualWarrantyComplete(item) }">
                     <div class="coverage-review-head">
-                      <strong>人工质保判断</strong>
-                      <span>报价前必填；人工判断优先于日期资料</span>
+                      <div>
+                        <strong>人工质保判断</strong>
+                        <span>发布报价的必填项，人工判断优先于日期资料</span>
+                      </div>
+                      <el-tag :type="isManualWarrantyComplete(item) ? 'success' : 'warning'" effect="light" size="small">
+                        {{ isManualWarrantyComplete(item) ? '判定已完成' : '待选择' }}
+                      </el-tag>
                     </div>
                     <div class="coverage-fields-grid">
-                      <el-select v-model="item.manual_warranty_status" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择是否在保">
-                        <el-option v-for="option in manualWarrantyStatusOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
-                      </el-select>
-                      <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="选择本次结论" clearable>
-                        <el-option v-for="option in coverageResultOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
-                      </el-select>
-                      <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="判断原因（选填）" clearable>
-                        <el-option v-for="option in coverageReasonOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
-                      </el-select>
+                      <label class="coverage-field">
+                        <span>是否在保 <em>必填</em></span>
+                        <el-select v-model="item.manual_warranty_status" :disabled="!canPerformOrderAction('issue_quote')" placeholder="请选择在保或过保">
+                          <el-option v-for="option in manualWarrantyStatusOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                        </el-select>
+                      </label>
+                      <label class="coverage-field">
+                        <span>本次处理结论</span>
+                        <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="请选择收费维修或质保免费" clearable>
+                          <el-option v-for="option in coverageResultOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                        </el-select>
+                      </label>
+                      <label class="coverage-field">
+                        <span>判断原因 <small>选填</small></span>
+                        <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="补充判断原因" clearable>
+                          <el-option v-for="option in coverageReasonOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                        </el-select>
+                      </label>
                     </div>
                     <el-input
                       v-model="item.coverage_note"
@@ -705,8 +719,8 @@
                   </template>
                 </div>
                 <div class="product-detail-actions">
-                  <el-button type="primary" :loading="savingOrderItems" @click="saveOrderItemsInfo">保存设备信息</el-button>
-                  <span class="product-detail-tip">报价前请逐台选择人工判断“在保/过保”；零元质保方案需要每台设备选择“质保免费”，判断原因仅作选填补充。</span>
+                  <el-button type="primary" plain :loading="savingOrderItems" @click="saveOrderItemsInfo">单独保存设备与判定</el-button>
+                  <span class="product-detail-tip">可直接继续填写报价；点击下方发布按钮时，系统会自动保存这里的人工判定。</span>
                 </div>
               </div>
               <p v-else class="empty-text">暂无产品明细</p>
@@ -861,11 +875,12 @@
                 <section class="quote-stage quote-stage--publish">
                   <div class="quote-stage-head">
                     <span class="quote-stage-index">5</span>
-                    <div><strong>保存或发布报价</strong><span>草稿仅供后台查看；发布后客户可确认费用并上传付款凭证。</span></div>
+                    <div><strong>{{ quotePublishPresentation.title }}</strong><span>{{ quotePublishPresentation.description }}</span></div>
                   </div>
                   <div v-if="canPerformOrderAction('issue_quote')" class="quote-actions">
-                    <el-button :loading="quoteSaving" @click="saveOrderQuote('draft')">保存草稿</el-button>
-                    <el-button type="primary" :loading="quoteSaving" @click="saveOrderQuote('issued')">发布报价</el-button>
+                    <span class="quote-actions-note">草稿仅后台可见，不会发送给客户</span>
+                    <el-button :loading="quoteSaving" @click="saveOrderQuote('draft')">仅保存草稿</el-button>
+                    <el-button type="primary" :loading="quoteSaving || savingOrderItems" @click="saveOrderQuote('issued')">{{ quotePublishPresentation.buttonLabel }}</el-button>
                   </div>
                 </section>
               </div>
@@ -1756,7 +1771,7 @@ import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
 import { uploadFileToCloud } from '../utils/upload.js'
-import { isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
+import { getQuotePublishPresentation, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
 import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
@@ -1991,8 +2006,14 @@ const getNextAction = (order = {}) => {
     return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
   }
   if (order.chargeType === 'free' && ['issued', 'confirmed'].includes(quoteStatus)) {
-    return order.authorizationStatus === 'confirmed'
-      ? { label: '质保维修', desc: '客户已确认，无需付款', type: 'success' }
+    const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
+    const inWarranty = Boolean(order.inWarranty ?? order.in_warranty)
+    const warrantyFreeSettled = (order.paymentStatus || order.payment_status) === 'not_required'
+      && inWarranty
+      && ['in_warranty', 'extended'].includes(warrantyStatus)
+    // 保修期内质保免费：方案已发布为免付款即视为客户确认，无需再等在线确认。
+    return warrantyFreeSettled || order.authorizationStatus === 'confirmed'
+      ? { label: '质保维修', desc: '质保免付款，可直接维修并回寄', type: 'success' }
       : { label: '待确认', desc: '等待客户确认质保维修', type: 'success' }
   }
   if (!order.returnNo && ['issued', 'confirmed'].includes(quoteStatus)) {
@@ -2564,12 +2585,20 @@ const getReturnShipmentBlockReason = (order = {}) => {
     return ''
   }
   const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
+  const paymentStatus = order.paymentStatus || order.payment_status
+  const chargeType = order.chargeType || order.charge_type || ''
+  const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
+  const inWarranty = Boolean(order.inWarranty ?? order.in_warranty)
+  // 保修期内质保免费或已付款：视为客户已确认，不再等待客户在线确认，保证回寄时效。
+  const settled = total > 0
+    ? paymentStatus === 'paid'
+    : paymentStatus === 'not_required' && chargeType === 'free' && inWarranty && ['in_warranty', 'extended'].includes(warrantyStatus)
+  if (settled) return ''
   const quoteConfirmed = (order.quoteStatus || order.quote_status) === 'confirmed'
   const authorizationConfirmed = (order.authorizationStatus || order.authorization_status) === 'confirmed'
-  const paymentStatus = order.paymentStatus || order.payment_status
   const paymentReady = total > 0
     ? paymentStatus === 'paid'
-    : paymentStatus === 'not_required' && (order.chargeType || order.charge_type) === 'free'
+    : paymentStatus === 'not_required' && chargeType === 'free'
   if (!quoteConfirmed) return '请先等待客户确认维修方案'
   if (!authorizationConfirmed) return '请先等待客户确认维修授权'
   if (!paymentReady) return total > 0 ? '请先确认客户已付款' : '请先确认零元质保方案'
@@ -2584,17 +2613,25 @@ const getAllowedStatusOptions = (order = {}) => {
     const targetStatus = toEnglishStatus(status)
     if (targetStatus === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
       const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
-      const quoteConfirmed = (order.quoteStatus || order.quote_status) === 'confirmed'
-      const authorizationConfirmed = (order.authorizationStatus || order.authorization_status) === 'confirmed'
       const paymentStatus = order.paymentStatus || order.payment_status
-      const warrantyStatus = order.warrantyStatus || order.warranty_status
-      const paymentReady = total > 0
+      const chargeType = order.chargeType || order.charge_type || ''
+      const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
+      const inWarranty = Boolean(order.inWarranty ?? order.in_warranty)
+      // 保修期内质保免费或已付款：视为客户已确认，无需等待客户在线确认即可进入处理。
+      const settled = total > 0
         ? paymentStatus === 'paid'
-        : paymentStatus === 'not_required'
-          && (order.chargeType || order.charge_type) === 'free'
-          && Boolean(order.inWarranty || order.in_warranty)
-          && ['in_warranty', 'extended'].includes(warrantyStatus)
-      if (!quoteConfirmed || !authorizationConfirmed || !paymentReady) return false
+        : paymentStatus === 'not_required' && chargeType === 'free' && inWarranty && ['in_warranty', 'extended'].includes(warrantyStatus)
+      if (!settled) {
+        const quoteConfirmed = (order.quoteStatus || order.quote_status) === 'confirmed'
+        const authorizationConfirmed = (order.authorizationStatus || order.authorization_status) === 'confirmed'
+        const paymentReady = total > 0
+          ? paymentStatus === 'paid'
+          : paymentStatus === 'not_required'
+            && chargeType === 'free'
+            && inWarranty
+            && ['in_warranty', 'extended'].includes(warrantyStatus)
+        if (!quoteConfirmed || !authorizationConfirmed || !paymentReady) return false
+      }
     }
     if (['received', 'inspecting', 'fixing'].includes(currentStatus) && targetStatus === 'shipped') {
       if (getReturnShipmentBlockReason(order)) return false
@@ -3504,6 +3541,9 @@ const currentOrderWarrantyHint = computed(() => {
   return { show: true, type: 'warning', text: '质保资料可选填；请逐台选择人工判断为在保或过保后再发布报价' }
 })
 
+const isManualWarrantyComplete = (item = {}) => ['in_warranty', 'expired'].includes(item.manual_warranty_status)
+const quotePublishPresentation = computed(() => getQuotePublishPresentation(quoteForm.status))
+
 const loadPickerParts = async () => {
   partPickerLoading.value = true
   try {
@@ -4084,17 +4124,19 @@ const saveOrderQuote = async (status = 'draft') => {
     return
   }
 
+  // 云函数按已落库的设备明细校验；发布前先持久化当前屏幕上的人工判定。
+  if (status === 'issued') {
+    const saved = await saveOrderItemsInfo({ showSuccess: false, refreshOrders: false })
+    if (!saved) return
+  }
+
   const zeroPriceWarrantyAction = resolveZeroPriceWarrantyAction({
     order: currentOrder.value,
     items: currentOrder.value.itemsList
   })
-  if (total <= 0 && zeroPriceWarrantyAction === 'save') {
-    const saved = await saveOrderItemsInfo({ showSuccess: false, refreshOrders: false })
-    if (!saved) return
-    if (!isCurrentOrderWarrantyFree.value) {
-      ElMessage.warning('设备质保核验未通过，请检查质保日期和免费原因后重试')
-      return
-    }
+  if (total <= 0 && zeroPriceWarrantyAction === 'save' && !isCurrentOrderWarrantyFree.value) {
+    ElMessage.warning('设备质保核验未通过，请检查质保日期和免费原因后重试')
+    return
   }
   if (total <= 0 && zeroPriceWarrantyAction === 'block') {
     ElMessage.warning('发布零元质保方案前，请将每台设备标记为“质保免费”并选择免费原因')
@@ -4884,7 +4926,7 @@ const confirmExportExcel = async () => {
 .quote-stage-head > div { display: grid; gap: 1px; min-width: 0; }
 .quote-stage-head strong { color: #17212f; font-size: 15px; line-height: 1.35; }
 .quote-stage-head span { color: #64748b; font-size: 13px; line-height: 1.4; }
-.quote-stage--publish { padding-bottom: 0; }
+.quote-stage--publish { padding-top: 14px; padding-bottom: 14px; border-top: 1px solid #d1e5ff; border-bottom: 1px solid #d1e5ff; background: #f4f8ff; }
 .quote-stage--publish .quote-stage-index { background: #1769aa; color: #fff; }
 .quote-quick-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 4px; border-radius: 8px; background: #f4f8ff; border: 1px solid #d1e5ff; }
 .quote-quick-panel strong { display: block; margin-bottom: 4px; color: #10264a; font-size: 15px; line-height: 1.4; }
@@ -4920,7 +4962,8 @@ const confirmExportExcel = async () => {
 .quote-terms-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
 .quote-final-row { display: grid; grid-template-columns: 112px minmax(160px, 1fr); align-items: center; gap: 10px; margin: 0; color: #1d2129; font-size: 15px; font-weight: 600; }
 .quote-final-row :deep(.el-input-number) { width: 100%; }
-.quote-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+.quote-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.quote-actions-note { margin-right: auto; color: #52637a; font-size: 12px; line-height: 1.4; }
 .quote-actions :deep(.el-button) { min-width: 112px; min-height: 40px; font-size: 15px; font-weight: 600; }
 .payment-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .payment-account { margin-bottom: 12px; }
@@ -4987,15 +5030,21 @@ const confirmExportExcel = async () => {
 .warranty-entry-row > div > span { display: block; margin-bottom: 4px; color: #4e5969; font-size: 13px; font-weight: 600; }
 .warranty-entry-row :deep(.el-input-number) { width: 100%; }
 .warranty-entry-row > p { margin: 0; color: #7a5200; font-size: 13px; line-height: 1.45; align-self: center; }
-.coverage-review-row { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px 10px; border: 1px solid #d8e7f7; border-radius: 8px; background: #f7fbff; }
-.coverage-review-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.coverage-review-row { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px; border: 1px solid #f3c47b; border-radius: 8px; background: #fff9ef; }
+.coverage-review-row.is-complete { border-color: #9dd7b2; background: #f3fbf6; }
+.coverage-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.coverage-review-head > div { display: grid; gap: 2px; min-width: 0; }
 .coverage-review-head strong { color: #17212f; font-size: 15px; }
-.coverage-review-head span { color: #7a8699; font-size: 13px; text-align: right; }
+.coverage-review-head span { color: #5f6f82; font-size: 13px; line-height: 1.4; }
 .coverage-fields-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.coverage-field { display: grid; gap: 5px; min-width: 0; }
+.coverage-field > span { color: #39485a; font-size: 13px; font-weight: 600; }
+.coverage-field em { color: #c53b32; font-size: 12px; font-style: normal; }
+.coverage-field small { color: #697a91; font-size: 12px; font-weight: 400; }
 .product-fault-line { display: flex; gap: 8px; align-items: flex-start; color: #1d2129; font-size: 14px; line-height: 1.5; }
 .product-fault-line span { flex: none; color: #697a91; font-weight: 600; }
 .product-detail-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.product-detail-tip { font-size: 13px; color: #86909c; line-height: 1.4; }
+.product-detail-tip { font-size: 13px; color: #52637a; line-height: 1.45; }
 .warranty-tag { margin: 2px 0; }
 .quote-warranty-alert { margin-bottom: 8px; }
 .attachment-title { margin: 2px 0 0; color: #697a91; font-size: 13px; font-weight: 600; }
@@ -5117,6 +5166,8 @@ const confirmExportExcel = async () => {
   .quote-quick-panel, .quote-terms-grid { grid-template-columns: 1fr; }
   .quote-final-row { grid-template-columns: 1fr; align-items: stretch; }
   .quote-actions { justify-content: stretch; }
+  .quote-actions { flex-wrap: wrap; }
+  .quote-actions-note { width: 100%; margin-right: 0; }
   .quote-actions :deep(.el-button) { flex: 1; min-width: 0; }
   .payment-status-grid, .invoice-summary-grid, .invoice-form-grid { grid-template-columns: 1fr; }
   .coverage-review-head { align-items: flex-start; flex-direction: column; gap: 2px; }

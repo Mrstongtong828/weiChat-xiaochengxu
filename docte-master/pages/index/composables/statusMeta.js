@@ -128,7 +128,8 @@ export const deriveDisplayStatus = (order = {}) => {
 	if (key === 'received') return '已签收'
 	// inspecting / fixing 受报价、付款子状态细分
 	if (payment === 'uploaded') return '待核款'
-	if (quote === 'issued') return warrantyFree ? '待确认质保方案' : '待确认报价'
+	// 保修期内质保免费方案发布为免付款后无需客户在线确认，直接进入维修/回寄流程。
+	if (quote === 'issued') return warrantyFree ? '维修中' : '待确认报价'
 	if (warrantyFree && quote === 'confirmed') return '维修中'
 	if (quote === 'confirmed' && !['paid', 'not_required'].includes(payment)) return '待付款'
 	if (key === 'inspecting') return '检测中'

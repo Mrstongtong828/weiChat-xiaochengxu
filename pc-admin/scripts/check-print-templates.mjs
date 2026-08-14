@@ -6,6 +6,7 @@ import {
   parsePrintConfig,
   parsePrintTemplates
 } from '../src/utils/orderPrint.js'
+import { transformOrder } from '../src/utils/orderTransform.js'
 
 const order = {
   id: 'SH20260074',
@@ -39,6 +40,16 @@ const order = {
   }
 }
 
+const customerSubmittedOrder = transformOrder({
+  order_no: 'DR202608131551501EE65BD7',
+  itemsList: [{
+    product_name: '牙胶尖切断器',
+    product_model: 'CV-Fill-P1',
+    sn: 'SN-CUSTOMER-0813',
+    fault_desc: '不发热，换了针没用'
+  }]
+})
+
 const templates = parsePrintTemplates(JSON.stringify({
   quote: { paperSize: 'A5' }
 }))
@@ -65,6 +76,9 @@ assert.match(repairHtml, /20E19 246/)
 assert.match(repairHtml, /维修完成日期/)
 assert.doesNotMatch(repairHtml, /2026年6月2日/, '维修单完工日期应留空，由工程师手写')
 assert.doesNotMatch(repairHtml, /2026年8月1日/, '维修单不应把更新时间当成完工日期')
+
+const customerSubmittedHtml = buildPrintHtml([customerSubmittedOrder], repairTemplate, 'repair_order')
+assert.match(customerSubmittedHtml, /SN-CUSTOMER-0813/, '客户填写的产品序列号应显示在维修单批号列')
 
 repairTemplate.fields.find(item => item.key === 'batchNo').visible = false
 repairTemplate.fields.push({

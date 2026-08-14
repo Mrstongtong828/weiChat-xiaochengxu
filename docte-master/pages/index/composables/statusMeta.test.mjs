@@ -67,7 +67,7 @@ test('客户选择不维修后显示待回寄而不是待付款或维修中', ()
 	assert.equal(deriveDisplayStatus({ status: 'fixing', quote_status: 'rejected' }), '不维修待回寄')
 })
 
-test('质保免费方案不会进入付款状态', () => {
+test('质保免费方案发布为免付款即视为确认，不进入付款状态', () => {
 	const warrantyFree = {
 		status: 'fixing',
 		chargeType: 'free',
@@ -77,7 +77,7 @@ test('质保免费方案不会进入付款状态', () => {
 		paymentStatus: 'not_required'
 	}
 
-	assert.equal(deriveDisplayStatus({ ...warrantyFree, quoteStatus: 'issued' }), '待确认质保方案')
+	assert.equal(deriveDisplayStatus({ ...warrantyFree, quoteStatus: 'issued' }), '维修中')
 	assert.equal(deriveDisplayStatus({ ...warrantyFree, quoteStatus: 'confirmed' }), '维修中')
 })
 

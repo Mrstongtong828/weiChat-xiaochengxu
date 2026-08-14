@@ -64,6 +64,19 @@ function getRepairStartBlockReason(order = {}) {
   const chargeType = normalizeStatus(order.charge_type || order.chargeType)
   const warrantyStatus = normalizeStatus(order.warranty_status || order.warrantyStatus)
   const total = Number(order.total_price || order.totalPrice || 0) || 0
+  const inWarranty = Boolean(order.in_warranty || order.inWarranty)
+
+  // 保修期内质保免费：方案已发布为免付款即视为客户确认，无需再在线确认，保证维修与回寄时效。
+  const warrantyFreeSettled = total <= 0
+    && chargeType === 'free'
+    && paymentStatus === 'not_required'
+    && inWarranty
+    && ['in_warranty', 'extended'].includes(warrantyStatus)
+  if (warrantyFreeSettled) return ''
+
+  // 收费单已到账即客户确认：付款后无需再等报价/授权确认，可直接进入维修与回寄。
+  if (total > 0 && paymentStatus === 'paid') return ''
+
   if (quoteStatus !== 'confirmed') return '维修前必须先确认维修方案'
   if (authorizationStatus !== 'confirmed') return '维修前必须取得客户授权'
   if (total > 0 && paymentStatus !== 'paid') return '收费维修必须先确认款项到账'
