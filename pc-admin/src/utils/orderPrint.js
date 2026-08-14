@@ -63,6 +63,7 @@ const FIELD_DEFINITIONS = {
     field('warrantyScope', '保修范围', 'item', { width: 9 }),
     field('chargeAmount', '收费（元）', 'item', { width: 8 }),
     field('remark', '备注', 'item', { width: 9 }),
+    field('receivedParts', '收货配件明细', 'section'),
     field('completedAt', '维修完成日期', 'footer'),
     field('shippedAt', '发货日期', 'footer'),
     field('returnNo', '寄出快递单号', 'footer'),
@@ -479,9 +480,57 @@ const renderCustomFields = (config, order) => {
   return '<div class="document-group"><div class="group-heading">补充项目</div>' + renderInfoTable(fields, order) + '</div>'
 }
 
+const normalizeReceivedParts = (order = {}) => {
+  const rows = Array.isArray(order.receivedParts)
+    ? order.receivedParts
+    : (Array.isArray(order.received_parts) ? order.received_parts : [])
+  return rows.map(item => ({
+    name: item && (item.name || item.part_name) || '',
+    quantity: safeNum(item && (item.quantity ?? item.qty)) || 0,
+    remark: item && (item.remark || item.note) || ''
+  })).filter(item => item.name || item.remark)
+}
+
+const normalizeReceivedPartPhotos = (order = {}) => {
+  const photos = Array.isArray(order.receivedPartPhotos)
+    ? order.receivedPartPhotos
+    : (Array.isArray(order.received_part_photos) ? order.received_part_photos : [])
+  return photos.map(photo => {
+    if (photo && typeof photo === 'object') return photo.url || photo.previewUrl || photo.tempUrl || photo.fileID || ''
+    return String(photo || '')
+  }).filter(url => url && !url.startsWith('cloud://'))
+}
+
+const renderReceivedPartsSection = (order = {}) => {
+  const parts = normalizeReceivedParts(order)
+  const receipt = order.receivedPartsReceipt || order.received_parts_receipt || {}
+  const photoUrls = normalizeReceivedPartPhotos(order)
+  const rows = parts.length
+    ? parts.map(item => `<tr><td>${escapeHtml(item.name || '-')}</td><td class="number-cell">${escapeHtml(item.quantity || '-')}</td><td>${escapeHtml(item.remark || '-')}</td></tr>`).join('')
+    : '<tr><td colspan="3" class="empty-note">暂无收货配件明细</td></tr>'
+  const receiptText = receipt.status === 'confirmed'
+    ? `已确认签收　签收人：${receipt.confirmed_by_name || '-'}　时间：${formatDateTime(receipt.confirmed_at) || '-'}`
+    : '待确认签收'
+  const photos = photoUrls.length
+    ? `<div class="received-part-print-photos"><span>拍照凭证</span>${photoUrls.map(url => `<img src="${escapeHtml(url)}" alt="收货配件凭证" />`).join('')}</div>`
+    : '<div class="received-part-print-photo-note">拍照凭证：暂无可访问缩略图</div>'
+  return `
+    <div class="document-group received-part-print-group">
+      <div class="group-heading">收货配件明细</div>
+      <table class="line-items received-part-print-table">
+        <thead><tr><th>配件名称</th><th>数量</th><th>备注</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="received-part-print-receipt">${escapeHtml(receiptText)}</div>
+      ${photos}
+    </div>
+  `
+}
+
 const buildRepairSection = (order, config) => {
   const metaFields = activeFields(config, 'meta')
   const itemFields = activeFields(config, 'item')
+  const sectionFields = activeFields(config, 'section')
   const footerFields = activeFields(config, 'footer')
   const signatureFields = activeFields(config, 'signature')
   const sourceItems = Array.isArray(order.itemsList) ? order.itemsList : []
@@ -522,6 +571,7 @@ const buildRepairSection = (order, config) => {
       ${renderHeader(config)}
       ${renderPairedMetaTable(metaFields, order)}
       ${itemTable}
+      ${sectionFields.some(item => item.key === 'receivedParts') ? renderReceivedPartsSection(order) : ''}
       ${completion}
       ${renderCustomFields(config, order)}
       ${signatures}
@@ -852,6 +902,13 @@ export const buildPrintHtml = (printOrders = [], rawConfig = {}, docType = 'repa
           .line-items td { font-size: 9.5pt; }
           .number-cell { text-align: right; white-space: nowrap; }
           .empty-note { margin: 5mm 0; padding: 4mm; border: 1px dashed #aaa; color: #666; font-size: 10pt; }
+          .received-part-print-table th, .received-part-print-table td { font-size: 9.5pt; }
+          .received-part-print-table th:nth-child(1) { width: 35%; }
+          .received-part-print-table th:nth-child(2) { width: 15%; }
+          .received-part-print-table th:nth-child(3) { width: 50%; }
+          .received-part-print-receipt, .received-part-print-photo-note { margin-top: 2mm; color: #444; font-size: 9pt; }
+          .received-part-print-photos { display: flex; align-items: center; flex-wrap: wrap; gap: 2mm; margin-top: 2mm; color: #444; font-size: 9pt; }
+          .received-part-print-photos img { width: 22mm; height: 22mm; border: 1px solid #bbb; object-fit: cover; }
           .signature-line { margin-top: 10mm; display: flex; justify-content: space-between; font-size: 10.5pt; }
           .document-footer { margin-top: 7mm; padding-top: 2mm; border-top: 1px solid #bbb; display: flex; justify-content: space-between; gap: 10mm; color: #555; font-size: 8.5pt; }
           .watermark { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-28deg); z-index: 0; color: #000; font-size: 46pt; font-weight: 800; white-space: nowrap; pointer-events: none; }

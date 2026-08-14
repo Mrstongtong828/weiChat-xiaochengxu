@@ -185,6 +185,18 @@
       "bsonType": "object",
       "description": "工程师轻量维修记录：维修说明、实际使用配件、维修照片和保存人"
     },
+    "received_parts": {
+      "bsonType": "array",
+      "description": "客户随设备寄入的收货配件明细：名称、数量、备注"
+    },
+    "received_part_photos": {
+      "bsonType": "array",
+      "description": "收货配件实拍凭证云文件 ID 列表"
+    },
+    "received_parts_receipt": {
+      "bsonType": "object",
+      "description": "收货配件签收核验记录：状态、操作人和操作时间"
+    },
     "quote_items": {
       "bsonType": "array"
     },
