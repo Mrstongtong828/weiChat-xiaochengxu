@@ -1220,7 +1220,16 @@
                 </div>
                 <div class="drawer-info-item is-wide">
                   <span>收件地址</span>
-                  <strong>{{currentOrder.returnAddress || currentOrder.address || '-'}}</strong>
+                  <div class="return-address-value">
+                    <strong>{{currentOrder.returnAddress || currentOrder.address || '-'}}</strong>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      :disabled="!getReturnAddressCopyText(currentOrder)"
+                      @click="copyReturnAddress(currentOrder)"
+                    ><el-icon><DocumentCopy /></el-icon>复制收件信息</el-button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1325,7 +1334,8 @@
             <el-button plain><el-icon><Printer /></el-icon> 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="repair_order">维修单</el-dropdown-item>
+                <el-dropdown-item command="repair_order">售后维修单</el-dropdown-item>
+                <el-dropdown-item command="inspection_report">售后服务检测报告单</el-dropdown-item>
                 <el-dropdown-item command="quote" :disabled="!hasQuoteData">报价单</el-dropdown-item>
                 <el-dropdown-item command="settlement" :disabled="!hasQuoteData">结算单</el-dropdown-item>
                 <el-dropdown-item command="parts_outbound" :disabled="!hasPartsData">配件出库单</el-dropdown-item>
@@ -1758,6 +1768,7 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { DocumentCopy } from '@element-plus/icons-vue'
 import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
@@ -2568,6 +2579,39 @@ const submitAssignEngineer = async () => {
 
 const getOrderStatusValue = (order = {}) => {
   return order.statusEn || toEnglishStatus(order.status || '')
+}
+
+const getReturnAddressCopyText = (order = {}) => {
+  const contact = String(order.contactName || order.customerName || '').trim()
+  const phone = String(order.phone || '').trim()
+  const unit = String(order.clinicName || '').trim()
+  const address = String(order.returnAddress || order.address || '').trim()
+  return [
+    unit ? `收件单位：${unit}` : '',
+    contact ? `收件人：${contact}` : '',
+    phone ? `联系电话：${phone}` : '',
+    address ? `收件地址：${address}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+const copyReturnAddress = async (order = {}) => {
+  const text = getReturnAddressCopyText(order)
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('收件信息已复制')
+  } catch (error) {
+    const input = document.createElement('textarea')
+    input.value = text
+    input.style.position = 'fixed'
+    input.style.opacity = '0'
+    document.body.appendChild(input)
+    input.select()
+    const copied = document.execCommand('copy')
+    document.body.removeChild(input)
+    if (copied) ElMessage.success('收件信息已复制')
+    else ElMessage.error('复制失败，请手动复制')
+  }
 }
 
 const getReturnShipmentBlockReason = (order = {}) => {
@@ -4857,6 +4901,9 @@ const confirmExportExcel = async () => {
 .drawer-section-title { font-weight: 700; color: #1d2129; font-size: 15px; margin: 0 0 6px !important; }
 .drawer-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
 .return-logistics-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.return-address-value { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.return-address-value > strong { min-width: 0; flex: 1; }
+.return-address-value :deep(.el-button) { flex: none; padding: 0; }
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }

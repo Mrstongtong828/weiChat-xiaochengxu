@@ -178,6 +178,7 @@ export const transformOrder = (order) => {
     logisticsNo: shipOut.logistics_no || shipOut.logisticsNo || shipOut.tracking_no || shipOut.trackingNo || '',
     returnCompany: shipBack.logistics_company || shipBack.logisticsCompany || shipBack.return_company || shipBack.returnCompany || '',
     returnNo: shipBack.logistics_no || shipBack.logisticsNo || shipBack.tracking_no || shipBack.trackingNo || shipBack.return_no || shipBack.returnNo || '',
+    shippedAt: shipBack.shipped_at || shipBack.shippedAt || shipBack.send_time || shipBack.sendTime || '',
 
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
