@@ -20,9 +20,6 @@
         <el-select v-model="wo.filter" placeholder="工单状态" clearable>
           <el-option v-for="status in adminStatusOptions" :key="status" :label="status" :value="status"></el-option>
         </el-select>
-        <el-select v-model="wo.deviceFilter" placeholder="设备型号" clearable>
-          <el-option v-for="device in deviceModels" :key="device" :label="device" :value="device"></el-option>
-        </el-select>
         <el-select v-model="searchInvoiceStatus" placeholder="发票状态">
           <el-option label="全部发票状态" value=""></el-option>
           <el-option label="无需开票" value="无需开票"></el-option>
@@ -44,8 +41,13 @@
           <el-option label="严重超时" value="critical"></el-option>
           <el-option label="临近超时" value="warning"></el-option>
         </el-select>
-        <el-date-picker v-model="listDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
-          start-placeholder="创建开始" end-placeholder="创建结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable class="workorder-date-range" />
+        <el-select v-model="listDatePreset" placeholder="创建时间" clearable class="workorder-date-preset">
+          <el-option label="今日" value="today"></el-option>
+          <el-option label="近7天" value="7d"></el-option>
+          <el-option label="近30天" value="30d"></el-option>
+          <el-option label="本月" value="month"></el-option>
+          <el-option label="今年" value="year"></el-option>
+        </el-select>
         <el-tag v-if="activeTodoType" type="warning" closable @close="clearTodoFilter">{{ activeTodoLabel }}</el-tag>
       </div>
       <div class="batch-strip">
@@ -297,7 +299,7 @@
               </el-tooltip>
               <el-tooltip
                 v-if="canPerformOrderAction('delete_order')"
-                :content="row.deleteBlockReason || '删除客户未寄出设备的误填工单'"
+                :content="row.deleteBlockReason || '仅已取消或已完成的工单可以删除'"
                 placement="top"
               >
                 <span>
@@ -923,6 +925,17 @@
                     <span class="quote-actions-note">草稿仅后台可见，不会发送给客户</span>
                     <el-button :loading="quoteSaving" @click="saveOrderQuote('draft')">仅保存草稿</el-button>
                     <el-button type="primary" :loading="quoteSaving || savingOrderItems" @click="saveOrderQuote('issued')">{{ quotePublishPresentation.buttonLabel }}</el-button>
+                  </div>
+                </section>
+                <section v-if="canPerformOrderAction('issue_quote') && (currentOrder.quoteStatus || currentOrder.quote_status) === 'issued'" class="quote-stage quote-stage--phone-decision">
+                  <div class="quote-stage-head">
+                    <span class="quote-stage-index">6</span>
+                    <div><strong>电话确认客户决定</strong><span>客户不方便登录小程序时，售后电话确认后代录决定，无需客户在线确认。</span></div>
+                  </div>
+                  <div class="quote-actions">
+                    <span class="quote-actions-note">用于售后已电话联系客户并确认其决定</span>
+                    <el-button type="success" :loading="phoneDecisionSaving" @click="handlePhoneConfirmRepair">{{ isCurrentOrderWarrantyFree ? '客户同意质保维修（电话确认）' : '客户同意付费维修（电话确认）' }}</el-button>
+                    <el-button type="danger" plain :loading="phoneDecisionSaving" @click="handlePhoneRejectRepair">客户不修（电话确认）</el-button>
                   </div>
                 </section>
               </div>
@@ -1620,7 +1633,7 @@
   <el-dialog v-model="batchDeleteDialogVisible" :title="deleteDialogTitle" width="560px" align-center @closed="resetBatchDeleteForm">
     <div class="delete-confirm-panel">
       <el-alert
-        title="删除后工单会从正常列表、小程序和统计中隐藏，但会保留审计记录。已付款、已开票、已扣库存或状态不允许的工单会自动跳过。"
+        title="删除后工单会从正常列表、小程序和统计中隐藏，但会保留审计记录。仅已取消或已完成的工单可以删除。"
         type="error"
         :closable="false"
         show-icon
@@ -1811,7 +1824,7 @@ import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { DocumentCopy } from '@element-plus/icons-vue'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -2499,7 +2512,6 @@ const readTableColumnKeys = () => {
 
 const orders = ref([])
 const totalOrders = ref(0)
-const deviceModelOptions = ref([])
 const selectedOrders = ref([])
 const batchDeleteDialogVisible = ref(false)
 const deleteTargetOrders = ref([])
@@ -2513,6 +2525,36 @@ const printSettingsRaw = ref({})
 const exportDialogVisible = ref(false)
 const exportDateRange = ref(createCurrentMonthRange())
 const listDateRange = ref(null)
+const listDatePreset = ref('')
+
+const applyDatePreset = (preset) => {
+  const now = new Date()
+  const end = now
+  let start = null
+  if (preset === 'today') { start = new Date(now); start.setHours(0, 0, 0, 0) }
+  else if (preset === '7d') { start = new Date(now); start.setDate(start.getDate() - 6) }
+  else if (preset === '30d') { start = new Date(now); start.setDate(start.getDate() - 29) }
+  else if (preset === 'month') { start = new Date(now.getFullYear(), now.getMonth(), 1) }
+  else if (preset === 'year') { start = new Date(now.getFullYear(), 0, 1) }
+  listDateRange.value = start ? [formatLocalDate(start), formatLocalDate(end)] : null
+}
+
+const presetFromRange = (range) => {
+  if (!Array.isArray(range) || range.length !== 2) return ''
+  const [start, end] = [String(range[0] || ''), String(range[1] || '')]
+  const now = new Date()
+  const today = formatLocalDate(now)
+  if (start === today && end === today) return 'today'
+  const pairs = [['7d', 6], ['30d', 29]]
+  for (const [key, days] of pairs) {
+    const s = new Date(now)
+    s.setDate(s.getDate() - days)
+    if (start === formatLocalDate(s) && end === today) return key
+  }
+  if (start === formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)) && end === today) return 'month'
+  if (start === formatLocalDate(new Date(now.getFullYear(), 0, 1)) && end === today) return 'year'
+  return ''
+}
 const selectedExportFields = ref(exportableFields.map(field => field.key))
 const checkAll = ref(true)
 const isIndeterminate = ref(false)
@@ -2757,7 +2799,6 @@ const loadOrders = async () => {
     const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
     const data = await getOrderList(token, statusFilter, wo.page, wo.pageSize, {
       keyword: wo.search.trim(),
-      deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       warrantyStatus: wo.warrantyFilter,
       customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
@@ -2769,7 +2810,6 @@ const loadOrders = async () => {
     const list = Array.isArray(data) ? data : (data.list || [])
     orders.value = transformOrders(list)
     totalOrders.value = Array.isArray(data) ? orders.value.length : Number(data.total || 0)
-    deviceModelOptions.value = Array.isArray(data.deviceModels) ? data.deviceModels : deviceModelOptions.value
     selectedOrders.value = []
   } catch (error) {
     orders.value = []
@@ -2791,7 +2831,6 @@ const fetchAllFilteredOrders = async (dateRange = null) => {
   while (true) {
     const data = await getOrderList(token, statusFilter, page, pageSize, {
       keyword: wo.search.trim(),
-      deviceModel: wo.deviceFilter,
       invoiceStatus: searchInvoiceStatus.value,
       warrantyStatus: wo.warrantyFilter,
       customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
@@ -2810,15 +2849,7 @@ const fetchAllFilteredOrders = async (dateRange = null) => {
   return allOrders
 }
 
-const wo = reactive({ search: '', filter: '', deviceFilter: '', warrantyFilter: '', customerTypeFilter: '', page: 1, pageSize: 10 })
-
-const deviceModels = computed(() => {
-  const models = [...new Set([
-    ...deviceModelOptions.value,
-    ...orders.value.flatMap(o => (o.itemsList || []).map(item => item.product_model)).filter(Boolean)
-  ])]
-  return models.sort()
-})
+const wo = reactive({ search: '', filter: '', warrantyFilter: '', customerTypeFilter: '', page: 1, pageSize: 10 })
 
 const filteredOrders = computed(() => orders.value)
 
@@ -2834,6 +2865,7 @@ const applyRouteFilters = () => {
   listDateRange.value = route.query.startDate && route.query.endDate
     ? [String(route.query.startDate), String(route.query.endDate)]
     : null
+  listDatePreset.value = presetFromRange(listDateRange.value)
 }
 
 const clearTodoFilter = () => {
@@ -2870,13 +2902,17 @@ const reloadFromFilter = () => {
 
 // 下拉筛选变化立即生效
 watch(
-  () => [wo.filter, wo.deviceFilter, wo.warrantyFilter, wo.customerTypeFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
+  () => [wo.filter, wo.warrantyFilter, wo.customerTypeFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
   reloadFromFilter
 )
 
 watch(listDateRange, () => {
   reloadFromFilter()
   refreshStatusBreakdown()
+})
+
+watch(listDatePreset, (preset) => {
+  applyDatePreset(preset)
 })
 
 // 关键词是逐字输入的自由文本，加防抖，避免每敲一个字就打一次接口
@@ -3414,6 +3450,9 @@ const handleExportFieldChange = () => {
 }
 
 const openExportDialog = () => {
+  if (Array.isArray(listDateRange.value) && listDateRange.value.length === 2) {
+    exportDateRange.value = [...listDateRange.value]
+  }
   syncExportCheckState()
   exportDialogVisible.value = true
 }
@@ -4324,6 +4363,99 @@ const saveOrderQuote = async (status = 'draft') => {
   }
 }
 
+const phoneDecisionSaving = ref(false)
+
+const refreshOrderAfterDecision = async (result = {}) => {
+  await loadOrders()
+  const fresh = orders.value.find(item => item._id === currentOrder.value._id)
+  const updatedOrder = fresh || {
+    ...currentOrder.value,
+    quoteStatus: result.quote_status ?? result.quoteStatus ?? currentOrder.value.quoteStatus,
+    authorizationStatus: result.authorization_status ?? result.authorizationStatus ?? currentOrder.value.authorizationStatus,
+    status: result.status ?? result.status ?? currentOrder.value.status,
+    needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
+    archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
+    timeline: result.timeline ?? currentOrder.value.timeline
+  }
+  currentOrder.value = updatedOrder
+  resetQuoteForm(updatedOrder)
+  activeDrawerTab.value = getRecommendedDrawerTab(updatedOrder)
+}
+
+// 电话确认：客户同意付费维修（或零元质保维修）
+const handlePhoneConfirmRepair = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('issue_quote')) {
+    ElMessage.error('当前角色无权代录客户决定')
+    return
+  }
+  const isWarrantyFree = isCurrentOrderWarrantyFree.value
+  try {
+    await ElMessageBox.confirm(
+      isWarrantyFree
+        ? '确认已电话联系客户并同意本次零元质保维修？确认后将视为客户已授权，可直接推进维修，无需客户在小程序再确认。'
+        : '确认已电话联系客户并同意本次维修，费用 ' + formatMoney(currentOrder.value.totalPrice || currentOrder.value.total_price || 0) + ' 元？确认后将视为客户已授权并同意付费维修。'
+      ,
+      '电话确认：客户同意维修',
+      {
+        confirmButtonText: '确认同意维修',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+  } catch (error) {
+    if (!isUserCancel(error)) ElMessage.error(error.message || '操作取消')
+    return
+  }
+  phoneDecisionSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const result = await recordCustomerQuoteDecision(token, currentOrder.value._id, 'confirmed')
+    ElMessage.success('已记录：客户同意维修')
+    await refreshOrderAfterDecision(result)
+  } catch (error) {
+    ElMessage.error(error.message || '记录失败')
+  } finally {
+    phoneDecisionSaving.value = false
+  }
+}
+
+// 电话确认：客户不修
+const handlePhoneRejectRepair = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('issue_quote')) {
+    ElMessage.error('当前角色无权代录客户决定')
+    return
+  }
+  let reason = ''
+  try {
+    const promptResult = await ElMessageBox.prompt(
+      '确认已电话联系客户并选择不维修？可填写不维修原因（选填）。确认后将停止维修流程，未寄出设备将取消归档，已寄出设备将安排回寄。',
+      '电话确认：客户不修',
+      {
+        confirmButtonText: '确认不修',
+        cancelButtonText: '取消',
+        inputPlaceholder: '不维修原因（选填）',
+        inputValidator: value => (String(value || '').trim().length <= 200 ? true : '原因不能超过200字')
+      }
+    )
+    reason = String(promptResult.value || '').trim()
+  } catch (error) {
+    if (!isUserCancel(error)) ElMessage.error(error.message || '操作取消')
+    return
+  }
+  phoneDecisionSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const result = await recordCustomerQuoteDecision(token, currentOrder.value._id, 'rejected', { reason })
+    ElMessage.success('已记录：客户选择不维修')
+    await refreshOrderAfterDecision(result)
+  } catch (error) {
+    ElMessage.error(error.message || '记录失败')
+  } finally {
+    phoneDecisionSaving.value = false
+  }
+}
 const markPaymentPaid = async () => {
   if (!currentOrder.value) return
   if (!canPerformOrderAction('confirm_payment')) {
@@ -4934,9 +5066,9 @@ const confirmExportExcel = async () => {
 .page-subtitle { margin: 7px 0 0; color: #667085; font-size: 13px; line-height: 1.6; }
 
 .workorder-toolbar { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; padding: 14px; border: 1px solid #e5eefb; border-radius: 8px; background: #fbfdff; }
-.search-strip { display: grid; grid-template-columns: minmax(240px, 1.7fr) repeat(5, minmax(130px, 1fr)) minmax(230px, 1.3fr) auto; align-items: center; gap: 10px; }
+.search-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: center; gap: 10px; }
 .search-strip-main, .search-strip :deep(.el-select) { min-width: 0; width: 100%; }
-.workorder-date-range { width: 100%; }
+.workorder-date-preset { width: 100%; }
 .search-strip-main :deep(.el-input__wrapper), .search-strip :deep(.el-select__wrapper) { min-height: 40px; }
 .batch-strip { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #edf1f7; }
 .selection-count { margin-right: auto; color: #1769aa; font-size: 12px; font-weight: 600; }

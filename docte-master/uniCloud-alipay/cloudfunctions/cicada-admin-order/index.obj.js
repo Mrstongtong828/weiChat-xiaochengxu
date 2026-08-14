@@ -368,13 +368,6 @@ function buildDirectAdminOrderMatchCond({ status = '', todoType = '' } = {}) {
   return matchCond
 }
 
-function collectDeviceModelsFromOrders(orders = []) {
-  return [...new Set(orders
-    .flatMap(order => (order.itemsList || []).map(item => normalizeText(item.product_model)))
-    .filter(Boolean))]
-    .sort()
-}
-
 async function fetchAdminOrderPage(matchCond, pagination) {
   const offset = (pagination.page - 1) * pagination.pageSize
   const activeMatchCond = withActiveOrderFilter(matchCond)
@@ -2117,6 +2110,29 @@ function applyProofUrlMap(proofs = [], urlMap = {}) {
   })
 }
 
+// 财务中心结算详情：收集发票原件 cloud:// fileID，并套上临时链接（纯函数）
+function collectInvoiceCloudFileIds(order = {}) {
+  const inv = order.invoice_info || {}
+  const rawUrl = getMediaUrl(inv.invoice_url || inv.pdf_url || inv.file_url || '')
+  return isCloudFileId(rawUrl) ? [rawUrl] : []
+}
+
+function applyInvoiceUrlMap(order = {}, urlMap = {}) {
+  const inv = order.invoice_info || {}
+  const rawUrl = getMediaUrl(inv.invoice_url || inv.pdf_url || inv.file_url || '')
+  const tempUrl = urlMap[rawUrl]
+  if (!tempUrl) return order
+  return {
+    ...order,
+    invoice_info: {
+      ...inv,
+      invoice_url: tempUrl,
+      pdf_url: tempUrl,
+      file_url: tempUrl
+    }
+  }
+}
+
 // 工单 item 上承载媒体 URL 的字段：购买凭证 / 故障图 / 视频 / 通用附件
 const ITEM_MEDIA_FIELDS = ['voucher_urls', 'image_urls', 'video_urls', 'media_urls']
 
@@ -2714,7 +2730,6 @@ module.exports = {
         page = 1,
         pageSize = 20,
         keyword = '',
-        deviceModel = '',
         invoiceStatus = '',
         warrantyStatus = '',
         customerType = '',
@@ -2731,7 +2746,6 @@ module.exports = {
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
       const compactKeyword = normalizedKeyword.replace(/[\s-]+/g, '')
-      const normalizedDeviceModel = normalizeText(deviceModel)
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
       const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
@@ -2739,18 +2753,16 @@ module.exports = {
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
       if (directMatchCond) applyCreateDateRange(directMatchCond, startDate, endDate)
       // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
-      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
+      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
 
       let list = []
       let total = 0
-      let deviceModels = []
       let truncated = false
 
       if (canUseDirectQuery) {
         const pageResult = await fetchAdminOrderPage(directMatchCond, pagination)
         list = await enrichAdminOrdersForList(pageResult.rawOrders, currentAdmin)
         total = pageResult.total
-        deviceModels = collectDeviceModelsFromOrders(list)
       } else {
         const fallbackMatchCond = {}
         if (status) fallbackMatchCond.status = status
@@ -2815,7 +2827,6 @@ module.exports = {
 
           return matchesTodoType(order, todoType) &&
             (!normalizedKeyword || searchableText.includes(normalizedKeyword) || (compactKeyword && compactSearchableText.includes(compactKeyword))) &&
-            (!normalizedDeviceModel || productModels.includes(normalizedDeviceModel)) &&
             (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
             (!normalizedWarrantyStatus || normalizeText(order.warranty_status) === normalizedWarrantyStatus) &&
             (!normalizedCustomerType || orderCustomerType === normalizedCustomerType) &&
@@ -2825,7 +2836,6 @@ module.exports = {
         total = filteredOrders.length
         const start = (pagination.page - 1) * pagination.pageSize
         list = filteredOrders.slice(start, start + pagination.pageSize)
-        deviceModels = collectDeviceModelsFromOrders(filteredOrders)
       }
 
       const pagePayload = {
@@ -2833,7 +2843,6 @@ module.exports = {
         total,
         page: pagination.page,
         pageSize: pagination.pageSize,
-        deviceModels,
         truncated,
         scanLimit: truncated ? ADMIN_ORDER_FILTER_SCAN_LIMIT : undefined
       }
@@ -4359,6 +4368,128 @@ module.exports = {
     }
   },
 
+
+  // 后台代录客户决定（电话确认）：客户不便登录小程序时，售后电话确认后代录“同意付费维修 / 不修”
+  async recordCustomerQuoteDecision(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'issue_quote')
+      const { order_id, decision = '', reason = '', channel = 'phone' } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      const decisionValue = normalizeText(decision)
+      if (!['confirmed', 'rejected'].includes(decisionValue)) return { code: -1, msg: '客户决定不正确' }
+
+      const now = Date.now()
+      const found = await db.collection('cicada_orders').doc(order_id).get()
+      const order = found.data && found.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+
+      const reasonText = normalizeText(reason).slice(0, 200)
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const confirmChannel = normalizeText(channel) || 'phone'
+
+      if (decisionValue === 'confirmed') {
+        if (!['issued', 'confirmed'].includes(order.quote_status)) {
+          return { code: -1, msg: '当前工单暂无可确认报价' }
+        }
+        const isZeroAmount = Number(order.total_price || 0) <= 0
+        const isWarrantyFree = isZeroAmount
+          && order.charge_type === 'free'
+          && Boolean(order.in_warranty)
+          && ['in_warranty', 'extended'].includes(order.warranty_status)
+        if (isZeroAmount && !isWarrantyFree) {
+          return { code: -1, msg: '该零元方案未通过在保校验，请联系售后重新核实' }
+        }
+        const updateData = {
+          quote_status: 'confirmed',
+          authorization_status: 'confirmed',
+          authorization_time: now,
+          authorization_channel: `admin_${confirmChannel}`,
+          update_time: now,
+          timeline: [
+            ...timeline,
+            {
+              title: isWarrantyFree ? '客户已确认质保维修（电话）' : '客户已确认维修（电话）',
+              desc: isWarrantyFree
+                ? `后台${confirmChannel === 'phone' ? '电话' : '其他渠道'}确认：客户同意零元质保维修，无需付款，授权开始维修。`
+                : `后台${confirmChannel === 'phone' ? '电话' : '其他渠道'}确认：客户同意付费维修，费用 ${Number(order.total_price || 0).toFixed(2)} 元。`,
+              time: now,
+              done: true
+            }
+          ]
+        }
+        const res = await db.collection('cicada_orders').doc(order_id).update(updateData)
+        if (!res.updated) return { code: -1, msg: '工单更新失败，请刷新后重试' }
+        await logOrderEvent({
+          order,
+          action: 'confirm_quote',
+          actor: currentAdmin,
+          before: {
+            quote_status: order.quote_status || 'pending',
+            authorization_status: order.authorization_status || ''
+          },
+          after: {
+            quote_status: updateData.quote_status,
+            authorization_status: updateData.authorization_status,
+            total_price: Number(order.total_price || 0),
+            channel: `admin_${confirmChannel}`
+          }
+        })
+        return { code: 0, data: updateData }
+      }
+
+      // 客户不修
+      if (order.quote_status !== 'issued') {
+        return { code: -1, msg: '当前工单暂无可选择不维修的报价' }
+      }
+      if (order.payment_status === 'paid') {
+        return { code: -1, msg: '工单已支付，不能选择不维修' }
+      }
+      if (order.payment_status === 'uploaded' || (Array.isArray(order.payment_proofs) && order.payment_proofs.length)) {
+        return { code: -1, msg: '付款凭证正在等待财务核销，暂不能选择不维修' }
+      }
+      const hasInboundShipment = Boolean(getOrderShipInfo(order, 'out').trackingNo)
+      const canArchiveNow = order.status === 'pending' && !hasInboundShipment
+      const archiveNote = canArchiveNow
+        ? '客户选择不维修，工单已自动取消归档。'
+        : '客户选择不维修，设备将原路寄回，售后将尽快为您安排回寄后归档。'
+      const updateData = {
+        quote_status: 'rejected',
+        authorization_status: '',
+        update_time: now,
+        timeline: [
+          ...timeline,
+          {
+            title: '客户已选择不维修（电话）',
+            desc: reasonText ? `不维修原因：${reasonText}` : archiveNote,
+            time: now,
+            done: true
+          }
+        ]
+      }
+      if (canArchiveNow) {
+        updateData.status = 'cancelled'
+        updateData.cancel_reason = reasonText || '客户选择不维修'
+        updateData.cancelled_at = now
+      } else {
+        updateData.needs_return = true
+        updateData.archive_status = 'pending_return'
+      }
+      const res = await db.collection('cicada_orders').doc(order_id).update(updateData)
+      if (!res.updated) return { code: -1, msg: '工单更新失败，请刷新后重试' }
+      await logOrderEvent({
+        order,
+        action: 'reject_quote',
+        actor: currentAdmin,
+        before: { quote_status: order.quote_status || 'pending', status: order.status },
+        after: { quote_status: updateData.quote_status, status: updateData.status || order.status, reason: reasonText, channel: `admin_${confirmChannel}` }
+      })
+      return { code: 0, data: updateData }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+
   // 后台核销客户付款凭证/到账状态
   async updatePaymentStatus(params) {
     try {
@@ -4737,10 +4868,14 @@ module.exports = {
       ;(fallback.orders || []).forEach(order => {
         collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || [])
           .forEach(id => settlementProofIds.push(id))
+        collectInvoiceCloudFileIds(order).forEach(id => settlementProofIds.push(id))
       })
       const settlementUrlMap = await fetchTempUrlMap(settlementProofIds)
       const enriched = (fallback.orders || []).map(order => stripPaymentProofsIfForbidden(
-        { ...order, payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], settlementUrlMap) },
+        applyInvoiceUrlMap(
+          { ...order, payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], settlementUrlMap) },
+          settlementUrlMap
+        ),
         currentAdmin
       ))
       const filtered = enriched.filter(order => {
@@ -4755,30 +4890,49 @@ module.exports = {
         return !normalizedKeyword || searchable.includes(normalizedKeyword)
       })
       const start = (pagination.page - 1) * pagination.pageSize
-      const list = filtered.slice(start, start + pagination.pageSize).map(order => ({
-        _id: order._id,
-        order_no: order.order_no,
-        customer_name: (order.ship_back_info && (order.ship_back_info.unit || order.ship_back_info.name)) || '',
-        contact_phone: (order.ship_back_info && order.ship_back_info.phone) || '',
-        quote_status: order.quote_status || 'pending',
-        status: order.status || '',
-        payment_status: order.payment_status || 'pending',
-        payment_proofs: order.payment_proofs || [],
-        total_price: Number(order.total_price || 0),
-        parts_fee: Number(order.parts_fee || 0),
-        labor_fee: Number(order.labor_fee || 0),
-        invoice_info: order.invoice_info || {},
-        inventory_deducted: Boolean(order.inventory_deducted),
-        // 对账维度：支付渠道/付款时间/微信单号 + 物流单号（四流合一）
-        payment_method: order.payment_method || '',
-        payment_paid_time: order.payment_paid_time || 0,
-        wechat_transaction_id: order.wechat_pay_transaction_id || '',
-        out_trade_no: order.order_no || '',
-        logistics_no_out: (order.ship_out_info && (order.ship_out_info.logistics_no || order.ship_out_info.tracking_no)) || '',
-        logistics_no_back: (order.ship_back_info && (order.ship_back_info.logistics_no || order.ship_back_info.tracking_no)) || '',
-        create_time: order.create_time || 0,
-        update_time: order.update_time || 0
-      }))
+      const list = filtered.slice(start, start + pagination.pageSize).map(order => {
+        const quoteDetail = order.quote_detail || null
+        const invoice = order.invoice_info || {}
+        const refundAmountYuan = (Number(order.refund_amount_fen || 0) || 0) / 100
+        return {
+          _id: order._id,
+          order_no: order.order_no,
+          customer_name: (order.ship_back_info && (order.ship_back_info.unit || order.ship_back_info.name)) || '',
+          contact_phone: (order.ship_back_info && order.ship_back_info.phone) || '',
+          quote_status: order.quote_status || 'pending',
+          status: order.status || '',
+          payment_status: order.payment_status || 'pending',
+          payment_proofs: order.payment_proofs || [],
+          total_price: Number(order.total_price || 0),
+          parts_fee: Number(order.parts_fee || 0),
+          labor_fee: Number(order.labor_fee || 0),
+          invoice_info: invoice,
+          inventory_deducted: Boolean(order.inventory_deducted),
+          // 对账维度：支付渠道/付款时间/微信单号 + 物流单号（四流合一）
+          payment_method: order.payment_method || '',
+          payment_paid_time: order.payment_paid_time || 0,
+          wechat_transaction_id: order.wechat_pay_transaction_id || '',
+          out_trade_no: order.order_no || '',
+          logistics_no_out: (order.ship_out_info && (order.ship_out_info.logistics_no || order.ship_out_info.tracking_no)) || '',
+          logistics_no_back: (order.ship_back_info && (order.ship_back_info.logistics_no || order.ship_back_info.tracking_no)) || '',
+          // 结算详情抽屉：报价明细 / 付款期限 / 退款记录 / 物流公司 / 发票原件
+          quote_detail: quoteDetail,
+          quote_remark: normalizeText(order.quote_remark || (quoteDetail && quoteDetail.remark) || ''),
+          other_fee: Number((quoteDetail && quoteDetail.others_total) || 0),
+          payment_deadline: Number(order.payment_deadline || 0),
+          logistics_company_out: normalizeText((order.ship_out_info && (order.ship_out_info.logistics_company || order.ship_out_info.logisticsCompany)) || ''),
+          logistics_company_back: normalizeText((order.ship_back_info && (order.ship_back_info.logistics_company || order.ship_back_info.logisticsCompany)) || ''),
+          refund_status: normalizeText(order.refund_status || ''),
+          refund_amount: Number(refundAmountYuan.toFixed(2)),
+          refund_reason: normalizeText(order.refund_reason || ''),
+          refund_time: Number(order.refund_time || 0),
+          refund_failure_reason: normalizeText(order.refund_failure_reason || ''),
+          refund_out_no: normalizeText(order.refund_out_no || ''),
+          wechat_refund_id: normalizeText(order.wechat_refund_id || ''),
+          create_time: order.create_time || 0,
+          update_time: order.update_time || 0
+        }
+      })
       return {
         code: 0,
         data: {
@@ -4787,6 +4941,136 @@ module.exports = {
           page: pagination.page,
           pageSize: pagination.pageSize,
           truncated: fallback.truncated
+        }
+      }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 财务中心：收款总览 + 应收账龄。
+  // 汇总 实收 / 待核销 / 逾期未付 / 已退款 四类金额，并把未收清款项（待付款/待核销）按付款期限
+  // 分账龄桶，供「应收账龄」Tab 展示和催款清单导出（付款期限来自报价发布时的 payment_deadline）。
+  async getFinanceOverview(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'view_settlement')
+      const { startDate = '', endDate = '', keyword = '' } = pickParam(this, params)
+      const now = new Date()
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).getTime()
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).getTime()
+      let startTime = parseDateStart(startDate, monthStart)
+      let endTime = parseDateEnd(endDate, monthEnd)
+      if (startTime > endTime) {
+        const temp = startTime
+        startTime = endTime
+        endTime = temp
+      }
+
+      const fetched = await fetchOrderBatches({
+        status: dbCmd.neq('cancelled'),
+        total_price: dbCmd.gt(0),
+        quote_status: dbCmd.in(['issued', 'confirmed', 'rejected'])
+      }, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
+
+      const nowMs = Date.now()
+      const DAY = 86400000
+      const summary = {
+        paidAmount: 0, paidCount: 0,
+        pendingVerifyAmount: 0, pendingVerifyCount: 0,
+        overdueAmount: 0, overdueCount: 0,
+        refundedAmount: 0, refundedCount: 0,
+        outstandingAmount: 0, outstandingCount: 0
+      }
+      const outstanding = []
+      ;(fetched.orders || []).forEach(order => {
+        const amount = Number(order.total_price || 0) || 0
+        const paymentStatus = normalizeText(order.payment_status)
+        const paidTime = Number(order.payment_paid_time || 0)
+
+        if (paymentStatus === 'paid' && paidTime >= startTime && paidTime <= endTime) {
+          summary.paidAmount += amount
+          summary.paidCount += 1
+        }
+        if (paymentStatus === 'uploaded') {
+          summary.pendingVerifyAmount += amount
+          summary.pendingVerifyCount += 1
+        }
+        if (normalizeText(order.refund_status) === 'refunded') {
+          const refundTime = Number(order.refund_time || 0)
+          if (refundTime >= startTime && refundTime <= endTime) {
+            summary.refundedAmount += (Number(order.refund_amount_fen || 0) || 0) / 100
+            summary.refundedCount += 1
+          }
+        }
+        if (paymentStatus === 'pending' || paymentStatus === 'uploaded') {
+          const deadline = Number(order.payment_deadline || 0)
+          const overdueDays = deadline > 0 ? Math.max(0, Math.floor((nowMs - deadline) / DAY)) : 0
+          summary.outstandingAmount += amount
+          summary.outstandingCount += 1
+          if (deadline > 0 && deadline < nowMs) {
+            summary.overdueAmount += amount
+            summary.overdueCount += 1
+          }
+          outstanding.push({
+            _id: order._id,
+            order_no: order.order_no || '',
+            customer: normalizeText((order.ship_back_info && (order.ship_back_info.unit || order.ship_back_info.name)) || ''),
+            phone: normalizeText((order.ship_back_info && order.ship_back_info.phone) || ''),
+            amount,
+            payment_status: paymentStatus,
+            payment_deadline: deadline,
+            overdue_days: overdueDays
+          })
+        }
+      })
+
+      const kw = normalizeText(keyword).toLowerCase()
+      const matched = kw
+        ? outstanding.filter(item => [item.order_no, item.customer, item.phone].filter(Boolean).join(' ').toLowerCase().includes(kw))
+        : outstanding
+
+      const buckets = [
+        { key: 'notDue', label: '未到期', orders: [] },
+        { key: 'overdue1_7', label: '逾期1-7天', orders: [] },
+        { key: 'overdue8_30', label: '逾期8-30天', orders: [] },
+        { key: 'overdue30plus', label: '逾期30天以上', orders: [] }
+      ]
+      matched.forEach(item => {
+        const days = Number(item.overdue_days || 0)
+        const bucketKey = item.payment_deadline > 0 && days > 0
+          ? (days <= 7 ? 'overdue1_7' : days <= 30 ? 'overdue8_30' : 'overdue30plus')
+          : 'notDue'
+        const target = buckets.find(bucketItem => bucketItem.key === bucketKey)
+        if (target) {
+          target.orders.push(item)
+          target.count = (target.count || 0) + 1
+          target.amount = (target.amount || 0) + item.amount
+        }
+      })
+
+      const round2 = value => Number(Number(value || 0).toFixed(2))
+      return {
+        code: 0,
+        data: {
+          range: {
+            startDate: formatDateKey(new Date(startTime)),
+            endDate: formatDateKey(new Date(endTime))
+          },
+          summary: {
+            paidAmount: round2(summary.paidAmount), paidCount: summary.paidCount,
+            pendingVerifyAmount: round2(summary.pendingVerifyAmount), pendingVerifyCount: summary.pendingVerifyCount,
+            overdueAmount: round2(summary.overdueAmount), overdueCount: summary.overdueCount,
+            refundedAmount: round2(summary.refundedAmount), refundedCount: summary.refundedCount,
+            outstandingAmount: round2(summary.outstandingAmount), outstandingCount: summary.outstandingCount
+          },
+          aging: buckets.map(bucketItem => ({
+            key: bucketItem.key,
+            label: bucketItem.label,
+            count: bucketItem.count || 0,
+            amount: round2(bucketItem.amount),
+            orders: bucketItem.orders
+          })),
+          truncated: fetched.truncated
         }
       }
     } catch (e) {

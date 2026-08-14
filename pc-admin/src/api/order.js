@@ -9,7 +9,6 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     page,
     pageSize,
     keyword: filters.keyword || '',
-    deviceModel: filters.deviceModel || '',
     invoiceStatus: filters.invoiceStatus || '',
     warrantyStatus: filters.warrantyStatus || '',
     customerType: filters.customerType || filters.customer_type || '',
@@ -159,6 +158,17 @@ export const updateOrderQuote = (token, orderId, quote = {}) => {
 }
 
 // 更新付款核销状态
+
+// 后台代录客户决定（电话确认：客户同意付费维修 / 客户不修）
+export const recordCustomerQuoteDecision = (token, orderId, decision, options = {}) => {
+  return request.post(API_BASE.adminOrder + '/recordCustomerQuoteDecision', {
+    token,
+    order_id: orderId,
+    decision,
+    reason: options.reason || '',
+    channel: options.channel || 'phone'
+  })
+}
 export const updatePaymentStatus = (token, orderId, status, options = {}) => {
   return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
     token,
@@ -269,6 +279,16 @@ export const getFourFlowLedger = (token, filters = {}) => {
     endDate: filters.endDate || '',
     page: filters.page || 1,
     pageSize: filters.pageSize || 20
+  })
+}
+
+// 财务中心：收款总览 + 应收账龄（实收/待核销/逾期/已退款 + 未收清款项账龄分桶）
+export const getFinanceOverview = (token, filters = {}) => {
+  return request.post(`${API_BASE.adminOrder}/getFinanceOverview`, {
+    token,
+    keyword: filters.keyword || '',
+    startDate: filters.startDate || '',
+    endDate: filters.endDate || ''
   })
 }
 
