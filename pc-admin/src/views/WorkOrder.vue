@@ -607,6 +607,48 @@
                   </div>
                 </div>
               </div>
+              <div class="drawer-section received-parts-section">
+                <div class="drawer-section-head">
+                  <div>
+                    <p class="drawer-section-title">收货配件明细</p>
+                    <span class="section-helper">登记随设备寄入的配件，确认签收后会写入工单核验记录。</span>
+                  </div>
+                  <el-tag :type="receivedPartsForm.receipt.status === 'confirmed' ? 'success' : 'warning'" size="small">
+                    {{ receivedPartsForm.receipt.status === 'confirmed' ? '已确认签收' : '待确认' }}
+                  </el-tag>
+                </div>
+                <div v-if="receivedPartsForm.parts.length" class="received-parts-list">
+                  <div v-for="(part, index) in receivedPartsForm.parts" :key="part.key" class="received-part-row">
+                    <span class="received-part-index">{{ index + 1 }}</span>
+                    <el-input v-model="part.name" :disabled="receivedPartsForm.receipt.status === 'confirmed'" placeholder="配件名称" maxlength="120" />
+                    <el-input-number v-model="part.quantity" :disabled="receivedPartsForm.receipt.status === 'confirmed'" :min="1" :max="9999" :precision="0" controls-position="right" placeholder="数量" />
+                    <el-input v-model="part.remark" :disabled="receivedPartsForm.receipt.status === 'confirmed'" placeholder="备注（选填）" maxlength="300" />
+                    <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed'" type="danger" link @click="removeReceivedPart(index)">删除</el-button>
+                  </div>
+                </div>
+                <p v-else class="empty-text received-parts-empty">暂无收货配件，可点击“新增配件”录入。</p>
+                <div v-if="receivedPartsForm.receipt.status !== 'confirmed'" class="received-parts-actions">
+                  <el-button plain size="small" @click="addReceivedPart">新增配件</el-button>
+                  <label v-if="receivedPartsForm.photos.length < 12" class="received-part-photo-upload">
+                    <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="receivedPartPhotoUploading" @change="handleReceivedPartPhotoSelect" />
+                    <span>{{ receivedPartPhotoUploading ? '上传中…' : '上传实拍照片' }}</span>
+                  </label>
+                </div>
+                <div v-if="receivedPartsForm.photos.length" class="received-part-photo-list">
+                  <div v-for="(photo, index) in receivedPartsForm.photos" :key="photo.fileID || photo.url || index" class="received-part-photo-item">
+                    <el-image :src="photo.url" :preview-src-list="receivedPartPhotoPreviewUrls" fit="cover" />
+                    <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed'" type="danger" link size="small" @click="removeReceivedPartPhoto(index)">删除</el-button>
+                  </div>
+                </div>
+                <div v-if="receivedPartsForm.receipt.status === 'confirmed'" class="received-parts-receipt">
+                  <span>签收人：{{ receivedPartsForm.receipt.confirmed_by_name || '-' }}</span>
+                  <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
+                </div>
+                <div class="received-parts-footer">
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_remarks')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_status')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
+                </div>
+              </div>
             </div>
           </el-tab-pane>
           <el-tab-pane label="检测与报价" name="quote">
@@ -1220,7 +1262,16 @@
                 </div>
                 <div class="drawer-info-item is-wide">
                   <span>收件地址</span>
-                  <strong>{{currentOrder.returnAddress || currentOrder.address || '-'}}</strong>
+                  <div class="return-address-value">
+                    <strong>{{currentOrder.returnAddress || currentOrder.address || '-'}}</strong>
+                    <el-button
+                      size="small"
+                      text
+                      type="primary"
+                      :disabled="!getReturnAddressCopyText(currentOrder)"
+                      @click="copyReturnAddress(currentOrder)"
+                    ><el-icon><DocumentCopy /></el-icon>复制收件信息</el-button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1325,7 +1376,8 @@
             <el-button plain><el-icon><Printer /></el-icon> 打印<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="repair_order">维修单</el-dropdown-item>
+                <el-dropdown-item command="repair_order">售后维修单</el-dropdown-item>
+                <el-dropdown-item command="inspection_report">售后服务检测报告单</el-dropdown-item>
                 <el-dropdown-item command="quote" :disabled="!hasQuoteData">报价单</el-dropdown-item>
                 <el-dropdown-item command="settlement" :disabled="!hasQuoteData">结算单</el-dropdown-item>
                 <el-dropdown-item command="parts_outbound" :disabled="!hasPartsData">配件出库单</el-dropdown-item>
@@ -1758,7 +1810,8 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { DocumentCopy } from '@element-plus/icons-vue'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -2576,6 +2629,39 @@ const getOrderStatusValue = (order = {}) => {
   return order.statusEn || toEnglishStatus(order.status || '')
 }
 
+const getReturnAddressCopyText = (order = {}) => {
+  const contact = String(order.contactName || order.customerName || '').trim()
+  const phone = String(order.phone || '').trim()
+  const unit = String(order.clinicName || '').trim()
+  const address = String(order.returnAddress || order.address || '').trim()
+  return [
+    unit ? `收件单位：${unit}` : '',
+    contact ? `收件人：${contact}` : '',
+    phone ? `联系电话：${phone}` : '',
+    address ? `收件地址：${address}` : ''
+  ].filter(Boolean).join('\n')
+}
+
+const copyReturnAddress = async (order = {}) => {
+  const text = getReturnAddressCopyText(order)
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('收件信息已复制')
+  } catch (error) {
+    const input = document.createElement('textarea')
+    input.value = text
+    input.style.position = 'fixed'
+    input.style.opacity = '0'
+    document.body.appendChild(input)
+    input.select()
+    const copied = document.execCommand('copy')
+    document.body.removeChild(input)
+    if (copied) ElMessage.success('收件信息已复制')
+    else ElMessage.error('复制失败，请手动复制')
+  }
+}
+
 const getReturnShipmentBlockReason = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
   if (!['received', 'inspecting', 'fixing'].includes(currentStatus)) {
@@ -2887,6 +2973,10 @@ const remarkSaving = ref(false)
 const repairRecordSaving = ref(false)
 const repairPhotoUploading = ref(false)
 const repairRecordForm = reactive({ content: '', parts: [], photos: [] })
+const receivedPartsSaving = ref(false)
+const receivedPartsConfirming = ref(false)
+const receivedPartPhotoUploading = ref(false)
+const receivedPartsForm = reactive({ parts: [], photos: [], receipt: { status: 'pending' } })
 const quoteSaving = ref(false)
 const paymentSaving = ref(false)
 const refunding = ref(false)
@@ -2920,6 +3010,26 @@ const hasRepairRecord = computed(() => Boolean(
 ))
 const isRepairingOrder = computed(() => currentOrder.value && currentOrder.value.statusEn === 'fixing')
 const repairPhotoPreviewUrls = computed(() => repairRecordForm.photos.map(photo => photo.url).filter(Boolean))
+
+const receivedPartPhotoPreviewUrls = computed(() => receivedPartsForm.photos.map(photo => photo.url).filter(Boolean))
+
+const createReceivedPart = (part = {}, index = 0) => ({
+  key: part.key || `received-part-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  name: String(part.name || part.part_name || '').slice(0, 120),
+  quantity: Math.max(1, Number(part.quantity || part.qty || 1) || 1),
+  remark: String(part.remark || part.note || '').slice(0, 300)
+})
+
+const resetReceivedPartsForm = (order = {}) => {
+  const parts = Array.isArray(order.receivedParts) ? order.receivedParts : []
+  const photos = Array.isArray(order.receivedPartPhotos) ? order.receivedPartPhotos : []
+  receivedPartsForm.parts = parts.map((part, index) => createReceivedPart(part, index))
+  receivedPartsForm.photos = photos.map(photo => ({
+    fileID: photo && typeof photo === 'object' ? (photo.fileID || photo.fileId || photo.url || '') : String(photo || ''),
+    url: photo && typeof photo === 'object' ? (photo.url || photo.fileID || photo.fileId || '') : String(photo || '')
+  })).filter(photo => photo.fileID || photo.url)
+  receivedPartsForm.receipt = { ...(order.receivedPartsReceipt || { status: 'pending' }) }
+}
 
 const createRepairPart = (part = {}, used = false, index = 0) => ({
   key: `${part.partId || part.part_id || part.partCode || part.part_code || part.name || 'part'}-${index}`,
@@ -3334,6 +3444,7 @@ const openDrawer = (row) => {
   invoiceForm.invoiceDate = row.invoiceDate || ''
   resetQuoteForm(row)
   resetRepairRecordForm(row)
+  resetReceivedPartsForm(row)
   drawerVisible.value = true
 }
 
@@ -4509,6 +4620,127 @@ const saveCurrentRepairRecord = async () => {
   }
 }
 
+const addReceivedPart = () => {
+  receivedPartsForm.parts.push(createReceivedPart({}, receivedPartsForm.parts.length))
+}
+
+const removeReceivedPart = (index) => {
+  receivedPartsForm.parts.splice(index, 1)
+}
+
+const handleReceivedPartPhotoSelect = async (event) => {
+  const raw = event.target.files && event.target.files[0]
+  event.target.value = ''
+  if (!raw) return
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(raw.type)) {
+    ElMessage.warning('请上传 JPG、PNG 或 WEBP 图片')
+    return
+  }
+  if (receivedPartsForm.photos.length >= 12) {
+    ElMessage.warning('收货配件照片最多上传 12 张')
+    return
+  }
+  receivedPartPhotoUploading.value = true
+  try {
+    const orderKey = String(currentOrder.value && (currentOrder.value.id || currentOrder.value._id) || 'order').replace(/[^a-zA-Z0-9_-]/g, '_')
+    const uploaded = await uploadFileToCloud(raw, `received-parts/${orderKey}/`, 10 * 1024 * 1024)
+    receivedPartsForm.photos.push({ fileID: uploaded.fileUrl, url: uploaded.tempUrl || uploaded.fileUrl })
+  } catch (error) {
+    ElMessage.error(error.message || '收货配件照片上传失败')
+  } finally {
+    receivedPartPhotoUploading.value = false
+  }
+}
+
+const removeReceivedPartPhoto = (index) => {
+  receivedPartsForm.photos.splice(index, 1)
+}
+
+const receivedPartsPayload = () => receivedPartsForm.parts
+  .map(part => ({
+    name: String(part.name || '').trim(),
+    quantity: Number(part.quantity) || 0,
+    remark: String(part.remark || '').trim()
+  }))
+  .filter(part => part.name || part.remark)
+
+const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
+  if (!currentOrder.value) return false
+  if (!canPerformOrderAction('update_remarks')) {
+    if (!silent) ElMessage.error('当前角色无权保存收货配件明细')
+    return false
+  }
+  const parts = receivedPartsPayload()
+  if (parts.some(part => !part.name)) {
+    ElMessage.warning('请填写每行配件名称，或删除空白行')
+    return false
+  }
+  if (parts.some(part => !Number.isInteger(part.quantity) || part.quantity <= 0)) {
+    ElMessage.warning('配件数量必须为正整数')
+    return false
+  }
+  receivedPartsSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    await saveReceivedParts(
+      token,
+      currentOrder.value._id,
+      parts,
+      receivedPartsForm.photos.map(photo => photo.fileID || photo.url).filter(Boolean)
+    )
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
+    if (fresh) {
+      currentOrder.value = fresh
+      resetReceivedPartsForm(fresh)
+    }
+    if (!silent) ElMessage.success('收货配件明细已保存')
+    return true
+  } catch (error) {
+    ElMessage.error(error.message || '收货配件明细保存失败')
+    return false
+  } finally {
+    receivedPartsSaving.value = false
+  }
+}
+
+const confirmCurrentReceivedParts = async () => {
+  if (!currentOrder.value) return
+  if (!canPerformOrderAction('update_status')) {
+    ElMessage.error('当前角色无权确认配件签收')
+    return
+  }
+  if (receivedPartsConfirming.value || receivedPartsForm.receipt.status === 'confirmed') return
+  const saved = await saveCurrentReceivedParts({ silent: true })
+  if (!saved) return
+  try {
+    await ElMessageBox.confirm(
+      '确认已核对收货配件、数量和实拍凭证？确认后会记录操作人和时间。',
+      '确认配件签收',
+      { confirmButtonText: '确认签收', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch (error) {
+    if (!isUserCancel(error)) ElMessage.error(error.message || '配件签收确认已取消')
+    return
+  }
+  receivedPartsConfirming.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    await confirmReceivedParts(token, currentOrder.value._id)
+    ElMessage.success('收货配件已确认签收')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
+    if (fresh) {
+      currentOrder.value = fresh
+      resetReceivedPartsForm(fresh)
+    }
+  } catch (error) {
+    ElMessage.error(error.message || '配件签收确认失败')
+  } finally {
+    receivedPartsConfirming.value = false
+  }
+}
+
 const confirmSaveRemark = async () => {
   if (!currentRemarkOrder.value) return
   if (!canPerformOrderAction('update_remarks')) {
@@ -4879,6 +5111,9 @@ const confirmExportExcel = async () => {
 .drawer-section-title { font-weight: 700; color: #1d2129; font-size: 15px; margin: 0 0 6px !important; }
 .drawer-section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px; }
 .return-logistics-actions { display: flex; align-items: center; gap: 8px; flex: none; }
+.return-address-value { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.return-address-value > strong { min-width: 0; flex: 1; }
+.return-address-value :deep(.el-button) { flex: none; padding: 0; }
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }
@@ -4896,6 +5131,21 @@ const confirmExportExcel = async () => {
 .repair-photo-upload input { width: 1px; height: 1px; opacity: 0; position: absolute; }
 .customer-section { background: #eef6ff; }
 .product-overview-section { background: #fff8f0; }
+.received-parts-section { background: #f4fbff; border: 1px solid #cfe8f5; }
+.received-parts-section .section-helper { display: block; color: #697a91; font-size: 12px; line-height: 1.45; }
+.received-parts-list { display: flex; flex-direction: column; gap: 7px; }
+.received-part-row { display: grid; grid-template-columns: 28px minmax(150px, 1.1fr) 110px minmax(160px, 1.5fr) auto; align-items: center; gap: 8px; padding: 8px; border: 1px solid #dbeaf2; border-radius: 7px; background: #fff; }
+.received-part-index { color: #1677a8; font-size: 12px; font-weight: 700; text-align: center; }
+.received-part-row :deep(.el-input-number) { width: 100%; }
+.received-parts-empty { padding: 6px 0; }
+.received-parts-actions, .received-parts-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.received-parts-footer { justify-content: flex-end; }
+.received-part-photo-upload { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 0 12px; border: 1px dashed #91c8e2; border-radius: 6px; background: #fff; color: #1677a8; cursor: pointer; font-size: 13px; }
+.received-part-photo-upload input { width: 1px; height: 1px; opacity: 0; position: absolute; }
+.received-part-photo-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.received-part-photo-item { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 86px; padding: 4px; border: 1px solid #dbeaf2; border-radius: 7px; background: #fff; }
+.received-part-photo-item :deep(.el-image) { width: 76px; height: 76px; border-radius: 5px; }
+.received-parts-receipt { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; padding: 9px 10px; border-radius: 7px; background: #f0fbf4; color: #167a46; font-size: 13px; }
 .drawer-info-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 8px; }
 .drawer-info-grid--dense { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .drawer-info-item { min-width: 0; padding: 6px 8px; border-radius: 6px; background: rgba(255, 255, 255, 0.86); }

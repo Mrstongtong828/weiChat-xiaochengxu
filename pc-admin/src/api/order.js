@@ -133,6 +133,22 @@ export const saveRepairRecord = (token, orderId, record = {}) => {
   })
 }
 
+export const saveReceivedParts = (token, orderId, parts = [], photos = []) => {
+  return request.post(`${API_BASE.adminOrder}/saveReceivedParts`, {
+    token,
+    order_id: orderId,
+    parts,
+    photos
+  })
+}
+
+export const confirmReceivedParts = (token, orderId) => {
+  return request.post(`${API_BASE.adminOrder}/confirmReceivedParts`, {
+    token,
+    order_id: orderId
+  })
+}
+
 // 更新/发布维修报价
 export const updateOrderQuote = (token, orderId, quote = {}) => {
   return request.post(`${API_BASE.adminOrder}/updateOrderQuote`, {

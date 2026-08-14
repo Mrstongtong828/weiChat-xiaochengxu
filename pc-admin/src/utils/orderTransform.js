@@ -132,6 +132,16 @@ const normalizeRepairRecord = (order = {}) => {
   }
 }
 
+const normalizeReceivedPartPhotos = (order = {}) => {
+  const photos = Array.isArray(order.received_part_photos)
+    ? order.received_part_photos
+    : (Array.isArray(order.receivedPartPhotos) ? order.receivedPartPhotos : [])
+  return photos.map(photo => ({
+    fileID: photo && typeof photo === 'object' ? (photo.fileID || photo.fileId || '') : String(photo || ''),
+    url: resolveUrlValue(photo)
+  })).filter(photo => photo.fileID || photo.url)
+}
+
 export const transformOrder = (order) => {
   if (!order) return null
 
@@ -178,6 +188,7 @@ export const transformOrder = (order) => {
     logisticsNo: shipOut.logistics_no || shipOut.logisticsNo || shipOut.tracking_no || shipOut.trackingNo || '',
     returnCompany: shipBack.logistics_company || shipBack.logisticsCompany || shipBack.return_company || shipBack.returnCompany || '',
     returnNo: shipBack.logistics_no || shipBack.logisticsNo || shipBack.tracking_no || shipBack.trackingNo || shipBack.return_no || shipBack.returnNo || '',
+    shippedAt: shipBack.shipped_at || shipBack.shippedAt || shipBack.send_time || shipBack.sendTime || '',
 
     // 产品信息（从工单项目中获取）
     productModel: firstItem.product_model || order.product_model || '',
@@ -213,6 +224,15 @@ export const transformOrder = (order) => {
     engineerId: order.engineer_id || '',
     timeline: order.timeline || [],
     repairRecord: normalizeRepairRecord(order),
+    receivedParts: Array.isArray(order.received_parts || order.receivedParts)
+      ? (order.received_parts || order.receivedParts).map((part = {}) => ({
+          name: part.name || part.part_name || '',
+          quantity: Number(part.quantity || part.qty || 0) || 0,
+          remark: part.remark || part.note || ''
+        })).filter(part => part.name || part.remark)
+      : [],
+    receivedPartPhotos: normalizeReceivedPartPhotos(order),
+    receivedPartsReceipt: order.received_parts_receipt || order.receivedPartsReceipt || { status: 'pending' },
 
     // 报价/付款
     quoteDetail,

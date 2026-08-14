@@ -89,7 +89,7 @@
               <el-form-item label="打印份数">
                 <el-input-number v-model="currentTemplate.copies" :min="1" :max="5" controls-position="right" />
               </el-form-item>
-              <el-form-item v-if="activeDocType === 'repair_order'" label="最少表格行数">
+              <el-form-item v-if="['repair_order', 'inspection_report'].includes(activeDocType)" label="最少表格行数">
                 <el-input-number v-model="currentTemplate.minRows" :min="1" :max="12" controls-position="right" />
               </el-form-item>
             </div>
@@ -101,6 +101,9 @@
               <span>显示签字栏</span>
               <el-switch v-model="currentTemplate.showSignature" aria-label="显示签字栏" />
             </div>
+            <el-form-item v-if="activeDocType === 'inspection_report'" label="底部说明">
+              <el-input v-model="currentTemplate.notice" type="textarea" :rows="3" maxlength="1000" show-word-limit />
+            </el-form-item>
           </el-form>
         </section>
 
@@ -324,7 +327,7 @@ const addCustomField = () => {
   currentTemplate.value.fields.push({
     key: 'custom_' + Date.now(),
     label: '自定义项目',
-    group: activeDocType.value === 'repair_order' ? 'item' : 'extra',
+    group: ['repair_order', 'inspection_report'].includes(activeDocType.value) ? 'item' : 'extra',
     visible: true,
     width: 10,
     defaultValue: '',

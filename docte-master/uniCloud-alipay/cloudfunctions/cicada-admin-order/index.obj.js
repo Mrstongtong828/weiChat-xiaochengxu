@@ -406,10 +406,14 @@ async function enrichAdminOrderForList(order = {}, currentAdmin = {}, sharedUrlM
   const repairRecord = sharedUrlMap
     ? applyRepairRecordUrlMap(order.repair_record || order.repairRecord || {}, sharedUrlMap)
     : (order.repair_record || order.repairRecord || {})
+  const receivedPartPhotos = sharedUrlMap
+    ? applyReceivedPartPhotoUrlMap(order.received_part_photos || [], sharedUrlMap)
+    : (order.received_part_photos || [])
 
   return stripPaymentProofsIfForbidden({
     ...orderWithProofs,
     repair_record: repairRecord,
+    received_part_photos: receivedPartPhotos,
     product_name: itemDetail.product_name || '',
     product_model: itemDetail.product_model || '',
     fault_desc: itemDetail.fault_desc || '',
@@ -492,6 +496,8 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
     collectItemMediaCloudFileIds(order.itemsList || [])
       .forEach(id => allProofFileIds.push(id))
     collectRepairPhotoCloudFileIds(order.repair_record || order.repairRecord || [])
+      .forEach(id => allProofFileIds.push(id))
+    collectReceivedPartPhotoCloudFileIds(order)
       .forEach(id => allProofFileIds.push(id))
   })
   const sharedUrlMap = await fetchTempUrlMap(allProofFileIds)
@@ -2268,6 +2274,20 @@ function applyRepairRecordUrlMap(record = {}, urlMap = {}) {
   }
 }
 
+function collectReceivedPartPhotoCloudFileIds(order = {}) {
+  const photos = order && Array.isArray(order.received_part_photos) ? order.received_part_photos : []
+  return photos.map(photo => getMediaUrl(photo)).filter(isCloudFileId)
+}
+
+function applyReceivedPartPhotoUrlMap(photos = [], urlMap = {}) {
+  if (!Array.isArray(photos)) return []
+  return photos.map(photo => {
+    const fileID = getMediaUrl(photo)
+    if (!fileID) return null
+    return { fileID, url: isCloudFileId(fileID) && urlMap[fileID] ? urlMap[fileID] : fileID }
+  }).filter(Boolean)
+}
+
 async function normalizePaymentProofs(proofs = []) {
   if (!Array.isArray(proofs) || !proofs.length) return []
   const cloudFileIds = collectProofCloudFileIds(proofs)
@@ -2961,7 +2981,8 @@ module.exports = {
       const detailUrlMap = await fetchTempUrlMap([
         ...collectItemMediaCloudFileIds(order.itemsList || []),
         ...collectProofCloudFileIds(order.payment_proofs || order.paymentProofs || []),
-        ...collectRepairPhotoCloudFileIds(order.repair_record || order.repairRecord || {})
+        ...collectRepairPhotoCloudFileIds(order.repair_record || order.repairRecord || {}),
+        ...collectReceivedPartPhotoCloudFileIds(order)
       ])
       const itemsList = applyItemMediaUrlMap(order.itemsList || [], detailUrlMap)
       const itemDetail = (itemsList.length > 0) ? itemsList[0] : {}
@@ -2970,6 +2991,7 @@ module.exports = {
         ...order,
         payment_proofs: applyProofUrlMap(order.payment_proofs || order.paymentProofs || [], detailUrlMap),
         repair_record: applyRepairRecordUrlMap(order.repair_record || order.repairRecord || {}, detailUrlMap),
+        received_part_photos: applyReceivedPartPhotoUrlMap(order.received_part_photos || [], detailUrlMap),
         product_name: itemDetail.product_name || '',
         product_model: itemDetail.product_model || '',
         fault_desc: itemDetail.fault_desc || '',
@@ -3970,6 +3992,106 @@ module.exports = {
         after: { repair_record: repairRecord }
       })
       return { code: 0, data: repairRecord }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 保存客户随设备寄入的配件明细和实拍凭证；确认签收由 confirmReceivedParts 单独完成
+  async saveReceivedParts(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_remarks')
+      const { order_id, orderId, parts, photos } = pickParam(this, params)
+      const targetOrderId = order_id || orderId
+      if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
+      const orderRes = await db.collection('cicada_orders').doc(targetOrderId).get()
+      const order = orderRes.data && orderRes.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      if (order.received_parts_receipt && order.received_parts_receipt.status === 'confirmed') {
+        return { code: -1, msg: '收货配件已确认签收，不能再次修改' }
+      }
+
+      const rawParts = Array.isArray(parts) ? parts : []
+      if (rawParts.length > 50) return { code: -1, msg: '收货配件最多保存50行' }
+      const normalizedParts = rawParts.map((part = {}) => {
+        const name = normalizeText(part.name || part.part_name).slice(0, 120)
+        const remark = normalizeText(part.remark || part.note).slice(0, 300)
+        const quantity = Number(part.quantity ?? part.qty)
+        if (!name && !remark) return null
+        if (!name) throw new Error('配件名称不能为空')
+        if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 9999) {
+          throw new Error('配件数量必须为1-9999的整数')
+        }
+        return { name, quantity, remark }
+      }).filter(Boolean)
+
+      const rawPhotos = Array.isArray(photos) ? photos : []
+      if (rawPhotos.length > 12) return { code: -1, msg: '收货配件照片最多上传12张' }
+      const normalizedPhotos = rawPhotos.map(photo => getMediaUrl(photo)).filter(Boolean)
+      if (normalizedPhotos.some(photo => !isCloudFileId(photo))) {
+        return { code: -1, msg: '收货配件照片地址无效，请重新上传' }
+      }
+
+      const now = Date.now()
+      const updateData = {
+        received_parts: normalizedParts,
+        received_part_photos: normalizedPhotos,
+        update_time: now
+      }
+      const result = await db.collection('cicada_orders').doc(targetOrderId).update(updateData)
+      if (!result.updated) return { code: -1, msg: '收货配件保存失败' }
+      await logOrderEvent({
+        order,
+        action: 'save_received_parts',
+        actor: currentAdmin,
+        before: { received_parts: order.received_parts || [], received_part_photos: order.received_part_photos || [] },
+        after: { received_parts: normalizedParts, received_part_photos: normalizedPhotos }
+      })
+      return { code: 0, data: updateData }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 将已保存的收货配件明细标记为已签收，记录后台操作人和时间
+  async confirmReceivedParts(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const { order_id, orderId } = pickParam(this, params)
+      const targetOrderId = order_id || orderId
+      if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
+      const orderRes = await db.collection('cicada_orders').doc(targetOrderId).get()
+      const order = orderRes.data && orderRes.data[0]
+      if (!order) return { code: -1, msg: '工单不存在' }
+      const existing = order.received_parts_receipt || {}
+      if (existing.status === 'confirmed') return { code: 0, msg: '配件已确认签收', data: existing }
+
+      const now = Date.now()
+      const receipt = {
+        status: 'confirmed',
+        confirmed_at: now,
+        confirmed_by: normalizeText(currentAdmin._id || currentAdmin.id),
+        confirmed_by_name: normalizeText(currentAdmin.name || currentAdmin.username || currentAdmin.nickname) || '后台人员'
+      }
+      const timeline = Array.isArray(order.timeline) ? order.timeline : []
+      const updateData = {
+        received_parts_receipt: receipt,
+        timeline: [
+          ...timeline,
+          { title: '收货配件已确认签收', desc: `已核对${Array.isArray(order.received_parts) ? order.received_parts.length : 0}项配件及实拍凭证`, time: now, done: true }
+        ],
+        update_time: now
+      }
+      const result = await db.collection('cicada_orders').doc(targetOrderId).update(updateData)
+      if (!result.updated) return { code: -1, msg: '配件签收确认失败' }
+      await logOrderEvent({
+        order,
+        action: 'confirm_received_parts',
+        actor: currentAdmin,
+        before: { received_parts_receipt: existing },
+        after: { received_parts_receipt: receipt }
+      })
+      return { code: 0, msg: '配件已确认签收', data: receipt }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

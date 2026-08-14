@@ -157,6 +157,17 @@ const orders = [
     payment_status: 'uploaded',
     payment_method: 'offline_transfer',
     payment_proofs: [{ url: '', name: 'transfer-proof.png', time: now - 600000 }],
+    received_parts: [
+      { name: '光学镜片组件', quantity: 1, remark: '外包装完好，随设备寄入' },
+      { name: '密封圈', quantity: 2, remark: '独立袋装' }
+    ],
+    received_part_photos: ['http://localhost:8787/mock-files/received-part-sample.png'],
+    received_parts_receipt: {
+      status: 'confirmed',
+      confirmed_at: now - 540000,
+      confirmed_by: 'admin001',
+      confirmed_by_name: 'System Admin'
+    },
     timeline: [
       { title: 'Received', desc: 'Device arrived at service center', time: now - 80000000 },
       { title: 'Repairing', desc: 'Engineer is checking the issue', time: now - 1200000 }
@@ -323,6 +334,13 @@ const handleAdminSys = (method, body) => {
     mockFileUrls.set(fileUrl, tempUrl)
     return ok({ fileUrl, tempUrl })
   }
+  if (method === 'uploadFile') {
+    const extension = body.fileType === 'image/png' ? 'png' : body.fileType === 'image/webp' ? 'webp' : 'jpg'
+    const fileUrl = `cloud://local.mock/${body.dir || 'uploads/'}${Date.now()}.${extension}`
+    const tempUrl = `data:${body.fileType || 'image/jpeg'};base64,${body.fileContent || ''}`
+    mockFileUrls.set(fileUrl, tempUrl)
+    return ok({ fileUrl, tempUrl })
+  }
   if (method === 'getTempFileURL') {
     const map = {}
     for (const fileUrl of body.fileList || []) map[fileUrl] = mockFileUrls.get(fileUrl) || ''
@@ -393,6 +411,34 @@ const handleAdminOrder = (method, body) => {
   const authError = requireToken(body)
   if (authError) return authError
 
+  if (method === 'getWorkflowConfig') {
+    const statuses = ['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled']
+    const transitions = {
+      pending: ['sent', 'received', 'cancelled'],
+      sent: ['received', 'cancelled'],
+      received: ['inspecting', 'fixing', 'shipped', 'cancelled'],
+      inspecting: ['fixing', 'shipped', 'cancelled'],
+      fixing: ['shipped', 'completed', 'cancelled'],
+      shipped: ['completed'],
+      completed: [],
+      cancelled: []
+    }
+    const permissions = [
+      'view_order', 'create_order', 'export_order', 'get_stats', 'get_workflow_config',
+      'delete_order', 'update_status', 'import_logistics', 'issue_quote', 'confirm_payment',
+      'update_invoice', 'view_payment_proof', 'manage_inventory', 'view_settlement',
+      'update_remarks', 'add_timeline', 'manage_staff', 'manage_settings', 'manage_kb',
+      'view_audit_log', 'view_feedback', 'handle_feedback'
+    ].reduce((result, action) => ({ ...result, [action]: true }), {})
+    return ok({
+      role: 'admin',
+      roleLabel: '管理员',
+      statuses: statuses.map(status => ({ status, label: status })),
+      transitions,
+      permissions
+    })
+  }
+
   if (method === 'getStatistics') return ok(orderMetrics())
   if (method === 'getTodoSummary') {
     const metrics = orderMetrics()
@@ -440,8 +486,18 @@ const handleAdminOrder = (method, body) => {
     const page = Number(body.page || 1)
     const pageSize = Number(body.pageSize || list.length || 20)
     const start = (page - 1) * pageSize
+    const visibleOrders = list.slice(start, start + pageSize).map(order => ({
+      ...order,
+      received_part_photos: (order.received_part_photos || []).map(photo => {
+        const fileID = typeof photo === 'object' ? (photo.fileID || photo.fileId || photo.url || '') : String(photo || '')
+        return {
+          fileID,
+          url: typeof photo === 'object' ? (photo.url || mockFileUrls.get(fileID) || fileID) : (mockFileUrls.get(fileID) || fileID)
+        }
+      })
+    }))
     return ok({
-      list: list.slice(start, start + pageSize),
+      list: visibleOrders,
       total: list.length,
       deviceModels: [...new Set(orders.flatMap(order => (order.itemsList || []).map(item => item.product_model).filter(Boolean)))]
     })
@@ -486,6 +542,27 @@ const handleAdminOrder = (method, body) => {
 
   const orderId = body.order_id || body.orderId
   const order = orders.find(item => item._id === orderId)
+  if (method === 'saveReceivedParts' && order) {
+    if (order.received_parts_receipt?.status === 'confirmed') {
+      return fail('收货配件已确认签收，不能再次修改')
+    }
+    order.received_parts = Array.isArray(body.parts) ? body.parts : []
+    order.received_part_photos = Array.isArray(body.photos) ? body.photos : []
+    order.update_time = Date.now()
+    return ok(order)
+  }
+  if (method === 'confirmReceivedParts' && order) {
+    order.received_parts_receipt = {
+      status: 'confirmed',
+      confirmed_at: Date.now(),
+      confirmed_by: 'admin001',
+      confirmed_by_name: 'System Admin'
+    }
+    order.timeline = order.timeline || []
+    order.timeline.push({ title: '收货配件已确认签收', desc: '本地 mock 已完成配件核对', time: Date.now(), done: true })
+    order.update_time = Date.now()
+    return ok(order)
+  }
   if (method === 'updateOrderStatus' && order) {
     order.status = body.status || order.status
     order.update_time = Date.now()
@@ -627,8 +704,14 @@ const server = http.createServer(async (req, res) => {
   const [, service, method] = url.pathname.split('/')
 
   if (url.pathname.startsWith('/mock-files/')) {
-    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
-    res.end('Local mock file')
+    if (url.pathname.endsWith('/received-part-sample.png')) {
+      const sampleImage = readFileSync(new URL('../public/brand/cicada-admin-logo.png', import.meta.url))
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*' })
+      res.end(sampleImage)
+    } else {
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' })
+      res.end('Local mock file')
+    }
     return
   }
 
