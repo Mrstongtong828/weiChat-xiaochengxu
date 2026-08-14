@@ -2,10 +2,12 @@ const db = uniCloud.database()
 const dbCmd = db.command
 const crypto = require('crypto')
 const { createAdminAuthError, toAdminErrorResponse, isAdminTokenExpired } = loadAdminAuthModule()
+const { normalizeOptionalDateRange } = loadDateRangeModule()
 const expressProvider = loadExpressProvider()
 const { findTrackingConflict, getReturnShipmentBlockReason } = require('./logistics-policy')
 const { buildLogisticsReadiness } = require('./logistics-readiness')
 const { reconcileTrackCache } = require('./logistics-policy')
+const { getOrderDeleteBlockReason } = require('./order-delete-policy')
 const {
   MANUAL_CONFIRMABLE_PAYMENT_STATUSES,
   assertManualPaymentConfirmationAllowed,
@@ -45,6 +47,22 @@ function loadAdminAuthModule() {
   } catch (packageError) {
     return require('../common/cicada-admin-auth')
   }
+}
+
+function loadDateRangeModule() {
+  try {
+    return require('cicada-date-range')
+  } catch (packageError) {
+    return require('../common/cicada-date-range')
+  }
+}
+
+function applyCreateDateRange(where = {}, startDate = '', endDate = '') {
+  const { startTime, endTime } = normalizeOptionalDateRange(startDate, endDate)
+  if (startTime !== null && endTime !== null) where.create_time = dbCmd.and(dbCmd.gte(startTime), dbCmd.lte(endTime))
+  else if (startTime !== null) where.create_time = dbCmd.gte(startTime)
+  else if (endTime !== null) where.create_time = dbCmd.lte(endTime)
+  return where
 }
 
 function loadSubscriptionMessageModule() {
@@ -466,6 +484,9 @@ async function enrichAdminOrdersForList(rawOrders = [], currentAdmin = {}) {
   const sharedUrlMap = await fetchTempUrlMap(allProofFileIds)
 
   const enriched = await Promise.all(rawOrders.map(order => enrichAdminOrderForList(order, currentAdmin, sharedUrlMap)))
+  enriched.forEach(order => {
+    order.delete_block_reason = getOrderDeleteBlockReason(order)
+  })
   await attachCustomerSummaries(enriched, currentAdmin)
   return enriched
 }
@@ -817,43 +838,6 @@ function withActiveOrderFilter(matchCond = {}) {
 
 function isDeletedOrder(order = {}) {
   return order.is_deleted === true
-}
-
-function getBatchDeleteBlockReason(order = {}) {
-  if (isDeletedOrder(order)) return '工单已删除'
-  if (!['pending', 'cancelled'].includes(normalizeText(order.status))) {
-    return '仅已提交或已取消的工单可以删除'
-  }
-
-  const paymentStatus = normalizeText(order.payment_status || order.paymentStatus)
-  const paymentProofs = order.payment_proofs || order.paymentProofs || []
-  if (['uploaded', 'paid', 'refunded'].includes(paymentStatus)
-    || normalizeText(order.wechat_pay_transaction_id)
-    || (Array.isArray(paymentProofs) && paymentProofs.length)) {
-    return '工单已有付款或付款凭证记录'
-  }
-
-  if (['processing', 'refunded'].includes(normalizeText(order.refund_status))) {
-    return '工单已有退款记录'
-  }
-
-  const invoice = order.invoice_info || {}
-  if (invoice.need_invoice === true
-    || normalizeText(invoice.invoice_no || invoice.invoiceNo)
-    || normalizeText(invoice.file_url || invoice.fileUrl || invoice.invoice_url || invoice.invoiceUrl)
-    || ['开具中', '已开具', '已寄出', '已签收'].includes(normalizeText(invoice.status))) {
-    return '工单已有开票申请或发票记录'
-  }
-
-  if (order.inventory_deducted === true || normalizeText(order.inventory_status)) {
-    return '工单已有库存处理记录'
-  }
-
-  if (['issued', 'confirmed'].includes(normalizeText(order.quote_status)) || Number(order.total_price || 0) > 0) {
-    return '工单已有正式报价记录'
-  }
-
-  return ''
 }
 
 function normalizeCustomerType(value, fallback = '') {
@@ -2426,6 +2410,7 @@ function getDashboardMetrics(orders = [], feedbacks = [], startTime, endTime, gr
     pendingOrders: 0,
     repairingOrders: 0,
     completedOrders: 0,
+    createdCompletedOrders: 0,
     avgHandleHours: 0,
     quotePendingOrders: 0,
     invoicePendingOrders: 0,
@@ -2440,30 +2425,32 @@ function getDashboardMetrics(orders = [], feedbacks = [], startTime, endTime, gr
   }
 
   orders.forEach(order => {
-    if (order.status !== 'cancelled') metrics.totalOrders += 1
-    if (Object.prototype.hasOwnProperty.call(metrics.statusBreakdown, order.status)) {
-      metrics.statusBreakdown[order.status] += 1
-    }
     const createTime = Number(order.create_time || 0)
     const completedTime = getOrderCompletedTime(order)
     const createKey = getTrendKey(createTime, granularity)
     const completedKey = getTrendKey(completedTime, granularity)
+    const createdInRange = isInRange(createTime, startTime, endTime)
 
-    if (isInRange(createTime, startTime, endTime)) {
+    if (createdInRange) {
       metrics.newOrders += 1
+      if (order.status === 'completed') metrics.createdCompletedOrders += 1
+      if (order.status !== 'cancelled') metrics.totalOrders += 1
+      if (Object.prototype.hasOwnProperty.call(metrics.statusBreakdown, order.status)) {
+        metrics.statusBreakdown[order.status] += 1
+      }
       if (trendMap[createKey]) trendMap[createKey].newOrders += 1
     }
 
-    if (pendingStatuses.includes(order.status)) {
+    if (createdInRange && pendingStatuses.includes(order.status)) {
       metrics.pendingOrders += 1
-      if (isInRange(createTime, startTime, endTime) && trendMap[createKey]) {
+      if (trendMap[createKey]) {
         trendMap[createKey].pendingOrders += 1
       }
     }
 
-    if (repairingStatuses.includes(order.status)) metrics.repairingOrders += 1
-    if (matchesTodoType(order, 'quote')) metrics.quotePendingOrders += 1
-    if (matchesTodoType(order, 'invoice')) metrics.invoicePendingOrders += 1
+    if (createdInRange && repairingStatuses.includes(order.status)) metrics.repairingOrders += 1
+    if (createdInRange && matchesTodoType(order, 'quote')) metrics.quotePendingOrders += 1
+    if (createdInRange && matchesTodoType(order, 'invoice')) metrics.invoicePendingOrders += 1
 
     if (order.status === 'completed' && isInRange(completedTime, startTime, endTime)) {
       metrics.completedOrders += 1
@@ -2727,7 +2714,7 @@ module.exports = {
           continue
         }
 
-        const blockReason = getBatchDeleteBlockReason(order)
+        const blockReason = getOrderDeleteBlockReason(order)
         if (blockReason) {
           failures.push({ order_id: order._id, order_no: order.order_no || requested.order_no, reason: blockReason })
           continue
@@ -2797,6 +2784,8 @@ module.exports = {
         customer_type = '',
         todoType = '',
         slaLevel = '',
+        startDate = '',
+        endDate = '',
         responseMode = 'array'
       } = requestParams
 
@@ -2811,6 +2800,7 @@ module.exports = {
       const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
       const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
+      if (directMatchCond) applyCreateDateRange(directMatchCond, startDate, endDate)
       // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
       const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedDeviceModel && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
 
@@ -2827,6 +2817,7 @@ module.exports = {
       } else {
         const fallbackMatchCond = {}
         if (status) fallbackMatchCond.status = status
+        applyCreateDateRange(fallbackMatchCond, startDate, endDate)
 
         // 在不改变最终结果的前提下，把「可索引且与 JS 谓词完全等价」的等值条件下推到 DB，
         // 缩小扫描集（原来只下推 status，其余全靠 2000 行内存扫描）。
@@ -3026,9 +3017,12 @@ module.exports = {
     try {
       const currentAdmin = requireAdminPermission(this, 'manage_inventory')
       const showCost = canViewPartCost(currentAdmin)
-      const { keyword = '', stockStatus = '', enabled = '' } = pickParam(this, params)
+      const { keyword = '', stockStatus = '', enabled = '', startDate = '', endDate = '' } = pickParam(this, params)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
-      const allRes = await db.collection('cicada_parts').orderBy('create_time', 'desc').limit(1000).get()
+      const dateWhere = applyCreateDateRange({}, startDate, endDate)
+      const collection = db.collection('cicada_parts')
+      const query = Object.keys(dateWhere).length ? collection.where(dateWhere) : collection
+      const allRes = await query.orderBy('create_time', 'desc').limit(1000).get()
       const list = (allRes.data || []).filter(part => {
         const searchable = [
           part.part_code,
@@ -4893,8 +4887,9 @@ module.exports = {
   async getStatistics(params) {
     try {
       requireAdminPermission(this, 'get_stats')
-      const { includeStatusBreakdown = false } = pickParam(this, params)
+      const { includeStatusBreakdown = false, startDate = '', endDate = '' } = pickParam(this, params)
       const todayStart = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+      const statusDateWhere = applyCreateDateRange({}, startDate, endDate)
 
       const [pendingRes, todayRes, statusResults] = await Promise.all([
         db.collection('cicada_orders').where({
@@ -4904,7 +4899,7 @@ module.exports = {
         db.collection('cicada_orders').where(withActiveOrderFilter({ create_time: dbCmd.gte(todayStart) })).count(),
         includeStatusBreakdown
           ? Promise.all(ORDER_STATUS.map(status => (
-              db.collection('cicada_orders').where(withActiveOrderFilter({ status })).count()
+              db.collection('cicada_orders').where(withActiveOrderFilter({ status, ...statusDateWhere })).count()
             )))
           : Promise.resolve(null)
       ])
@@ -5142,11 +5137,12 @@ module.exports = {
     try {
       const currentAdmin = requireAdminPermission(this, 'export_order')
       const canConfirmArrival = hasRolePermission(currentAdmin.role, 'update_status')
-      const { status = '', keyword = '', page = 1, pageSize = 20 } = pickParam(this, params)
+      const { status = '', keyword = '', startDate = '', endDate = '', page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const kw = normalizeText(keyword).toLowerCase()
       const matchCond = { status: dbCmd.neq('cancelled') }
       if (status && ORDER_STATUS.includes(status)) matchCond.status = status
+      applyCreateDateRange(matchCond, startDate, endDate)
       const fetched = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
       const rows = (fetched.orders || []).map(o => {
         const out = o.ship_out_info || {}
@@ -5191,11 +5187,12 @@ module.exports = {
   async getFourFlowLedger(params) {
     try {
       requireAdminPermission(this, 'view_settlement')
-      const { status = '', keyword = '', billableOnly = false, page = 1, pageSize = 20 } = pickParam(this, params)
+      const { status = '', keyword = '', billableOnly = false, startDate = '', endDate = '', page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const kw = normalizeText(keyword).toLowerCase()
       const matchCond = { status: dbCmd.neq('cancelled') }
       if (status && ORDER_STATUS.includes(status)) matchCond.status = status
+      applyCreateDateRange(matchCond, startDate, endDate)
       const fetched = await fetchOrderBatches(matchCond, { maxRows: ADMIN_ORDER_FILTER_SCAN_LIMIT, returnMeta: true })
       let rows = (fetched.orders || []).map(o => {
         const out = o.ship_out_info || {}
@@ -5403,12 +5400,18 @@ module.exports = {
       const { startDate = '', endDate = '', granularity = 'day' } = pickParam(this, params)
       const { startTime, endTime } = normalizeDashboardRange(startDate, endDate)
       const normalizedGranularity = granularity === 'week' ? 'week' : 'day'
-      const [orders, feedbackRes] = await Promise.all([
-        fetchOrderBatches({ status: dbCmd.neq('cancelled') }),
+      const rangeCommand = dbCmd.and(dbCmd.gte(startTime), dbCmd.lte(endTime))
+      const [createdOrders, completedOrders, paidOrders, feedbackRes] = await Promise.all([
+        fetchOrderBatches({ status: dbCmd.neq('cancelled'), create_time: rangeCommand }),
+        fetchOrderBatches({ status: 'completed', update_time: rangeCommand }),
+        fetchOrderBatches({ status: dbCmd.neq('cancelled'), payment_status: 'paid', payment_paid_time: rangeCommand }),
         db.collection('cicada_feedbacks').where({
           create_time: dbCmd.and(dbCmd.gte(startTime), dbCmd.lte(endTime))
         }).get()
       ])
+      const orders = Array.from(new Map(
+        [...createdOrders, ...completedOrders, ...paidOrders].map(order => [order._id, order])
+      ).values())
       const { metrics, trend } = getDashboardMetrics(orders, feedbackRes.data || [], startTime, endTime, normalizedGranularity)
 
       return {

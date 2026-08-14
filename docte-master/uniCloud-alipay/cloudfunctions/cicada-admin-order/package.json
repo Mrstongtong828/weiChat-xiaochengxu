@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "dependencies": {
     "cicada-admin-auth": "file:../common/cicada-admin-auth",
+    "cicada-date-range": "file:../common/cicada-date-range",
     "cicada-express-provider": "file:../common/cicada-express-provider",
     "cicada-invoice-policy": "file:../common/cicada-invoice-policy",
     "cicada-order-workflow": "file:../common/cicada-order-workflow",

@@ -85,8 +85,10 @@ The CLI invocation used for an isolated project bound to this cloud space was:
 - `user_id, create_time desc`
 - `customer_id, create_time desc`   # 身份桥：后台按 CRM 客户查历史工单（listCustomerOrders）
 - `status, create_time desc`
+- `status, update_time desc, create_time desc`  # 按完工时间范围统计看板
 - `engineer_id, create_time desc`
 - `payment_status, create_time desc`
+- `payment_status, payment_paid_time desc, create_time desc`  # 按到账时间范围统计实收
 - `quote_status, create_time desc`
 - `refund_status, create_time desc`
 - `inventory_status, create_time desc`
@@ -179,6 +181,7 @@ The CLI invocation used for an isolated project bound to this cloud space was:
 
 - `part_code` unique
 - `part_name`
+- `create_time desc`                 # 按配件建档时间筛选库存导出
 - `enabled, create_time desc`
 - `stock, warning_threshold`
 

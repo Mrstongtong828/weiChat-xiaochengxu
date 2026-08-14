@@ -58,6 +58,8 @@
           <el-select v-model="filters.status" placeholder="全部状态" clearable size="small" style="width: 130px" @change="reloadLedger">
             <el-option v-for="s in STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
+          <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+            start-placeholder="导出开始" end-placeholder="导出结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="lm-export-range" />
           <el-button type="primary" size="small" @click="reloadLedger">查询</el-button>
           <el-button type="success" plain size="small" :loading="exporting" @click="exportLedger"><el-icon><Download /></el-icon>导出台账</el-button>
         </div>
@@ -162,6 +164,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { confirmInboundArrival, getLogisticsExceptions, getLogisticsLedger, getLogisticsReadiness, getLogisticsTrack } from '../api/order.js'
 import LogisticsImport from './LogisticsImport.vue'
 import { useRoute } from 'vue-router'
+import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 
 const route = useRoute()
 const workflowConfig = ref(null)
@@ -246,6 +249,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const filters = reactive({ keyword: '', status: '' })
 const exporting = ref(false)
+const exportDateRange = ref(createCurrentMonthRange())
 const confirmingOrderId = ref('')
 const trackDrawerVisible = ref(false)
 const trackLoading = ref(false)
@@ -328,7 +332,7 @@ const exportLedger = async () => {
     let truncated = false
     while (pageNo <= MAX_PAGES) {
       const data = await getLogisticsLedger(getToken(), {
-        keyword: filters.keyword, status: filters.status, page: pageNo, pageSize: PAGE_SIZE
+        keyword: filters.keyword, status: filters.status, ...toApiDateRange(exportDateRange.value), page: pageNo, pageSize: PAGE_SIZE
       })
       const pageList = (data && data.list) || []
       totalCount = (data && data.total) || 0
@@ -385,6 +389,7 @@ watch(() => route.query.tab, applyRouteTab)
 .lm-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .lm-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; color: #1f2d3d; }
 .lm-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lm-export-range { width: 250px; }
 .lm-sub { margin: 8px 0 14px; font-size: 12px; color: #909399; }
 .lm-pager { margin-top: 14px; display: flex; justify-content: flex-end; }
 .lm-muted { color: #c0c4cc; }

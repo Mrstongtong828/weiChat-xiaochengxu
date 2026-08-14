@@ -17,9 +17,22 @@
     <section v-if="showOverview" class="overview-section" v-loading="overviewLoading">
       <div class="overview-header">
         <div class="overview-title">
-          <el-tag type="primary" effect="light">本月经营概览</el-tag>
-          <span class="overview-hint">数据截至今日 · 点击数字可下钻</span>
+          <el-tag type="primary" effect="light">经营概览</el-tag>
+          <span class="overview-hint">{{ rangeLabel }} · 点击数字可下钻</span>
         </div>
+        <el-date-picker
+          v-model="dashboardRange"
+          type="daterange"
+          value-format="YYYY-MM-DD"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          :shortcuts="dateRangeShortcuts"
+          :clearable="false"
+          unlink-panels
+          class="dashboard-range"
+          @change="loadOverview"
+        />
       </div>
       <div class="overview-grid">
         <el-card
@@ -34,7 +47,7 @@
             <span class="overview-icon" :class="'overview-icon--' + card.tone">
               <el-icon><component :is="card.icon" /></el-icon>
             </span>
-            <span class="overview-caption">本月</span>
+            <span class="overview-caption">所选时段</span>
           </div>
           <div class="overview-label">{{ card.title }}</div>
           <div class="overview-value" :class="card.accent">{{ card.value }}<small>{{ card.unit }}</small></div>
@@ -56,11 +69,11 @@
           <RingChart
             :data="statusRingData"
             :center-value="String(overview.totalOrders || 0)"
-            center-label="在库工单"
+            center-label="区间工单"
           />
         </el-card>
         <el-card shadow="never" :body-style="{ padding: '0' }" class="ring-card reference-chart-card">
-          <div class="ring-card-title">本月完工率</div>
+          <div class="ring-card-title">区间新增工单完工率</div>
           <RingChart
             :data="completionRingData"
             :center-value="completionRate + '%'"
@@ -70,7 +83,7 @@
           />
         </el-card>
         <el-card shadow="never" :body-style="{ padding: '0' }" class="ring-card money-card reference-chart-card">
-          <div class="ring-card-title">本月已收</div>
+          <div class="ring-card-title">区间已收</div>
           <div class="money-figure">
             <span class="money-symbol">¥</span>
             <span class="money-value">{{ fmtMoney(overview.paidAmount) }}</span>
@@ -81,7 +94,7 @@
             <span>平均 {{ overview.avgHandleHours || 0 }} 小时</span>
           </div>
           <LineChart v-if="trendRows.length" class="money-chart" :categories="trendCategories" :series="trendSeries" />
-          <div v-else class="money-chart-empty">本月暂无趋势数据</div>
+          <div v-else class="money-chart-empty">所选时段暂无趋势数据</div>
           <div class="money-foot" @click="navigateTo('settlement', '')">查看结算 →</div>
         </el-card>
       </div>
@@ -118,6 +131,7 @@ import { ChatLineRound, CircleCheck, Document, Money, Tickets, Timer } from '@el
 import { getStatistics, getTodoSummary, getDashboardSummary } from '../api/order.js'
 import { getFeedbackStats } from '../api/admin.js'
 import { canAccessMenu } from '../config/menuAccess.js'
+import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 import RingChart from '../components/ui/RingChart.vue'
 import LineChart from '../components/ui/LineChart.vue'
 
@@ -139,10 +153,15 @@ const todoError = ref('')
 // 经营概览 + 数据看板：仅管理 / 财务可见（原依附 summary 权限，运营统计页已并入本页，
 // 改依附 finance 权限——角色完全相同 superadmin/admin/finance，可见范围不变）
 const showOverview = canAccessMenu('finance')
-const overview = ref({ newOrders: 0, completedOrders: 0, quotePendingOrders: 0, invoicePendingOrders: 0, avgHandleHours: 0, paidAmount: 0, totalOrders: 0 })
+const overview = ref({ newOrders: 0, completedOrders: 0, createdCompletedOrders: 0, quotePendingOrders: 0, invoicePendingOrders: 0, avgHandleHours: 0, paidAmount: 0, totalOrders: 0 })
 const overviewLoading = ref(false)
 const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0 })
 const trendRows = ref([])
+const dashboardRange = ref(createCurrentMonthRange())
+const rangeLabel = computed(() => {
+  const [startDate, endDate] = dashboardRange.value || []
+  return startDate && endDate ? `${startDate} 至 ${endDate}` : '请选择统计日期'
+})
 
 // 趋势图：X 轴用 MM-DD，三条曲线（新增/完成/待处理）
 const trendCategories = computed(() => trendRows.value.map(r => String(r.label || '').slice(5) || r.label))
@@ -173,7 +192,7 @@ const statusRingData = computed(() => {
 })
 
 const completionRate = computed(() => {
-  const done = Number(overview.value.completedOrders || 0)
+  const done = Number(overview.value.createdCompletedOrders || 0)
   const created = Number(overview.value.newOrders || 0)
   if (created <= 0) return 0
   return Math.min(100, Math.round((done / created) * 100))
@@ -259,13 +278,13 @@ const statCards = computed(() => [
   }
 ])
 
-// 本月经营概览卡：只放数字 + 可点击下钻，趋势分析仍在「运营统计」页
+// 经营概览卡：只放数字 + 可点击下钻
 const fmtMoney = (n) => Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 const overviewCards = computed(() => [
-  { key: 'paidAmount', title: '本月已收', value: fmtMoney(overview.value.paidAmount), unit: '元', accent: 'is-success', route: 'settlement', icon: Money, tone: 'green' },
-  { key: 'newOrders', title: '本月新增工单', value: overview.value.newOrders || 0, unit: '件', accent: 'is-primary', route: 'workorder', icon: Tickets, tone: 'blue' },
-  { key: 'completedOrders', title: '本月完工', value: overview.value.completedOrders || 0, unit: '件', accent: 'is-dark', route: 'workorder', icon: CircleCheck, tone: 'violet' },
+  { key: 'paidAmount', title: '区间已收', value: fmtMoney(overview.value.paidAmount), unit: '元', accent: 'is-success', route: 'settlement', icon: Money, tone: 'green' },
+  { key: 'newOrders', title: '区间新增工单', value: overview.value.newOrders || 0, unit: '件', accent: 'is-primary', route: 'workorder', icon: Tickets, tone: 'blue' },
+  { key: 'completedOrders', title: '区间完工', value: overview.value.completedOrders || 0, unit: '件', accent: 'is-dark', route: 'workorder', icon: CircleCheck, tone: 'violet' },
   { key: 'quotePendingOrders', title: '待报价', value: overview.value.quotePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'workorder', todo: 'quote', icon: Document, tone: 'orange' },
   { key: 'invoicePendingOrders', title: '待开票', value: overview.value.invoicePendingOrders || 0, unit: '件', accent: 'is-warning', route: 'invoices', icon: Document, tone: 'amber' },
   { key: 'avgHandleHours', title: '平均处理时长', value: overview.value.avgHandleHours || 0, unit: '小时', accent: 'is-dark', route: '', icon: Timer, tone: 'navy' }
@@ -282,26 +301,19 @@ const TODO_META = {
 }
 const todoMeta = (key) => TODO_META[key] || { icon: Document, tone: 'blue' }
 
-const monthRangeParams = () => {
-  const now = new Date()
-  const pad = (n) => String(n).padStart(2, '0')
-  const startDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01`
-  const endDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-  return { startDate, endDate, granularity: 'day' }
-}
-
 const loadOverview = async () => {
   if (!showOverview) return
   const token = localStorage.getItem('adminToken')
   if (!token) return
   overviewLoading.value = true
   try {
-    const res = await getDashboardSummary(token, monthRangeParams())
+    const res = await getDashboardSummary(token, { ...toApiDateRange(dashboardRange.value), granularity: 'day' })
     const data = res?.data || res || {}
     const metrics = data.metrics || data
     overview.value = {
       newOrders: Number(metrics.newOrders || 0),
       completedOrders: Number(metrics.completedOrders || 0),
+      createdCompletedOrders: Number(metrics.createdCompletedOrders || 0),
       quotePendingOrders: Number(metrics.quotePendingOrders || 0),
       invoicePendingOrders: Number(metrics.invoicePendingOrders || 0),
       avgHandleHours: Number(metrics.avgHandleHours || 0),
@@ -334,7 +346,9 @@ const refreshDashboard = () => {
 
 const goOverview = (card) => {
   if (!card || !card.route) return
-  router.push({ path: '/' + card.route, query: card.todo ? { todo: card.todo } : {} })
+  const query = { ...toApiDateRange(dashboardRange.value) }
+  if (card.todo) query.todo = card.todo
+  router.push({ path: '/' + card.route, query })
 }
 
 const loadStats = async () => {
@@ -440,6 +454,7 @@ onMounted(() => {
 .overview-section { display: grid; gap: 12px; }
 .overview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .overview-title { display: flex; align-items: center; gap: 12px; }
+.dashboard-range { width: 300px; }
 .overview-hint { font-size: 13px; color: #64748b; }
 .overview-more { font-size: 14px; font-weight: 700; color: #2563eb; cursor: pointer; white-space: nowrap; }
 .overview-more:hover { text-decoration: underline; }
@@ -519,6 +534,7 @@ onMounted(() => {
   .dashboard-grid { grid-template-columns: 1fr; }
   .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .dashboard-range { width: 100%; }
 }
 
 @media screen and (max-width: 600px) {

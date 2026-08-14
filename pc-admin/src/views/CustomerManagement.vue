@@ -8,6 +8,8 @@
       <div class="title-actions">
         <el-button v-if="canEdit" size="small" @click="tagMgrVisible = true">标签管理</el-button>
         <el-button v-if="canCreate" size="small" @click="importVisible = true">批量导入</el-button>
+        <el-date-picker v-if="canExport" v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+          start-placeholder="导出开始" end-placeholder="导出结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="export-date-range" />
         <el-button v-if="canExport" size="small" @click="doExport" :loading="exporting">导出</el-button>
         <el-button v-if="canCreate" size="small" @click="confirmSync" :loading="syncing">同步小程序客户</el-button>
         <el-button v-if="canCreate" type="primary" size="small" @click="openEdit(null)">
@@ -386,6 +388,7 @@ import {
 } from '../api/customer.js'
 import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { downloadCustomerTemplate, exportCustomerWorkbook, parseCustomerExcelFile } from '../utils/customerExcel.js'
+import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 
 const route = useRoute()
 const SOURCE_LABELS = { miniapp: '小程序注册', offline: '线下导入', dealer_referral: '经销商推荐' }
@@ -428,6 +431,7 @@ const loading = ref(false)
 const saving = ref(false)
 const syncing = ref(false)
 const exporting = ref(false)
+const exportDateRange = ref(createCurrentMonthRange())
 const importing = ref(false)
 const list = ref([])
 const total = ref(0)
@@ -718,10 +722,31 @@ const submitBatchTag = async () => {
 const doExport = async () => {
   exporting.value = true
   try {
-    const data = await exportCustomers({ keyword: filters.keyword, customer_type: resolveCustomerTypeValue(filters.customer_type), status: filters.status, tag: filters.tag })
-    if (!data.length) { ElMessage.warning('没有可导出的数据'); return }
-    await exportCustomerWorkbook(data)
-    ElMessage.success(`已导出 ${data.length} 条`)
+    const PAGE_SIZE = 100
+    const MAX_PAGES = 100
+    const rows = []
+    let pageNo = 1
+    let totalCount = 0
+    while (pageNo <= MAX_PAGES) {
+      const data = await exportCustomers({
+        keyword: filters.keyword,
+        customer_type: resolveCustomerTypeValue(filters.customer_type),
+        status: filters.status,
+        tag: filters.tag,
+        ...toApiDateRange(exportDateRange.value),
+        page: pageNo,
+        pageSize: PAGE_SIZE
+      })
+      const list = data.list || []
+      totalCount = Number(data.total || 0)
+      rows.push(...list)
+      if (list.length < PAGE_SIZE || rows.length >= totalCount) break
+      pageNo += 1
+    }
+    if (!rows.length) { ElMessage.warning('没有可导出的数据'); return }
+    await exportCustomerWorkbook(rows)
+    if (rows.length < totalCount) ElMessage.warning(`已导出 ${rows.length} 条，仍有 ${totalCount - rows.length} 条未导出，请缩小时间范围`)
+    else ElMessage.success(`已导出 ${rows.length} 条`)
   } catch (e) { /* ignore */ } finally { exporting.value = false }
 }
 
@@ -761,7 +786,8 @@ watch(() => route.query.alert, () => {
 <style scoped>
 .glass-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); margin-bottom: 20px; }
 .section-title { font-size: 16px; font-weight: 600; color: #1d2129; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
-.title-actions { display: flex; gap: 8px; }
+.title-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.export-date-range { width: 250px; }
 .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .warranty-alert-panel { margin: 0 0 16px; border: 1px solid #dce9f8; border-radius: 8px; overflow: hidden; }
 .warranty-alert-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; background: #f7fbff; flex-wrap: wrap; }

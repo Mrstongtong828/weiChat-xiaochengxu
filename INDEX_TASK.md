@@ -52,9 +52,15 @@
 | | create_time | -1 | | |
 | idx_status_create | status | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | create_time | -1 | | |
+| idx_status_update_create | status | 1 | 否 | 复合索引，按完工时间范围统计看板 |
+| | update_time | -1 | | |
+| | create_time | -1 | | |
 | idx_engineer_create | engineer_id | 1 | 否 | 复合索引，同一面板添加两个字段 |
 | | create_time | -1 | | |
 | idx_payment_create | payment_status | 1 | 否 | 复合索引，按支付状态筛选/统计工单 |
+| | create_time | -1 | | |
+| idx_payment_paid_create | payment_status | 1 | 否 | 复合索引，按到账时间范围统计实收 |
+| | payment_paid_time | -1 | | |
 | | create_time | -1 | | |
 | idx_quote_create | quote_status | 1 | 否 | 复合索引，按报价状态筛选/统计工单 |
 | | create_time | -1 | | |
@@ -105,6 +111,14 @@
 | | create_time | -1 | | |
 | idx_status_create | status | 1 | 否 | 复合索引，按发送状态统计/排查 |
 | | create_time | -1 | | |
+
+---
+
+## cicada_parts
+
+| 索引名称 | 字段名 | 索引类型 | 唯一 (Unique) | 备注 |
+|---|---|---|---|---|
+| idx_create_time | create_time | -1 | 否 | 按配件建档时间筛选库存导出 |
 
 ---
 

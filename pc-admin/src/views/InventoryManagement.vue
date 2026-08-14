@@ -9,6 +9,8 @@
         <el-button size="small" @click="downloadTemplate">
           下载模板
         </el-button>
+        <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+          start-placeholder="建档开始" end-placeholder="建档结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="export-date-range" />
         <el-button size="small" :loading="exporting" @click="exportInventory">
           <el-icon><Download /></el-icon> 导出库存
         </el-button>
@@ -190,6 +192,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { batchImportParts, batchUpdatePartStatus, exportParts, getPartList, savePart, updatePartStatus, getInventoryFlows } from '../api/inventory.js'
 import { getCurrentAdminRole } from '../config/menuAccess.js'
 import { downloadPartImportTemplate, exportPartsWorkbook, parsePartExcelFile } from '../utils/inventoryExcel.js'
+import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 
 // 采购成本仅 admin/finance 可见可编辑（后端亦已对其他角色脱敏，前端同步隐藏）
 const canViewCost = ['superadmin', 'admin', 'finance'].includes(getCurrentAdminRole())
@@ -201,6 +204,7 @@ const saving = ref(false)
 const importingSamples = ref(false)
 const importing = ref(false)
 const exporting = ref(false)
+const exportDateRange = ref(createCurrentMonthRange())
 const batchUpdating = ref(false)
 const flowLoading = ref(false)
 const total = ref(0)
@@ -339,7 +343,8 @@ const exportInventory = async () => {
   try {
     const data = await exportParts(getToken(), {
       keyword: filters.keyword,
-      stockStatus: filters.stockStatus
+      stockStatus: filters.stockStatus,
+      ...toApiDateRange(exportDateRange.value)
     })
     const list = data.list || []
     if (!list.length) {
@@ -498,6 +503,8 @@ onMounted(loadParts)
 
 <style scoped>
 .inventory-page { min-height: 520px; }
+.inventory-page :deep(.title-actions) { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.export-date-range { width: 250px; }
 .inventory-toolbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 18px; flex-wrap: wrap; }
 .selection-count { color: #1769aa; font-size: 12px; font-weight: 600; }
 .pager { margin-top: 16px; justify-content: flex-end; }

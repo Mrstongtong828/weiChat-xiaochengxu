@@ -1,6 +1,7 @@
 const db = uniCloud.database()
 const dbCmd = db.command
 const { createAdminAuthError, toAdminErrorResponse, normalizeAdminAuthResult, isAdminTokenExpired } = loadAdminAuthModule()
+const { normalizeOptionalDateRange } = loadDateRangeModule()
 const warrantyPolicy = loadWarrantyPolicyModule()
 
 function loadAdminAuthModule() {
@@ -16,6 +17,14 @@ function loadWarrantyPolicyModule() {
     return require('cicada-warranty-policy')
   } catch (packageError) {
     return require('../common/cicada-warranty-policy')
+  }
+}
+
+function loadDateRangeModule() {
+  try {
+    return require('cicada-date-range')
+  } catch (packageError) {
+    return require('../common/cicada-date-range')
   }
 }
 
@@ -1073,22 +1082,29 @@ module.exports = {
       const admin = await verifyAdminToken(p.token)
       requirePermission(admin, 'export')
 
-      const keyword = normalizeText(p.keyword).toLowerCase()
+      const keyword = normalizeText(p.keyword)
       const customerType = normalizeText(p.customer_type)
       const statusFilter = normalizeText(p.status) || 'active'
       const tagFilter = normalizeText(p.tag)
+      const { startTime, endTime } = normalizeOptionalDateRange(p.startDate, p.endDate)
+      const { page, pageSize } = normalizePage(p.page, p.pageSize || 100)
 
       const where = {}
       if (statusFilter !== 'all') where.status = statusFilter === 'cancelled' ? 'cancelled' : dbCmd.neq('cancelled')
       if (customerType.length > MAX_CUSTOMER_TYPE_LENGTH) return { code: -1, msg: '客户类型不能超过40个字符' }
       if (customerType) where.customer_type = customerType
       if (tagFilter) where.tags = tagFilter
+      if (startTime !== null && endTime !== null) where.create_time = dbCmd.and(dbCmd.gte(startTime), dbCmd.lte(endTime))
+      else if (startTime !== null) where.create_time = dbCmd.gte(startTime)
+      else if (endTime !== null) where.create_time = dbCmd.lte(endTime)
 
-      const res = await db.collection('cicada_customers').where(where).orderBy('create_time', 'desc').limit(5000).get()
-      let rows = res.data
-      if (keyword) {
-        rows = rows.filter(c => [c.name, c.contact, c.phone].map(normalizeText).join(' ').toLowerCase().includes(keyword))
-      }
+      const collection = db.collection('cicada_customers')
+      const query = buildCustomerListQuery(where, keyword)
+      const [countRes, res] = await Promise.all([
+        collection.where(query).count(),
+        collection.where(query).orderBy('create_time', 'desc').skip((page - 1) * pageSize).limit(pageSize).get()
+      ])
+      const rows = res.data || []
 
       // 解析归属经销商名称
       const dealerIds = [...new Set(rows.map(r => r.dealer_id).filter(Boolean))]
@@ -1114,8 +1130,10 @@ module.exports = {
         create_time: c.create_time || 0
       }))
 
-      await writeLog(this, admin, 'export', { name: '批量导出' }, `导出客户档案 ${data.length} 条`)
-      return { code: 0, data }
+      if (page === 1) {
+        await writeLog(this, admin, 'export', { name: '批量导出' }, `导出客户档案，筛选结果 ${countRes.total} 条`)
+      }
+      return { code: 0, data: { list: data, total: countRes.total, page, pageSize } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

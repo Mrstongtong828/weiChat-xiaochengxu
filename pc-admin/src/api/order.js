@@ -15,6 +15,8 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     customerType: filters.customerType || filters.customer_type || '',
     todoType: filters.todoType || '',
     slaLevel: filters.slaLevel || '',
+    startDate: filters.startDate || '',
+    endDate: filters.endDate || '',
     responseMode: filters.responseMode || 'array'
   })
 }
@@ -183,7 +185,9 @@ export const addTimeline = (token, orderId, title, desc) => {
 export const getStatistics = (token, options = {}) => {
   return request.post(`${API_BASE.adminOrder}/getStatistics`, {
     token,
-    includeStatusBreakdown: options.includeStatusBreakdown === true
+    includeStatusBreakdown: options.includeStatusBreakdown === true,
+    startDate: options.startDate || '',
+    endDate: options.endDate || ''
   })
 }
 
@@ -221,6 +225,8 @@ export const getLogisticsLedger = (token, filters = {}) => {
     token,
     status: filters.status || '',
     keyword: filters.keyword || '',
+    startDate: filters.startDate || '',
+    endDate: filters.endDate || '',
     page: filters.page || 1,
     pageSize: filters.pageSize || 20
   })
@@ -243,6 +249,8 @@ export const getFourFlowLedger = (token, filters = {}) => {
     status: filters.status || '',
     keyword: filters.keyword || '',
     billableOnly: filters.billableOnly || false,
+    startDate: filters.startDate || '',
+    endDate: filters.endDate || '',
     page: filters.page || 1,
     pageSize: filters.pageSize || 20
   })

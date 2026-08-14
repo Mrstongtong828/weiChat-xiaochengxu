@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "dependencies": {
     "cicada-admin-auth": "file:../common/cicada-admin-auth",
+    "cicada-date-range": "file:../common/cicada-date-range",
     "cicada-warranty-policy": "file:../common/cicada-warranty-policy"
   },
   "cloudfunction-config": {

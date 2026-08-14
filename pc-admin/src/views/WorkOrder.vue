@@ -44,6 +44,8 @@
           <el-option label="严重超时" value="critical"></el-option>
           <el-option label="临近超时" value="warning"></el-option>
         </el-select>
+        <el-date-picker v-model="listDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+          start-placeholder="创建开始" end-placeholder="创建结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable class="workorder-date-range" />
         <el-tag v-if="activeTodoType" type="warning" closable @close="clearTodoFilter">{{ activeTodoLabel }}</el-tag>
       </div>
       <div class="batch-strip">
@@ -276,7 +278,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="136" fixed="right" align="right" class-name="operation-column" label-class-name="operation-column">
+        <el-table-column label="操作" width="184" fixed="right" align="right" class-name="operation-column" label-class-name="operation-column">
           <template #default="{row}">
             <div class="operation-actions">
               <el-tooltip content="打开工单详情，处理报价、付款、物流、发票和结案" placement="top">
@@ -292,6 +294,21 @@
                 >
                   备注
                 </el-button>
+              </el-tooltip>
+              <el-tooltip
+                v-if="canPerformOrderAction('delete_order')"
+                :content="row.deleteBlockReason || '删除客户未寄出设备的误填工单'"
+                placement="top"
+              >
+                <span>
+                  <el-button
+                    type="danger"
+                    link
+                    :disabled="Boolean(row.deleteBlockReason)"
+                    :aria-label="`删除工单 ${row.id}`"
+                    @click="openSingleDeleteDialog(row)"
+                  >删除</el-button>
+                </span>
               </el-tooltip>
             </div>
           </template>
@@ -1501,6 +1518,12 @@
 
   <el-dialog v-model="exportDialogVisible" title="自定义导出字段" width="500px" align-center>
     <div class="export-field-panel">
+      <div class="export-range-row">
+        <span>工单创建时间</span>
+        <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+          start-placeholder="开始日期" end-placeholder="结束日期" :shortcuts="dateRangeShortcuts" unlink-panels clearable />
+      </div>
+      <el-divider></el-divider>
       <el-checkbox
         v-model="checkAll"
         :indeterminate="isIndeterminate"
@@ -1527,7 +1550,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="batchDeleteDialogVisible" title="批量删除工单" width="560px" align-center @closed="resetBatchDeleteForm">
+  <el-dialog v-model="batchDeleteDialogVisible" :title="deleteDialogTitle" width="560px" align-center @closed="resetBatchDeleteForm">
     <div class="delete-confirm-panel">
       <el-alert
         title="删除后工单会从正常列表、小程序和统计中隐藏，但会保留审计记录。已付款、已开票、已扣库存或状态不允许的工单会自动跳过。"
@@ -1536,8 +1559,8 @@
         show-icon
       ></el-alert>
       <div class="delete-confirm-summary">
-        <strong>本次选择 {{ selectedOrders.length }} 个工单</strong>
-        <span>{{ formatOrderIdList(selectedOrders) }}</span>
+        <strong>本次选择 {{ deleteTargetOrders.length }} 个工单</strong>
+        <span>{{ formatOrderIdList(deleteTargetOrders) }}</span>
       </div>
       <el-form label-position="top">
         <el-form-item label="删除原因" required>
@@ -1727,6 +1750,7 @@ import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
+import { createCurrentMonthRange, dateRangeShortcuts, formatLocalDate, toApiDateRange } from '../utils/dateRange.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
@@ -2404,6 +2428,7 @@ const totalOrders = ref(0)
 const deviceModelOptions = ref([])
 const selectedOrders = ref([])
 const batchDeleteDialogVisible = ref(false)
+const deleteTargetOrders = ref([])
 const batchDeleteForm = reactive({
   reason: '',
   confirmText: ''
@@ -2412,6 +2437,8 @@ const workflowConfig = ref(null)
 const printConfig = ref(parsePrintTemplates().repair_order)
 const printSettingsRaw = ref({})
 const exportDialogVisible = ref(false)
+const exportDateRange = ref(createCurrentMonthRange())
+const listDateRange = ref(null)
 const selectedExportFields = ref(exportableFields.map(field => field.key))
 const checkAll = ref(true)
 const isIndeterminate = ref(false)
@@ -2426,7 +2453,8 @@ const slaFilter = ref('')
 const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0, cancelled: 0 })
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
-const expectedBatchDeleteConfirmText = computed(() => `确认删除${selectedOrders.value.length}个工单`)
+const expectedBatchDeleteConfirmText = computed(() => `确认删除${deleteTargetOrders.value.length}个工单`)
+const deleteDialogTitle = computed(() => deleteTargetOrders.value.length === 1 ? '删除工单' : '批量删除工单')
 const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
 const logisticsImportTip = computed(() => {
   return activeLogisticsImportType.value === 'inbound'
@@ -2458,7 +2486,7 @@ const applyStatusFilter = (filter) => {
 
 const loadStatusBreakdown = async () => {
   const token = localStorage.getItem('adminToken')
-  const data = await getStatistics(token, { includeStatusBreakdown: true })
+  const data = await getStatistics(token, { includeStatusBreakdown: true, ...toApiDateRange(listDateRange.value) })
   const breakdown = data && data.statusBreakdown
   if (!breakdown) return
   statusBreakdown.value = {
@@ -2612,6 +2640,7 @@ const loadOrders = async () => {
       customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
+      ...toApiDateRange(listDateRange.value),
       responseMode: 'page'
     })
     const list = Array.isArray(data) ? data : (data.list || [])
@@ -2628,7 +2657,7 @@ const loadOrders = async () => {
   }
 }
 
-const fetchAllFilteredOrders = async () => {
+const fetchAllFilteredOrders = async (dateRange = null) => {
   const token = localStorage.getItem('adminToken')
   const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
   const pageSize = 100
@@ -2645,6 +2674,7 @@ const fetchAllFilteredOrders = async () => {
       customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
       todoType: activeTodoType.value,
       slaLevel: slaFilter.value,
+      ...toApiDateRange(dateRange),
       responseMode: 'page'
     })
     const list = Array.isArray(data) ? data : (data.list || [])
@@ -2678,6 +2708,9 @@ const applyRouteFilters = () => {
   slaFilter.value = ['overdue', 'critical', 'warning'].includes(routeSla) ? routeSla : ''
   wo.filter = String(route.query.filter || '')
   wo.search = String(route.query.keyword || route.query.search || wo.search || '')
+  listDateRange.value = route.query.startDate && route.query.endDate
+    ? [String(route.query.startDate), String(route.query.endDate)]
+    : null
 }
 
 const clearTodoFilter = () => {
@@ -2718,6 +2751,11 @@ watch(
   reloadFromFilter
 )
 
+watch(listDateRange, () => {
+  reloadFromFilter()
+  refreshStatusBreakdown()
+})
+
 // 关键词是逐字输入的自由文本，加防抖，避免每敲一个字就打一次接口
 let searchDebounceTimer = null
 watch(
@@ -2729,7 +2767,7 @@ watch(
 )
 
 watch(
-  () => [route.query.filter, route.query.todo, route.query.sla, route.query.keyword, route.query.search],
+  () => [route.query.filter, route.query.todo, route.query.sla, route.query.keyword, route.query.search, route.query.startDate, route.query.endDate],
   () => {
     applyRouteFilters()
     if (wo.page === 1) loadOrders()
@@ -3575,6 +3613,7 @@ const formatOrderIdList = (list = []) => {
 const resetBatchDeleteForm = () => {
   batchDeleteForm.reason = ''
   batchDeleteForm.confirmText = ''
+  deleteTargetOrders.value = []
 }
 
 const openBatchDeleteDialog = () => {
@@ -3587,6 +3626,21 @@ const openBatchDeleteDialog = () => {
     return
   }
   resetBatchDeleteForm()
+  deleteTargetOrders.value = [...selectedOrders.value]
+  batchDeleteDialogVisible.value = true
+}
+
+const openSingleDeleteDialog = (order) => {
+  if (!canPerformOrderAction('delete_order')) {
+    ElMessage.error('当前角色无权删除工单')
+    return
+  }
+  if (order.deleteBlockReason) {
+    ElMessage.warning(order.deleteBlockReason)
+    return
+  }
+  resetBatchDeleteForm()
+  deleteTargetOrders.value = [order]
   batchDeleteDialogVisible.value = true
 }
 
@@ -3601,7 +3655,7 @@ const formatBatchDeleteFailures = (failures = []) => failures
   .join('\n')
 
 const submitBatchDeleteOrders = async () => {
-  const ordersForDelete = [...selectedOrders.value]
+  const ordersForDelete = [...deleteTargetOrders.value]
   if (!ordersForDelete.length) {
     ElMessage.warning('请先勾选要删除的工单')
     return
@@ -3647,7 +3701,8 @@ const submitBatchDeleteOrders = async () => {
       drawerVisible.value = false
       currentOrder.value = null
     }
-    selectedOrders.value = []
+    const deletedIds = new Set(deleted.map(item => item.order_id))
+    selectedOrders.value = selectedOrders.value.filter(order => !deletedIds.has(order._id))
     batchDeleteDialogVisible.value = false
     await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
@@ -4579,7 +4634,18 @@ const confirmExportExcel = async () => {
 
   const selectedFieldConfigs = exportableFields.filter(field => selectedExportFields.value.includes(field.key))
   const usingSelectedOrders = selectedOrders.value.length > 0
-  const sourceOrders = usingSelectedOrders ? selectedOrders.value : await fetchAllFilteredOrders()
+  const { startDate, endDate } = toApiDateRange(exportDateRange.value)
+  const sourceOrders = usingSelectedOrders
+    ? selectedOrders.value.filter(order => {
+        if (!startDate || !endDate) return true
+        const orderDate = formatLocalDate(parseOrderDate(order.submitTime || order.createTime || order.create_time))
+        return orderDate && orderDate >= startDate && orderDate <= endDate
+      })
+    : await fetchAllFilteredOrders(exportDateRange.value)
+  if (!sourceOrders.length) {
+    ElMessage.warning('所选时间段内没有可导出的工单')
+    return
+  }
   await exportOrdersToWorkbook(sourceOrders, selectedFieldConfigs)
   exportDialogVisible.value = false
   ElMessage.success(`已导出${usingSelectedOrders ? '选中' : '当前筛选'}工单 ${sourceOrders.length} 条`)
@@ -4594,8 +4660,9 @@ const confirmExportExcel = async () => {
 .page-subtitle { margin: 7px 0 0; color: #667085; font-size: 13px; line-height: 1.6; }
 
 .workorder-toolbar { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; padding: 14px; border: 1px solid #e5eefb; border-radius: 8px; background: #fbfdff; }
-.search-strip { display: grid; grid-template-columns: minmax(240px, 1.7fr) repeat(5, minmax(130px, 1fr)) auto; align-items: center; gap: 10px; }
+.search-strip { display: grid; grid-template-columns: minmax(240px, 1.7fr) repeat(5, minmax(130px, 1fr)) minmax(230px, 1.3fr) auto; align-items: center; gap: 10px; }
 .search-strip-main, .search-strip :deep(.el-select) { min-width: 0; width: 100%; }
+.workorder-date-range { width: 100%; }
 .search-strip-main :deep(.el-input__wrapper), .search-strip :deep(.el-select__wrapper) { min-height: 40px; }
 .batch-strip { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid #edf1f7; }
 .selection-count { margin-right: auto; color: #1769aa; font-size: 12px; font-weight: 600; }
@@ -4631,6 +4698,8 @@ const confirmExportExcel = async () => {
 .import-stat-card.fail { background: #fff1f0; }
 .import-stat-card.fail strong { color: #f56c6c; }
 .export-field-panel { padding: 4px 2px; }
+.export-range-row { display: grid; gap: 8px; color: #606266; font-size: 13px; }
+.export-range-row :deep(.el-date-editor) { width: 100%; }
 .export-field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
 .delete-confirm-panel { display: flex; flex-direction: column; gap: 16px; }
 .delete-confirm-summary { padding: 12px 14px; border-radius: 8px; background: #fff7f7; border: 1px solid #ffd6d6; }

@@ -11,6 +11,8 @@
           </el-tooltip>
         </div>
         <div class="fc-export-actions">
+          <el-date-picker v-model="exp.dateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+            start-placeholder="开始日期" end-placeholder="结束日期" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="fc-date-range" />
           <el-input v-model="exp.keyword" placeholder="工单号 / 客户 / 运单号 / 发票号" clearable size="small" style="width: 230px" />
           <el-select v-model="exp.status" placeholder="全部状态" clearable size="small" style="width: 120px">
             <el-option v-for="s in STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
@@ -40,6 +42,7 @@ import SettlementManagement from './SettlementManagement.vue'
 import InvoiceManagement from './InvoiceManagement.vue'
 import { getFourFlowLedger } from '../api/order.js'
 import { exportFourFlowLedger } from '../utils/fourFlowExport.js'
+import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 
 // 支持 /finance?tab=invoice 直达开票 Tab
 const route = useRoute()
@@ -51,7 +54,10 @@ const STATUS_OPTIONS = [
   { value: 'inspecting', label: '检测中' }, { value: 'fixing', label: '处理中' }, { value: 'shipped', label: '已回寄' },
   { value: 'completed', label: '已完成' }
 ]
-const exp = reactive({ keyword: '', status: '', billableOnly: false })
+const routeDateRange = route.query.startDate && route.query.endDate
+  ? [String(route.query.startDate), String(route.query.endDate)]
+  : createCurrentMonthRange()
+const exp = reactive({ keyword: '', status: '', billableOnly: false, dateRange: routeDateRange })
 const exporting = ref(false)
 
 const doExport = async () => {
@@ -61,7 +67,7 @@ const doExport = async () => {
     const all = []
     let pageNo = 1, totalCount = 0, truncated = false
     while (pageNo <= MAX_PAGES) {
-      const data = await getFourFlowLedger(getToken(), { keyword: exp.keyword, status: exp.status, billableOnly: exp.billableOnly, page: pageNo, pageSize: PAGE_SIZE })
+      const data = await getFourFlowLedger(getToken(), { keyword: exp.keyword, status: exp.status, billableOnly: exp.billableOnly, ...toApiDateRange(exp.dateRange), page: pageNo, pageSize: PAGE_SIZE })
       const list = (data && data.list) || []
       totalCount = (data && data.total) || 0
       truncated = truncated || Boolean(data && data.truncated)
@@ -88,5 +94,6 @@ const doExport = async () => {
 .fc-export-title { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: #1f2d3d; }
 .fc-help { color: #909399; cursor: help; }
 .fc-export-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fc-date-range { width: 250px; }
 .fc-tabs :deep(.el-tabs__item) { font-size: 15px; font-weight: 600; }
 </style>
