@@ -34,9 +34,15 @@
         "order_received",
         "quote_issued",
         "payment_confirmed",
+        "payment_rejected",
         "order_shipped",
-        "order_completed"
+        "order_completed",
+        "process_tip"
       ]
+    },
+    "dedupe_key": {
+      "bsonType": "string",
+      "description": "业务通知幂等键；同一键已有 sent 日志时跳过重复发送"
     },
     "template_id": {
       "bsonType": "string"

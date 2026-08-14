@@ -8,6 +8,7 @@
     "cicada-warranty-policy": "file:../common/cicada-warranty-policy",
     "cicada-payment-proof": "file:../common/cicada-payment-proof",
     "cicada-subscription-message": "file:../common/cicada-subscription-message",
+    "cicada-subscription-notifier": "file:../common/cicada-subscription-notifier",
     "cicada-wechat-pay-crypto": "file:../common/cicada-wechat-pay-crypto"
   },
   "cloudfunction-config": {

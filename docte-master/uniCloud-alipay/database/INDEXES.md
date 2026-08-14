@@ -161,6 +161,7 @@ The CLI invocation used for an isolated project bound to this cloud space was:
 - `user_id, create_time desc`
 - `scene, create_time desc`
 - `status, create_time desc`
+- `dedupe_key, status` — 自动业务通知发送前检查是否已有成功记录；需在控制台手工创建普通索引。
 
 ## cicada_order_events
 

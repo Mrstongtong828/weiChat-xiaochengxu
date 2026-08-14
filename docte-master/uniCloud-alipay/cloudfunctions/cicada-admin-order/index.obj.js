@@ -17,11 +17,8 @@ const warrantyPolicy = loadWarrantyPolicyModule()
 // Each row may call the provider and subscription API; keep one request safely below cloud-function limits.
 const LOGISTICS_IMPORT_MAX_ROWS = 50
 const { getChunkedEnvValue, normalizePem, verifyWechatPaySignature } = loadWechatPayCryptoModule()
-const {
-  SUBSCRIPTION_CONFIG_SCENES,
-  getSubscriptionTemplateKey,
-  buildSubscriptionData
-} = loadSubscriptionMessageModule()
+const { SUBSCRIPTION_CONFIG_SCENES } = loadSubscriptionMessageModule()
+const { createSubscriptionNotifier } = loadSubscriptionNotifierModule()
 const WECHAT_PAY_API_BASE = 'https://api.mch.weixin.qq.com'
 
 function loadExpressProvider() {
@@ -45,6 +42,14 @@ function loadSubscriptionMessageModule() {
     return require('cicada-subscription-message')
   } catch (packageError) {
     return require('../common/cicada-subscription-message')
+  }
+}
+
+function loadSubscriptionNotifierModule() {
+  try {
+    return require('cicada-subscription-notifier')
+  } catch (packageError) {
+    return require('../common/cicada-subscription-notifier')
   }
 }
 
@@ -479,8 +484,6 @@ async function countOrdersByMatch(matchCond, todoType = '') {
   }
 }
 
-let wechatAccessTokenCache = { token: '', expireAt: 0 }
-
 function getEnvValue(...names) {
   for (const name of names) {
     const value = process.env[name]
@@ -489,16 +492,21 @@ function getEnvValue(...names) {
   return ''
 }
 
-function getSubscriptionTemplateId(scene = '') {
-  const key = getSubscriptionTemplateKey(scene)
-  return getEnvValue(`WX_SUBSCRIBE_TEMPLATE_${key}`, `WECHAT_SUBSCRIBE_TEMPLATE_${key}`)
+let subscriptionNotifier
+
+function getSubscriptionNotifier() {
+  if (!subscriptionNotifier) {
+    subscriptionNotifier = createSubscriptionNotifier({
+      db,
+      httpclient: uniCloud.httpclient,
+      getEnvValue
+    })
+  }
+  return subscriptionNotifier
 }
 
-function getWechatAppConfig() {
-  const appId = getEnvValue('WX_APPID', 'WECHAT_APPID')
-  const secret = getEnvValue('WX_SECRET', 'WECHAT_SECRET')
-  if (!appId || !secret) throw new Error('未配置 WX_APPID/WX_SECRET')
-  return { appId, secret }
+function getSubscriptionTemplateId(scene = '') {
+  return getSubscriptionNotifier().getTemplateId(scene)
 }
 
 // ============== 微信支付 v3 退款（与 cicada-client-order 的签名实现一致）==============
@@ -608,112 +616,8 @@ function genRefundNo(order = {}, refundFen = 0) {
   return `${base}R${Math.max(Number(refundFen) || 0, 0)}`
 }
 
-async function getWechatAccessToken() {
-  if (wechatAccessTokenCache.token && Date.now() < wechatAccessTokenCache.expireAt) {
-    return wechatAccessTokenCache.token
-  }
-  const config = getWechatAppConfig()
-  const tokenUrl = `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${encodeURIComponent(config.appId)}&secret=${encodeURIComponent(config.secret)}`
-  const res = await uniCloud.httpclient.request(tokenUrl, {
-    method: 'GET',
-    dataType: 'json'
-  })
-  if (!res.data || !res.data.access_token) {
-    throw new Error(res.data && res.data.errmsg ? res.data.errmsg : '获取微信access_token失败')
-  }
-  wechatAccessTokenCache = {
-    token: res.data.access_token,
-    expireAt: Date.now() + Math.max(Number(res.data.expires_in || 7200) - 300, 60) * 1000
-  }
-  return wechatAccessTokenCache.token
-}
-
-async function sendWechatSubscribeMessage(payload = {}) {
-  const accessToken = await getWechatAccessToken()
-  const res = await uniCloud.httpclient.request(`https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token=${encodeURIComponent(accessToken)}`, {
-    method: 'POST',
-    dataType: 'json',
-    data: JSON.stringify(payload),
-    headers: {
-      'Content-Type': 'application/json'
-    }
-  })
-  const data = res.data || {}
-  if (data.errcode && data.errcode !== 0) {
-    throw new Error(data.errmsg || `订阅消息发送失败(${data.errcode})`)
-  }
-  return data
-}
-
-async function enrichSubscriptionOrder(order = {}) {
-  const hasDevice = normalizeText(order.product_model || order.device_model || order.product_name || order.device_name)
-  const hasSerial = normalizeText(order.sn || order.serial_no || order.device_sn)
-  if (hasDevice && hasSerial) return order
-  const orderKeys = [...new Set([order._id, order.order_no].filter(Boolean))]
-  if (!orderKeys.length) return order
-  try {
-    const itemRes = await db.collection('cicada_order_items')
-      .where({ order_id: dbCmd.in(orderKeys) })
-      .limit(1)
-      .get()
-    const item = itemRes.data && itemRes.data[0]
-    if (!item) return order
-    return {
-      ...order,
-      product_name: order.product_name || item.product_name || '',
-      product_model: order.product_model || item.product_model || '',
-      sn: order.sn || item.sn || '',
-      fix_solution: order.fix_solution || item.fix_solution || ''
-    }
-  } catch (e) {
-    return order
-  }
-}
-
-async function logSubscriptionMessage(payload = {}) {
-  await db.collection('cicada_subscription_logs').add({
-    ...payload,
-    create_time: Date.now()
-  }).catch(error => {
-    console.error('写工单审计日志失败:', error && error.message)
-  })
-}
-
-async function sendOrderSubscription(order = {}, scene = '', remark = '') {
-  const templateId = getSubscriptionTemplateId(scene)
-  if (scene === 'payment_rejected') {
-    console.log('付款驳回，复用待支付提醒模板', order.order_no || order._id || '')
-  }
-  const logBase = {
-    order_id: order._id || '',
-    order_no: order.order_no || '',
-    user_id: order.user_id || '',
-    scene,
-    template_id: templateId,
-    status: 'pending'
-  }
-  if (!templateId) {
-    await logSubscriptionMessage({ ...logBase, status: 'skipped', fail_reason: '未配置订阅消息模板ID' })
-    return
-  }
-  try {
-    const userRes = await db.collection('cicada_users').doc(order.user_id).get()
-    const user = userRes.data && userRes.data[0]
-    if (!user || !user.openid) {
-      await logSubscriptionMessage({ ...logBase, status: 'skipped', fail_reason: '用户缺少openid' })
-      return
-    }
-    const messageOrder = await enrichSubscriptionOrder(order)
-    await sendWechatSubscribeMessage({
-      touser: user.openid,
-      template_id: templateId,
-      page: `pages/index/index?module=track&orderId=${encodeURIComponent(order.order_no || order._id || '')}`,
-      data: buildSubscriptionData(messageOrder, scene, remark)
-    })
-    await logSubscriptionMessage({ ...logBase, openid: user.openid, status: 'sent' })
-  } catch (e) {
-    await logSubscriptionMessage({ ...logBase, status: 'failed', fail_reason: e.message || String(e) })
-  }
+function sendOrderSubscription(order = {}, scene = '', remark = '', options = {}) {
+  return getSubscriptionNotifier().sendOrderSubscription(order, scene, remark, options)
 }
 
 function requireAdminPermission(ctx, action) {

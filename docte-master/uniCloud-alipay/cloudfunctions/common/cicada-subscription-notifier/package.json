@@ -1,0 +1,9 @@
+{
+  "name": "cicada-subscription-notifier",
+  "version": "1.0.0",
+  "description": "Shared WeChat subscription notification sender and dedupe policy",
+  "main": "index.js",
+  "dependencies": {
+    "cicada-subscription-message": "file:../cicada-subscription-message"
+  }
+}

@@ -1905,6 +1905,7 @@ import { getLoginErrorMessage, isLoginCancelledError, loginWithWechatOpenid, req
 import { getWechatPrivacyReady, markWechatPrivacyReady, requestWechatPrivacyAuthorization, resetWechatPrivacyReady } from '@/utils/wechat-privacy.js'
 import { createPcLoginGuard } from '@/utils/pc-login-guard.js'
 import { isPcWebViewEnvironment } from '@/utils/runtime-environment.js'
+import { selectSubscriptionTemplateIds } from '@/utils/subscription-prompt.js'
 import {
 	getContact,
 	getCustomerService,
@@ -2138,60 +2139,42 @@ const surveyForm = ref({
 })
 const surveyRecords = ref([])
 
-const SUBSCRIPTION_PROMPTED_KEY = 'cicada_subscription_prompted_v1'
-let subscriptionRequested = false
-let subscriptionRequestPromise = null
+const subscriptionRequestPromises = new Map()
 
-const hasRequestedSubscription = () => {
-	try {
-		return Boolean(uni.getStorageSync(SUBSCRIPTION_PROMPTED_KEY))
-	} catch (error) {
-		return false
-	}
-}
-
-const markSubscriptionRequested = () => {
-	try {
-		uni.setStorageSync(SUBSCRIPTION_PROMPTED_KEY, '1')
-	} catch (error) {
-		// 内存标记仍可保证本次运行不重复弹窗。
-	}
-}
-
-const loadSubscriptionTemplates = async () => {
+const loadSubscriptionTemplates = async (force = false) => {
 	if (Array.isArray(subscriptionTemplates.value)) return subscriptionTemplates.value
 	try {
 		const config = await getSubscriptionConfig()
 		subscriptionTemplates.value = Array.isArray(config.templates) ? config.templates : []
 	} catch (error) {
 		console.warn('load subscription templates failed:', error)
-		subscriptionTemplates.value = []
+		if (force) subscriptionTemplates.value = null
+		return []
 	}
 	return subscriptionTemplates.value
 }
 
-const requestStatusSubscription = (_scene) => {
+const requestStatusSubscription = (action = '') => {
 	if (!uni.requestSubscribeMessage) return null
-	if (subscriptionRequested || hasRequestedSubscription()) return null
-	if (subscriptionRequestPromise) return subscriptionRequestPromise
-	subscriptionRequestPromise = (async () => {
-		const templates = await loadSubscriptionTemplates()
-		const tmplIds = [...new Set(templates
-			.filter(item => item.templateId)
-			.map(item => item.templateId))].slice(0, 3)
+	const actionKey = String(action || '').trim()
+	if (!actionKey) return null
+	if (subscriptionRequestPromises.has(actionKey)) return subscriptionRequestPromises.get(actionKey)
+	const requestPromise = (async () => {
+		const templates = await loadSubscriptionTemplates(true)
+		const tmplIds = selectSubscriptionTemplateIds(templates, actionKey, 5)
 		if (!tmplIds.length) return null
 
-		// 无论同意、拒绝还是关闭，后续都不再请求，避免打断业务操作。
-		subscriptionRequested = true
-		markSubscriptionRequested()
 		try {
 			return await uni.requestSubscribeMessage({ tmplIds })
 		} catch (error) {
 			console.warn('request subscribe message failed:', error)
 			return null
+		} finally {
+			subscriptionRequestPromises.delete(actionKey)
 		}
 	})()
-	return subscriptionRequestPromise
+	subscriptionRequestPromises.set(actionKey, requestPromise)
+	return requestPromise
 }
 const customerTypeLabel = (value) => {
 	const option = customerTypeOptions.find((item) => item.value === value)
@@ -4197,6 +4180,7 @@ const confirmWarrantyRepair = (order = {}) => {
 		success: async ({ confirm }) => {
 			if (!confirm) return
 			try {
+				await requestStatusSubscription('warranty_confirm')
 				paymentSubmitting.value = true
 				uni.showLoading({ title: '确认中' })
 				await confirmRepairQuote(order.recordId || order.id)
@@ -4334,6 +4318,7 @@ const rejectRepairQuoteAction = (order = {}) => {
 			if (!confirm || actionSubmitting.value) return
 			actionSubmitting.value = true
 			try {
+				await requestStatusSubscription('quote_reject')
 				uni.showLoading({ title: '提交中' })
 				await rejectRepairQuote(order.recordId || order.id, content || '')
 				await refreshOrderFromServer(order)
@@ -4703,7 +4688,6 @@ const submitInvoiceApply = async () => {
 
 	invoiceSubmitting.value = true
 	try {
-		await requestStatusSubscription('invoice_apply')
 		await applyInvoice({
 			orderId: order.recordId || order.id,
 			invoiceType: invoiceForm.value.invoiceType,
@@ -6837,6 +6821,7 @@ const loadRemoteContent = async ({ forceFaultRefresh = false } = {}) => {
 
 onMounted(() => {
 	logBoot('onMounted start')
+	loadSubscriptionTemplates()
 	if (logged.value) resolveAvatarDisplay(currentUser.value.avatar)
 	uni.$on('wechatPrivacyReady', syncLoginPrivacyReady)
 	getWechatPrivacyReady().then((ready) => {

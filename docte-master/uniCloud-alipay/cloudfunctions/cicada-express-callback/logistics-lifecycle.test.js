@@ -1,7 +1,12 @@
 const assert = require('node:assert/strict')
 const test = require('node:test')
 
-const { buildInboundLifecycleUpdate, findTrackingMatches, reconcileTrackCache } = require('./logistics-lifecycle')
+const {
+  buildInboundLifecycleUpdate,
+  findTrackingMatches,
+  reconcileTrackCache,
+  shouldNotifyInboundDelivery
+} = require('./logistics-lifecycle')
 
 test('较旧的回调不能覆盖较新的签收轨迹', () => {
   const existing = { trackingNo: 'SF1', state: '3', status: '已签收', lastTrackAt: '2026-07-29 12:00:00', source: 'push' }
@@ -27,6 +32,13 @@ test('新轨迹保留原有订阅状态', () => {
   assert.equal(result.cache.state, '3')
   assert.equal(result.cache.subscriptionStatus, 'subscribed')
   assert.equal(result.cache.subscribedAt, 123)
+})
+
+test('只有寄入物流首次进入签收状态时触发客户通知', () => {
+  assert.equal(shouldNotifyInboundDelivery('out', { state: '1' }, { state: '3' }), true)
+  assert.equal(shouldNotifyInboundDelivery('out', { state: '3' }, { state: '3' }), false)
+  assert.equal(shouldNotifyInboundDelivery('back', { state: '1' }, { state: '3' }), false)
+  assert.equal(shouldNotifyInboundDelivery('out', { state: '1' }, { state: '0' }), false)
 })
 
 test('物流签收只标记待入库，不直接把工单改为已签收', () => {
