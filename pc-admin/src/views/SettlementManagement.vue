@@ -79,7 +79,7 @@
       <el-table-column label="发票号码" min-width="160" show-overflow-tooltip>
         <template #default="{ row }">{{ row.invoice_info?.invoice_no || '-' }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="210" align="right" fixed="right">
+      <el-table-column label="操作" width="280" align="right" fixed="right">
         <template #default="{ row }">
           <el-button
             v-if="canConfirmCorporatePayment(row)"
@@ -90,6 +90,7 @@
           >
             确认收款
           </el-button>
+          <el-button type="primary" link @click="openDetail(row)">查看详情</el-button>
           <el-button type="primary" link @click="goWorkOrder(row)">去工单处理</el-button>
         </template>
       </el-table-column>
@@ -104,17 +105,128 @@
       layout="total, prev, pager, next"
       :total="total"
     />
+
+    <!-- 结算详情抽屉：报价明细 / 付款凭证 / 退款记录 / 开票信息 / 物流信息 -->
+    <el-drawer v-model="detailVisible" :size="540" class="settlement-drawer" destroy-on-close>
+      <template #header>
+        <div class="sd-head">
+          <div class="sd-head-title">
+            <strong>{{ detail.order_no || '-' }}</strong>
+            <el-tag size="small" :type="paymentTag(detail.payment_status)" effect="plain">{{ paymentText(detail.payment_status) }}</el-tag>
+          </div>
+          <div class="sd-head-sub">{{ detail.customer_name || '未填写客户' }} · {{ detail.contact_phone || '-' }}</div>
+        </div>
+      </template>
+
+      <div class="sd-body">
+        <!-- 报价明细 -->
+        <section class="sd-section">
+          <h3 class="sd-section-title">报价明细</h3>
+          <div class="sd-summary">
+            <div><span>最终报价</span><strong class="sd-total">¥{{ fmtMoney(detail.total_price) }}</strong></div>
+            <div><span>配件费</span><strong>¥{{ fmtMoney(detail.parts_fee) }}</strong></div>
+            <div><span>工时费</span><strong>¥{{ fmtMoney(detail.labor_fee) }}</strong></div>
+            <div><span>其他费</span><strong>¥{{ fmtMoney(detail.other_fee) }}</strong></div>
+          </div>
+          <div v-if="quoteBreakdown.length" class="sd-table-wrap">
+            <el-table :data="quoteBreakdown" size="small" border>
+              <el-table-column prop="typeLabel" label="类型" width="64" />
+              <el-table-column prop="name" label="项目" min-width="120" show-overflow-tooltip />
+              <el-table-column prop="quantity" label="数量" width="60" align="center" />
+              <el-table-column label="单价" width="96" align="right">
+                <template #default="{ row }">¥{{ Number(row.unit_price || 0).toFixed(2) }}</template>
+              </el-table-column>
+              <el-table-column label="金额" width="104" align="right">
+                <template #default="{ row }">¥{{ Number(row.amount || 0).toFixed(2) }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+          <p v-if="detail.quote_remark" class="sd-remark">备注：{{ detail.quote_remark }}</p>
+        </section>
+
+        <!-- 付款信息 -->
+        <section class="sd-section">
+          <h3 class="sd-section-title">付款信息</h3>
+          <dl class="sd-grid">
+            <div><dt>付款方式</dt><dd>{{ getPaymentMethodLabel(detail.payment_method) }}</dd></div>
+            <div><dt>付款时间</dt><dd>{{ detail.payment_paid_time ? formatTime(detail.payment_paid_time) : '-' }}</dd></div>
+            <div><dt>微信支付单号</dt><dd class="sd-mono">{{ detail.wechat_transaction_id || '-' }}</dd></div>
+            <div><dt>付款期限</dt><dd>{{ detail.payment_deadline ? formatTime(detail.payment_deadline) : '-' }}</dd></div>
+          </dl>
+          <div v-if="proofUrls.length" class="sd-proofs">
+            <div class="sd-proofs-title">付款凭证（{{ proofUrls.length }}）</div>
+            <div class="sd-proofs-list">
+              <el-image
+                v-for="(url, index) in proofUrls"
+                :key="index"
+                :src="url"
+                :preview-src-list="proofUrls"
+                :initial-index="index"
+                fit="cover"
+                class="sd-proof"
+                preview-teleported
+              />
+            </div>
+          </div>
+          <p v-else class="sd-muted">暂无付款凭证</p>
+        </section>
+
+        <!-- 退款记录 -->
+        <section v-if="hasRefund" class="sd-section">
+          <h3 class="sd-section-title">退款记录</h3>
+          <dl class="sd-grid">
+            <div><dt>退款状态</dt><dd><el-tag :type="refundTag" size="small" effect="plain">{{ refundStatusText }}</el-tag></dd></div>
+            <div><dt>退款金额</dt><dd class="sd-total">¥{{ fmtMoney(detail.refund_amount) }}</dd></div>
+            <div><dt>退款原因</dt><dd>{{ detail.refund_reason || '-' }}</dd></div>
+            <div><dt>退款时间</dt><dd>{{ detail.refund_time ? formatTime(detail.refund_time) : '-' }}</dd></div>
+            <div><dt>退款单号</dt><dd class="sd-mono">{{ detail.refund_out_no || detail.wechat_refund_id || '-' }}</dd></div>
+            <div v-if="detail.refund_failure_reason"><dt>失败原因</dt><dd class="sd-danger">{{ detail.refund_failure_reason }}</dd></div>
+          </dl>
+        </section>
+
+        <!-- 开票信息 -->
+        <section class="sd-section">
+          <h3 class="sd-section-title">开票信息</h3>
+          <dl class="sd-grid">
+            <div><dt>开票状态</dt><dd>{{ invoiceStatusText }}</dd></div>
+            <div><dt>发票抬头</dt><dd>{{ invoice.title || '-' }}</dd></div>
+            <div><dt>税号</dt><dd>{{ invoice.tax_no || '-' }}</dd></div>
+            <div><dt>发票号码</dt><dd>{{ invoice.invoice_no || '-' }}</dd></div>
+            <div><dt>开票日期</dt><dd>{{ invoice.invoice_date || '-' }}</dd></div>
+            <div><dt>邮寄信息</dt><dd>{{ [invoice.mail_company, invoice.mail_no].filter(Boolean).join(' / ') || '-' }}</dd></div>
+          </dl>
+          <a v-if="invoicePdfUrl" :href="invoicePdfUrl" target="_blank" rel="noopener" class="sd-pdf-link">
+            <el-icon><Document /></el-icon>查看发票原件
+          </a>
+        </section>
+
+        <!-- 物流信息 -->
+        <section class="sd-section">
+          <h3 class="sd-section-title">物流信息</h3>
+          <dl class="sd-grid">
+            <div><dt>寄出</dt><dd>{{ [detail.logistics_company_out, detail.logistics_no_out].filter(Boolean).join(' / ') || '-' }}</dd></div>
+            <div><dt>回寄</dt><dd>{{ [detail.logistics_company_back, detail.logistics_no_back].filter(Boolean).join(' / ') || '-' }}</dd></div>
+          </dl>
+        </section>
+      </div>
+
+      <template #footer>
+        <el-button @click="detailVisible = false">关闭</el-button>
+        <el-button type="primary" @click="goWorkOrder(detail)">去工单处理</el-button>
+      </template>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref, watch, onMounted } from 'vue'
+import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSettlementList } from '../api/settlement.js'
 import { updatePaymentStatus } from '../api/order.js'
 import { getSettings } from '../api/admin.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
+import { Document } from '@element-plus/icons-vue'
 import { getPaymentMethodLabel, resolveCorporateAccount } from '../config/corporateAccount.js'
 
 const router = useRouter()
@@ -209,6 +321,41 @@ const confirmCorporatePayment = async (row) => {
   }
 }
 
+// ===== 结算详情抽屉 =====
+const detailVisible = ref(false)
+const detail = ref({})
+const openDetail = (row) => {
+  detail.value = row || {}
+  detailVisible.value = true
+}
+
+const proofUrls = computed(() => (detail.value.payment_proofs || [])
+  .map(proof => proof.url || proof.fileUrl || proof.previewUrl || '')
+  .filter(Boolean))
+
+const quoteBreakdown = computed(() => {
+  const qd = detail.value.quote_detail
+  if (!qd) return []
+  const rows = []
+  ;(qd.parts || []).forEach(item => rows.push({ typeLabel: '配件', name: item.name || item.part_name || '-', quantity: item.quantity, unit_price: item.unit_price, amount: item.amount }))
+  ;(qd.services || []).forEach(item => rows.push({ typeLabel: '工时', name: item.name || '-', quantity: item.quantity, unit_price: item.unit_price, amount: item.amount }))
+  ;(qd.others || []).forEach(item => rows.push({ typeLabel: '其他', name: item.name || '-', quantity: item.quantity, unit_price: item.unit_price, amount: item.amount }))
+  return rows
+})
+
+const hasRefund = computed(() => {
+  const d = detail.value
+  return Boolean(d.refund_status) || Number(d.refund_amount || 0) > 0
+})
+const refundStatusText = computed(() => ({ processing: '退款处理中', refunded: '已退款', failed: '退款失败' }[detail.value.refund_status] || detail.value.refund_status || '-'))
+const refundTag = computed(() => ({ processing: 'warning', refunded: 'success', failed: 'danger' }[detail.value.refund_status] || 'info'))
+
+const invoice = computed(() => detail.value.invoice_info || {})
+const invoiceStatusText = computed(() => invoice.value.status || (invoice.value.need_invoice ? '待开票' : '无需开票'))
+const invoicePdfUrl = computed(() => invoice.value.invoice_url || invoice.value.pdf_url || invoice.value.file_url || '')
+
+const fmtMoney = (value) => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
 const loadCorporateAccount = async () => {
   try {
     corporateAccount.value = resolveCorporateAccount(await getSettings(getToken()))
@@ -230,4 +377,36 @@ onMounted(() => {
 .settlement-toolbar { display: flex; align-items: center; gap: 10px; margin: 16px 0 18px; flex-wrap: wrap; }
 .settlement-export-hint { font-size: 12px; color: #909399; cursor: help; padding: 0 4px; }
 .pager { margin-top: 16px; justify-content: flex-end; }
+
+/* 结算详情抽屉 */
+.sd-head-title { display: flex; align-items: center; gap: 8px; }
+.sd-head-title strong { font-size: 16px; color: #1f2d3d; }
+.sd-head-sub { margin-top: 4px; font-size: 13px; color: #86909c; }
+.sd-body { display: flex; flex-direction: column; gap: 16px; }
+.sd-section { padding: 14px 16px; border: 1px solid #edf1f7; border-radius: 10px; background: #fafbfc; }
+.sd-section-title { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: #1f2d3d; }
+.sd-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+.sd-summary div { display: flex; flex-direction: column; gap: 4px; padding: 10px; border-radius: 8px; background: #fff; border: 1px solid #edf1f7; }
+.sd-summary span { font-size: 12px; color: #86909c; }
+.sd-summary strong { font-size: 16px; color: #1f2d3d; }
+.sd-summary .sd-total { color: #16a34a; }
+.sd-table-wrap { overflow: hidden; border-radius: 8px; }
+.sd-remark { margin: 10px 0 0; font-size: 12px; color: #6b7785; line-height: 1.6; }
+.sd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0; }
+.sd-grid div { min-width: 0; }
+.sd-grid dt { margin-bottom: 3px; color: #86909c; font-size: 12px; }
+.sd-grid dd { margin: 0; color: #1d2129; font-size: 13px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.sd-mono { font-family: Consolas, "Courier New", monospace; }
+.sd-total { color: #16a34a; }
+.sd-danger { color: #dc2626; }
+.sd-muted { margin: 0; font-size: 12px; color: #c0c4cc; }
+.sd-proofs-title { margin-bottom: 8px; font-size: 12px; color: #6b7785; }
+.sd-proofs-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.sd-proof { width: 76px; height: 76px; border-radius: 8px; border: 1px solid #e5eaf1; cursor: zoom-in; }
+.sd-pdf-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 13px; color: #1677ff; text-decoration: none; }
+.sd-pdf-link:hover { text-decoration: underline; }
+@media (max-width: 520px) {
+  .sd-summary { grid-template-columns: repeat(2, 1fr); }
+  .sd-grid { grid-template-columns: 1fr; }
+}
 </style>

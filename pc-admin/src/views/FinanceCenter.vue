@@ -1,99 +1,133 @@
 <template>
   <div class="finance-center">
-    <!-- 统一四流台账导出（订单+物流+支付+发票），取代对账/发票各自导出 -->
-    <el-card shadow="never" class="fc-export-card">
-      <div class="fc-export-bar">
-        <div class="fc-export-title">
-          <el-icon><Files /></el-icon>
-          <span>四流台账导出</span>
-          <el-tooltip content="订单 / 物流 / 支付 / 发票 合一，一次导出全部对账与开票数据" placement="top">
+    <!-- 收款总览：实收 / 待核销 / 逾期 / 已退款 -->
+    <section class="fc-overview" v-loading="overviewLoading">
+      <div class="fc-overview-head">
+        <div class="fc-overview-title">
+          <el-icon><Money /></el-icon>
+          <span>收款总览</span>
+          <el-tooltip content="实收与退款按所选时间段统计；待核销与逾期未付为当前时点存量" placement="top">
             <el-icon class="fc-help"><QuestionFilled /></el-icon>
           </el-tooltip>
         </div>
-        <div class="fc-export-actions">
-          <el-date-picker v-model="exp.dateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
-            start-placeholder="开始日期" end-placeholder="结束日期" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="fc-date-range" />
-          <el-input v-model="exp.keyword" placeholder="工单号 / 客户 / 运单号 / 发票号" clearable size="small" style="width: 230px" />
-          <el-select v-model="exp.status" placeholder="全部状态" clearable size="small" style="width: 120px">
-            <el-option v-for="s in STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
-          </el-select>
-          <el-checkbox v-model="exp.billableOnly" size="small">仅含有金额工单</el-checkbox>
-          <el-button type="primary" size="small" :loading="exporting" @click="doExport"><el-icon><Download /></el-icon>导出四流台账</el-button>
+        <div class="fc-overview-actions">
+          <el-date-picker v-model="overviewRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+            start-placeholder="开始日期" end-placeholder="结束日期" :shortcuts="dateRangeShortcuts" unlink-panels size="small"
+            class="fc-date-range" @change="loadOverview" />
+          <el-button size="small" circle :loading="overviewLoading" @click="loadOverview"><el-icon><Refresh /></el-icon></el-button>
         </div>
       </div>
-    </el-card>
+      <div class="fc-overview-grid">
+        <el-card
+          v-for="card in overviewCards"
+          :key="card.key"
+          shadow="never"
+          class="fc-overview-card"
+          :class="'fc-overview-card--' + card.tone"
+          @click="goOverview(card)"
+        >
+          <div class="fc-overview-label">{{ card.label }}</div>
+          <div class="fc-overview-value"><small>¥</small>{{ fmtMoney(card.value) }}</div>
+          <div class="fc-overview-sub">{{ card.sub }}</div>
+        </el-card>
+      </div>
+    </section>
 
     <el-tabs v-model="activeTab" class="fc-tabs">
-      <el-tab-pane label="对账流水" name="settlement">
+      <el-tab-pane label="结算管理" name="settlement">
         <SettlementManagement />
       </el-tab-pane>
       <el-tab-pane label="开票管理" name="invoice" lazy>
         <InvoiceManagement />
+      </el-tab-pane>
+      <el-tab-pane label="四流台账" name="ledger" lazy>
+        <FourFlowLedger />
+      </el-tab-pane>
+      <el-tab-pane label="应收账龄" name="aging" lazy>
+        <ReceivableAging :summary="overview.summary" :aging="overview.aging" :truncated="overview.truncated" />
       </el-tab-pane>
     </el-tabs>
   </div>
 </template>
 
 <script setup>
-import { reactive, ref } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import SettlementManagement from './SettlementManagement.vue'
 import InvoiceManagement from './InvoiceManagement.vue'
-import { getFourFlowLedger } from '../api/order.js'
-import { exportFourFlowLedger } from '../utils/fourFlowExport.js'
+import FourFlowLedger from './FourFlowLedger.vue'
+import ReceivableAging from './ReceivableAging.vue'
+import { getFinanceOverview } from '../api/order.js'
 import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 
-// 支持 /finance?tab=invoice 直达开票 Tab
+// 支持 /finance?tab=invoice|ledger 直达对应 Tab
 const route = useRoute()
-const activeTab = ref(route.query.tab === 'invoice' ? 'invoice' : 'settlement')
+const TAB_ALIAS = { invoice: 'invoice', ledger: 'ledger', aging: 'aging' }
+const activeTab = ref(TAB_ALIAS[route.query.tab] || 'settlement')
 
 const getToken = () => localStorage.getItem('adminToken')
-const STATUS_OPTIONS = [
-  { value: 'pending', label: '已提交' }, { value: 'sent', label: '运输中' }, { value: 'received', label: '已签收' },
-  { value: 'inspecting', label: '检测中' }, { value: 'fixing', label: '处理中' }, { value: 'shipped', label: '已回寄' },
-  { value: 'completed', label: '已完成' }
-]
-const routeDateRange = route.query.startDate && route.query.endDate
-  ? [String(route.query.startDate), String(route.query.endDate)]
-  : createCurrentMonthRange()
-const exp = reactive({ keyword: '', status: '', billableOnly: false, dateRange: routeDateRange })
-const exporting = ref(false)
 
-const doExport = async () => {
-  exporting.value = true
+// ===== 收款总览 =====
+const overviewLoading = ref(false)
+const overview = ref({ summary: {}, aging: [], truncated: false })
+const overviewRange = ref(route.query.startDate && route.query.endDate
+  ? [String(route.query.startDate), String(route.query.endDate)]
+  : createCurrentMonthRange())
+
+const overviewCards = computed(() => {
+  const s = overview.value.summary || {}
+  return [
+    { key: 'paid', label: '本期实收', value: s.paidAmount || 0, sub: `${s.paidCount || 0} 单`, tone: 'green' },
+    { key: 'verify', label: '待核销金额', value: s.pendingVerifyAmount || 0, sub: `${s.pendingVerifyCount || 0} 单待核销`, tone: 'blue' },
+    { key: 'overdue', label: '逾期未付金额', value: s.overdueAmount || 0, sub: `${s.overdueCount || 0} 单已逾期`, tone: 'orange' },
+    { key: 'refund', label: '本期已退款', value: s.refundedAmount || 0, sub: `${s.refundedCount || 0} 笔`, tone: 'gray' }
+  ]
+})
+
+const loadOverview = async () => {
+  overviewLoading.value = true
   try {
-    const PAGE_SIZE = 100, MAX_PAGES = 100
-    const all = []
-    let pageNo = 1, totalCount = 0, truncated = false
-    while (pageNo <= MAX_PAGES) {
-      const data = await getFourFlowLedger(getToken(), { keyword: exp.keyword, status: exp.status, billableOnly: exp.billableOnly, ...toApiDateRange(exp.dateRange), page: pageNo, pageSize: PAGE_SIZE })
-      const list = (data && data.list) || []
-      totalCount = (data && data.total) || 0
-      truncated = truncated || Boolean(data && data.truncated)
-      all.push(...list)
-      if (list.length < PAGE_SIZE || all.length >= totalCount) break
-      pageNo += 1
+    const data = await getFinanceOverview(getToken(), { ...toApiDateRange(overviewRange.value) })
+    overview.value = {
+      summary: (data && data.summary) || {},
+      aging: (data && data.aging) || [],
+      truncated: Boolean(data && data.truncated)
     }
-    if (!all.length) { ElMessage.warning('当前条件下没有可导出的台账数据'); return }
-    await exportFourFlowLedger(all)
-    if (truncated) ElMessage.warning(`已导出 ${all.length} 条，但数据量超过后台扫描上限，可能不完整，请缩小筛选范围`)
-    else ElMessage.success(`已导出 ${all.length} 条四流台账`)
   } catch (e) {
-    ElMessage.error(e.message || '导出失败')
+    ElMessage.error(e.message || '收款总览加载失败')
   } finally {
-    exporting.value = false
+    overviewLoading.value = false
   }
 }
+
+const goOverview = (card) => {
+  activeTab.value = card.key === 'overdue' ? 'aging' : 'settlement'
+}
+
+const fmtMoney = (value) => Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+onMounted(loadOverview)
 </script>
 
 <style scoped>
 .finance-center { width: 100%; }
-.fc-export-card { border-radius: 12px; margin-bottom: 14px; }
-.fc-export-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.fc-export-title { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: #1f2d3d; }
+.fc-overview { margin-bottom: 14px; }
+.fc-overview-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.fc-overview-title { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 700; color: #1f2d3d; }
+.fc-overview-actions { display: flex; align-items: center; gap: 8px; }
 .fc-help { color: #909399; cursor: help; }
-.fc-export-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fc-overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.fc-overview-card { border-radius: 12px; cursor: pointer; transition: transform .2s ease, border-color .2s ease; }
+.fc-overview-card:hover { transform: translateY(-2px); }
+.fc-overview-label { font-size: 13px; color: #6b7785; font-weight: 600; }
+.fc-overview-value { margin: 6px 0 2px; font-size: 26px; font-weight: 800; color: #1f2d3d; line-height: 1.1; }
+.fc-overview-value small { font-size: 14px; font-weight: 700; margin-right: 2px; }
+.fc-overview-sub { font-size: 12px; color: #86909c; }
+.fc-overview-card--green .fc-overview-value { color: #16a34a; }
+.fc-overview-card--blue .fc-overview-value { color: #2563eb; }
+.fc-overview-card--orange .fc-overview-value { color: #d97706; }
+.fc-overview-card--gray .fc-overview-value { color: #6b7280; }
 .fc-date-range { width: 250px; }
 .fc-tabs :deep(.el-tabs__item) { font-size: 15px; font-weight: 600; }
 </style>
