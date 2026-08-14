@@ -20,3 +20,28 @@ export const resolveZeroPriceWarrantyAction = ({ order = {}, items = [] } = {}) 
   ))) return 'save'
   return 'block'
 }
+
+export const getQuotePublishPresentation = (status = 'pending') => {
+  if (status === 'rejected') {
+    return {
+      isRepublish: true,
+      title: '修改并重新发布报价',
+      description: '本次发布会用新报价替换客户拒绝的旧报价，客户可重新确认。',
+      buttonLabel: '重新发布报价'
+    }
+  }
+  if (['issued', 'confirmed'].includes(status)) {
+    return {
+      isRepublish: true,
+      title: '更新并重新发布报价',
+      description: '本次发布会覆盖原报价，客户将看到最新金额；已确认的工单请先核对再修改。',
+      buttonLabel: '更新并重新发布'
+    }
+  }
+  return {
+    isRepublish: false,
+    title: '发布报价给客户',
+    description: '发布时会自动保存上方的设备与人工质保判定，客户随后可确认费用。',
+    buttonLabel: '发布报价给客户'
+  }
+}

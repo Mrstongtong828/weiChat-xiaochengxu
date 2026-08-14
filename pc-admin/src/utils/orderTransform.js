@@ -237,6 +237,7 @@ export const transformOrder = (order) => {
     inventoryDeducted: Boolean(order.inventory_deducted || order.inventoryDeducted),
     inventoryStatus: order.inventory_status || order.inventoryStatus || '',
     inventoryDeductTime: order.inventory_deduct_time || order.inventoryDeductTime || '',
+    deleteBlockReason: order.delete_block_reason || order.deleteBlockReason || '',
 
     // 发票信息（内部登记，不代表已接入税控开票）
     needInvoice: invoiceInfo.need_invoice || false,

@@ -369,7 +369,7 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     productModel: item.product_model,
     unit: item.unit || '台',
     quantity: item.quantity || 1,
-    batchNo: item.batch_no || item.batchNo || '',
+    batchNo: item.batch_no || item.batchNo || item.sn || '',
     faultReason: item.fault_reason || item.coverage_note || item.fault_desc,
     repairAction: item.repair_action || item.fix_solution || item.fixSolution || '',
     warrantyScope: item.warranty_scope || coverageMap[item.coverage_result] || item.coverage_result || '',

@@ -145,7 +145,7 @@ test('已经到账的工单不能拒绝报价', async () => {
   const result = await rejectCurrentOrder({ status: 'fixing', payment_status: 'paid' })
 
   assert.equal(result.code, -1)
-  assert.equal(result.msg, '工单已支付，不能拒绝报价')
+  assert.equal(result.msg, '工单已支付，不能选择不维修')
   assert.equal(state.update, null)
 })
 

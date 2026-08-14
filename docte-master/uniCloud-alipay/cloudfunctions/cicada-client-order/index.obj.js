@@ -2302,17 +2302,17 @@ module.exports = {
     }
   },
 
-  // 客户拒绝后台发布的维修报价（仅 issued 可拒，已支付不可拒）
+  // 客户选择不维修（仅方案已发布且未支付时可选）
   async rejectQuote({ token, order_id, reason = '' }) {
     try {
       const user = await verifyUserToken(token)
       const order = await findOwnedOrder(user._id, order_id)
       if (!order) return { code: -1, msg: '工单不存在或无权限' }
       if (order.quote_status !== 'issued') {
-        return { code: -1, msg: '当前工单暂无可拒绝的报价' }
+        return { code: -1, msg: '当前工单暂无可选择不维修的报价' }
       }
       if (order.payment_status === 'paid') {
-        return { code: -1, msg: '工单已支付，不能拒绝报价' }
+        return { code: -1, msg: '工单已支付，不能选择不维修' }
       }
       if (order.payment_status === 'uploaded' || (Array.isArray(order.payment_proofs) && order.payment_proofs.length)) {
         return { code: -1, msg: '付款凭证正在等待财务核销，暂不能选择不维修' }
@@ -2325,8 +2325,8 @@ module.exports = {
       const hasInboundShipment = Boolean(getShipInfo(order, 'out').trackingNo)
       const canArchiveNow = order.status === 'pending' && !hasInboundShipment
       const archiveNote = canArchiveNow
-        ? '客户拒绝维修报价，工单已自动取消归档。'
-        : '客户拒绝维修报价，设备将原路寄回，售后将尽快为您安排回寄后归档。'
+        ? '客户选择不维修，工单已自动取消归档。'
+        : '客户选择不维修，设备将原路寄回，售后将尽快为您安排回寄后归档。'
       const updateData = {
         quote_status: 'rejected',
         authorization_status: '',
@@ -2334,8 +2334,8 @@ module.exports = {
         timeline: [
           ...timeline,
           {
-            title: '客户已拒绝维修报价',
-            desc: reasonText ? `拒绝原因：${reasonText}` : archiveNote,
+            title: '客户已选择不维修',
+            desc: reasonText ? `不维修原因：${reasonText}` : archiveNote,
             time: now,
             done: true
           }
@@ -2343,7 +2343,7 @@ module.exports = {
       }
       if (canArchiveNow) {
         updateData.status = 'cancelled'
-        updateData.cancel_reason = reasonText || '客户拒绝维修报价'
+        updateData.cancel_reason = reasonText || '客户选择不维修'
         updateData.cancelled_at = now
       } else {
         // 待回寄归档标记：供后台“待回寄/待归档”待办筛选，避免拒修工单悬挂

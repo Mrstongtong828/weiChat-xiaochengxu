@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import assert from 'node:assert/strict'
-import { resolveZeroPriceWarrantyAction } from '../src/utils/warrantyQuote.js'
+import { getQuotePublishPresentation, resolveZeroPriceWarrantyAction } from '../src/utils/warrantyQuote.js'
 
 const projectRoot = process.cwd()
 const repoRoot = path.resolve(projectRoot, '..')
@@ -41,6 +41,10 @@ assert.equal(
   'a confirmed backend warranty snapshot can publish without another save'
 )
 
+assert.equal(getQuotePublishPresentation('pending').buttonLabel, '发布报价给客户')
+assert.equal(getQuotePublishPresentation('issued').buttonLabel, '更新并重新发布')
+assert.equal(getQuotePublishPresentation('rejected').buttonLabel, '重新发布报价')
+
 const requirements = [
   ['admin only allows zero amount when every item is explicitly warranty-free', adminOrder, /warranty_free_confirmed\s*===\s*true[\s\S]*零元质保方案要求所有设备均人工判断在保，且本次结论为质保免费/],
   ['admin stores item-level coverage result', adminOrder, /coverage_result/],
@@ -55,7 +59,7 @@ const requirements = [
   ['mini program declares payment unnecessary', miniProgram, /无需微信支付或上传付款凭证/],
   ['mini program skips payment status for warranty-free orders', statusMeta, /\['paid', 'not_required'\]\.includes\(payment\)/],
   ['mini program advances past payment progress', statusMeta, /\['paid', 'not_required'\]\.includes\(order\.paymentStatus\)/],
-  ['admin auto-saves valid item decisions before a zero-price quote', adminView, /zeroPriceWarrantyAction\s*===\s*'save'[\s\S]*saveOrderItemsInfo/],
+  ['admin persists item decisions before every issued quote', adminView, /status\s*===\s*'issued'[\s\S]*saveOrderItemsInfo\(\{ showSuccess: false, refreshOrders: false \}\)/],
   ['warranty evidence changes require quote permission', adminOrder, /changesWarrantyEvidence[\s\S]*assertRolePermission\(currentAdmin, 'issue_quote'\)/],
   ['unified product warranty defaults to 12 months', warrantyPolicy, /DEFAULT_PRODUCT_WARRANTY_MONTHS\s*=\s*12/],
   ['missing invoice falls back to factory date plus 30 days', warrantyPolicy, /addDaysToDateStr\(manufactureDate, 30\)/],

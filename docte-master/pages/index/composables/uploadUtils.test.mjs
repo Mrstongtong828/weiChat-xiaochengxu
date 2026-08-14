@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
 	canRejectRepairQuote,
 	canUploadPaymentProofForOrder,
+	compressVideoForUpload,
   getCloudFileId,
   getPreviewUrl,
   isCloudFileId
@@ -43,4 +44,47 @@ test('recognizes only non-empty cloud file IDs', () => {
   assert.equal(isCloudFileId('cloud://env.bucket/proof.jpg'), true)
   assert.equal(isCloudFileId('cloud://'), false)
   assert.equal(isCloudFileId('wxfile://tmp/proof.jpg'), false)
+})
+
+test('compresses a large repair video before cloud upload', async () => {
+	const previousUni = globalThis.uni
+	let receivedOptions = null
+	globalThis.uni = {
+		compressVideo: async (options) => {
+			receivedOptions = options
+			return { tempFilePath: 'wxfile://compressed.mp4', size: 8 * 1024 * 1024 }
+		}
+	}
+	try {
+		const result = await compressVideoForUpload({
+			tempFilePath: 'wxfile://original.mp4',
+			size: 30 * 1024 * 1024
+		})
+		assert.equal(result.path, 'wxfile://compressed.mp4')
+		assert.equal(result.size, 8 * 1024 * 1024)
+		assert.deepEqual(receivedOptions, { src: 'wxfile://original.mp4', quality: 'medium' })
+	} finally {
+		globalThis.uni = previousUni
+	}
+})
+
+test('skips extra compression for an already small repair video', async () => {
+	const previousUni = globalThis.uni
+	let compressionCalls = 0
+	globalThis.uni = {
+		compressVideo: async () => {
+			compressionCalls += 1
+			return { tempFilePath: 'wxfile://compressed.mp4' }
+		}
+	}
+	try {
+		const result = await compressVideoForUpload({
+			tempFilePath: 'wxfile://small.mp4',
+			size: 5 * 1024 * 1024
+		})
+		assert.equal(result.path, 'wxfile://small.mp4')
+		assert.equal(compressionCalls, 0)
+	} finally {
+		globalThis.uni = previousUni
+	}
 })
