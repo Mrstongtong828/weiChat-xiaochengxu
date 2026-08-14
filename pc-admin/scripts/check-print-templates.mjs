@@ -36,6 +36,13 @@ const order = {
     services_total: 200,
     others_total: 0,
     final_price: 580
+  },
+  receivedParts: [{ name: 'Calibration tool', quantity: 3, remark: 'Packed with device' }],
+  receivedPartPhotos: [{ url: 'data:image/png;base64,dGVzdA==' }],
+  receivedPartsReceipt: {
+    status: 'confirmed',
+    confirmed_at: '2026-08-14 14:46:49',
+    confirmed_by_name: 'System Admin'
   }
 }
 
@@ -62,6 +69,11 @@ assert.match(repairHtml, /售后维修单/)
 assert.match(repairHtml, /维修措施/)
 assert.match(repairHtml, /更换机芯、充电顶针/)
 assert.match(repairHtml, /20E19 246/)
+assert.match(repairHtml, /received-part-print-group/)
+assert.match(repairHtml, /Calibration tool/)
+assert.match(repairHtml, /Packed with device/)
+assert.match(repairHtml, /System Admin/)
+assert.match(repairHtml, /data:image\/png;base64,dGVzdA==/)
 assert.match(repairHtml, /维修完成日期/)
 assert.doesNotMatch(repairHtml, /2026年6月2日/, '维修单完工日期应留空，由工程师手写')
 assert.doesNotMatch(repairHtml, /2026年8月1日/, '维修单不应把更新时间当成完工日期')

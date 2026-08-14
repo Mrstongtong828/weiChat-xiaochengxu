@@ -132,6 +132,16 @@ const normalizeRepairRecord = (order = {}) => {
   }
 }
 
+const normalizeReceivedPartPhotos = (order = {}) => {
+  const photos = Array.isArray(order.received_part_photos)
+    ? order.received_part_photos
+    : (Array.isArray(order.receivedPartPhotos) ? order.receivedPartPhotos : [])
+  return photos.map(photo => ({
+    fileID: photo && typeof photo === 'object' ? (photo.fileID || photo.fileId || '') : String(photo || ''),
+    url: resolveUrlValue(photo)
+  })).filter(photo => photo.fileID || photo.url)
+}
+
 export const transformOrder = (order) => {
   if (!order) return null
 
@@ -213,6 +223,15 @@ export const transformOrder = (order) => {
     engineerId: order.engineer_id || '',
     timeline: order.timeline || [],
     repairRecord: normalizeRepairRecord(order),
+    receivedParts: Array.isArray(order.received_parts || order.receivedParts)
+      ? (order.received_parts || order.receivedParts).map((part = {}) => ({
+          name: part.name || part.part_name || '',
+          quantity: Number(part.quantity || part.qty || 0) || 0,
+          remark: part.remark || part.note || ''
+        })).filter(part => part.name || part.remark)
+      : [],
+    receivedPartPhotos: normalizeReceivedPartPhotos(order),
+    receivedPartsReceipt: order.received_parts_receipt || order.receivedPartsReceipt || { status: 'pending' },
 
     // 报价/付款
     quoteDetail,
