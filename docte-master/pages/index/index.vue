@@ -505,8 +505,8 @@
 				<view class="invoice-hero">
 					<view class="invoice-hero-icon"><view class="glyph glyph-invoice"><view class="glyph-extra"></view></view></view>
 					<view>
-						<text>对公转账开票申请</text>
-						<text>检修完成且对公款项核销后可申请；微信支付订单不提供开票。</text>
+						<text>微信支付 / 对公转账开票申请</text>
+						<text>检修完成且款项确认到账后可申请；微信支付和对公转账订单均支持。</text>
 					</view>
 				</view>
 				<view class="invoice-status-board">

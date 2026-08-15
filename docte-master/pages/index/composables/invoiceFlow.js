@@ -11,9 +11,9 @@
 //   无需开票       → 不可开票(disabled)
 // 注意：「待申请(available)」不来自 invoice_info.status，而是 getInvoiceStatusKey()
 //       根据付款方式与到账状态派生——与后端 applyInvoice 的门槛一致：
-//       仅已完成且已核销的对公转账可申请，微信支付不进入发票流程。
+//       仅已完成且付款已确认的微信支付或对公转账可申请。
 export const invoiceFlow = [
-	{ title: '待申请', desc: '选择已完工对公工单' },
+	{ title: '待申请', desc: '选择已完工且已付款工单' },
 	{ title: '资料核对', desc: '核对抬头、税号与金额' },
 	{ title: '开票中', desc: '电子 1-3 天 / 纸质 7-15 天' },
 	{ title: '已开票', desc: '电子票信息展示 / 纸质票查邮寄' }
@@ -39,7 +39,7 @@ const invoiceMetaMap = {
 	issued: { label: '已开票', tone: 'ok', stage: '已开票', desc: '发票已开具，小程序会展示发票号码、日期和抬头等信息。' },
 	awaiting_completion: { label: '待完工', tone: 'muted', stage: '不可申请', desc: '检修服务完成并结单后才能申请开票。' },
 	unavailable: { label: '待核销', tone: 'muted', stage: '不可申请', desc: '财务确认对公款项到账后即可申请开票。' },
-	disabled: { label: '无需开票', tone: 'muted', stage: '不进入流程', desc: '微信支付订单不进入发票流程。' }
+	disabled: { label: '无需开票', tone: 'muted', stage: '不进入流程', desc: '当前支付方式或工单状态不满足开票条件。' }
 }
 
 // 付款确认口径与后端 isPaymentConfirmedStatus 一致
@@ -52,12 +52,12 @@ export function getInvoiceStatusKey(order = {}) {
 	if (mappedInvoiceStatus === 'disabled') return 'disabled'
 	if (order.status === '已取消' || order.statusKey === 'cancelled') return 'disabled'
 	const paymentMethod = String(order.paymentMethod || order.payment_method || '').trim()
-	if (!['offline_transfer', 'bank_transfer'].includes(paymentMethod)) return 'disabled'
+	if (!['offline_transfer', 'bank_transfer', 'wechat_pay'].includes(paymentMethod)) return 'disabled'
 	const completed = [order.statusKey, order.status_en, order.statusEn, order.status]
 		.map((value) => String(value || '').trim())
 		.some((status) => ['completed', '已完成'].includes(status))
 	if (!completed) return 'awaiting_completion'
-	// 开票门槛与后端 applyInvoice 对齐：已完工对公转账有应付金额且付款已确认。
+	// 开票门槛与后端 applyInvoice 对齐：已完工且付款已确认、有应付金额。
 	const paymentStatus = String(order.paymentStatus || '').trim()
 	if (!(Number(order.totalFee || 0) > 0 && paymentConfirmedStatuses.includes(paymentStatus))) return 'unavailable'
 	return mappedInvoiceStatus || 'available'
