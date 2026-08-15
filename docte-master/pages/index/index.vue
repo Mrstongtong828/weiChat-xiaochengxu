@@ -510,8 +510,8 @@
 				<view class="invoice-hero">
 					<view class="invoice-hero-icon"><view class="glyph glyph-invoice"><view class="glyph-extra"></view></view></view>
 					<view>
-						<text>对公转账开票申请</text>
-						<text>检修完成核销后可申请</text>
+						<text>微信支付 / 对公转账开票申请</text>
+						<text>检修完成且款项确认到账后可申请；微信支付和对公转账订单均支持。</text>
 					</view>
 				</view>
 				<view class="invoice-status-board">
@@ -1871,7 +1871,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { onLoad, onShow, onPullDownRefresh, onBackPress } from '@dcloudio/uni-app'
+import { onLoad, onShow, onPullDownRefresh, onBackPress, onShareAppMessage } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import PaymentMethodSelector from '@/components/PaymentMethodSelector.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
@@ -4347,7 +4347,7 @@ const rejectRepairQuoteAction = (order = {}) => {
 		title: '选择不维修',
 		editable: true,
 		placeholderText: '可填写不维修原因（选填）',
-		confirmText: '确认不维修',
+		confirmText: '放弃维修',
 		cancelText: '再想想',
 		success: async ({ confirm, content }) => {
 			if (!confirm || actionSubmitting.value) return
@@ -6852,6 +6852,11 @@ onLoad((options = {}) => {
 		openModule('orders', routeType)
 	}
 })
+
+onShareAppMessage(() => ({
+	title: '思科达售后服务中心',
+	path: '/pages/index/index'
+}))
 
 onShow(() => {
 	logBoot('onShow triggered')

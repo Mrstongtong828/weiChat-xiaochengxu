@@ -38,7 +38,7 @@ function getInvoiceRequestBlockReason(order = {}) {
   if (!CONFIRMED_PAYMENT_STATUSES.includes(paymentStatus)) {
     return isCorporateTransferPayment(paymentMethod)
       ? '需财务先确认对公款项到账后才能开票'
-      : '付款完成后才能申请开票'
+      : '需先确认微信支付到账后才能开票'
   }
   if (!(Number(order.total_price ?? order.totalPrice ?? order.totalFee ?? 0) > 0)) {
     return '开票金额需大于 0'
