@@ -1890,7 +1890,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { onLoad, onShow, onPullDownRefresh, onBackPress } from '@dcloudio/uni-app'
+import { onLoad, onShow, onPullDownRefresh, onBackPress, onShareAppMessage } from '@dcloudio/uni-app'
 import BottomTabbar from '@/components/BottomTabbar.vue'
 import PaymentMethodSelector from '@/components/PaymentMethodSelector.vue'
 import PrivacyConsent from '@/components/PrivacyConsent.vue'
@@ -6735,6 +6735,11 @@ onLoad((options = {}) => {
 		openModule('orders', routeType)
 	}
 })
+
+onShareAppMessage(() => ({
+	title: '思科达售后服务中心',
+	path: '/pages/index/index'
+}))
 
 onShow(() => {
 	logBoot('onShow triggered')
