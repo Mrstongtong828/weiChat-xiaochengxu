@@ -4312,7 +4312,7 @@ const rejectRepairQuoteAction = (order = {}) => {
 		title: '拒绝维修报价',
 		editable: true,
 		placeholderText: '可填写拒绝原因（选填）',
-		confirmText: '确认拒绝',
+		confirmText: '放弃维修',
 		cancelText: '再想想',
 		success: async ({ confirm, content }) => {
 			if (!confirm || actionSubmitting.value) return
