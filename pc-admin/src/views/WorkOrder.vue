@@ -2597,6 +2597,8 @@ const statusSummaryCards = computed(() => {
 })
 
 const applyStatusFilter = (filter) => {
+  // 状态卡表示用户要查看该状态下的全部工单，不能继续叠加首页带入的待办条件。
+  activeTodoType.value = ''
   wo.filter = wo.filter === filter ? '' : filter
 }
 
