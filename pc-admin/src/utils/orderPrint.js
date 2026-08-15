@@ -57,7 +57,7 @@ const FIELD_DEFINITIONS = {
     field('unit', '单位', 'item', { width: 5, visible: false }),
     field('quantity', '数量', 'item', { width: 5, visible: false }),
     field('batchNo', '批号', 'item', { width: 9 }),
-    field('partsDetail', '配件明细（手填）', 'item', { width: 13 }),
+    field('partsDetail', '配件明细', 'item', { width: 13 }),
     field('faultReason', '故障原因', 'item', { width: 13 }),
     field('repairAction', '维修措施', 'item', { width: 17 }),
     field('warrantyScope', '保修范围', 'item', { width: 9 }),
@@ -390,6 +390,22 @@ const fieldValue = (fieldItem, order, context = {}) => {
   return values[fieldItem.key] ?? ''
 }
 
+const repairPartsText = (order = {}) => {
+  const repairRecord = order.repairRecord || order.repair_record || {}
+  const quoteDetail = order.quoteDetail || order.quote_detail || order.quote?.detail || {}
+  const actualParts = Array.isArray(repairRecord.parts) ? repairRecord.parts : []
+  const quotedParts = Array.isArray(quoteDetail.parts)
+    ? quoteDetail.parts
+    : (Array.isArray(order.parts) ? order.parts : [])
+  const parts = actualParts.length ? actualParts : quotedParts
+  return parts.map(part => {
+    const name = part && (part.name || part.part_name || part.partName) || ''
+    const model = part && (part.model || part.part_model || part.partModel || part.spec) || ''
+    const quantity = safeNum(part && (part.quantity ?? part.qty)) || 1
+    return name ? `${name}${model ? `（${model}）` : ''}×${quantity}` : ''
+  }).filter(Boolean).join('、')
+}
+
 const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
   const coverageMap = {
     free: '质保范围内',
@@ -402,7 +418,7 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     sequence: index + 1,
     productName: item.product_name,
     productModel: item.product_model,
-    partsDetail: '',
+    partsDetail: index === 0 ? repairPartsText(order) : '',
     unit: item.unit || '台',
     quantity: item.quantity || 1,
     batchNo: item.batch_no || item.batchNo || item.sn || '',
