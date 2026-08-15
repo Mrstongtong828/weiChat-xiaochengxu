@@ -390,20 +390,18 @@ const fieldValue = (fieldItem, order, context = {}) => {
   return values[fieldItem.key] ?? ''
 }
 
-const repairPartsText = (order = {}) => {
+const repairPartsText = (order = {}, index = 0) => {
   const repairRecord = order.repairRecord || order.repair_record || {}
-  const quoteDetail = order.quoteDetail || order.quote_detail || order.quote?.detail || {}
   const actualParts = Array.isArray(repairRecord.parts) ? repairRecord.parts : []
-  const quotedParts = Array.isArray(quoteDetail.parts)
-    ? quoteDetail.parts
-    : (Array.isArray(order.parts) ? order.parts : [])
-  const parts = actualParts.length ? actualParts : quotedParts
-  return parts.map(part => {
+  if (!actualParts.length || index !== 0) return ''
+  const text = actualParts.map(part => {
     const name = part && (part.name || part.part_name || part.partName) || ''
     const model = part && (part.model || part.part_model || part.partModel || part.spec) || ''
     const quantity = safeNum(part && (part.quantity ?? part.qty)) || 1
     return name ? `${name}${model ? `（${model}）` : ''}×${quantity}` : ''
   }).filter(Boolean).join('、')
+  const itemCount = Array.isArray(order.itemsList) ? order.itemsList.length : 0
+  return itemCount > 1 && text ? `整单配件：${text}` : text
 }
 
 const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
@@ -418,7 +416,7 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     sequence: index + 1,
     productName: item.product_name,
     productModel: item.product_model,
-    partsDetail: index === 0 ? repairPartsText(order) : '',
+    partsDetail: repairPartsText(order, index),
     unit: item.unit || '台',
     quantity: item.quantity || 1,
     batchNo: item.batch_no || item.batchNo || item.sn || '',

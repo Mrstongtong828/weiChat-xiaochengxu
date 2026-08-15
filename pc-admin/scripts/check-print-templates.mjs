@@ -110,6 +110,21 @@ assert.doesNotMatch(repairHtml, /2026年8月1日/, '维修单不应把更新时�
 const customerSubmittedHtml = buildPrintHtml([customerSubmittedOrder], repairTemplate, 'repair_order')
 assert.match(customerSubmittedHtml, /SN-CUSTOMER-0813/, '客户填写的产品序列号应显示在维修单批号列')
 
+const quotedOnlyHtml = buildPrintHtml([{
+  ...order,
+  repairRecord: { parts: [] }
+}], repairTemplate, 'repair_order')
+assert.doesNotMatch(quotedOnlyHtml, /机芯组件/, '未记录实际使用配件时，不应把报价配件打印成维修结果')
+
+const multiDeviceHtml = buildPrintHtml([{
+  ...order,
+  itemsList: [
+    order.itemsList[0],
+    { ...order.itemsList[0], product_name: '热牙胶充填机', batch_no: 'SN-SECOND' }
+  ]
+}], repairTemplate, 'repair_order')
+assert.match(multiDeviceHtml, /整单配件：机芯组件（T-Fine-II）×1/, '多设备工单应明确配件属于整单，不能误归到第一台设备')
+
 repairTemplate.fields.find(item => item.key === 'batchNo').visible = false
 repairTemplate.fields.push({
   key: 'custom_quality',
