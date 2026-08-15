@@ -4347,7 +4347,7 @@ const rejectRepairQuoteAction = (order = {}) => {
 		title: '选择不维修',
 		editable: true,
 		placeholderText: '可填写不维修原因（选填）',
-		confirmText: '确认不维修',
+		confirmText: '放弃维修',
 		cancelText: '再想想',
 		success: async ({ confirm, content }) => {
 			if (!confirm || actionSubmitting.value) return
