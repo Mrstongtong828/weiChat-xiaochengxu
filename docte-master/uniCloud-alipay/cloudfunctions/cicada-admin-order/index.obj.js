@@ -123,7 +123,7 @@ function createWorkflowFallback() {
     get_stats: ALL_ROLES,
     get_workflow_config: ALL_ROLES,
     delete_order: ['admin'],
-    update_status: ['admin', 'engineer'],
+    update_status: ['admin'],
     import_logistics: ['admin', 'engineer'],
     issue_quote: ['admin', 'engineer'],
     confirm_payment: ['admin', 'finance'],
@@ -196,6 +196,21 @@ function createWorkflowFallback() {
     if (!canTransitionOrderStatus(from, to)) throw new Error(`${getOrderStatusLabel(from)}工单不能改为${getOrderStatusLabel(to)}`)
     return true
   }
+  const restorableCancelledOrderStatuses = Object.entries(ORDER_STATUS_TRANSITIONS)
+    .filter(([, transitions]) => transitions.includes('cancelled'))
+    .map(([status]) => status)
+  const getCancelledOrderRestoreStatus = (order = {}, events = []) => {
+    if (String(order.status || '').trim() !== 'cancelled') return ''
+    const savedStatus = String(order.cancelled_from_status || order.cancelledFromStatus || '').trim()
+    if (restorableCancelledOrderStatuses.includes(savedStatus)) return savedStatus
+    const cancellationEvent = (Array.isArray(events) ? events : []).find(event => {
+      const action = String(event && event.action || '').trim()
+      const beforeStatus = String(event && event.before && event.before.status || '').trim()
+      const afterStatus = String(event && event.after && event.after.status || '').trim()
+      return action === 'update_status' && afterStatus === 'cancelled' && restorableCancelledOrderStatuses.includes(beforeStatus)
+    })
+    return cancellationEvent ? String(cancellationEvent.before.status || '').trim() : ''
+  }
   const getWorkflowConfigForRole = (role = '') => {
     const normalizedRole = normalizeRole(role)
     return {
@@ -212,6 +227,7 @@ function createWorkflowFallback() {
     assertOrderStatusTransition,
     assertRolePermission,
     getOrderStatusLabel,
+    getCancelledOrderRestoreStatus,
     getWorkflowConfigForRole,
     hasRolePermission,
     isKnownRole,
@@ -237,6 +253,7 @@ const {
   assertOrderStatusTransition,
   assertRolePermission,
   getOrderStatusLabel,
+  getCancelledOrderRestoreStatus,
   getWorkflowConfigForRole,
   hasRolePermission,
   isKnownRole,
@@ -828,6 +845,10 @@ function buildStatusTimestampUpdate(order = {}, nextStatus = '', now = Date.now(
 function getStatusTransitionPrerequisiteError(order = {}, nextStatus = '') {
   const currentStatus = normalizeText(order.status)
   const next = normalizeText(nextStatus)
+  if (next === 'sent' && currentStatus === 'pending') {
+    const inbound = getOrderShipInfo(order, 'out')
+    if (!inbound.trackingNo) return '请先录入寄入物流单号，再标记为运输中'
+  }
   if (next === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
     const repairStartBlockReason = getRepairStartBlockReason(order)
     if (repairStartBlockReason) return repairStartBlockReason
@@ -1216,7 +1237,8 @@ async function computeOrderWarrantyFromItems(items = []) {
     if (warrantyState.in_warranty) anyInWarranty = true
     const coverageResult = normalizeText(item && item.coverage_result)
     const coverageReason = normalizeText(item && item.coverage_reason)
-    const isExplicitFree = coverageResult === 'free' && warrantyPolicy.isFreeCoverageReason(coverageReason)
+    // 人工判断在保且选择质保免费即可；判断原因仅作记录，不作为必填条件。
+    const isExplicitFree = coverageResult === 'free'
     const isExplicitPaid = ['paid', 'partial', 'not_covered'].includes(coverageResult)
     const isPendingCoverage = warrantyState.in_warranty && !coverageResult
     if (isPendingCoverage || coverageResult === 'pending') anyPendingReview = true
@@ -1438,6 +1460,51 @@ function buildLogisticsImportUpdate(order, item, type, now, importDate = '') {
   }
 
   return updateData
+}
+
+async function restoreCancelledOrderById(orderId, currentAdmin) {
+  const found = await db.collection('cicada_orders').doc(orderId).get()
+  const order = found.data && found.data[0]
+  if (!order) return { code: -1, msg: '工单不存在' }
+  if (order.status !== 'cancelled') return { code: -1, msg: '仅已取消工单可以恢复' }
+
+  const eventResult = await db.collection('cicada_order_events')
+    .where({ order_id: orderId, action: 'update_status' })
+    .orderBy('create_time', 'desc')
+    .limit(20)
+    .get()
+    .catch(() => ({ data: [] }))
+  const restoreStatus = getCancelledOrderRestoreStatus(order, eventResult.data || [])
+  if (!restoreStatus) return { code: -1, msg: '未找到管理员取消前的工单状态，无法自动恢复' }
+
+  const now = Date.now()
+  const restoredStatusLabel = getOrderStatusLabel(restoreStatus)
+  const res = await db.collection('cicada_orders').where({
+    _id: orderId,
+    status: 'cancelled'
+  }).update({
+    status: restoreStatus,
+    cancelled_restore_time: now,
+    timeline: dbCmd.push({
+      title: '工单已恢复',
+      desc: `当前进度：${restoredStatusLabel}`,
+      time: now,
+      done: true
+    }),
+    ...buildStatusTimestampUpdate(order, restoreStatus, now),
+    ...buildArchiveStatusUpdate(order, restoreStatus),
+    update_time: now
+  })
+  if (!res.updated) return { code: -1, msg: '工单状态已变化，请刷新后重试' }
+
+  await logOrderEvent({
+    order,
+    action: 'restore_cancelled_order',
+    actor: currentAdmin,
+    before: { status: 'cancelled' },
+    after: { status: restoreStatus }
+  })
+  return { code: 0, data: { status: restoreStatus, statusLabel: restoredStatusLabel } }
 }
 
 async function findOrderByNo(orderNo) {
@@ -3294,6 +3361,7 @@ module.exports = {
         }
       }
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      if (status === 'restore_cancelled') return await restoreCancelledOrderById(order_id, currentAdmin)
       if (!ORDER_STATUS.includes(status)) return { code: -1, msg: '工单状态不正确' }
       const found = await db.collection('cicada_orders').doc(order_id).get()
       const order = found.data && found.data[0]
@@ -3302,8 +3370,23 @@ module.exports = {
       const prerequisiteError = getStatusTransitionPrerequisiteError(order, status)
       if (prerequisiteError) return { code: -1, msg: prerequisiteError }
       const now = Date.now()
+      const cancellationUpdate = status === 'cancelled' && order.status !== 'cancelled'
+        ? { cancelled_from_status: order.status, cancelled_time: now }
+        : {}
+      const timelineUpdate = order.status !== status
+        ? {
+            timeline: dbCmd.push({
+              title: '工单进度更新',
+              desc: `当前进度：${getOrderStatusLabel(status)}`,
+              time: now,
+              done: true
+            })
+          }
+        : {}
       const res = await db.collection('cicada_orders').doc(order_id).update({
         status,
+        ...cancellationUpdate,
+        ...timelineUpdate,
         ...buildStatusTimestampUpdate(order, status, now),
         ...buildArchiveStatusUpdate(order, status),
         update_time: now
@@ -4489,6 +4572,18 @@ module.exports = {
     }
   },
 
+  // 管理员误取消后恢复到取消前状态。旧工单优先从审计事件找回原状态。
+  async restoreCancelledOrder(params) {
+    try {
+      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const { order_id } = pickParam(this, params)
+      if (!order_id) return { code: -1, msg: '缺少工单ID' }
+      return await restoreCancelledOrderById(order_id, currentAdmin)
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
 
   // 后台核销客户付款凭证/到账状态
   async updatePaymentStatus(params) {
@@ -5606,6 +5701,10 @@ module.exports = {
             remark: normalizeText(inv.remark || ''),
             invoice_no: normalizeText(inv.invoice_no || ''),
             invoice_date: normalizeText(inv.invoice_date || ''),
+            service_completed_time: inv.service_completed_time || o.completed_time || o.complete_time || 0,
+            settlement_time: inv.settlement_time || o.payment_paid_time || 0,
+            expected_delivery_days: Number(inv.expected_delivery_days || INVOICE_EXPECTED_WORKING_DAYS),
+            issued_time: inv.issued_time || 0,
             invoice_url: normalizeText(inv.invoice_url || inv.file_url || ''),
             pdf_url: normalizeText(inv.pdf_url || ''),
             mail_company: normalizeText(inv.mail_company || ''),
@@ -5620,9 +5719,30 @@ module.exports = {
         if (kw && ![r.order_no, r.customer, r.title, r.invoice_no].filter(Boolean).join(' ').toLowerCase().includes(kw)) return false
         return true
       })
+      const now = Date.now()
+      const pending = filtered.filter(r => normalizeInvoiceStatusFilter(r.status) === '待开票')
+      const processing = filtered.filter(r => normalizeInvoiceStatusFilter(r.status) === '开具中')
+      const issued = filtered.filter(r => normalizeInvoiceStatusFilter(r.status) === '已开具')
+      const dueAt = (row) => {
+        const base = Number(row.settlement_time || row.service_completed_time || 0)
+        return base ? base + Math.max(Number(row.expected_delivery_days || INVOICE_EXPECTED_WORKING_DAYS), 1) * 86400000 : 0
+      }
+      const overdue = filtered.filter(r => !['已开具', '无需开票'].includes(normalizeInvoiceStatusFilter(r.status)) && dueAt(r) > 0 && dueAt(r) < now)
+      const dueSoon = filtered.filter(r => !['已开具', '无需开票'].includes(normalizeInvoiceStatusFilter(r.status)) && dueAt(r) >= now && dueAt(r) <= now + 2 * 86400000)
+      const summary = {
+        total: filtered.length,
+        pendingCount: pending.length,
+        processingCount: processing.length,
+        issuedCount: issued.length,
+        overdueCount: overdue.length,
+        dueSoonCount: dueSoon.length,
+        pendingAmount: pending.reduce((sum, row) => sum + Number(row.total_price || 0), 0),
+        overdueAmount: overdue.reduce((sum, row) => sum + Number(row.total_price || 0), 0),
+        truncated: Boolean(fetched.truncated)
+      }
       const start = (pagination.page - 1) * pagination.pageSize
       const list = filtered.slice(start, start + pagination.pageSize)
-      return { code: 0, data: { list, total: filtered.length, page: pagination.page, pageSize: pagination.pageSize, truncated: fetched.truncated } }
+      return { code: 0, data: { list, total: filtered.length, page: pagination.page, pageSize: pagination.pageSize, summary, truncated: fetched.truncated } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

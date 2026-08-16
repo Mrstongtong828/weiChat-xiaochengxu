@@ -97,6 +97,10 @@ test('已签收设备拒绝报价后进入待回寄而不是取消工单', async
   assert.equal(state.update.payment_status, undefined)
   assert.equal(state.update.needs_return, true)
   assert.equal(state.update.archive_status, 'pending_return')
+  assert.equal(state.update.timeline.at(-1).desc, '不维修原因：暂不维修')
+  assert.equal(state.events.length, 1)
+  assert.equal(state.events[0].action, 'reject_quote')
+  assert.equal(state.events[0].after.reason, '暂不维修')
 })
 
 test('尚未寄出的报修拒绝报价后直接取消归档', async () => {

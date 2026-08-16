@@ -1520,6 +1520,36 @@ module.exports = {
     }
   },
 
+  // 管理员批量删除调研记录，单次最多 100 条，并保留审计记录。
+  async deleteSurveys(params) {
+    try {
+      let token, ids
+      if (params && params.token) ({ token, ids } = params)
+      else if (this.params) ({ token, ids } = this.params)
+      const operator = await verifyAdminToken(token, ['admin'])
+      const surveyIds = [...new Set((Array.isArray(ids) ? ids : []).map(id => fbText(id, 60)).filter(Boolean))]
+      if (!surveyIds.length) return { code: -1, msg: '请选择要删除的调研记录' }
+      if (surveyIds.length > 100) return { code: -1, msg: '单次最多删除100条调研记录' }
+      const col = db.collection('cicada_surveys')
+      const found = await col.where({ _id: db.command.in(surveyIds) }).get()
+      const surveys = found.data || []
+      if (!surveys.length) return { code: -1, msg: '所选调研记录不存在或已被删除' }
+      let deleted = 0
+      for (const survey of surveys) {
+        const result = await col.doc(survey._id).remove()
+        if (!Number(result.deleted || 0)) continue
+        deleted += 1
+        await writeAdminLog(operator, 'survey_delete', { id: survey._id, name: survey.order_no || survey.contact || '' }, {
+          satisfaction: survey.satisfaction || '', rating: survey.rating || '', status: survey.status || ''
+        })
+      }
+      if (!deleted) return { code: -1, msg: '所选调研记录已被删除，请刷新列表' }
+      return { code: 0, data: { deleted }, msg: `已删除${deleted}条调研记录` }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async getGuides(params) {
     try {
       let token

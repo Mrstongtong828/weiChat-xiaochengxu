@@ -162,6 +162,10 @@ export const updateSurveyStatus = (token, id, status) => {
   return request.post(`${API_BASE.adminSys}/updateSurveyStatus`, { token, id, status })
 }
 
+export const deleteSurveys = (token, ids) => {
+  return request.post(`${API_BASE.adminSys}/deleteSurveys`, { token, ids })
+}
+
 export const getGuides = (token) => {
   return request.post(`${API_BASE.adminSys}/getGuides`, { token })
 }

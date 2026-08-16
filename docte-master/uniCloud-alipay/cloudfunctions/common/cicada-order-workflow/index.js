@@ -22,6 +22,10 @@ const ORDER_STATUS_TRANSITIONS = {
   cancelled: []
 }
 
+const RESTORABLE_CANCELLED_ORDER_STATUSES = Object.entries(ORDER_STATUS_TRANSITIONS)
+  .filter(([, transitions]) => transitions.includes('cancelled'))
+  .map(([status]) => status)
+
 const ROLE_LABELS = {
   superadmin: '超级管理员',
   admin: '管理员',
@@ -39,7 +43,7 @@ const PERMISSIONS = {
   get_stats: ALL_ROLES,
   get_workflow_config: ALL_ROLES,
   delete_order: ['admin'],
-  update_status: ['admin', 'engineer'],
+  update_status: ['admin'],
   import_logistics: ['admin', 'engineer'],
   issue_quote: ['admin', 'engineer'],
   confirm_payment: ['admin', 'finance'],
@@ -154,6 +158,23 @@ function assertOrderStatusTransition(fromStatus = '', toStatus = '') {
   return true
 }
 
+function isRestorableCancelledOrderStatus(status = '') {
+  return RESTORABLE_CANCELLED_ORDER_STATUSES.includes(normalizeStatus(status))
+}
+
+function getCancelledOrderRestoreStatus(order = {}, events = []) {
+  if (normalizeStatus(order.status) !== 'cancelled') return ''
+  const savedStatus = normalizeStatus(order.cancelled_from_status || order.cancelledFromStatus)
+  if (isRestorableCancelledOrderStatus(savedStatus)) return savedStatus
+
+  const cancellationEvent = (Array.isArray(events) ? events : []).find(event => (
+    normalizeStatus(event && event.action) === 'update_status'
+    && normalizeStatus(event && event.after && event.after.status) === 'cancelled'
+    && isRestorableCancelledOrderStatus(event && event.before && event.before.status)
+  ))
+  return cancellationEvent ? normalizeStatus(cancellationEvent.before.status) : ''
+}
+
 function getWorkflowConfigForRole(role = '') {
   const normalizedRole = normalizeRole(role)
   const permissions = Object.fromEntries(
@@ -173,6 +194,7 @@ module.exports = {
   ORDER_STATUS,
   ORDER_STATUS_LABELS,
   ORDER_STATUS_TRANSITIONS,
+  RESTORABLE_CANCELLED_ORDER_STATUSES,
   ROLE_LABELS,
   ALL_ROLES,
   PERMISSIONS,
@@ -185,6 +207,8 @@ module.exports = {
   getAllowedStatusTransitions,
   canTransitionOrderStatus,
   assertOrderStatusTransition,
+  getCancelledOrderRestoreStatus,
+  isRestorableCancelledOrderStatus,
   getWorkflowConfigForRole,
   getRepairStartBlockReason
 }

@@ -211,6 +211,7 @@ export const transformOrder = (order) => {
     // 状态
     status: toChineseStatus(order.status),
     statusEn: order.status,
+    cancelledFromStatus: order.cancelled_from_status || order.cancelledFromStatus || '',
     needsReturn: order.needs_return === true || order.needsReturn === true,
     archiveStatus: order.archive_status || order.archiveStatus || '',
     slaInfo: order.sla_info || order.slaInfo || null,

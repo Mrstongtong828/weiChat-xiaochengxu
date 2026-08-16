@@ -6,7 +6,7 @@
         <p class="section-desc">维护保修政策、收费办法、基础收费项、小程序联系方式和预览二维码。</p>
       </div>
     </div>
-    <el-tabs v-model="activeContentTab" class="modern-tabs">
+    <el-tabs v-model="activeContentTab" class="modern-tabs" @tab-change="handleContentTabChange">
       <el-tab-pane label="保修与收费" name="policy">
         <div class="field-title policy-field-title" style="margin-top:20px;">
           <span>保修政策总述</span>
@@ -267,77 +267,6 @@
         />
       </el-tab-pane>
 
-      <el-tab-pane label="调研有礼" name="survey">
-        <el-alert
-          title="这里维护小程序「调研有礼」页面。保存后小程序会动态读取最新标题、说明、选项和提交成功提示；客户后续修改内容无需重新发布小程序。"
-          type="info"
-          show-icon
-          :closable="false"
-          style="margin: 20px 0;"
-        />
-
-        <el-form :model="surveyConfig" label-width="120px" class="print-form">
-          <el-form-item label="是否启用">
-            <el-switch v-model="surveyConfig.enabled" active-text="启用" inactive-text="停用" />
-          </el-form-item>
-          <el-form-item label="页面标题"><el-input v-model="surveyConfig.title" placeholder="如 售后服务调研表" /></el-form-item>
-          <el-form-item label="页面说明"><el-input v-model="surveyConfig.subtitle" type="textarea" :rows="2" placeholder="展示在标题下方的说明文案" /></el-form-item>
-          <el-form-item label="福利说明"><el-input v-model="surveyConfig.giftText" placeholder="如 提交后由工作人员核对并登记福利" /></el-form-item>
-          <el-form-item label="满意度选项"><el-input v-model="surveySatisfactionText" placeholder="用逗号分隔，如 满意,一般,不满意" /></el-form-item>
-          <el-form-item label="解决状态选项"><el-input v-model="surveyResolvedText" placeholder="用逗号分隔，如 已解决,处理中,未解决" /></el-form-item>
-          <el-form-item label="评分上限"><el-input-number v-model="surveyConfig.ratingMax" :min="1" :max="10" controls-position="right" /></el-form-item>
-          <el-form-item label="成功标题"><el-input v-model="surveyConfig.successTitle" placeholder="如 提交成功" /></el-form-item>
-          <el-form-item label="成功提示"><el-input v-model="surveyConfig.successMessage" type="textarea" :rows="2" placeholder="提交成功后弹窗展示的内容" /></el-form-item>
-        </el-form>
-        <div class="save-row"><el-button type="primary" :loading="savingSurvey" @click="saveSurveyConfig">保存调研配置</el-button></div>
-
-        <el-divider />
-
-        <div class="qual-head">
-          <span>调研提交记录</span>
-          <el-button type="primary" link :loading="surveyLoading" @click="loadSurveyRecords">刷新记录</el-button>
-        </div>
-        <div class="survey-toolbar">
-          <el-input v-model="surveyQuery.keyword" clearable placeholder="搜索工单号 / 联系方式 / 内容" style="max-width:320px;" @keyup.enter="loadSurveyRecords" />
-          <el-select v-model="surveyQuery.status" clearable placeholder="处理状态" style="width:160px;" @change="loadSurveyRecords">
-            <el-option label="新提交" value="new" />
-            <el-option label="已联系" value="contacted" />
-            <el-option label="已关闭" value="closed" />
-          </el-select>
-          <el-button @click="loadSurveyRecords">查询</el-button>
-        </div>
-        <el-table :data="surveyRecords" v-loading="surveyLoading" class="modern-table" style="width:100%; margin-top:12px;">
-          <el-table-column prop="order_no" label="工单号 / SN" width="150" show-overflow-tooltip />
-          <el-table-column prop="satisfaction" label="满意度" width="100" />
-          <el-table-column prop="rating" label="评分" width="80" />
-          <el-table-column prop="resolved" label="是否解决" width="110" />
-          <el-table-column prop="comment" label="反馈内容" min-width="220" show-overflow-tooltip />
-          <el-table-column prop="contact" label="联系方式" width="150" show-overflow-tooltip />
-          <el-table-column label="提交时间" width="170">
-            <template #default="{ row }">{{ formatSurveyTime(row.create_time) }}</template>
-          </el-table-column>
-          <el-table-column label="状态" width="130">
-            <template #default="{ row }">
-              <el-select :model-value="row.status || 'new'" size="small" @change="(status) => changeSurveyStatus(row, status)">
-                <el-option label="新提交" value="new" />
-                <el-option label="已联系" value="contacted" />
-                <el-option label="已关闭" value="closed" />
-              </el-select>
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="survey-pagination">
-          <el-pagination
-            v-model:current-page="surveyQuery.page"
-            v-model:page-size="surveyQuery.pageSize"
-            :total="surveyTotal"
-            :page-sizes="[10, 20, 50]"
-            layout="total, sizes, prev, pager, next"
-            @size-change="loadSurveyRecords"
-            @current-change="loadSurveyRecords"
-          />
-        </div>
-      </el-tab-pane>
     </el-tabs>
 
     <!-- 小程序页面效果预览 -->
@@ -411,7 +340,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { saveSettings, getSettings, getTempFileURL, getSurveyList, updateSurveyStatus, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
+import { saveSettings, getSettings, getTempFileURL, getGuides, updateGuide, createGuide, deleteGuide } from '../api/admin.js'
 import PrintTemplateEditor from '../components/PrintTemplateEditor.vue'
 import RichEditor from '../components/RichEditor.vue'
 import PolicyDocumentImporter from '../components/PolicyDocumentImporter.vue'
@@ -424,6 +353,9 @@ import { uploadFileToCloud } from '../utils/upload.js'
 import { uploadToOss } from '../utils/ossUpload.js'
 
 const activeContentTab = ref('policy')
+const showRequestError = (error, fallback) => {
+  if (!error?.__displayed) ElMessage.error(error?.message || fallback)
+}
 const config = reactive({ warranty: '', feePolicy: '' })
 const isWebUrl = (url = '') => /^https?:\/\//i.test(url)
 const printTemplates = ref(parsePrintTemplates())
@@ -515,16 +447,9 @@ const normalizeGuideDocument = (guide = {}) => {
   }
 }
 
-const loadGuides = async () => {
-  try {
-    const token = localStorage.getItem('adminToken')
-    const list = await getGuides(token)
-    const map = new Map((Array.isArray(list) ? list : []).map(item => [item.type, item]))
-    guideDocuments.value = GUIDE_TYPES.map(item => normalizeGuideDocument(map.get(item.type) || item))
-    guideDocuments.value.forEach(resolveGuideDocumentPreview)
-  } catch (error) {
-    console.error('加载操作教程失败:', error)
-  }
+const applyGuides = (list = []) => {
+  const map = new Map((Array.isArray(list) ? list : []).map(item => [item.type, item]))
+  guideDocuments.value = GUIDE_TYPES.map(item => normalizeGuideDocument(map.get(item.type) || item))
 }
 
 const resolveGuideDocumentPreview = async (guide) => {
@@ -557,7 +482,7 @@ const handleGuideDocumentUpload = async (uploadFile, guide) => {
     if (tempUrl) guidePreviewMap[fileUrl] = tempUrl
     ElMessage.success(`${guide.category}文件上传成功`)
   } catch (error) {
-    ElMessage.error(error.message || '上传失败')
+    showRequestError(error, '上传失败')
   } finally {
     uploadingGuideType.value = ''
   }
@@ -605,9 +530,9 @@ const saveGuideDocuments = async () => {
       })
     }
     ElMessage.success('操作教程配置已保存')
-    await loadGuides()
+    await refreshGuideDocuments()
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
+    showRequestError(error, '保存失败')
   } finally {
     savingGuides.value = false
   }
@@ -629,60 +554,98 @@ const videoPreviewContext = ref('首页介绍')
 const videoPlayUrl = ref('')
 const videoPlayLoading = ref(false)
 
-const loadMaintenanceVideos = async () => {
-  try {
-    const token = localStorage.getItem('adminToken')
-    const list = await getGuides(token)
-    const arr = (Array.isArray(list) ? list : []).filter(g => {
-      const category = String(g.category || '')
-      return category.includes(MAINTENANCE_VIDEO_CATEGORY) || MAINTENANCE_VIDEO_LEGACY_CATEGORIES.some(name => category.includes(name))
-    })
-    arr.sort((a, b) => {
-      const aCategory = String(a.category || '')
-      const bCategory = String(b.category || '')
-      const aIntro = aCategory.includes(MAINTENANCE_VIDEO_CATEGORY) ? 0 : 1
-      const bIntro = bCategory.includes(MAINTENANCE_VIDEO_CATEGORY) ? 0 : 1
-      return aIntro - bIntro || (Number(a.sort) || 99) - (Number(b.sort) || 99)
-    })
-    maintenanceVideos.value = arr.slice(0, 1).map(g => {
-      const media = Array.isArray(g.media) ? g.media : []
-      const video = media.find(m => m && m.type === 'video') || {}
-      const cover = media.find(m => m && m.type === 'image') || {}
-      return {
-        _id: g._id || g.id || '',
-        _key: g._id || g.id || `new-maint-${++videoKeySeq}`,
-        title: MAINTENANCE_VIDEO_TITLE,
-        intro: '',
-        video_url: video.url || '',
-        video_name: video.name || '',
-        cover_url: cover.url || '',
-        cover_name: cover.name || '',
-        coverPreview: '',
-        sort: Number(g.sort) || 99
-      }
-    })
-    resolveMaintenanceVideoCoverPreviews()
-  } catch (error) {
-    console.error('加载首页介绍视频失败:', error)
-  }
+const applyMaintenanceVideos = (list = []) => {
+  const arr = (Array.isArray(list) ? list : []).filter(g => {
+    const category = String(g.category || '')
+    return category.includes(MAINTENANCE_VIDEO_CATEGORY) || MAINTENANCE_VIDEO_LEGACY_CATEGORIES.some(name => category.includes(name))
+  })
+  arr.sort((a, b) => {
+    const aCategory = String(a.category || '')
+    const bCategory = String(b.category || '')
+    const aIntro = aCategory.includes(MAINTENANCE_VIDEO_CATEGORY) ? 0 : 1
+    const bIntro = bCategory.includes(MAINTENANCE_VIDEO_CATEGORY) ? 0 : 1
+    return aIntro - bIntro || (Number(a.sort) || 99) - (Number(b.sort) || 99)
+  })
+  maintenanceVideos.value = arr.slice(0, 1).map(g => {
+    const media = Array.isArray(g.media) ? g.media : []
+    const video = media.find(m => m && m.type === 'video') || {}
+    const cover = media.find(m => m && m.type === 'image') || {}
+    return {
+      _id: g._id || g.id || '',
+      _key: g._id || g.id || `new-maint-${++videoKeySeq}`,
+      title: MAINTENANCE_VIDEO_TITLE,
+      intro: '',
+      video_url: video.url || '',
+      video_name: video.name || '',
+      cover_url: cover.url || '',
+      cover_name: cover.name || '',
+      coverPreview: '',
+      sort: Number(g.sort) || 99
+    }
+  })
 }
-const resolveMaintenanceVideoCoverPreviews = async () => {
+
+const resolveGuideContentPreviews = async () => {
   maintenanceVideos.value.forEach(v => {
     if (v.cover_url && isWebUrl(v.cover_url)) v.coverPreview = v.cover_url
   })
   const token = localStorage.getItem('adminToken')
-  const ids = maintenanceVideos.value
+  const guideIds = guideDocuments.value
+    .map(guide => guide.file_url)
+    .filter(url => url && !isWebUrl(url) && !guidePreviewMap[url])
+  const coverIds = maintenanceVideos.value
     .filter(v => v.cover_url && !isWebUrl(v.cover_url) && !v.coverPreview)
     .map(v => v.cover_url)
+  const ids = [...new Set([...guideIds, ...coverIds])]
   if (!ids.length) return
   try {
     const map = await getTempFileURL(token, ids)
+    guideIds.forEach(fileUrl => {
+      if (map && map[fileUrl]) guidePreviewMap[fileUrl] = map[fileUrl]
+    })
     maintenanceVideos.value.forEach(v => {
       if (v.cover_url && map && map[v.cover_url]) v.coverPreview = map[v.cover_url]
     })
   } catch (error) {
     console.error('解析首页介绍视频封面地址失败:', error)
   }
+}
+
+let guideContentLoaded = false
+let guideContentRequest = null
+const fetchGuideList = async () => {
+  const token = localStorage.getItem('adminToken')
+  return await getGuides(token)
+}
+const loadGuideContent = async (force = false) => {
+  if (guideContentLoaded && !force) return
+  if (guideContentRequest) return guideContentRequest
+  guideContentRequest = (async () => {
+    const list = await fetchGuideList()
+    applyGuides(list)
+    applyMaintenanceVideos(list)
+    await resolveGuideContentPreviews()
+    guideContentLoaded = true
+  })()
+  try {
+    await guideContentRequest
+  } catch (error) {
+    console.error('加载操作教程失败:', error)
+  } finally {
+    guideContentRequest = null
+  }
+}
+
+const refreshGuideDocuments = async () => {
+  const list = await fetchGuideList()
+  applyGuides(list)
+  await resolveGuideContentPreviews()
+}
+
+const refreshMaintenanceVideos = async () => {
+  const list = await fetchGuideList()
+  applyMaintenanceVideos(list)
+  await resolveGuideContentPreviews()
 }
 
 const isCanvasMostlyDark = (canvas) => {
@@ -803,7 +766,7 @@ const handleVideoUpload = async (uploadFile, video, keyPrefix = 'product-video/'
       ElMessage.warning('视频已上传，自动封面生成失败，可手动上传封面')
     }
   } catch (error) {
-    ElMessage.error(error.message || '上传失败，请重试')
+    showRequestError(error, '上传失败，请重试')
   } finally {
     uploadingVideoKey.value = ''
   }
@@ -819,7 +782,7 @@ const handleVideoCoverUpload = async (uploadFile, video, dir = 'product-video/')
     video.coverPreview = tempUrl || ''
     ElMessage.success('封面上传成功')
   } catch (error) {
-    ElMessage.error(error.message || '封面上传失败')
+    showRequestError(error, '封面上传失败')
   }
 }
 
@@ -886,7 +849,7 @@ const removeMaintenanceVideo = async (index) => {
     maintenanceVideos.value.splice(index, 1)
     ElMessage.success('已删除')
   } catch (error) {
-    ElMessage.error(error.message || '删除失败')
+    showRequestError(error, '删除失败')
   }
 }
 const saveMaintenanceVideos = async () => {
@@ -927,9 +890,9 @@ const saveMaintenanceVideos = async () => {
       v.sort = i + 1
     }
     ElMessage.success('首页介绍视频已保存')
-    await loadMaintenanceVideos()
+    await refreshMaintenanceVideos()
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
+    showRequestError(error, '保存失败')
   } finally {
     savingMaintenanceVideos.value = false
   }
@@ -949,7 +912,6 @@ const loadSettings = async () => {
     applyMiniappQr(data)
     applyContactInfo(data)
     applyCompanyProductImages(data)
-    applySurveyConfig(data.survey_config)
   } catch (error) {
     console.error('加载配置失败:', error)
   }
@@ -966,7 +928,7 @@ const savePrintTemplates = async () => {
     })
     ElMessage.success('打印模板已保存')
   } catch (error) {
-    ElMessage.error(error.message || '打印模板保存失败')
+    showRequestError(error, '打印模板保存失败')
   } finally {
     savingPrintTemplates.value = false
   }
@@ -998,7 +960,7 @@ const saveConfig = async () => {
     warrantySections.value = cleanWarrantySections
     ElMessage.success('配置保存成功')
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
+    showRequestError(error, '保存失败')
   } finally {
     savingPolicy.value = false
   }
@@ -1017,7 +979,7 @@ const handleMiniappQr = async (uploadFile) => {
     miniappQrPreview.value = tempUrl || ''
     ElMessage.success('二维码上传成功')
   } catch (error) {
-    ElMessage.error(error.message || '二维码上传失败')
+    showRequestError(error, '二维码上传失败')
   }
 }
 
@@ -1100,7 +1062,7 @@ const handleQrUpload = async (uploadFile, key) => {
     if (tempUrl) contactQrPreviewMap[fileUrl] = tempUrl
     ElMessage.success('二维码上传成功')
   } catch (error) {
-    ElMessage.error(error.message || '二维码上传失败')
+    showRequestError(error, '二维码上传失败')
   }
 }
 
@@ -1119,7 +1081,7 @@ const saveContact = async () => {
     await saveSettings(token, payload)
     ElMessage.success('联系与访问配置已保存')
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
+    showRequestError(error, '保存失败')
   } finally {
     savingContact.value = false
   }
@@ -1166,7 +1128,7 @@ const handleCompanyProductUpload = async (uploadFile, key) => {
     if (tempUrl) companyProductPreviewMap[fileUrl] = tempUrl
     ElMessage.success('产品图上传成功')
   } catch (error) {
-    ElMessage.error(error.message || '产品图上传失败')
+    showRequestError(error, '产品图上传失败')
   }
 }
 
@@ -1188,127 +1150,18 @@ const saveCompanyProductImages = async () => {
     await saveSettings(token, payload)
     ElMessage.success('公司介绍产品图已保存')
   } catch (error) {
-    ElMessage.error(error.message || '保存失败')
+    showRequestError(error, '保存失败')
   } finally {
     savingCompanyProductImages.value = false
   }
 }
 
-// ===== 调研有礼配置 / 记录 =====
-const surveyConfig = reactive({
-  enabled: true,
-  title: '售后服务调研表',
-  subtitle: '提交一次真实售后体验反馈，工作人员核对后为您登记调研福利。',
-  giftText: '查看原调研有礼海报',
-  ratingMax: 5,
-  successTitle: '提交成功',
-  successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。'
-})
-const surveySatisfactionText = ref('满意,一般,不满意')
-const surveyResolvedText = ref('已解决,处理中,未解决')
-const surveyRecords = ref([])
-const surveyLoading = ref(false)
-const savingSurvey = ref(false)
-const surveyTotal = ref(0)
-const surveyQuery = reactive({ keyword: '', status: '', page: 1, pageSize: 10 })
-
-const parseSurveyList = (value, fallback = []) => {
-  const text = String(value || '')
-    .split(/[,\n，、]+/)
-    .map(item => item.trim())
-    .filter(Boolean)
-  return text.length ? text.slice(0, 8) : fallback
+const handleContentTabChange = (tabName) => {
+  if (tabName === 'guides') loadGuideContent()
 }
 
-const applySurveyConfig = (value = '') => {
-  try {
-    const parsed = value ? JSON.parse(value) : {}
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      surveyConfig.enabled = parsed.enabled !== false
-      surveyConfig.title = parsed.title || surveyConfig.title
-      surveyConfig.subtitle = parsed.subtitle || surveyConfig.subtitle
-      surveyConfig.giftText = parsed.giftText || surveyConfig.giftText
-      surveyConfig.ratingMax = Math.max(1, Math.min(10, Number(parsed.ratingMax) || surveyConfig.ratingMax))
-      surveyConfig.successTitle = parsed.successTitle || surveyConfig.successTitle
-      surveyConfig.successMessage = parsed.successMessage || surveyConfig.successMessage
-      surveySatisfactionText.value = Array.isArray(parsed.satisfactionOptions) ? parsed.satisfactionOptions.join(',') : surveySatisfactionText.value
-      surveyResolvedText.value = Array.isArray(parsed.resolvedOptions) ? parsed.resolvedOptions.join(',') : surveyResolvedText.value
-    }
-  } catch (error) {
-    console.warn('parse survey config failed:', error)
-  }
-}
-
-const serializeSurveyConfig = () => JSON.stringify({
-  enabled: surveyConfig.enabled,
-  title: surveyConfig.title,
-  subtitle: surveyConfig.subtitle,
-  giftText: surveyConfig.giftText,
-  ratingMax: Number(surveyConfig.ratingMax) || 5,
-  satisfactionOptions: parseSurveyList(surveySatisfactionText.value, ['满意', '一般', '不满意']),
-  resolvedOptions: parseSurveyList(surveyResolvedText.value, ['已解决', '处理中', '未解决']),
-  successTitle: surveyConfig.successTitle,
-  successMessage: surveyConfig.successMessage
-})
-
-const saveSurveyConfig = async () => {
-  try {
-    savingSurvey.value = true
-    const token = localStorage.getItem('adminToken')
-    await saveSettings(token, {
-      survey_config: serializeSurveyConfig()
-    })
-    ElMessage.success('调研配置保存成功')
-  } catch (error) {
-    ElMessage.error(error.message || '保存失败')
-  } finally {
-    savingSurvey.value = false
-  }
-}
-
-const formatSurveyTime = (value) => {
-  if (!value) return ''
-  const d = new Date(Number(value))
-  if (Number.isNaN(d.getTime())) return String(value)
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-
-const loadSurveyRecords = async () => {
-  try {
-    surveyLoading.value = true
-    const token = localStorage.getItem('adminToken')
-    const data = await getSurveyList(token, {
-      page: surveyQuery.page,
-      pageSize: surveyQuery.pageSize,
-      keyword: surveyQuery.keyword,
-      status: surveyQuery.status
-    })
-    surveyRecords.value = (data && data.list) || []
-    surveyTotal.value = (data && data.total) || 0
-  } catch (error) {
-    ElMessage.error(error.message || '加载调研记录失败')
-  } finally {
-    surveyLoading.value = false
-  }
-}
-
-const changeSurveyStatus = async (row, status) => {
-  try {
-    const token = localStorage.getItem('adminToken')
-    await updateSurveyStatus(token, row._id || row.id, status)
-    ElMessage.success('状态已更新')
-    row.status = status
-  } catch (error) {
-    ElMessage.error(error.message || '状态更新失败')
-  }
-}
-
-onMounted(() => {
-  loadSettings()
-  loadGuides()
-  loadMaintenanceVideos()
-  loadSurveyRecords()
+onMounted(async () => {
+  await loadSettings()
 })
 </script>
 

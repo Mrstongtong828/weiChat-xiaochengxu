@@ -169,6 +169,15 @@ export const recordCustomerQuoteDecision = (token, orderId, decision, options = 
     channel: options.channel || 'phone'
   })
 }
+
+// 恢复被误取消的工单，后端会找回取消前状态
+export const restoreCancelledOrder = (token, orderId) => {
+  return request.post(`${API_BASE.adminOrder}/updateOrderStatus`, {
+    token,
+    order_id: orderId,
+    status: 'restore_cancelled'
+  })
+}
 export const updatePaymentStatus = (token, orderId, status, options = {}) => {
   return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
     token,
@@ -300,6 +309,16 @@ export const getInvoiceApplications = (token, filters = {}) => {
     keyword: filters.keyword || '',
     page: filters.page || 1,
     pageSize: filters.pageSize || 20
+  })
+}
+
+// 财务中心开票任务看板：复用开票申请查询，同时返回状态与时效汇总
+export const getInvoiceWorkboard = (token, filters = {}) => {
+  return getInvoiceApplications(token, {
+    status: filters.status || '',
+    keyword: filters.keyword || '',
+    page: 1,
+    pageSize: 100
   })
 }
 

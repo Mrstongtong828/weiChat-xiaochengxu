@@ -872,7 +872,7 @@
 						<button v-if="detailQuoteVisible && detailOrder.paymentStatus !== 'paid'" class="quote-contact-action tap" open-type="contact">
 							<text>有疑问？联系客服</text>
 						</button>
-						<view v-if="canRejectQuote(detailOrder)" class="quote-reject-action tap" @click="rejectRepairQuoteAction(detailOrder)">
+						<view v-if="canRejectQuote(detailOrder)" class="quote-reject-action tap" @click="openRejectReasonDialog(detailOrder)">
 							<text>选择不维修</text>
 						</view>
 					</view>
@@ -1057,7 +1057,6 @@
 					<view class="survey-secondary tap" @click="resetSurveyForm()">重填</view>
 					<view class="survey-primary tap" :class="{ disabled: surveySubmitting }" @click="submitSurveyForm">{{ surveySubmitting ? '提交中' : '提交调研' }}</view>
 				</view>
-				<text class="survey-poster-tip tap" @click="previewSurveyPoster">{{ surveyConfig.giftText }}</text>
 			</view>
 
 			<view v-else-if="activeModule === 'diag'" class="module-content diag-module">
@@ -1845,6 +1844,18 @@
 			</view>
 			<view class="repair-tool-cancel tap" @click="showRepairTools = false">取消</view>
 		</view>
+		<view v-if="showRejectReasonDialog" class="reject-reason-mask" @click="closeRejectReasonDialog" @touchmove.stop>
+			<view class="reject-reason-dialog" @click.stop>
+				<text class="reject-reason-title">补充不维修原因</text>
+				<text class="reject-reason-tip">请告诉我们您放弃维修的原因，方便售后改进服务。</text>
+				<textarea v-model.trim="rejectReason" class="reject-reason-input" maxlength="300" placeholder="请填写不维修原因" placeholder-class="input-placeholder"></textarea>
+				<view class="reject-reason-count">{{ rejectReason.length }}/300</view>
+				<view class="reject-reason-actions">
+					<view class="reject-reason-button cancel tap" @click="closeRejectReasonDialog">暂不提交</view>
+					<view class="reject-reason-button confirm tap" :class="{ disabled: actionSubmitting }" @click="submitRejectRepairQuote">{{ actionSubmitting ? '提交中…' : '提交并取消工单' }}</view>
+				</view>
+			</view>
+		</view>
 		<view v-if="uploadPrivacyVisible" class="upload-privacy-mask">
 			<view class="upload-privacy-card">
 				<view class="upload-privacy-close tap" @click="rejectUploadPrivacy">×</view>
@@ -2047,13 +2058,15 @@ const diagProduct = ref('')
 const diagFault = ref('')
 const diagOpen = ref('')
 const activeTrackTab = ref('全部')
-// 维修进度 tab：进度合并 + 发票维度（待处理/维修中/已发货 按进度；未开票/已开票 按发票状态）
-const trackTabs = ['全部', '待处理', '维修中', '已发货', '未开票', '已开票']
+// 维修进度 tab：进度合并 + 发票维度（待处理/维修中/已发货/已完成 按进度；未开票/已开票 按发票状态）
+const trackTabs = ['全部', '待处理', '维修中', '已发货', '已取消', '已完成', '未开票', '已开票']
 const orderMatchesTrackTab = (item = {}, tab = '全部') => {
 	if (tab === '全部') return true
 	if (tab === '待处理') return getMiniStatusBucket(item) === 'pending'
 	if (tab === '维修中') return getMiniStatusBucket(item) === 'fixing'
 	if (tab === '已发货') return getMiniStatusBucket(item) === 'shipped'
+	if (tab === '已取消') return item.status === '已取消' || item.statusKey === 'cancelled' || item.quoteStatus === 'rejected'
+	if (tab === '已完成') return resolveStatusKey(item) === 'completed'
 	const inv = String(item.invoiceStatus || '')
 	const issued = Boolean(item.invoiced) || ['已开具', '已开票', '已发票'].includes(inv)
 	if (tab === '已开票') return issued
@@ -2074,6 +2087,9 @@ const repairStep = ref(1)
 const invoiceSubmitting = ref(false)
 const paymentSubmitting = ref(false)
 const actionSubmitting = ref(false)
+const showRejectReasonDialog = ref(false)
+const rejectReasonOrder = ref({})
+const rejectReason = ref('')
 const paymentProofUploading = ref(false)
 const paymentProofTempUrls = ref({})
 const detailAttachmentTempUrls = ref({})
@@ -2909,7 +2925,7 @@ const normalizeOrder = (item = {}) => {
 	const quoteStatus = merged.quoteStatus || merged.quote_status || merged.quote?.status || (quoteItems.length ? 'issued' : 'pending')
 	const paymentStatus = merged.paymentStatus || merged.payment_status || (paymentProofs.length ? 'uploaded' : 'pending')
 	const arrivalConfirmStatus = merged.arrivalConfirmStatus || merged.arrival_confirm_status || ''
-	const displayStatus = deriveDisplayStatus({
+	const displayStatus = quoteStatus === 'rejected' ? '已取消' : deriveDisplayStatus({
 		statusKey,
 		quoteStatus,
 		paymentStatus,
@@ -2920,8 +2936,8 @@ const normalizeOrder = (item = {}) => {
 		warrantyStatus: merged.warrantyStatus || merged.warranty_status || '',
 		totalFee
 	})
-	const displayTone = arrivalConfirmStatus === 'pending' ? 'warn' : meta.tone
-	const displayReached = arrivalConfirmStatus === 'pending' ? Math.max(1, meta.reached) : meta.reached
+	const displayTone = quoteStatus === 'rejected' ? 'muted' : (arrivalConfirmStatus === 'pending' ? 'warn' : meta.tone)
+	const displayReached = quoteStatus === 'rejected' ? 0 : (arrivalConfirmStatus === 'pending' ? Math.max(1, meta.reached) : meta.reached)
 
 	return {
 		id: orderId,
@@ -2943,7 +2959,7 @@ const normalizeOrder = (item = {}) => {
 		cardMeta,
 		model: cardTitle,
 		status: displayStatus,
-		statusGroup: meta.statusGroup,
+		statusGroup: quoteStatus === 'rejected' ? '已取消' : meta.statusGroup,
 		tone: displayTone,
 		reached: displayReached,
 		time: formatDateTime(updateTime, 5, 16) || merged.time || '',
@@ -3269,7 +3285,7 @@ const refreshPolicyDocument = createPolicyDocumentRefresher({
 const statusItems = computed(() => {
 	const counts = orderList.value.reduce(
 		(acc, item) => {
-			acc.all += 1
+			if (resolveStatusKey(item) !== 'completed') acc.all += 1
 			const bucket = getMiniStatusBucket(item)
 			if (bucket) acc[bucket] += 1
 			return acc
@@ -4341,32 +4357,50 @@ const openLinkedOrder = (orderId = '') => {
 // 选择不维修（仅方案已发布、未支付时可用）
 const canRejectQuote = (order = {}) => canRejectRepairQuote(order)
 
-const rejectRepairQuoteAction = (order = {}) => {
+const openRejectReasonDialog = (order = {}) => {
 	if (!canRejectQuote(order) || actionSubmitting.value) return
-	uni.showModal({
-		title: '选择不维修',
-		editable: true,
-		placeholderText: '可填写不维修原因（选填）',
-		confirmText: '放弃维修',
-		cancelText: '再想想',
-		success: async ({ confirm, content }) => {
-			if (!confirm || actionSubmitting.value) return
-			actionSubmitting.value = true
-			try {
-				await requestStatusSubscription('quote_reject')
-				uni.showLoading({ title: '提交中' })
-				await rejectRepairQuote(order.recordId || order.id, content || '')
-				await refreshOrderFromServer(order)
-				uni.hideLoading()
-				uni.showToast({ title: '已选择不维修', icon: 'success' })
-			} catch (error) {
-				uni.hideLoading()
-				uni.showToast({ title: toCustomerErrorMessage(error, '操作失败'), icon: 'none' })
-			} finally {
-				actionSubmitting.value = false
-			}
-		}
-	})
+	rejectReasonOrder.value = order
+	rejectReason.value = ''
+	showRejectReasonDialog.value = true
+}
+
+const closeRejectReasonDialog = () => {
+	if (actionSubmitting.value) return
+	showRejectReasonDialog.value = false
+	rejectReasonOrder.value = {}
+	rejectReason.value = ''
+}
+
+const submitRejectRepairQuote = async () => {
+	if (actionSubmitting.value) return
+	if (!rejectReason.value.trim()) {
+		uni.showToast({ title: '请填写不维修原因', icon: 'none' })
+		return
+	}
+	const order = rejectReasonOrder.value
+	if (!canRejectQuote(order)) {
+		uni.showToast({ title: '当前工单不能选择不维修', icon: 'none' })
+		closeRejectReasonDialog()
+		return
+	}
+	actionSubmitting.value = true
+	try {
+		// 订阅消息仅用于后续通知；不能阻塞客户将“不维修”决定提交给后台。
+		void requestStatusSubscription('quote_reject')
+		uni.showLoading({ title: '提交中' })
+		await rejectRepairQuote(rejectReasonOrder.value.recordId || rejectReasonOrder.value.id, rejectReason.value.trim())
+		await refreshOrderFromServer(order)
+		uni.hideLoading()
+		showRejectReasonDialog.value = false
+		rejectReasonOrder.value = {}
+		rejectReason.value = ''
+		uni.showToast({ title: '工单已取消', icon: 'success' })
+	} catch (error) {
+		uni.hideLoading()
+		uni.showToast({ title: toCustomerErrorMessage(error, '操作失败'), icon: 'none' })
+	} finally {
+		actionSubmitting.value = false
+	}
 }
 
 // 确认收货：已回寄 → 已完成
@@ -15684,6 +15718,37 @@ onUnmounted(() => {
 	z-index: 200; background: rgba(15, 23, 42, 0.45);
 	display: flex; align-items: flex-end;
 }
+
+.reject-reason-mask {
+	position: fixed;
+	inset: 0;
+	z-index: 220;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	padding: 48rpx;
+	box-sizing: border-box;
+	background: rgba(15, 23, 42, 0.52);
+}
+
+.reject-reason-dialog {
+	width: 100%;
+	padding: 40rpx;
+	box-sizing: border-box;
+	border-radius: 28rpx;
+	background: #FFFFFF;
+}
+
+.reject-reason-title { display: block; font-size: 34rpx; font-weight: 700; color: #0F1F3A; }
+.reject-reason-tip { display: block; margin-top: 16rpx; font-size: 25rpx; line-height: 1.6; color: #5A6C8D; }
+.reject-reason-input { width: 100%; height: 180rpx; margin-top: 28rpx; padding: 20rpx; box-sizing: border-box; border: 2rpx solid #D7E3FA; border-radius: 16rpx; background: #F7FAFF; font-size: 28rpx; line-height: 1.5; color: #0F1F3A; }
+.reject-reason-count { margin-top: 10rpx; text-align: right; font-size: 22rpx; color: #94A3B8; }
+.reject-reason-actions { display: flex; gap: 20rpx; margin-top: 32rpx; }
+.reject-reason-button { flex: 1; min-height: 84rpx; display: flex; align-items: center; justify-content: center; border-radius: 16rpx; font-size: 27rpx; font-weight: 700; }
+.reject-reason-button.cancel { color: #5A6C8D; background: #F1F5FB; }
+.reject-reason-button.confirm { color: #FFFFFF; background: #D9413E; }
+.reject-reason-button.disabled { opacity: .55; }
+
 .edit-sheet {
 	width: 100%; background: #FFFFFF; border-radius: 28rpx 28rpx 0 0;
 	padding: 36rpx 40rpx calc(40rpx + constant(safe-area-inset-bottom));
