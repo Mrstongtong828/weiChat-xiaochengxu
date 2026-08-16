@@ -2369,6 +2369,7 @@ module.exports = {
           user_id: user._id,
           type: '投诉',
           status: '待处理',
+          is_read: false,
           rel_order_no: order.order_no || '',
           content: review.content || `维修回访不满意（评分 ${score} 星），系统自动生成投诉。`,
           create_time: now,

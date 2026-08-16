@@ -98,6 +98,16 @@ export const getFeedbackList = (token, params = {}) => {
   return request.post(`${API_BASE.adminSys}/getFeedbackList`, { token, ...params })
 }
 
+// 标记反馈已读
+export const markFeedbackRead = (token, id) => {
+  return request.post(`${API_BASE.adminSys}/markFeedbackRead`, { token, id })
+}
+
+// 批量删除反馈
+export const deleteFeedbacks = (token, ids) => {
+  return request.post(`${API_BASE.adminSys}/deleteFeedbacks`, { token, ids })
+}
+
 // 分配负责人
 export const assignFeedback = (token, id, handlerId) => {
   return request.post(`${API_BASE.adminSys}/assignFeedback`, { token, id, handler_id: handlerId })

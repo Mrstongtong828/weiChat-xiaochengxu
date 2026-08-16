@@ -1068,9 +1068,9 @@ module.exports = {
       const { token } = getRequestData(this, params)
       await verifyAdminToken(token, PERMISSIONS.view_feedback)
       const dbCmd = db.command
-      // 待处理 / 处理中 视为未结案待跟进
+      // 仅统计新入库时显式标记的未读反馈，历史数据不在部署后突然全部标红。
       const [pendingRes, highRiskRes] = await Promise.all([
-        db.collection('cicada_feedbacks').where({ status: dbCmd.in(['待处理', '处理中']) }).count(),
+        db.collection('cicada_feedbacks').where({ is_read: false }).count(),
         db.collection('cicada_feedbacks').where({
           urgency: '高危',
           status: dbCmd.in(['待处理', '处理中', '已回复', '已升级'])
@@ -1146,6 +1146,8 @@ module.exports = {
           visit_satisfaction: item.visit_satisfaction || '',
           visit_opinion: item.visit_opinion || '',
           upgrade_note: item.upgrade_note || '',
+          is_read: item.is_read !== false,
+          read_time: item.read_time || 0,
           create_time: item.create_time || 0,
           handled_time: item.handled_time || 0,
           update_time: item.update_time || 0,
@@ -1155,6 +1157,63 @@ module.exports = {
       })
 
       return { code: 0, data: { list, total: countRes.total, page: pageNum, pageSize: limit } }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 管理员打开反馈详情后标记为已读。
+  async markFeedbackRead(params) {
+    try {
+      const { token, id } = getRequestData(this, params)
+      await verifyAdminToken(token, PERMISSIONS.view_feedback)
+      const feedback = await loadFeedback(id)
+      if (feedback.is_read === true) return { code: 0, msg: '反馈已读' }
+
+      await db.collection('cicada_feedbacks').doc(feedback._id).update({
+        is_read: true,
+        read_time: new Date()
+      })
+      return { code: 0, msg: '已标记为已读' }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 批量删除反馈，单次最多 100 条。
+  async deleteFeedbacks(params) {
+    try {
+      const { token, ids } = getRequestData(this, params)
+      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const feedbackIds = [...new Set((Array.isArray(ids) ? ids : []).map(id => fbText(id, 60)).filter(Boolean))]
+      if (!feedbackIds.length) return { code: -1, msg: '请选择要删除的反馈' }
+      if (feedbackIds.length > 100) return { code: -1, msg: '单次最多删除100条反馈' }
+
+      const col = db.collection('cicada_feedbacks')
+      const feedbackRes = await col.where({ _id: db.command.in(feedbackIds) }).get()
+      const feedbacks = feedbackRes.data || []
+      if (!feedbacks.length) return { code: -1, msg: '所选反馈不存在或已被删除' }
+
+      let deletedCount = 0
+      for (let offset = 0; offset < feedbacks.length; offset += 10) {
+        const batch = feedbacks.slice(offset, offset + 10)
+        const batchResults = await Promise.all(batch.map(async feedback => {
+          const removeRes = await col.doc(feedback._id).remove()
+          const deleted = Number(removeRes.deleted || 0)
+          if (!deleted) return 0
+          await writeFeedbackEvent(
+            operator,
+            feedback,
+            'feedback_delete',
+            { type: feedback.type || '', status: feedback.status || '', content: fbText(feedback.content, 200) },
+            { deleted: true }
+          )
+          return deleted
+        }))
+        deletedCount += batchResults.reduce((sum, deleted) => sum + deleted, 0)
+      }
+      if (!deletedCount) return { code: -1, msg: '所选反馈已被删除，请刷新列表' }
+      return { code: 0, data: { deleted: deletedCount }, msg: `已删除${deletedCount}条反馈` }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

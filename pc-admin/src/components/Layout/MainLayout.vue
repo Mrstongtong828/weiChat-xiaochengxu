@@ -17,7 +17,14 @@
         <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><template #title>配件库存管理</template></el-menu-item>
         <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><template #title>客户管理</template></el-menu-item>
         <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><template #title>产品故障知识库</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><template #title>投诉与建议</template></el-menu-item>
+        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback">
+          <el-icon><ChatDotSquare /></el-icon>
+          <template #title>
+            <el-badge :value="feedbackUnreadCount" :max="99" :hidden="!feedbackUnreadCount" class="sidebar-feedback-badge">
+              <span>投诉与建议</span>
+            </el-badge>
+          </template>
+        </el-menu-item>
         <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><template #title>小程序配置</template></el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
@@ -165,7 +172,7 @@
 import { computed, ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { changeMyPassword, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
+import { changeMyPassword, getFeedbackStats, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
 import { getNotificationSummary } from '../../api/order.js'
 import { getWarrantyAlerts } from '../../api/customer.js'
 import { canAccessMenu, getCurrentAdminRole } from '../../config/menuAccess.js'
@@ -181,8 +188,12 @@ const notificationLoading = ref(false)
 const notificationGroups = ref([])
 const notificationUnavailable = ref([])
 const notificationTotal = computed(() => notificationGroups.value.reduce((sum, group) => sum + Number(group.count || 0), 0))
+const feedbackUnreadCount = ref(0)
+const feedbackUnreadLoading = ref(false)
+let feedbackUnreadRefreshPending = false
 let notificationLoadedAt = 0
 let notificationRefreshTimer = null
+let feedbackRefreshTimer = null
 
 const menuTitles = {
   home: '工作台首页',
@@ -483,6 +494,29 @@ const loadNotifications = async (force = false) => {
   }
 }
 
+const loadFeedbackUnread = async () => {
+  if (!canAccessMenu('feedback')) return
+  if (feedbackUnreadLoading.value) {
+    feedbackUnreadRefreshPending = true
+    return
+  }
+  const token = localStorage.getItem('adminToken')
+  if (!token) return
+  feedbackUnreadLoading.value = true
+  try {
+    const stats = await getFeedbackStats(token)
+    feedbackUnreadCount.value = Number(stats?.unreadCount || 0)
+  } catch (error) {
+    // 全局请求拦截器负责提示；保留上一次成功的统计值。
+  } finally {
+    feedbackUnreadLoading.value = false
+    if (feedbackUnreadRefreshPending) {
+      feedbackUnreadRefreshPending = false
+      loadFeedbackUnread()
+    }
+  }
+}
+
 const goNotification = (key) => {
   const target = notificationRoutes[key]
   if (!target) return
@@ -491,7 +525,10 @@ const goNotification = (key) => {
 }
 
 const handleVisibilityChange = () => {
-  if (document.visibilityState === 'visible') loadNotifications(true)
+  if (document.visibilityState === 'visible') {
+    loadNotifications(true)
+    loadFeedbackUnread()
+  }
 }
 
 const openPwdDialog = () => {
@@ -544,8 +581,13 @@ onMounted(() => {
   syncProfileFromStorage()
   resolveProfileAvatar()
   loadNotifications()
-  notificationRefreshTimer = window.setInterval(() => loadNotifications(true), 60000)
+  loadFeedbackUnread()
+  notificationRefreshTimer = window.setInterval(() => {
+    loadNotifications(true)
+  }, 60000)
+  feedbackRefreshTimer = window.setInterval(loadFeedbackUnread, 30000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('feedback-unread-changed', loadFeedbackUnread)
   if (forcedPasswordChange.value) {
     ElMessage.warning('当前使用临时密码，请先修改登录密码')
     openPwdDialog()
@@ -555,7 +597,9 @@ onMounted(() => {
 onUnmounted(() => {
   revokePendingAvatar()
   if (notificationRefreshTimer) window.clearInterval(notificationRefreshTimer)
+  if (feedbackRefreshTimer) window.clearInterval(feedbackRefreshTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('feedback-unread-changed', loadFeedbackUnread)
   window.removeEventListener('resize', checkMobile)
 })
 </script>
@@ -698,6 +742,7 @@ onUnmounted(() => {
   background: #2563eb;
   color: #ffffff;
 }
+.sidebar-feedback-badge :deep(.el-badge__content) { background: #f56c6c; border-color: #ffffff; }
 :deep(.el-menu-item.is-active::after) {
   content: '';
   position: absolute;

@@ -54,6 +54,14 @@
         "已处理"
       ]
     },
+    "is_read": {
+      "bsonType": "bool",
+      "description": "后台是否已查看；缺失的历史记录按已读处理"
+    },
+    "read_time": {
+      "bsonType": "timestamp",
+      "description": "后台首次查看时间"
+    },
     "urgency": {
       "bsonType": "string",
       "description": "紧急等级：高危=诊所停业",

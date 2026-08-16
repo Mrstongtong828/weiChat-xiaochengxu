@@ -54,13 +54,14 @@
 | idx_status_create | status(1) varchar, create_time(-1) **long** |
 | idx_tags | tags(1) **array**（多键索引） |
 
-### cicada_feedbacks（4）
+### cicada_feedbacks（5）
 | 索引名 | 字段(方向) 类型 |
 |---|---|
 | idx_user_create | user_id(1) varchar, create_time(-1) **long** |
 | idx_status_create | status(1) varchar, create_time(-1) **long** |
 | idx_type_create | type(1) varchar, create_time(-1) **long** |
 | idx_urgency_create | urgency(1) varchar, create_time(-1) **long** |
+| idx_read_create | is_read(1) bool, create_time(-1) **long** |
 
 ### cicada_guides（1）
 | 索引名 | 字段(方向) 类型 |

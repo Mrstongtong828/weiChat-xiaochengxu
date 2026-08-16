@@ -62,6 +62,7 @@
         "feedback_visit",
         "feedback_close",
         "feedback_upgrade",
+        "feedback_delete",
         "update_order_items"
       ]
     },

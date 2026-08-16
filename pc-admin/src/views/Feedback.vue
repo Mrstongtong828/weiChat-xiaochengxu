@@ -5,6 +5,7 @@
         <span>客户投诉与建议</span>
         <p class="section-desc">集中处理小程序反馈，优先识别高危投诉、超时未处理和关联工单问题。</p>
       </div>
+      <el-button type="primary" plain @click="surveyVisible = true">调研有礼</el-button>
     </div>
 
     <div class="filter-bar page-actions">
@@ -32,6 +33,17 @@
         @clear="reload"
       ></el-input>
       <el-button type="primary" @click="reload">查询</el-button>
+      <el-button
+        v-if="canDeleteFeedback"
+        type="danger"
+        plain
+        :disabled="!selectedRows.length"
+        :loading="deleting"
+        @click="deleteSelected"
+      >
+        <el-icon><Delete /></el-icon>
+        批量删除<span v-if="selectedRows.length">（{{ selectedRows.length }}）</span>
+      </el-button>
     </div>
 
     <div class="legend">
@@ -47,6 +59,7 @@
         class="modern-table"
         style="width: 100%;"
         :row-class-name="rowClassName"
+        @selection-change="onSelectionChange"
       >
         <template #empty>
           <div class="table-empty-guide">
@@ -54,9 +67,11 @@
             <span>小程序端提交投诉或建议后会同步到这里；也可以调整筛选条件查看历史记录。</span>
           </div>
         </template>
+        <el-table-column v-if="canDeleteFeedback" type="selection" width="48" fixed="left" />
         <el-table-column prop="submitTime" label="提交时间" width="160"></el-table-column>
         <el-table-column label="类型" width="80">
           <template #default="{row}">
+            <span v-if="!row.is_read" class="unread-dot" aria-label="未读"></span>
             <el-tag :type="row.type === '投诉' ? 'danger' : 'primary'" effect="light">{{row.type}}</el-tag>
           </template>
         </el-table-column>
@@ -210,28 +225,37 @@
       <el-button @click="dialogVisible = false">关闭</el-button>
     </template>
   </el-dialog>
+
+  <el-dialog v-model="surveyVisible" title="调研有礼" width="min(1100px, 94vw)" top="4vh" destroy-on-close>
+    <SurveyManagement />
+  </el-dialog>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getFeedbackList, getStaffList,
   assignFeedback, setFeedbackUrgency, replyFeedback, linkFeedbackOrder,
-  recordFeedbackVisit, closeFeedback, upgradeFeedback
+  recordFeedbackVisit, closeFeedback, upgradeFeedback, markFeedbackRead, deleteFeedbacks
 } from '../api/admin.js'
+import { getCurrentAdminRole } from '../config/menuAccess.js'
+import SurveyManagement from '../components/SurveyManagement.vue'
 
 const STATUS_OPTIONS = ['待处理', '处理中', '已回复', '已结案', '已升级']
 const ROLE_LABELS = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服', superadmin: '超管' }
 const OVERDUE_MS = 48 * 3600 * 1000
+const canDeleteFeedback = computed(() => ['superadmin', 'admin', 'support'].includes(getCurrentAdminRole()))
 
 const loading = ref(false)
 const saving = ref(false)
 const visiting = ref(false)
 const closing = ref(false)
 const linking = ref(false)
+const deleting = ref(false)
 const feedbackList = ref([])
+const selectedRows = ref([])
 const staffOptions = ref([])
 const total = ref(0)
 const page = ref(1)
@@ -240,6 +264,7 @@ const pageSize = ref(10)
 const filters = reactive({ status: '全部', type: '全部', urgency: '全部', keyword: '' })
 
 const dialogVisible = ref(false)
+const surveyVisible = ref(false)
 const current = ref(null)
 const form = reactive({
   handlerId: '', urgency: '普通', processResult: '', reply: '', processNote: '',
@@ -298,6 +323,7 @@ const loadList = async () => {
 
 const reload = () => { page.value = 1; loadList() }
 const onPageChange = (p) => { page.value = p; loadList() }
+const onSelectionChange = (rows) => { selectedRows.value = rows }
 
 const loadStaff = async () => {
   try {
@@ -306,7 +332,7 @@ const loadStaff = async () => {
   } catch (e) { /* ignore */ }
 }
 
-const openDialog = (row) => {
+const openDialog = async (row) => {
   current.value = row
   form.handlerId = row.handler_id || ''
   form.urgency = row.urgency || '普通'
@@ -317,6 +343,40 @@ const openDialog = (row) => {
   form.visitOpinion = row.visit_opinion || ''
   form.relOrderNo = row.rel_order_no || ''
   dialogVisible.value = true
+  if (!row.is_read) {
+    try {
+      await markFeedbackRead(token(), row._id)
+      row.is_read = true
+      window.dispatchEvent(new CustomEvent('feedback-unread-changed'))
+    } catch (e) { /* interceptor toasts */ }
+  }
+}
+
+const deleteSelected = async () => {
+  if (!selectedRows.value.length || deleting.value) return
+  const ids = selectedRows.value.map(row => row._id)
+  try {
+    await ElMessageBox.confirm(
+      `确定永久删除选中的 ${ids.length} 条投诉与建议吗？此操作不可恢复。`,
+      '批量删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+
+  deleting.value = true
+  try {
+    const data = await deleteFeedbacks(token(), ids)
+    const deletedCount = Number(data.deleted || 0)
+    ElMessage.success(`已删除 ${deletedCount} 条反馈`)
+    const maxPage = Math.max(1, Math.ceil(Math.max(0, total.value - deletedCount) / pageSize.value))
+    if (page.value > maxPage) page.value = maxPage
+    await loadList()
+    window.dispatchEvent(new CustomEvent('feedback-unread-changed'))
+  } catch (e) { /* interceptor toasts */ } finally {
+    deleting.value = false
+  }
 }
 
 const saveLinkOrder = async () => {
@@ -425,6 +485,7 @@ onMounted(() => {
 .dot-highrisk { background: #fde2e2; border: 1px solid #f56c6c; }
 .dot-important { background: #fdf6ec; border: 1px solid #e6a23c; }
 .dot-overdue { background: #fef0e6; border: 1px solid #f08c3a; }
+.unread-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #f56c6c; vertical-align: middle; }
 .table-responsive { width: 100%; overflow-x: auto; }
 .modern-table { min-width: 1100px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
