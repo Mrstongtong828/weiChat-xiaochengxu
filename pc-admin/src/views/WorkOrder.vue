@@ -2610,9 +2610,18 @@ const statusSummaryCards = computed(() => {
   ]
 })
 
-const applyStatusFilter = (filter) => {
-  // 状态卡表示用户要查看该状态下的全部工单，不能继续叠加首页带入的待办条件。
+const clearStatusCardConflicts = () => {
+  // 状态卡数字只按创建日期统计；点击后清除未纳入卡片统计口径的筛选，保证数字与列表一致。
+  wo.search = ''
+  searchInvoiceStatus.value = ''
+  wo.warrantyFilter = ''
+  wo.customerTypeFilter = ''
+  slaFilter.value = ''
   activeTodoType.value = ''
+}
+
+const applyStatusFilter = (filter) => {
+  clearStatusCardConflicts()
   wo.filter = wo.filter === filter ? '' : filter
 }
 

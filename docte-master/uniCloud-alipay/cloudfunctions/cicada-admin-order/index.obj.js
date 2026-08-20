@@ -380,6 +380,9 @@ function getTodoCountMatchCond(todoType = '') {
 function buildDirectAdminOrderMatchCond({ status = '', todoType = '' } = {}) {
   const todoCond = getDirectTodoMatchCond(todoType)
   if (todoCond === null) return null
+  // 同时指定待办和状态时应取交集；直接条件合并会让 status 覆盖待办自带的状态范围。
+  // 转入下方 JS 精确筛选分支，避免“待签收 + 处理中”错误返回全部处理中工单。
+  if (status && Object.prototype.hasOwnProperty.call(todoCond, 'status')) return null
   const matchCond = { ...todoCond }
   if (Array.isArray(status)) matchCond.status = dbCmd.in(status)
   else if (status) matchCond.status = status
