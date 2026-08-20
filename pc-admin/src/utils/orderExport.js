@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 import { formatOrderItems } from './orderPrint.js'
 
 export const formatOrderAttachments = (items = []) => {
@@ -37,7 +37,7 @@ export const exportOrdersToWorkbook = async (orders, selectedFieldConfigs, filen
     }, {})
   })
 
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const worksheet = workbook.addWorksheet('工单明细')
   worksheet.columns = selectedFieldConfigs.map(field => ({
     header: field.label,

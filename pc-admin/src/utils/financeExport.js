@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 
 const PAY_LABELS = { pending: '待付款', uploaded: '待核销', paid: '已付款', refunded: '已退款' }
 
@@ -11,7 +11,7 @@ const fmtTime = (ts) => {
 
 // 导出应收账龄（催款清单）：按账龄分组输出未收清工单，财务可直接用于催收与对账
 export const exportReceivableAging = async (aging = []) => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const ws = workbook.addWorksheet('应收账龄')
   ws.addRow([
     '账龄分组', '工单号', '客户', '联系电话',

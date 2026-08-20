@@ -1,21 +1,8 @@
 import { getStoredAdminUser, hasPermission } from '../utils/permissions.js'
+import { ADMIN_NAV_ITEMS, getFirstAccessibleAdminNav } from './adminCatalog.js'
 
 // 页面门禁与后端权限键保持一致；未登记页面默认放行。
-export const MENU_PERMISSIONS = {
-  home: 'view_dashboard',
-  workorder: 'view_order',
-  customers: 'view_customer',
-  inventory: 'view_inventory',
-  finance: 'view_settlement',
-  settlement: 'view_settlement',
-  logistics: 'view_order',
-  invoices: 'update_invoice',
-  faultdb: 'manage_kb',
-  users: 'view_staff',
-  feedback: 'view_feedback',
-  audit: 'view_audit_log',
-  settings: 'manage_settings'
-}
+export const MENU_PERMISSIONS = Object.fromEntries(ADMIN_NAV_ITEMS.map(item => [item.key, item.permission]))
 
 export const getCurrentAdminRole = () => getStoredAdminUser().role || ''
 
@@ -24,4 +11,4 @@ export const canAccessMenu = (menu) => {
   return permission ? hasPermission(permission) : true
 }
 
-export const getFirstAccessibleMenu = () => Object.keys(MENU_PERMISSIONS).find(canAccessMenu) || ''
+export const getFirstAccessibleMenu = () => getFirstAccessibleAdminNav(permission => hasPermission(permission))

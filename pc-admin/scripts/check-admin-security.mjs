@@ -33,7 +33,8 @@ for (const pattern of forbiddenLogPatterns) {
   }
 }
 
-if (!requestSource.includes("localStorage.getItem('adminToken')") && !requestSource.includes('localStorage.getItem("adminToken")')) {
+const readsTokenFromStorage = sessionSource.includes("localStorage.getItem('adminToken')") || sessionSource.includes('localStorage.getItem("adminToken")')
+if (!readsTokenFromStorage || !requestSource.includes('getAdminToken()')) {
   console.error('[fail] request interceptor does not read adminToken from localStorage')
   failed = true
 }

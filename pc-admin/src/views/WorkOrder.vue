@@ -1850,19 +1850,21 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
+import { CirclePlus, DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
 import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
-import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
+import { formatOrderAttachments } from '../modules/workOrders/exportFields.js'
 import { createCurrentMonthRange, dateRangeShortcuts, formatLocalDate, toApiDateRange } from '../utils/dateRange.js'
+import { getAdminToken } from '../utils/adminSession.js'
+import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
+import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 import { transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
-import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
-import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
+import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { getQuotePublishPresentation, isManualWarrantyFreeItem, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
 import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
@@ -2196,6 +2198,13 @@ const getPaymentPreviewList = (proofs = []) => {
 }
 
 const loading = ref(false)
+const workOrderQuery = createWorkOrderQuery({
+  fetchPage: getOrderList,
+  transform: transformOrders,
+  toStatus: toEnglishStatus,
+  resolveCustomerType: resolveCustomerTypeValue,
+  toDateRange: toApiDateRange
+})
 const importing = ref(false)
 const quickStatusLoading = ref(false)
 const restoringOrderId = ref('')
@@ -2210,87 +2219,13 @@ const todoTypeMap = {
   exception: '异常工单'
 }
 
-const createManualOrderItem = () => ({
-  key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  product_name: '',
-  product_category: '',
-  product_model: '',
-  sn: '',
-  buy_date: '',
-  warranty_start_date: '',
-  invoice_received_date: '',
-  manufacture_date: '',
-  warranty_months: 0,
-  warranty_expire: '',
-  fault_desc: '',
-  lookupLoading: false
-})
-
-const todayDateString = () => new Date().toISOString().slice(0, 10)
-
 const createOrderDialogVisible = ref(false)
 const createOrderSubmitting = ref(false)
 const createOrderFormRef = ref(null)
-const createOrderForm = reactive({
-  received_date: todayDateString(),
-  customer: {
-    customer_id: '',
-    customer_type: 'clinic',
-    name: '',
-    contact: '',
-    phone: '',
-    address: '',
-    biz_user: ''
-  },
-  status: 'received',
-  ship_out_info: {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: '',
-    logistics_company: '',
-    logistics_no: '',
-    received_at: ''
-  },
-  ship_back_info: {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: ''
-  },
-  items: [createManualOrderItem()],
-  admin_remark: ''
-})
+const createOrderForm = reactive(createManualOrderDraft())
 
 const resetCreateOrderForm = () => {
-  createOrderForm.received_date = todayDateString()
-  Object.assign(createOrderForm.customer, {
-    customer_id: '',
-    customer_type: 'clinic',
-    name: '',
-    contact: '',
-    phone: '',
-    address: '',
-    biz_user: ''
-  })
-  createOrderForm.status = 'received'
-  Object.assign(createOrderForm.ship_out_info, {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: '',
-    logistics_company: '',
-    logistics_no: '',
-    received_at: ''
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: ''
-  })
-  createOrderForm.items = [createManualOrderItem()]
-  createOrderForm.admin_remark = ''
+  Object.assign(createOrderForm, createManualOrderDraft())
   createOrderFormRef.value?.clearValidate()
 }
 
@@ -2311,39 +2246,6 @@ const onCreateOrderProductNameChange = (item) => {
 const removeCreateOrderItem = (index) => {
   if (createOrderForm.items.length <= 1) return
   createOrderForm.items.splice(index, 1)
-}
-
-const fillCreateOrderShipping = () => {
-  const { name, contact, phone, address } = createOrderForm.customer
-  Object.assign(createOrderForm.ship_out_info, {
-    name: contact || createOrderForm.ship_out_info.name,
-    phone: phone || createOrderForm.ship_out_info.phone,
-    unit: name || createOrderForm.ship_out_info.unit,
-    detail: address || createOrderForm.ship_out_info.detail
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: contact || createOrderForm.ship_back_info.name,
-    phone: phone || createOrderForm.ship_back_info.phone,
-    unit: name || createOrderForm.ship_back_info.unit,
-    detail: address || createOrderForm.ship_back_info.detail
-  })
-}
-
-const syncCreateOrderShipping = () => {
-  const { name, contact, phone, address } = createOrderForm.customer
-  Object.assign(createOrderForm.ship_out_info, {
-    name: contact,
-    phone,
-    unit: name,
-    detail: address,
-    received_at: createOrderForm.received_date
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: contact,
-    phone,
-    unit: name,
-    detail: address
-  })
 }
 
 const lookupCreateOrderItemBySn = async (item) => {
@@ -2380,56 +2282,17 @@ const lookupCreateOrderItemBySn = async (item) => {
   }
 }
 
-const validateCreateOrderForm = () => {
-  syncCreateOrderShipping()
-  const customer = createOrderForm.customer
-  const customerType = resolveCustomerTypeValue(customer.customer_type)
-  if (!customerType) return '请选择或输入客户类型'
-  if (customerType.length > 40) return '客户类型不能超过 40 个字符'
-  customer.customer_type = customerType
-  if (!customer.name.trim()) return '请填写客户/单位名称'
-  if (!customer.contact.trim()) return '请填写联系人'
-  if (!/^1\d{10}$/.test(customer.phone.trim())) return '请填写正确的 11 位手机号'
-  if (!customer.address.trim()) return '请填写客户地址'
-  if (!createOrderForm.received_date) return '请选择收件日期'
-  if (!createOrderForm.items.length) return '请至少添加一台维修设备'
-  for (let index = 0; index < createOrderForm.items.length; index += 1) {
-    const item = createOrderForm.items[index]
-    const prefix = `设备 ${index + 1}`
-    if (!item.product_name.trim()) return `${prefix}：请填写产品名称`
-    if (item.product_name.trim().length > 80) return `${prefix}：产品名称不能超过 80 个字符`
-    if (!item.product_model.trim()) return `${prefix}：请填写产品型号`
-    if (item.product_model.trim().length > 80) return `${prefix}：产品型号不能超过 80 个字符`
-    if (!item.sn.trim()) return `${prefix}：请填写设备 SN`
-    if (!item.fault_desc.trim()) return `${prefix}：请填写故障描述`
-  }
-  const out = createOrderForm.ship_out_info
-  const back = createOrderForm.ship_back_info
-  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户名称、联系方式和客户地址'
-  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善客户名称、联系方式和客户地址'
-  if (createOrderForm.status === 'sent' && !out.logistics_no.trim()) return '运输中工单必须填写寄入物流单号'
-  return ''
-}
-
 const submitCreateOrder = async () => {
-  const validationError = validateCreateOrderForm()
-  if (validationError) {
-    ElMessage.warning(validationError)
+  const submission = prepareManualOrderSubmission(createOrderForm, resolveCustomerTypeValue)
+  if (submission.error) {
+    ElMessage.warning(submission.error)
     return
   }
 
   createOrderSubmitting.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const payload = {
-      customer: { ...createOrderForm.customer },
-      status: createOrderForm.status,
-      ship_out_info: { ...createOrderForm.ship_out_info },
-      ship_back_info: { ...createOrderForm.ship_back_info },
-      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item, warranty_months: 12 })),
-      admin_remark: createOrderForm.admin_remark
-    }
-    const result = await createAdminOrder(token, payload)
+    const result = await createAdminOrder(token, submission.payload)
     createOrderDialogVisible.value = false
     wo.page = 1
     await Promise.all([loadOrders(), refreshStatusBreakdown()])
@@ -2616,7 +2479,7 @@ const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
 const expectedBatchDeleteConfirmText = computed(() => `确认删除${deleteTargetOrders.value.length}个工单`)
 const deleteDialogTitle = computed(() => deleteTargetOrders.value.length === 1 ? '删除工单' : '批量删除工单')
-const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
+const activeLogisticsImportLabel = computed(() => activeLogisticsImportType.value === 'inbound' ? '客户寄入签收' : '后台回寄发货')
 const logisticsImportTip = computed(() => {
   return activeLogisticsImportType.value === 'inbound'
     ? '签收单用于客户寄入设备：请填写工单编号、物流公司、物流单号、签收时间，导入后状态更新为已签收。'
@@ -2861,66 +2724,42 @@ const hasBatchStatusOptions = computed(() => {
     selectedOrders.value.some(order => canMoveOrderToStatus(order, '处理中') || canMoveOrderToStatus(order, '已完成'))
 })
 
+const getOrderQueryState = () => ({
+  filter: wo.filter,
+  page: wo.page,
+  pageSize: wo.pageSize,
+  search: wo.search,
+  invoiceStatus: searchInvoiceStatus.value,
+  warrantyFilter: wo.warrantyFilter,
+  customerTypeFilter: wo.customerTypeFilter,
+  todoType: activeTodoType.value,
+  slaLevel: slaFilter.value,
+  dateRange: listDateRange.value
+})
+
 const loadOrders = async () => {
   loading.value = true
+  let ownsLoading = true
   try {
-    const token = localStorage.getItem('adminToken')
-    // “处理中”是检测中 + 维修中的合并展示桶，列表必须与统计卡使用同一口径。
-    const statusFilter = wo.filter === '处理中'
-      ? ['inspecting', 'fixing']
-      : (wo.filter ? toEnglishStatus(wo.filter) : undefined)
-    const data = await getOrderList(token, statusFilter, wo.page, wo.pageSize, {
-      keyword: wo.search.trim(),
-      invoiceStatus: searchInvoiceStatus.value,
-      warrantyStatus: wo.warrantyFilter,
-      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
-      todoType: activeTodoType.value,
-      slaLevel: slaFilter.value,
-      ...toApiDateRange(listDateRange.value),
-      responseMode: 'page'
-    })
-    const list = Array.isArray(data) ? data : (data.list || [])
-    orders.value = transformOrders(list)
-    totalOrders.value = Array.isArray(data) ? orders.value.length : Number(data.total || 0)
+    const result = await workOrderQuery.loadPage(getAdminToken(), getOrderQueryState())
+    if (!result.accepted) {
+      ownsLoading = false
+      return
+    }
+    orders.value = result.rows
+    totalOrders.value = result.total
     selectedOrders.value = []
   } catch (error) {
     orders.value = []
     totalOrders.value = 0
-    ElMessage.error(error.message || '工单列表加载失败')
+    if (!error.__displayed) ElMessage.error(error.message || '工单列表加载失败')
   } finally {
-    loading.value = false
+    if (ownsLoading) loading.value = false
   }
 }
 
 const fetchAllFilteredOrders = async (dateRange = null) => {
-  const token = localStorage.getItem('adminToken')
-  const statusFilter = wo.filter === '处理中'
-    ? ['inspecting', 'fixing']
-    : (wo.filter ? toEnglishStatus(wo.filter) : undefined)
-  const pageSize = 100
-  let page = 1
-  let total = 0
-  const allOrders = []
-
-  while (true) {
-    const data = await getOrderList(token, statusFilter, page, pageSize, {
-      keyword: wo.search.trim(),
-      invoiceStatus: searchInvoiceStatus.value,
-      warrantyStatus: wo.warrantyFilter,
-      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
-      todoType: activeTodoType.value,
-      slaLevel: slaFilter.value,
-      ...toApiDateRange(dateRange),
-      responseMode: 'page'
-    })
-    const list = Array.isArray(data) ? data : (data.list || [])
-    total = Number((Array.isArray(data) ? list.length : data.total) || 0)
-    allOrders.push(...transformOrders(list))
-    if (allOrders.length >= total || list.length < pageSize) break
-    page += 1
-  }
-
-  return allOrders
+  return workOrderQuery.loadAll(getAdminToken(), getOrderQueryState(), dateRange)
 }
 
 const wo = reactive({ search: '', filter: '', warrantyFilter: '', customerTypeFilter: '', page: 1, pageSize: 10 })
@@ -2963,6 +2802,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  workOrderQuery.cancel()
   window.removeEventListener('resize', updateIsMobile)
 })
 
@@ -5271,8 +5111,9 @@ const openImportDialog = (type = 'return') => {
   importDialogVisible.value = true
 }
 
-const downloadImportTemplate = (type = 'return') => {
-  downloadShippingTemplate(type)
+const downloadImportTemplate = async (type = 'return') => {
+  const { downloadShippingTemplate } = await import('../utils/shippingImport.js')
+  await downloadShippingTemplate(type)
 }
 
 const handleImportFile = async (uploadFile) => {
@@ -5287,6 +5128,7 @@ const handleImportFile = async (uploadFile) => {
   importing.value = true
   try {
     const importType = activeLogisticsImportType.value
+    const { parseShippingExcelFile } = await import('../utils/shippingImport.js')
     const rows = await parseShippingExcelFile(file, importType)
     if (!rows.length) {
       ElMessage.warning('Excel 中没有可导入的数据')
@@ -5327,6 +5169,7 @@ const confirmExportExcel = async () => {
     ElMessage.warning('所选时间段内没有可导出的工单')
     return
   }
+  const { exportOrdersToWorkbook } = await import('../utils/orderExport.js')
   await exportOrdersToWorkbook(sourceOrders, selectedFieldConfigs)
   exportDialogVisible.value = false
   ElMessage.success(`已导出${usingSelectedOrders ? '选中' : '当前筛选'}工单 ${sourceOrders.length} 条`)

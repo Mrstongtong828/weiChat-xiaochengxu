@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 
 const normalizeText = (value) => String(value ?? '').trim()
 
@@ -52,7 +52,7 @@ export const downloadShippingTemplate = async (type = 'return') => {
     ['工单编号', '物流公司', '物流单号', config.timeHeader, '备注'],
     ['DR2026... (请填写真实编号)', '顺丰速运 (必填)', 'SF123456... (必填)', config.sampleTime, config.note]
   ]
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const worksheet = workbook.addWorksheet(config.sheetName)
   worksheet.addRows(rows)
   worksheet.columns = [{ width: 28 }, { width: 18 }, { width: 24 }, { width: 18 }, { width: 24 }]
@@ -95,7 +95,7 @@ export const normalizeShippingRows = (rows = [], type = 'return') => {
 }
 
 export const parseShippingExcelBuffer = async (buffer, type = 'return') => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   await workbook.xlsx.load(buffer)
   const worksheet = workbook.worksheets[0]
   if (!worksheet) return []

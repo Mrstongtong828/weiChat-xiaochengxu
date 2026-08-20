@@ -10,22 +10,15 @@
       </div>
       <div class="nav-label">MAIN NAVIGATION</div>
       <el-menu :default-active="activeMenu" class="el-menu-vertical" :collapse="collapsed && !isMobile" :collapse-transition="false" @select="handleMenuSelect">
-        <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><template #title>工作台首页</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><template #title>报修工单管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('finance')" index="finance"><el-icon><Money /></el-icon><template #title>财务中心</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('logistics')" index="logistics"><el-icon><Van /></el-icon><template #title>物流管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><template #title>配件库存管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><template #title>客户管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><template #title>产品故障知识库</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback">
-          <el-icon><ChatDotSquare /></el-icon>
+        <el-menu-item v-for="item in accessibleSidebarNavItems" :key="item.key" :index="item.key">
+          <el-icon><component :is="item.icon" /></el-icon>
           <template #title>
-            <el-badge :value="feedbackUnreadCount" :max="99" :hidden="!feedbackUnreadCount" class="sidebar-feedback-badge">
-              <span>投诉与建议</span>
+            <el-badge v-if="item.key === 'feedback'" :value="feedbackUnreadCount" :max="99" :hidden="!feedbackUnreadCount" class="sidebar-feedback-badge">
+              <span>{{ item.menuLabel }}</span>
             </el-badge>
+            <span v-else>{{ item.menuLabel }}</span>
           </template>
         </el-menu-item>
-        <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><template #title>小程序配置</template></el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <div class="status-card">
@@ -45,7 +38,7 @@
       <div class="top-header">
         <div class="header-left">
           <el-icon class="hamburger" @click="toggleSidebar"><Expand v-if="collapsed" /><Fold v-else /></el-icon>
-          <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
+          <div class="breadcrumb-title">{{ getAdminNavTitle(activeMenu) }}</div>
         </div>
         <div class="header-actions">
           <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="isMobile ? 296 : 440" trigger="click" @show="loadNotifications()">
@@ -176,6 +169,7 @@ import { changeMyPassword, getFeedbackStats, getMyPermissions, getSettings, getT
 import { getNotificationSummary } from '../../api/order.js'
 import { getWarrantyAlerts } from '../../api/customer.js'
 import { canAccessMenu, getFirstAccessibleMenu } from '../../config/menuAccess.js'
+import { getAdminNavTitle, getAdminRoleLabel, getSidebarAdminNav } from '../../config/adminCatalog.js'
 import { hasPermission, PERMISSION_CHANGED_EVENT, savePermissionSession } from '../../utils/permissions.js'
 import { prepareAvatarImage } from '../../utils/avatarImage.js'
 import { uploadAvatarToCloud } from '../../utils/upload.js'
@@ -197,22 +191,7 @@ let notificationLoadedAt = 0
 let notificationRefreshTimer = null
 let feedbackRefreshTimer = null
 
-const menuTitles = {
-  home: '工作台首页',
-  workorder: '报修工单处理中心',
-  inventory: '配件库存管理',
-  finance: '财务中心（对账流水 · 开票管理）',
-  settlement: '结算管理',
-  logistics: '物流管理（批量导入 · 异常预警 · 台账）',
-  invoices: '开票管理（申请·开票·归档）',
-  faultdb: '产品分类与故障预设',
-  users: '用户管理',
-  settings: '小程序图文及政策配置',
-  feedback: '客户投诉与建议列表',
-  audit: '工单操作审计日志（合规备查）'
-}
-
-const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服', maintenance: '后台维护人员' }
+const accessibleSidebarNavItems = computed(() => getSidebarAdminNav().filter(item => canAccessMenu(item.key)))
 const canLoadWarrantyNotifications = () => hasPermission('view_customer')
 const notificationTagType = (severity) => ({ critical: 'danger', warning: 'warning', info: 'primary' }[severity] || 'info')
 const notificationRoutes = {
@@ -309,7 +288,7 @@ const syncProfileFromStorage = () => {
     profileForm.username = user.username || ''
     profileForm.realName = user.name || ''
     profileForm.phone = user.phone || ''
-    profileForm.role = user.roleDisplay || roleMap[user.role] || ''
+    profileForm.role = user.roleDisplay || getAdminRoleLabel(user.role)
     profileForm.avatar = user.avatar || ''
     profileAvatarUrl.value = user.avatarPreview || (/^https?:\/\//i.test(user.avatar || '') ? user.avatar : '')
   } catch (error) {

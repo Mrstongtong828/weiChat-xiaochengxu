@@ -82,12 +82,7 @@
       </el-form-item>
       <el-form-item label="角色">
         <el-select v-model="userForm.role" style="width:100%;" @change="applyRoleTemplate">
-          <el-option v-if="isCurrentSuperadmin" label="超级管理员" value="超级管理员"></el-option>
-          <el-option label="管理员" value="管理员"></el-option>
-          <el-option label="工程师" value="工程师"></el-option>
-          <el-option label="财务" value="财务"></el-option>
-          <el-option label="客服" value="客服"></el-option>
-          <el-option label="后台维护人员" value="后台维护人员"></el-option>
+          <el-option v-for="role in selectableRoles" :key="role.key" :label="role.label" :value="role.label"></el-option>
         </el-select>
       </el-form-item>
       <el-form-item label="负责品类">
@@ -102,7 +97,7 @@
       <section class="permission-panel">
         <div class="permission-heading">
           <div><strong>账号权限</strong><span>已选择 {{ userForm.permissions.length }} 项</span></div>
-          <el-alert v-if="['管理员', '超级管理员'].includes(userForm.role)" title="管理员固定拥有全部权限" type="info" :closable="false" show-icon />
+          <el-alert v-if="isFullAccessRole" title="管理员固定拥有全部权限" type="info" :closable="false" show-icon />
         </div>
         <div class="permission-groups">
           <article v-for="group in permissionGroups" :key="group.name" class="permission-group">
@@ -135,6 +130,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { getStaffList, getPermissionCatalog, addStaff, editStaff, disableStaff, resetUserPassword } from '../api/admin.js'
 import { getEngineerPerformance } from '../api/performance.js'
 import { getRoleCompatibilityError, hasPermission, shouldDisplayLocalError } from '../utils/permissions.js'
+import { ADMIN_ROLES, getAdminRoleKey, getAdminRoleLabel, isFullAccessAdminRole } from '../config/adminCatalog.js'
 
 const users = ref([])
 const loading = ref(false)
@@ -149,22 +145,7 @@ const canToggleStaff = hasPermission('toggle_staff')
 const canResetStaffPassword = hasPermission('reset_staff_password')
 const canViewEngineerPerformance = hasPermission('view_engineer_performance')
 
-const roleMap = {
-  superadmin: '超级管理员',
-  admin: '管理员',
-  engineer: '工程师',
-  finance: '财务',
-  support: '客服',
-  maintenance: '后台维护人员'
-}
-const roleMapReverse = {
-  超级管理员: 'superadmin',
-  管理员: 'admin',
-  工程师: 'engineer',
-  财务: 'finance',
-  客服: 'support',
-  后台维护人员: 'maintenance'
-}
+const selectableRoles = computed(() => ADMIN_ROLES.filter(role => role.key !== 'superadmin' || isCurrentSuperadmin))
 
 const userDialogVisible = ref(false)
 const isEditUser = ref(false)
@@ -181,9 +162,9 @@ const userForm = reactive({
   service_areas: []
 })
 
-const isFullAccessRole = computed(() => ['管理员', '超级管理员'].includes(userForm.role))
+const isFullAccessRole = computed(() => isFullAccessAdminRole(userForm.role))
 
-const currentRoleKey = () => roleMapReverse[userForm.role] || 'engineer'
+const currentRoleKey = () => getAdminRoleKey(userForm.role, 'engineer')
 
 const applyRoleTemplate = () => {
   const template = permissionCatalog.value.roleTemplates?.[currentRoleKey()] || []
@@ -243,7 +224,7 @@ const loadUsers = async () => {
     }
     users.value = sortCurrentUserFirst(data.map(u => ({
       ...u,
-      roleDisplay: roleMap[u.role] || u.role,
+      roleDisplay: getAdminRoleLabel(u.role, u.role),
       active: !u.disabled,
       completed_count: perfMap[u._id]
     })))
@@ -276,7 +257,7 @@ const openUserDialog = (user) => {
 }
 
 const saveUser = async () => {
-  const roleKey = roleMapReverse[userForm.role] || 'engineer'
+  const roleKey = getAdminRoleKey(userForm.role, 'engineer')
   const roleCompatibilityError = getRoleCompatibilityError(roleKey, permissionCatalog.value)
   if (roleCompatibilityError) {
     ElMessage.error(roleCompatibilityError)

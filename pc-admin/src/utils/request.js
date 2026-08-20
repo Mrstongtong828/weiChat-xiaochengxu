@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
-import { handleSessionExpired } from './adminSession.js'
+import { getAdminToken, handleSessionExpired } from './adminSession.js'
 import { getErrorMessage } from './errorMessage.js'
 import { notifyPermissionChanged } from './permissions.js'
 
@@ -25,7 +25,7 @@ const rejectWithDisplayedError = (message) => {
 
 request.interceptors.request.use(
   config => {
-    const token = localStorage.getItem('adminToken')
+    const token = getAdminToken()
     if (token) {
       config.headers = config.headers || {}
       config.headers.Authorization = `Bearer ${token}`

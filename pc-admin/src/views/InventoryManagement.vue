@@ -187,12 +187,15 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch, onMounted } from 'vue'
+import { computed, reactive, ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { CircleClose } from '@element-plus/icons-vue'
 import { batchImportParts, batchUpdatePartStatus, exportParts, getPartList, savePart, updatePartStatus, getInventoryFlows } from '../api/inventory.js'
-import { hasPermission } from '../utils/permissions.js'
+import { hasPermission, shouldDisplayLocalError } from '../utils/permissions.js'
 import { downloadPartImportTemplate, exportPartsWorkbook, parsePartExcelFile } from '../utils/inventoryExcel.js'
 import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
+import { createLatestTask } from '../utils/latestTask.js'
+import { getAdminToken } from '../utils/adminSession.js'
 
 // 采购成本仅 admin/finance 可见可编辑（后端亦已对其他角色脱敏，前端同步隐藏）
 const canViewCost = hasPermission('view_inventory_cost')
@@ -269,7 +272,8 @@ const importModeHelp = computed(() => {
 
 const selectedEnabledParts = computed(() => selectedParts.value.filter(row => row.enabled !== false))
 
-const getToken = () => localStorage.getItem('adminToken')
+const getToken = getAdminToken
+const partListTask = createLatestTask()
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 
 const resetForm = (row = null) => {
@@ -288,19 +292,25 @@ const resetForm = (row = null) => {
 const loadParts = async () => {
   selectedParts.value = []
   loading.value = true
+  let ownsLoading = true
   try {
-    const data = await getPartList(getToken(), {
+    const result = await partListTask.run(() => getPartList(getToken(), {
       keyword: filters.keyword,
       stockStatus: filters.stockStatus,
       page: page.value,
       pageSize: pageSize.value
-    })
+    }))
+    if (!result.accepted) {
+      ownsLoading = false
+      return
+    }
+    const data = result.value
     parts.value = data.list || []
     total.value = Number(data.total || 0)
   } catch (error) {
-    ElMessage.error(error.message || '配件列表加载失败')
+    if (shouldDisplayLocalError(error)) ElMessage.error(error.message || '配件列表加载失败')
   } finally {
-    loading.value = false
+    if (ownsLoading) loading.value = false
   }
 }
 
@@ -503,6 +513,7 @@ const openFlowDialog = async (row) => {
 
 watch([page, pageSize], loadParts)
 onMounted(loadParts)
+onBeforeUnmount(() => partListTask.cancel())
 </script>
 
 <style scoped>

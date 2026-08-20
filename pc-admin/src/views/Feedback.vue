@@ -247,10 +247,10 @@ import {
   recordFeedbackVisit, closeFeedback, upgradeFeedback, markFeedbackRead, deleteFeedbacks, getSurveyList
 } from '../api/admin.js'
 import { hasPermission } from '../utils/permissions.js'
+import { getAdminRoleLabel } from '../config/adminCatalog.js'
 import SurveyManagement from '../components/SurveyManagement.vue'
 
 const STATUS_OPTIONS = ['待处理', '处理中', '已回复', '已结案', '已升级']
-const ROLE_LABELS = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服', maintenance: '后台维护人员', superadmin: '超管' }
 const OVERDUE_MS = 48 * 3600 * 1000
 const canHandleFeedback = computed(() => hasPermission('handle_feedback'))
 const canDeleteFeedback = canHandleFeedback
@@ -287,7 +287,7 @@ const form = reactive({
 
 const router = useRouter()
 const token = () => localStorage.getItem('adminToken')
-const roleLabel = (r) => ROLE_LABELS[r] || r
+const roleLabel = (r) => getAdminRoleLabel(r, r)
 
 // 跳转到关联工单（WorkOrder 页按关键词搜索 order_no）
 const goToOrder = (orderNo) => {
