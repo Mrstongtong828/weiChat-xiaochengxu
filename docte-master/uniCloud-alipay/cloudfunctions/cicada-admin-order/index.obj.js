@@ -814,6 +814,12 @@ function withActiveOrderFilter(matchCond = {}) {
   return { ...matchCond, is_deleted: dbCmd.neq(true) }
 }
 
+async function reloadAdminOrder(orderId) {
+  if (!orderId) return null
+  const result = await db.collection('cicada_orders').doc(orderId).get()
+  return result.data && result.data[0] ? result.data[0] : null
+}
+
 function isDeletedOrder(order = {}) {
   return order.is_deleted === true
 }
@@ -3400,7 +3406,8 @@ module.exports = {
       if (status === 'completed') {
         await applyRepairWarrantyExtension({ ...order, status }, now)
       }
-      return { code: 0 }
+      const latestOrder = await reloadAdminOrder(order_id)
+      return { code: 0, data: latestOrder || { ...order, status, update_time: now } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -3416,7 +3423,8 @@ module.exports = {
       const order = found.data && found.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
       if (order.arrival_confirm_status === 'confirmed' || order.status === 'received') {
-        return { code: 0, msg: '该工单已确认入库' }
+        const latestOrder = await reloadAdminOrder(order_id)
+        return { code: 0, msg: '该工单已确认入库', data: latestOrder || order }
       }
       if (!['pending', 'sent'].includes(order.status)) return { code: -1, msg: '当前工单状态不能确认入库' }
       const outTrack = (order.track_cache && order.track_cache.out) || {}
@@ -3450,7 +3458,8 @@ module.exports = {
         after: { status: 'received', arrival_confirm_status: 'confirmed', arrival_confirmed_at: now }
       })
       await sendOrderSubscription({ ...order, ...updateData }, 'order_received', '设备已确认入库')
-      return { code: 0, msg: '已确认入库', data: { status: 'received', arrival_confirm_status: 'confirmed' } }
+      const latestOrder = await reloadAdminOrder(order_id)
+      return { code: 0, msg: '已确认入库', data: latestOrder || { ...order, ...updateData } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -3478,7 +3487,8 @@ module.exports = {
         success: 0,
         fail: 0,
         errors: [],
-        warnings: []
+        warnings: [],
+        orders: []
       }
       const seen = new Set()
       const now = Date.now()
@@ -3591,6 +3601,8 @@ module.exports = {
         const notifyScene = importType === 'inbound' ? 'order_received' : 'order_shipped'
         await sendOrderSubscription({ ...order, ...updateData }, notifyScene, updateData.status === 'received' ? '设备已签收' : '设备已回寄')
         await subscribeOrderLogistics({ ...order, ...updateData }, importType === 'inbound' ? 'out' : 'back')
+        const latestOrder = await reloadAdminOrder(order._id)
+        if (latestOrder) summary.orders.push(latestOrder)
         summary.success += 1
       }
 
@@ -4033,7 +4045,8 @@ module.exports = {
         before: { received_parts: order.received_parts || [], received_part_photos: order.received_part_photos || [] },
         after: { received_parts: normalizedParts, received_part_photos: normalizedPhotos }
       })
-      return { code: 0, data: updateData }
+      const latestOrder = await reloadAdminOrder(targetOrderId)
+      return { code: 0, data: latestOrder || { ...order, ...updateData } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -4050,7 +4063,10 @@ module.exports = {
       const order = orderRes.data && orderRes.data[0]
       if (!order) return { code: -1, msg: '工单不存在' }
       const existing = order.received_parts_receipt || {}
-      if (existing.status === 'confirmed') return { code: 0, msg: '配件已确认签收', data: existing }
+      if (existing.status === 'confirmed') {
+        const latestOrder = await reloadAdminOrder(targetOrderId)
+        return { code: 0, msg: '配件已确认签收', data: latestOrder || order }
+      }
 
       const now = Date.now()
       const receipt = {
@@ -4077,7 +4093,8 @@ module.exports = {
         before: { received_parts_receipt: existing },
         after: { received_parts_receipt: receipt }
       })
-      return { code: 0, msg: '配件已确认签收', data: receipt }
+      const latestOrder = await reloadAdminOrder(targetOrderId)
+      return { code: 0, msg: '配件已确认签收', data: latestOrder || { ...order, ...updateData } }
     } catch (e) {
       return { code: -1, msg: e.message }
     }

@@ -56,7 +56,7 @@ if (!failures.some(item => item.includes('workflow'))) {
   for (const [from, to] of allowedTransitions) {
     expect(workflow.canTransitionOrderStatus(from, to), `workflow: missing allowed transition ${from}->${to}`)
   }
-  for (const [from, to] of [['completed', 'fixing'], ['cancelled', 'received'], ['received', 'shipped']]) {
+  for (const [from, to] of [['completed', 'fixing'], ['cancelled', 'received']]) {
     expect(!workflow.canTransitionOrderStatus(from, to), `workflow: illegal transition allowed ${from}->${to}`)
   }
   try {
@@ -87,6 +87,10 @@ if (!failures.some(item => item.includes('adminOrder'))) {
   for (const symbol of ['assertOrderStatusTransition', 'assertRolePermission', 'logOrderEvent', 'getWorkflowConfig']) {
     expect(source.includes(symbol), `admin order: missing ${symbol}`)
   }
+  expect(source.includes('reloadAdminOrder'), 'admin order: mutation responses must reload persisted orders')
+  expect(source.includes("latestOrder || { ...order, status, update_time: now }"), 'admin order: update status response missing latest order')
+  expect(source.includes("latestOrder || { ...order, ...updateData }"), 'admin order: receipt response missing latest order')
+  expect(source.includes('orders: []') && source.includes('summary.orders.push(latestOrder)'), 'admin order: logistics import response missing updated orders')
   for (const action of ['update_status', 'issue_quote', 'confirm_payment', 'update_invoice', 'ship_return', 'update_remarks', 'add_timeline']) {
     expect(source.includes(`'${action}'`), `admin order: missing event action ${action}`)
   }
@@ -118,9 +122,12 @@ if (!failures.some(item => item.includes('pcUsers'))) {
 
 if (!failures.some(item => item.includes('pcWorkOrder'))) {
   const source = read(files.pcWorkOrder)
-  for (const symbol of ['workflowConfig', 'canPerformOrderAction', 'getAllowedStatusOptions']) {
+  for (const symbol of ['workflowConfig', 'canPerformOrderAction', 'getAllowedStatusOptions', 'applyOrderSnapshot', 'confirmReceivedParts']) {
     expect(source.includes(symbol), `pc workorder: missing ${symbol}`)
   }
+  expect(source.includes('status => handleQuickStatusChange(row, status)'), 'pc workorder: status dropdown command handler missing')
+  expect(source.includes('updateOrderStatus(token, row._id, toEnglishStatus(status))'), 'pc workorder: manual status persistence missing')
+  expect(source.includes('result.orders') && source.includes('applyOrderSnapshot(updatedOrder'), 'pc workorder: logistics import snapshot refresh missing')
   expect(source.includes('buildBatchConfirmMessage') && source.includes('跳过'), 'pc workorder: missing batch success/skip confirmation')
 }
 

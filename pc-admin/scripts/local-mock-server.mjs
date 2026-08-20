@@ -624,8 +624,44 @@ const handleAdminOrder = (method, body) => {
     })
   }
 
-  if (method === 'batchUpdateShipping' || method === 'batchImportReturnLogistics' || method === 'batchImportLogistics') {
-    return ok({ success: true, total: Array.isArray(body.rows) ? body.rows.length : 0, failed: [] })
+  if (method === 'batchImportReturnLogistics' || method === 'batchImportLogistics') {
+    const rows = Array.isArray(body.rows) ? body.rows : []
+    const inbound = method === 'batchImportLogistics' && body.type === 'inbound'
+    const updatedOrders = []
+    const errors = []
+    for (const row of rows) {
+      const orderNo = row.orderNo || row.order_no || row.orderId || row.order_id
+      const target = orders.find(item => item.order_no === orderNo)
+      if (!target) {
+        errors.push({ orderNo: orderNo || '-', reason: '工单不存在' })
+        continue
+      }
+      const company = row.logisticsCompany || row.logistics_company || row.returnCompany || row.return_company || ''
+      const trackingNo = row.logisticsNo || row.logistics_no || row.returnNo || row.return_no || ''
+      if (inbound) {
+        target.status = 'received'
+        target.ship_out_info = { ...(target.ship_out_info || {}), logistics_company: company, logistics_no: trackingNo, received_at: Date.now() }
+        target.arrival_confirm_status = 'confirmed'
+      } else {
+        target.status = 'shipped'
+        target.ship_back_info = { ...(target.ship_back_info || {}), logistics_company: company, logistics_no: trackingNo }
+      }
+      target.update_time = Date.now()
+      updatedOrders.push(target)
+    }
+    return ok({
+      type: inbound ? 'inbound' : 'return',
+      success: updatedOrders.length,
+      total: rows.length,
+      fail: errors.length,
+      failed: errors,
+      errors,
+      warnings: [],
+      orders: updatedOrders
+    })
+  }
+  if (method === 'batchUpdateShipping') {
+    return ok({ success: true, total: Array.isArray(body.shippingList) ? body.shippingList.length : 0, failed: [] })
   }
 
   return fail(`Unknown local admin-order method: ${method}`)

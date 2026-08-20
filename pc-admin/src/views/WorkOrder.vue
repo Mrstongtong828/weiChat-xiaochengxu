@@ -217,7 +217,7 @@
               </div>
               <div class="progress-current-status">
                 <span class="progress-current-label">当前</span>
-                <el-dropdown trigger="click" :disabled="!getAllowedStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
+                <el-dropdown trigger="click" :disabled="!getManualStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
                   <span class="status-dropdown-trigger">
                     <el-tag
                       :class="'status-tag status-' + row.status"
@@ -225,12 +225,18 @@
                       effect="light"
                       round
                       size="small">
-                      {{ row.status }} <span v-if="getAllowedStatusOptions(row).length" class="status-dropdown-caret">▾</span>
+                      {{ row.status }} <span v-if="getManualStatusOptions(row).length" class="status-dropdown-caret">▾</span>
                     </el-tag>
                   </span>
                   <template #dropdown>
                     <el-dropdown-menu>
-                      <el-dropdown-item v-for="status in getAllowedStatusOptions(row)" :key="status" :command="status">{{ status }}</el-dropdown-item>
+                      <el-dropdown-item
+                        v-for="status in getManualStatusOptions(row)"
+                        :key="status"
+                        :command="status"
+                        :disabled="!canMoveOrderToStatus(row, status)">
+                        {{ status }}
+                      </el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
                 </el-dropdown>
@@ -1824,7 +1830,7 @@ import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
-import { transformOrders } from '../utils/orderTransform.js'
+import { transformOrder, transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
@@ -1838,7 +1844,7 @@ const updateIsMobile = () => {
   isMobile.value = window.innerWidth <= 768
 }
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
-const adminActionStatusOptions = ['已签收', '处理中', '已回寄', '已完成', '已取消']
+const adminActionStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 
 const getStatusType = (status) => {
   const statusMap = {
@@ -2669,6 +2675,12 @@ const getAllowedStatusOptions = (order = {}) => {
     }
     return targetStatus !== currentStatus && transitions.includes(targetStatus)
   })
+}
+
+// 表格标签展示完整人工状态菜单；不可按当前状态机流转的选项置灰，避免误以为只能改下一步。
+const getManualStatusOptions = (order = {}) => {
+  if (!order || !canPerformOrderAction('update_status')) return []
+  return adminStatusOptions.filter(status => status !== order.status)
 }
 
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
@@ -3680,18 +3692,95 @@ const resetRemarkForm = () => {
 const syncCurrentOrderFromList = (row) => {
   if (!row || !currentOrder.value || currentOrder.value._id !== row._id) return
   const fresh = orders.value.find(item => item._id === row._id)
-  if (fresh) {
-    currentOrder.value = fresh
-    newStatus.value = fresh.status
-    invoiceStatus.value = normalizeInvoiceStatus(fresh)
-    invoiceForm.title = fresh.invoiceTitle || ''
-    invoiceForm.taxNo = fresh.taxId || ''
-    invoiceForm.remark = fresh.invoiceRemark || ''
-    invoiceForm.fileUrl = fresh.invoiceUrl || ''
-    invoiceForm.invoiceNo = fresh.invoiceNo || ''
-    invoiceForm.invoiceDate = fresh.invoiceDate || ''
-    resetQuoteForm(fresh)
+  if (!fresh) return
+  currentOrder.value = fresh
+  newStatus.value = fresh.status
+  invoiceStatus.value = normalizeInvoiceStatus(fresh)
+  invoiceForm.title = fresh.invoiceTitle || ''
+  invoiceForm.taxNo = fresh.taxId || ''
+  invoiceForm.remark = fresh.invoiceRemark || ''
+  invoiceForm.fileUrl = fresh.invoiceUrl || ''
+  invoiceForm.invoiceNo = fresh.invoiceNo || ''
+  invoiceForm.invoiceDate = fresh.invoiceDate || ''
+  resetQuoteForm(fresh)
+  resetReceivedPartsForm(fresh)
+}
+
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key)
+
+const getMutationOrder = (result) => {
+  const data = result && result.order ? result.order : result
+  if (!data || typeof data !== 'object') return null
+  if (!(data._id || data.order_no || data.status || data.statusEn || data.received_parts_receipt || data.receivedPartsReceipt)) return null
+  return data
+}
+
+const mergeOrderSnapshot = (base, snapshot) => {
+  if (!snapshot) return base
+  const transformed = transformOrder(snapshot)
+  const next = { ...(base || {}) }
+  const statusEn = snapshot.statusEn || (['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled'].includes(snapshot.status) ? snapshot.status : '')
+  if (statusEn) {
+    next.statusEn = statusEn
+    next.status = transformOrder({ status: statusEn }).status
+  } else if (snapshot.status) {
+    next.status = snapshot.status
   }
+  if (hasOwn(snapshot, 'timeline') && Array.isArray(snapshot.timeline)) next.timeline = snapshot.timeline
+  if (hasOwn(snapshot, 'update_time') || hasOwn(snapshot, 'updateTime')) {
+    next.updateTime = transformed.updateTime || snapshot.updateTime || next.updateTime
+  }
+  if (hasOwn(snapshot, 'needs_return') || hasOwn(snapshot, 'needsReturn')) {
+    next.needsReturn = Boolean(snapshot.needs_return ?? snapshot.needsReturn)
+  }
+  if (hasOwn(snapshot, 'archive_status') || hasOwn(snapshot, 'archiveStatus')) {
+    next.archiveStatus = snapshot.archive_status || snapshot.archiveStatus || ''
+  }
+  if (hasOwn(snapshot, 'received_parts') || hasOwn(snapshot, 'receivedParts')) {
+    next.receivedParts = transformed.receivedParts
+  }
+  if (hasOwn(snapshot, 'received_part_photos') || hasOwn(snapshot, 'receivedPartPhotos')) {
+    next.receivedPartPhotos = transformed.receivedPartPhotos
+  }
+  if (hasOwn(snapshot, 'received_parts_receipt') || hasOwn(snapshot, 'receivedPartsReceipt')) {
+    next.receivedPartsReceipt = transformed.receivedPartsReceipt
+  }
+  if (Array.isArray(snapshot.itemsList)) next.itemsList = transformed.itemsList
+  return next
+}
+
+// 变更接口成功后先应用服务端快照，再刷新列表；即使筛选条件让工单离开列表，也不会残留旧状态。
+const applyOrderSnapshot = (result, fallbackRow = null) => {
+  const snapshot = getMutationOrder(result)
+  if (!snapshot) return fallbackRow
+  const orderId = snapshot._id || fallbackRow?._id || currentOrder.value?._id
+  if (!orderId) return fallbackRow
+  const listIndex = orders.value.findIndex(item => item._id === orderId)
+  const base = listIndex >= 0 ? orders.value[listIndex] : (currentOrder.value && currentOrder.value._id === orderId ? currentOrder.value : fallbackRow)
+  const merged = mergeOrderSnapshot(base, snapshot)
+  if (listIndex >= 0) orders.value.splice(listIndex, 1, merged)
+  if (currentOrder.value && currentOrder.value._id === orderId) {
+    currentOrder.value = merged
+    newStatus.value = merged.status
+    resetReceivedPartsForm(merged)
+  }
+  return merged
+}
+
+const refreshOrderAfterMutation = async (result, row) => {
+  const merged = applyOrderSnapshot(result, row)
+  await loadOrders()
+  const fresh = row && orders.value.find(item => item._id === row._id)
+  if (fresh) {
+    applyOrderSnapshot(fresh, row)
+  } else if (merged && currentOrder.value && currentOrder.value._id === merged._id) {
+    // 当前筛选已排除该工单，保留服务端快照给抽屉展示，不回退到旧行。
+    currentOrder.value = merged
+    newStatus.value = merged.status
+    resetReceivedPartsForm(merged)
+  }
+  await refreshStatusBreakdown()
+  return merged
 }
 
 const isUserCancel = (error) => error === 'cancel' || error === 'close'
@@ -3889,10 +3978,9 @@ const handleQuickStatusChange = async (row, status) => {
     }
     quickStatusLoading.value = true
     const token = localStorage.getItem('adminToken')
-    await updateOrderStatus(token, row._id, toEnglishStatus(status))
+    const result = await updateOrderStatus(token, row._id, toEnglishStatus(status))
+    await refreshOrderAfterMutation(result, row)
     ElMessage.success('工单状态更新成功')
-    await Promise.all([loadOrders(), refreshStatusBreakdown()])
-    syncCurrentOrderFromList(row)
     return true
   } catch (error) {
     if (!isUserCancel(error)) {
@@ -4599,18 +4687,14 @@ const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
   receivedPartsSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    await saveReceivedParts(
+    const orderBeforeSave = currentOrder.value
+    const result = await saveReceivedParts(
       token,
-      currentOrder.value._id,
+      orderBeforeSave._id,
       parts,
       receivedPartsForm.photos.map(photo => photo.fileID || photo.url).filter(Boolean)
     )
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) {
-      currentOrder.value = fresh
-      resetReceivedPartsForm(fresh)
-    }
+    await refreshOrderAfterMutation(result, orderBeforeSave)
     if (!silent) ElMessage.success('收货配件明细已保存')
     return true
   } catch (error) {
@@ -4643,14 +4727,10 @@ const confirmCurrentReceivedParts = async () => {
   receivedPartsConfirming.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    await confirmReceivedParts(token, currentOrder.value._id)
+    const orderBeforeConfirm = currentOrder.value
+    const result = await confirmReceivedParts(token, orderBeforeConfirm._id)
+    await refreshOrderAfterMutation(result, orderBeforeConfirm)
     ElMessage.success('收货配件已确认签收')
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) {
-      currentOrder.value = fresh
-      resetReceivedPartsForm(fresh)
-    }
   } catch (error) {
     ElMessage.error(error.message || '配件签收确认失败')
   } finally {
@@ -4808,6 +4888,10 @@ const handleImportFile = async (uploadFile) => {
     importResult.value = result
     importDialogVisible.value = false
     importResultVisible.value = true
+    for (const updatedOrder of (Array.isArray(result.orders) ? result.orders : [])) {
+      const matchingRow = orders.value.find(item => item._id === updatedOrder._id)
+      applyOrderSnapshot(updatedOrder, matchingRow || (currentOrder.value && currentOrder.value._id === updatedOrder._id ? currentOrder.value : null))
+    }
     ElMessage.success(`导入完成：成功 ${result.success} 条，失败 ${result.fail} 条`)
     await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
