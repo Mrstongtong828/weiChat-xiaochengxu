@@ -381,7 +381,8 @@ function buildDirectAdminOrderMatchCond({ status = '', todoType = '' } = {}) {
   const todoCond = getDirectTodoMatchCond(todoType)
   if (todoCond === null) return null
   const matchCond = { ...todoCond }
-  if (status) matchCond.status = status
+  if (Array.isArray(status)) matchCond.status = dbCmd.in(status)
+  else if (status) matchCond.status = status
   return matchCond
 }
 
@@ -2808,7 +2809,8 @@ module.exports = {
         responseMode = 'array'
       } = requestParams
 
-      if (status && !ORDER_STATUS.includes(status)) return { code: -1, msg: '工单状态不正确' }
+      const statusList = Array.isArray(status) ? status : (status ? [status] : [])
+      if (statusList.some(item => !ORDER_STATUS.includes(item))) return { code: -1, msg: '工单状态不正确' }
 
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
@@ -2817,7 +2819,7 @@ module.exports = {
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
       const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
       const normalizedSlaLevel = normalizeText(slaLevel)
-      const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
+      const directMatchCond = buildDirectAdminOrderMatchCond({ status: statusList.length > 1 ? statusList : status, todoType })
       if (directMatchCond) applyCreateDateRange(directMatchCond, startDate, endDate)
       // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
       const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
@@ -2832,7 +2834,8 @@ module.exports = {
         total = pageResult.total
       } else {
         const fallbackMatchCond = {}
-        if (status) fallbackMatchCond.status = status
+        if (statusList.length > 1) fallbackMatchCond.status = dbCmd.in(statusList)
+        else if (status) fallbackMatchCond.status = status
         applyCreateDateRange(fallbackMatchCond, startDate, endDate)
 
         // 在不改变最终结果的前提下，把「可索引且与 JS 谓词完全等价」的等值条件下推到 DB，
@@ -3939,7 +3942,7 @@ module.exports = {
   async saveRepairRecord(params) {
     try {
       const currentAdmin = requireAdminPermission(this, 'update_remarks')
-      const { order_id, orderId, content, parts, photos } = pickParam(this, params)
+      const { order_id, orderId, content, parts, products, photos } = pickParam(this, params)
       const targetOrderId = order_id || orderId
       if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
 
@@ -3963,6 +3966,29 @@ module.exports = {
         }
       }).filter(part => part.part_id || part.part_code || part.name)
 
+      const rawProducts = Array.isArray(products) ? products : []
+      if (rawProducts.length > 50) return { code: -1, msg: '产品维修明细不能超过50项' }
+      const normalizedProducts = rawProducts.map((product = {}) => {
+        const productParts = Array.isArray(product.parts) ? product.parts : []
+        if (productParts.length > 30) throw new Error('单个产品的实际使用配件不能超过30项')
+        return {
+          product_id: normalizeText(product.product_id || product.productId || product._id),
+          product_name: normalizeText(product.product_name || product.productName || product.name),
+          product_model: normalizeText(product.product_model || product.productModel || product.model),
+          sn: normalizeText(product.sn || product.device_sn || product.deviceSn),
+          fault: normalizeText(product.fault || product.fault_reason || product.faultReason).slice(0, 1000),
+          received_detail: normalizeText(product.received_detail || product.receivedDetail).slice(0, 1000),
+          repair_action: normalizeText(product.repair_action || product.repairAction).slice(0, 1000),
+          parts: productParts.map((part = {}) => ({
+            part_id: normalizeText(part.part_id || part.partId || part._id),
+            part_code: normalizeText(part.part_code || part.partCode || part.code),
+            name: normalizeText(part.name || part.part_name),
+            model: normalizeText(part.model || part.part_model),
+            quantity: Math.max(1, Number(part.quantity || part.qty || 1) || 1)
+          })).filter(part => part.part_id || part.part_code || part.name)
+        }
+      }).filter(product => product.product_id || product.product_name || product.product_model || product.sn || product.fault || product.received_detail || product.repair_action || product.parts.length)
+
       const rawPhotos = Array.isArray(photos) ? photos : []
       if (rawPhotos.length > 6) return { code: -1, msg: '维修照片最多上传6张' }
       const normalizedPhotos = rawPhotos
@@ -3974,6 +4000,7 @@ module.exports = {
       const repairRecord = {
         content: normalizedContent,
         parts: normalizedParts,
+        products: normalizedProducts,
         photos: normalizedPhotos,
         engineer_id: normalizeText(currentAdmin._id || currentAdmin.id),
         engineer_name: normalizeText(currentAdmin.name || currentAdmin.username || currentAdmin.nickname) || '后台人员',

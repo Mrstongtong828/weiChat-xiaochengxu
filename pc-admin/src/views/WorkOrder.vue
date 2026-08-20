@@ -1210,46 +1210,14 @@
                 :closable="false"
                 show-icon
               />
-              <div class="repair-record-field">
-                <strong>实际维修说明</strong>
-                <el-input
-                  v-model="repairRecordForm.content"
-                  type="textarea"
-                  :rows="4"
-                  maxlength="1000"
-                  show-word-limit
-                  placeholder="填写本次维修处理内容，例如故障原因、维修项目和测试结果"
-                />
+              <div v-for="(product, productIndex) in repairRecordForm.products" :key="product.key" class="repair-product-record">
+                <div class="repair-product-record-head"><strong>产品 {{ productIndex + 1 }}：{{ product.productName || '未命名产品' }}</strong><span>{{ product.model || product.sn || '' }}</span></div>
+                <div class="repair-record-field"><strong>故障现象</strong><el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品的故障现象" /></div>
+                <div class="repair-record-field"><strong>收货明细</strong><el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品实际收到的附件、外观和数量" /></div>
+                <div class="repair-record-field"><strong>维修措施</strong><el-input v-model="product.repairAction" type="textarea" :rows="3" maxlength="1000" placeholder="填写该产品的维修项目、处理过程和测试结果" /></div>
+                <div class="repair-record-field"><strong>使用配件</strong><el-input v-model="product.partsText" type="textarea" :rows="2" maxlength="1000" placeholder="每行填写一个配件，可附型号和数量" /></div>
               </div>
-              <div class="repair-record-field">
-                <div class="repair-parts-head">
-                  <div>
-                    <strong>实际使用配件</strong>
-                    <span class="section-helper">记录工程师本次实际用料，不会再次扣减库存。</span>
-                  </div>
-                  <div v-if="canPerformOrderAction('update_remarks')" class="repair-parts-actions">
-                    <el-button v-if="canPerformOrderAction('manage_inventory')" size="small" plain @click="openPartPicker('repair')"><el-icon><Box /></el-icon>从库存选择</el-button>
-                    <el-button size="small" type="primary" plain @click="addManualRepairPart"><el-icon><Plus /></el-icon>手动添加</el-button>
-                  </div>
-                </div>
-                <div v-if="repairRecordForm.parts.length" class="repair-parts-list">
-                  <div class="repair-part-columns" aria-hidden="true"><span>使用</span><span>配件名称</span><span>配件编码</span><span>型号/规格</span><span>数量</span><span></span></div>
-                  <div v-for="(part, index) in repairRecordForm.parts" :key="part.key" class="repair-part-row">
-                    <el-checkbox v-model="part.used" aria-label="实际使用"></el-checkbox>
-                    <el-input v-model="part.name" maxlength="120" placeholder="配件名称" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-input v-model="part.partCode" class="repair-part-meta-input" maxlength="80" placeholder="编码（选填）" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-input v-model="part.model" class="repair-part-meta-input" maxlength="120" placeholder="型号/规格（选填）" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-tooltip content="删除配件" placement="top">
-                      <el-button v-if="canPerformOrderAction('update_remarks')" link type="danger" aria-label="删除配件" @click="removeRepairPart(index)"><el-icon><Delete /></el-icon></el-button>
-                    </el-tooltip>
-                  </div>
-                </div>
-                <div v-else class="repair-parts-empty">
-                  <span>还没有记录实际用料</span>
-                  <small>可从库存带入配件，也可手动填写临时配件。</small>
-                </div>
-              </div>
+              <div v-if="!repairRecordForm.products.length" class="repair-parts-empty">订单暂无产品明细，请先补充订单产品。</div>
               <div class="repair-record-field">
                 <strong>维修照片</strong>
                 <span class="section-helper">可选，最多 6 张；支持 JPG、PNG、WEBP，单张不超过 10MB。</span>
@@ -2854,7 +2822,10 @@ const loadOrders = async () => {
   loading.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
+    // “处理中”是检测中 + 维修中的合并展示桶，列表必须与统计卡使用同一口径。
+    const statusFilter = wo.filter === '处理中'
+      ? ['inspecting', 'fixing']
+      : (wo.filter ? toEnglishStatus(wo.filter) : undefined)
     const data = await getOrderList(token, statusFilter, wo.page, wo.pageSize, {
       keyword: wo.search.trim(),
       invoiceStatus: searchInvoiceStatus.value,
@@ -2880,7 +2851,9 @@ const loadOrders = async () => {
 
 const fetchAllFilteredOrders = async (dateRange = null) => {
   const token = localStorage.getItem('adminToken')
-  const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
+  const statusFilter = wo.filter === '处理中'
+    ? ['inspecting', 'fixing']
+    : (wo.filter ? toEnglishStatus(wo.filter) : undefined)
   const pageSize = 100
   let page = 1
   let total = 0
@@ -3066,7 +3039,7 @@ const canManuallyRegisterInvoice = computed(() => (
 const remarkSaving = ref(false)
 const repairRecordSaving = ref(false)
 const repairPhotoUploading = ref(false)
-const repairRecordForm = reactive({ content: '', parts: [], photos: [] })
+const repairRecordForm = reactive({ content: '', parts: [], products: [], photos: [] })
 const receivedPartsSaving = ref(false)
 const receivedPartsConfirming = ref(false)
 const receivedPartPhotoUploading = ref(false)
@@ -3100,6 +3073,7 @@ const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
 
 const hasRepairRecord = computed(() => Boolean(
   repairRecordForm.content.trim()
+  || repairRecordForm.products.some(product => product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.partsText.trim())
   || repairRecordForm.parts.some(part => part.used)
   || repairRecordForm.photos.length
 ))
@@ -3142,6 +3116,23 @@ const createRepairPart = (part = {}, used = false, index = 0) => ({
 const resetRepairRecordForm = (order = {}) => {
   const saved = order.repairRecord || {}
   repairRecordForm.content = saved.content || ''
+  const savedProducts = Array.isArray(saved.products) ? saved.products : []
+  const orderItems = Array.isArray(order.itemsList) ? order.itemsList : []
+  repairRecordForm.products = (orderItems.length ? orderItems : savedProducts).map((item, index) => {
+    const key = item.key || item.productId || item.product_id || item.sn || item.device_sn || `${index}`
+    const existing = savedProducts.find(product => (product.key || product.productId || product.product_id || product.sn) === key) || {}
+    return {
+      key,
+      productId: item.productId || item.product_id || item._id || existing.productId || existing.product_id || '',
+      productName: item.product_name || item.productName || item.name || existing.productName || existing.product_name || '',
+      model: item.product_model || item.productModel || item.model || existing.model || existing.product_model || '',
+      sn: item.sn || item.device_sn || existing.sn || '',
+      fault: existing.fault || existing.faultReason || (index === 0 ? saved.content || '' : ''),
+      receivedDetail: existing.receivedDetail || existing.received_detail || '',
+      repairAction: existing.repairAction || existing.repair_action || '',
+      partsText: Array.isArray(existing.parts) ? existing.parts.map(part => part.name || part.part_name || '').filter(Boolean).join('\n') : String(existing.partsText || '')
+    }
+  })
   repairRecordForm.photos = (saved.photos || []).map(photo => ({
     fileID: photo.fileID || photo.fileId || photo.url || '',
     url: photo.url || photo.fileID || photo.fileId || ''
@@ -4852,7 +4843,17 @@ const saveCurrentRepairRecord = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const result = await saveRepairRecord(token, currentOrder.value._id, {
-      content: repairRecordForm.content,
+      content: repairRecordForm.products.map(product => product.repairAction).filter(Boolean).join('\n') || repairRecordForm.content,
+      products: repairRecordForm.products.map(product => ({
+        product_id: product.productId,
+        product_name: product.productName,
+        product_model: product.model,
+        sn: product.sn,
+        fault: product.fault,
+        received_detail: product.receivedDetail,
+        repair_action: product.repairAction,
+        parts: product.partsText.split(/\r?\n/).map(name => name.trim()).filter(Boolean).map(name => ({ name, quantity: 1 }))
+      })),
       parts: usedParts.map(part => ({
         part_id: part.partId,
         part_code: part.partCode,
@@ -5403,6 +5404,9 @@ const confirmExportExcel = async () => {
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }
+.repair-product-record { margin-top: 14px; padding: 12px; border: 1px solid #cfe6d7; border-radius: 6px; background: rgba(255,255,255,.72); }
+.repair-product-record-head { display:flex; justify-content:space-between; gap:12px; color:#1d2129; }
+.repair-product-record-head span { color:#7a8699; font-size:12px; }
 .repair-record-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .repair-record-field > strong { color: #1d2129; font-size: 14px; }
 .repair-parts-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }

@@ -392,6 +392,18 @@ const fieldValue = (fieldItem, order, context = {}) => {
 
 const repairPartsText = (order = {}, index = 0) => {
   const repairRecord = order.repairRecord || order.repair_record || {}
+  const productRecords = Array.isArray(repairRecord.products) ? repairRecord.products : []
+  const productRecord = productRecords[index]
+  if (productRecord) {
+    const productParts = Array.isArray(productRecord.parts) ? productRecord.parts : []
+    const text = productParts.map(part => {
+      const name = part && (part.name || part.part_name || part.partName) || ''
+      const model = part && (part.model || part.part_model || part.partModel || part.spec) || ''
+      const quantity = safeNum(part && (part.quantity ?? part.qty)) || 1
+      return name ? `${name}${model ? `（${model}）` : ''}×${quantity}` : ''
+    }).filter(Boolean).join('、')
+    return text
+  }
   const actualParts = Array.isArray(repairRecord.parts) ? repairRecord.parts : []
   if (!actualParts.length || index !== 0) return ''
   const text = actualParts.map(part => {
