@@ -121,7 +121,7 @@
           </div>
           <strong>{{ profileForm.realName || profileForm.username || '管理员' }}</strong>
           <span>{{ profileForm.role || '后台账号' }}</span>
-          <small>支持 JPG、PNG、WebP，文件不超过 2MB</small>
+          <small>支持 JPG、PNG、WebP，选择后自动裁成 512×512 并压缩</small>
         </div>
         <el-form :model="profileForm" label-position="top" class="profile-form" @submit.prevent="saveProfile">
           <el-form-item label="登录账号"><el-input v-model="profileForm.username" disabled></el-input></el-form-item>
@@ -177,6 +177,7 @@ import { getNotificationSummary } from '../../api/order.js'
 import { getWarrantyAlerts } from '../../api/customer.js'
 import { canAccessMenu, getFirstAccessibleMenu } from '../../config/menuAccess.js'
 import { hasPermission, PERMISSION_CHANGED_EVENT, savePermissionSession } from '../../utils/permissions.js'
+import { prepareAvatarImage } from '../../utils/avatarImage.js'
 import { uploadAvatarToCloud } from '../../utils/upload.js'
 
 const router = useRouter()
@@ -341,22 +342,19 @@ const revokePendingAvatar = () => {
   pendingAvatarFile = null
 }
 
-const handleAvatarSelect = (uploadFile) => {
+const handleAvatarSelect = async (uploadFile) => {
   const raw = uploadFile?.raw
   if (!raw) return
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
-  if (!allowedTypes.includes(raw.type) || !/\.(jpe?g|png|webp)$/i.test(raw.name || '')) {
-    ElMessage.warning('头像仅支持 JPG、PNG 或 WebP 图片')
-    return
+  try {
+    const prepared = await prepareAvatarImage(raw)
+    revokePendingAvatar()
+    avatarRemovalPending.value = false
+    pendingAvatarFile = prepared
+    pendingAvatarPreview.value = URL.createObjectURL(prepared)
+    if (prepared.size < raw.size) ElMessage.success('头像已自动裁切并压缩')
+  } catch (error) {
+    ElMessage.warning(error.message || '头像处理失败，请换一张图片')
   }
-  if (raw.size > 2 * 1024 * 1024) {
-    ElMessage.warning('头像图片不能超过 2MB')
-    return
-  }
-  revokePendingAvatar()
-  avatarRemovalPending.value = false
-  pendingAvatarFile = raw
-  pendingAvatarPreview.value = URL.createObjectURL(raw)
 }
 
 const removeAvatar = () => {
