@@ -98,6 +98,14 @@ export const getFeedbackList = (token, params = {}) => {
   return request.post(`${API_BASE.adminSys}/getFeedbackList`, { token, ...params })
 }
 
+export const getPermissionCatalog = (token) => {
+  return request.post(`${API_BASE.adminSys}/getPermissionCatalog`, { token })
+}
+
+export const getMyPermissions = (token) => {
+  return request.post(`${API_BASE.adminSys}/getMyPermissions`, { token })
+}
+
 // 标记反馈已读
 export const markFeedbackRead = (token, id) => {
   return request.post(`${API_BASE.adminSys}/markFeedbackRead`, { token, id })

@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 
 const STATUS_LABELS = {
   pending: '已提交', sent: '运输中', received: '已签收', inspecting: '检测中',
@@ -21,7 +21,7 @@ const payMethod = (r) => PAYMENT_METHOD_LABELS[r.payment_method] || r.payment_me
 
 // 导出四流台账（订单 / 物流 / 支付 / 发票 合一）
 export const exportFourFlowLedger = async (list = []) => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const ws = workbook.addWorksheet('四流台账')
   ws.addRow([
     '工单号', '工单状态', '客户', '联系电话',

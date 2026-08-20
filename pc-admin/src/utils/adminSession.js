@@ -2,6 +2,8 @@ import { ElMessage } from 'element-plus'
 
 let sessionExpiredNotified = false
 
+export const getAdminToken = () => localStorage.getItem('adminToken') || ''
+
 export const clearAdminSession = () => {
   localStorage.removeItem('adminToken')
   localStorage.removeItem('adminUser')

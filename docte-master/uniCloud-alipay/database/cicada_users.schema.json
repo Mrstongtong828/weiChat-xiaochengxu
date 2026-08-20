@@ -48,8 +48,17 @@
         "admin",
         "engineer",
         "finance",
-        "support"
+        "support",
+        "maintenance"
       ]
+    },
+    "permissions": {
+      "bsonType": "array",
+      "description": "后台员工账号级权限键；字段不存在时按角色模板计算，空数组表示明确无业务权限"
+    },
+    "permission_version": {
+      "bsonType": "int",
+      "description": "账号权限目录版本，首版为1"
     },
     "phone": {
       "bsonType": "string"

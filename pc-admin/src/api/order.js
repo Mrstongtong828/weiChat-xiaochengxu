@@ -16,6 +16,7 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     slaLevel: filters.slaLevel || '',
     startDate: filters.startDate || '',
     endDate: filters.endDate || '',
+    forExport: filters.forExport === true,
     responseMode: filters.responseMode || 'array'
   })
 }

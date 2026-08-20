@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 
 const normalizeText = (value) => String(value ?? '').trim()
 
@@ -31,7 +31,7 @@ export const downloadInvoiceTemplate = async () => {
     ['工单编号', '发票号码', '开票日期', '开票状态', '发票链接'],
     ['DR2026... (请填写真实编号)', '24417000000123456789', '2026-06-04', '已开具', 'https://...（选填，发票归档链接）']
   ]
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const worksheet = workbook.addWorksheet('批量开票导入模板')
   worksheet.addRows(rows)
   worksheet.columns = [{ width: 28 }, { width: 26 }, { width: 16 }, { width: 14 }, { width: 40 }]
@@ -51,7 +51,7 @@ export const normalizeInvoiceRows = (rows = []) => {
 }
 
 export const parseInvoiceExcelBuffer = async (buffer) => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   await workbook.xlsx.load(buffer)
   const worksheet = workbook.worksheets[0]
   if (!worksheet) return []
@@ -89,7 +89,7 @@ export const parseInvoiceExcelFile = (file) => {
 
 // 导出开票申请清单
 export const exportInvoiceRows = async (list = []) => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const ws = workbook.addWorksheet('开票申请清单')
   ws.addRow(['工单号', '客户', '金额(元)', '开票状态', '发票抬头', '税号', '发票号码', '开票日期', '历史邮寄公司', '历史邮寄单号', '发票链接'])
   list.forEach(r => {

@@ -113,31 +113,30 @@ function createWorkflowFallback() {
     admin: '管理员',
     engineer: '工程师',
     finance: '财务',
-    support: '客服'
+    support: '客服',
+    maintenance: '后台维护人员'
   }
   const ALL_ROLES = Object.keys(ROLE_LABELS)
-  const PERMISSIONS = {
-    view_order: ALL_ROLES,
-    create_order: ['admin', 'engineer', 'support'],
-    export_order: ALL_ROLES,
-    get_stats: ALL_ROLES,
-    get_workflow_config: ALL_ROLES,
-    delete_order: ['admin'],
-    update_status: ['admin'],
-    import_logistics: ['admin', 'engineer'],
-    issue_quote: ['admin', 'engineer'],
-    confirm_payment: ['admin', 'finance'],
-    update_invoice: ['admin', 'finance'],
-    view_payment_proof: ['admin', 'finance'],
-    manage_inventory: ['admin', 'engineer'],
-    view_settlement: ['admin', 'finance'],
-    update_remarks: ['admin', 'engineer', 'support'],
-    add_timeline: ['admin', 'engineer', 'support'],
-    manage_staff: ['admin'],
-    manage_settings: ['admin'],
-    manage_kb: ['admin', 'engineer'],
-    view_audit_log: ['admin', 'finance']
+  const ROLE_PERMISSION_TEMPLATES = {
+    superadmin: [], admin: [],
+    engineer: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'edit_order_items', 'edit_repair_record', 'view_inventory'],
+    finance: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'confirm_payment', 'update_invoice', 'view_payment_proof', 'view_settlement', 'view_audit_log'],
+    support: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'confirm_inbound_arrival', 'edit_received_parts', 'confirm_received_parts', 'edit_order_items', 'edit_repair_record', 'record_return_logistics', 'view_customer', 'view_feedback', 'handle_feedback'],
+    maintenance: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'view_inventory', 'view_customer', 'manage_kb', 'manage_settings']
   }
+  const ALL_PERMISSION_KEYS = [
+    'view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'create_order', 'delete_order', 'export_order',
+    'edit_order_remarks', 'edit_order_items', 'edit_repair_record', 'edit_received_parts', 'confirm_received_parts',
+    'confirm_inbound_arrival', 'record_return_logistics', 'import_inbound_logistics', 'import_return_logistics',
+    'update_order_status', 'restore_cancelled_order', 'issue_quote', 'add_timeline', 'assign_engineer',
+    'view_inventory', 'edit_inventory', 'stock_in_inventory', 'stock_out_inventory', 'adjust_inventory', 'import_inventory', 'export_inventory', 'view_inventory_cost',
+    'view_customer', 'edit_customer', 'view_customer_phone', 'manage_customer_device', 'import_customer', 'export_customer', 'cancel_customer',
+    'confirm_payment', 'update_invoice', 'view_payment_proof', 'view_settlement', 'view_staff', 'create_staff', 'edit_staff', 'toggle_staff', 'reset_staff_password', 'view_engineer_performance',
+    'manage_settings', 'manage_kb', 'view_audit_log', 'view_feedback', 'handle_feedback'
+  ]
+  ROLE_PERMISSION_TEMPLATES.admin = [...ALL_PERMISSION_KEYS]
+  ROLE_PERMISSION_TEMPLATES.superadmin = [...ALL_PERMISSION_KEYS]
+  const PERMISSIONS = Object.fromEntries(ALL_PERMISSION_KEYS.map(action => [action, ALL_ROLES.filter(role => ROLE_PERMISSION_TEMPLATES[role].includes(action))]))
   const normalizeRole = role => String(role || '').trim()
   const isKnownRole = role => ALL_ROLES.includes(normalizeRole(role))
   const getRoleLabel = role => ROLE_LABELS[normalizeRole(role)] || normalizeRole(role) || '未知角色'
@@ -149,6 +148,19 @@ function createWorkflowFallback() {
   const assertRolePermission = (user = {}, action = '') => {
     const role = normalizeRole(user.role)
     if (!hasRolePermission(role, action)) throw new Error(`${getRoleLabel(role)}无权限执行该操作`)
+    return true
+  }
+  const getEffectivePermissions = (user = {}) => {
+    const role = normalizeRole(user.role)
+    if (role === 'admin' || role === 'superadmin') return [...ALL_PERMISSION_KEYS]
+    if (Object.prototype.hasOwnProperty.call(user, 'permissions') && Array.isArray(user.permissions)) {
+      return [...new Set(user.permissions.filter(key => ALL_PERMISSION_KEYS.includes(key)))]
+    }
+    return [...(ROLE_PERMISSION_TEMPLATES[role] || [])]
+  }
+  const hasUserPermission = (user = {}, action = '') => getEffectivePermissions(user).includes(String(action || '').trim())
+  const assertUserPermission = (user = {}, action = '') => {
+    if (!hasUserPermission(user, action)) throw new Error(`${getRoleLabel(user.role)}无权限执行该操作`)
     return true
   }
   const isKnownOrderStatus = status => ORDER_STATUS.includes(String(status || '').trim())
@@ -222,14 +234,30 @@ function createWorkflowFallback() {
       permissions: Object.fromEntries(Object.keys(PERMISSIONS).map(action => [action, hasRolePermission(normalizedRole, action)]))
     }
   }
+  const getWorkflowConfigForUser = (user = {}) => {
+    const normalizedRole = normalizeRole(user.role)
+    const effective = new Set(getEffectivePermissions(user))
+    return {
+      role: normalizedRole,
+      roleLabel: getRoleLabel(normalizedRole),
+      roles: ALL_ROLES.map(item => ({ role: item, label: ROLE_LABELS[item] })),
+      statuses: ORDER_STATUS.map(status => ({ status, label: ORDER_STATUS_LABELS[status] })),
+      transitions: ORDER_STATUS_TRANSITIONS,
+      permissions: Object.fromEntries(ALL_PERMISSION_KEYS.map(action => [action, effective.has(action)])),
+      permissionVersion: 1
+    }
+  }
   return {
     ORDER_STATUS,
     assertOrderStatusTransition,
     assertRolePermission,
+    assertUserPermission,
     getOrderStatusLabel,
     getCancelledOrderRestoreStatus,
     getWorkflowConfigForRole,
+    getWorkflowConfigForUser,
     hasRolePermission,
+    hasUserPermission,
     isKnownRole,
     canTransitionOrderStatus,
     getRepairStartBlockReason
@@ -252,10 +280,13 @@ const {
   ORDER_STATUS,
   assertOrderStatusTransition,
   assertRolePermission,
+  assertUserPermission,
   getOrderStatusLabel,
   getCancelledOrderRestoreStatus,
   getWorkflowConfigForRole,
+  getWorkflowConfigForUser,
   hasRolePermission,
+  hasUserPermission,
   isKnownRole,
   canTransitionOrderStatus,
   getRepairStartBlockReason
@@ -380,8 +411,12 @@ function getTodoCountMatchCond(todoType = '') {
 function buildDirectAdminOrderMatchCond({ status = '', todoType = '' } = {}) {
   const todoCond = getDirectTodoMatchCond(todoType)
   if (todoCond === null) return null
+  // 同时指定待办和状态时应取交集；直接条件合并会让 status 覆盖待办自带的状态范围。
+  // 转入下方 JS 精确筛选分支，避免“待签收 + 处理中”错误返回全部处理中工单。
+  if (status && Object.prototype.hasOwnProperty.call(todoCond, 'status')) return null
   const matchCond = { ...todoCond }
-  if (status) matchCond.status = status
+  if (Array.isArray(status)) matchCond.status = dbCmd.in(status)
+  else if (status) matchCond.status = status
   return matchCond
 }
 
@@ -455,9 +490,7 @@ function maskPhone(phone) {
 // 其余角色（engineer/finance/support）一律脱敏，避免工单列表旁路 CRM 脱敏策略。
 async function attachCustomerSummaries(orders = [], currentAdmin = {}) {
   if (!Array.isArray(orders) || !orders.length) return
-  const canViewFullPhone = ['admin', 'superadmin'].includes(
-    String(currentAdmin && currentAdmin.role || '').toLowerCase()
-  )
+  const canViewFullPhone = hasUserPermission(currentAdmin, 'view_customer_phone')
   const customerIds = [...new Set(orders.map(o => normalizeText(o.customer_id)).filter(Boolean))]
   const userIds = [...new Set(orders.filter(o => !normalizeText(o.customer_id)).map(o => normalizeText(o.user_id)).filter(Boolean))]
   const byId = {}
@@ -679,7 +712,7 @@ function sendOrderSubscription(order = {}, scene = '', remark = '', options = {}
 
 function requireAdminPermission(ctx, action) {
   const user = ctx.currentAdminUser || {}
-  assertRolePermission(user, action)
+  assertUserPermission(user, action)
   return user
 }
 
@@ -713,7 +746,7 @@ async function logOrderEvent({
 }
 
 function stripPaymentProofsIfForbidden(order = {}, user = {}) {
-  if (hasRolePermission(user.role, 'view_payment_proof')) return order
+  if (hasUserPermission(user, 'view_payment_proof')) return order
   return {
     ...order,
     payment_proofs: [],
@@ -1722,8 +1755,8 @@ function normalizePartInput(part = {}) {
   }
 }
 
-function canViewNotificationGroup(user = {}, roles = []) {
-  return user.role === 'superadmin' || roles.includes(user.role)
+function canViewNotificationGroup(user = {}, permissions = []) {
+  return permissions.some(permission => hasUserPermission(user, permission))
 }
 
 function buildOrderNotificationSamples(orders = [], description) {
@@ -1841,7 +1874,15 @@ function mapPartForClient(part = {}, canViewCost = true) {
 
 // 是否允许查看配件采购成本
 function canViewPartCost(admin = {}) {
-  return ['superadmin', 'admin', 'finance'].includes(String(admin && admin.role || '').toLowerCase())
+  return hasUserPermission(admin, 'view_inventory_cost')
+}
+
+function assertInventoryDeltaPermission(user = {}, beforeStock = 0, afterStock = 0) {
+  const delta = Number(afterStock || 0) - Number(beforeStock || 0)
+  if (!delta) return true
+  if (hasUserPermission(user, 'adjust_inventory')) return true
+  assertUserPermission(user, delta > 0 ? 'stock_in_inventory' : 'stock_out_inventory')
+  return true
 }
 
 function getQuoteInventoryLines(order = {}) {
@@ -2536,7 +2577,7 @@ module.exports = {
   async getWorkflowConfig(params) {
     try {
       const user = requireAdminPermission(this, 'get_workflow_config')
-      return { code: 0, data: getWorkflowConfigForRole(user.role) }
+      return { code: 0, data: getWorkflowConfigForUser(user) }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -2814,7 +2855,8 @@ module.exports = {
         responseMode = 'array'
       } = requestParams
 
-      if (status && !ORDER_STATUS.includes(status)) return { code: -1, msg: '工单状态不正确' }
+      const statusList = Array.isArray(status) ? status : (status ? [status] : [])
+      if (statusList.some(item => !ORDER_STATUS.includes(item))) return { code: -1, msg: '工单状态不正确' }
 
       const pagination = normalizePage(page, pageSize)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
@@ -2823,7 +2865,7 @@ module.exports = {
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
       const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
       const normalizedSlaLevel = normalizeText(slaLevel)
-      const directMatchCond = buildDirectAdminOrderMatchCond({ status, todoType })
+      const directMatchCond = buildDirectAdminOrderMatchCond({ status: statusList.length > 1 ? statusList : status, todoType })
       if (directMatchCond) applyCreateDateRange(directMatchCond, startDate, endDate)
       // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
       const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
@@ -2838,7 +2880,8 @@ module.exports = {
         total = pageResult.total
       } else {
         const fallbackMatchCond = {}
-        if (status) fallbackMatchCond.status = status
+        if (statusList.length > 1) fallbackMatchCond.status = dbCmd.in(statusList)
+        else if (status) fallbackMatchCond.status = status
         applyCreateDateRange(fallbackMatchCond, startDate, endDate)
 
         // 在不改变最终结果的前提下，把「可索引且与 JS 谓词完全等价」的等值条件下推到 DB，
@@ -2996,7 +3039,7 @@ module.exports = {
 
   async listParts(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'view_inventory')
       const showCost = canViewPartCost(currentAdmin)
       const { keyword = '', stockStatus = '', enabled, page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
@@ -3036,7 +3079,7 @@ module.exports = {
 
   async exportParts(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'export_inventory')
       const showCost = canViewPartCost(currentAdmin)
       const { keyword = '', stockStatus = '', enabled = '', startDate = '', endDate = '' } = pickParam(this, params)
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
@@ -3065,7 +3108,8 @@ module.exports = {
 
   async savePart(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'view_inventory')
+      const canEditDetails = hasUserPermission(currentAdmin, 'edit_inventory')
       const showCost = canViewPartCost(currentAdmin)
       const { part = {} } = pickParam(this, params)
       const data = normalizePartInput(part)
@@ -3078,6 +3122,10 @@ module.exports = {
         const oldRes = await db.collection('cicada_parts').doc(partId).get()
         const oldPart = oldRes.data && oldRes.data[0]
         if (!oldPart) return { code: -1, msg: '配件不存在' }
+        assertInventoryDeltaPermission(currentAdmin, oldPart.stock, data.stock)
+        if (!canEditDetails) {
+          Object.assign(data, normalizePartInput(oldPart), { stock: data.stock })
+        }
         // 非 admin/finance 不可修改采购成本：保留原值，防止越权篡改成本
         if (!showCost) data.purchase_cost = Number(oldPart.purchase_cost || 0)
         const updateData = { ...data, update_time: now }
@@ -3100,8 +3148,10 @@ module.exports = {
         return { code: 0, data: mapPartForClient({ _id: partId, ...updateData }, showCost) }
       }
 
+      assertUserPermission(currentAdmin, 'edit_inventory')
       const dup = await db.collection('cicada_parts').where({ part_code: data.part_code }).limit(1).get()
       if (dup.data && dup.data.length) return { code: -1, msg: '配件编码已存在' }
+      assertInventoryDeltaPermission(currentAdmin, 0, data.stock)
       const createData = {
         ...data,
         create_time: now,
@@ -3131,7 +3181,7 @@ module.exports = {
 
   async updatePartStatus(params) {
     try {
-      requireAdminPermission(this, 'manage_inventory')
+      requireAdminPermission(this, 'edit_inventory')
       const { part_id, enabled } = pickParam(this, params)
       if (!part_id) return { code: -1, msg: '缺少配件ID' }
       const updateData = { enabled: Boolean(enabled), update_time: Date.now() }
@@ -3145,7 +3195,7 @@ module.exports = {
 
   async batchUpdatePartStatus(params) {
     try {
-      requireAdminPermission(this, 'manage_inventory')
+      requireAdminPermission(this, 'edit_inventory')
       const { part_ids = [], enabled = false } = pickParam(this, params)
       const ids = [...new Set((Array.isArray(part_ids) ? part_ids : []).map(normalizeText).filter(Boolean))]
       if (!ids.length) return { code: -1, msg: '请选择要操作的配件' }
@@ -3173,13 +3223,14 @@ module.exports = {
 
   async batchImportParts(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'import_inventory')
       const showCost = canViewPartCost(currentAdmin)
       const { rows = [], mode = 'upsert' } = pickParam(this, params)
       if (!Array.isArray(rows) || !rows.length) return { code: -1, msg: '导入数据不能为空' }
       if (rows.length > 1000) return { code: -1, msg: '单次最多导入 1000 条' }
 
       const importMode = ['insert_only', 'upsert', 'stocktake'].includes(mode) ? mode : 'upsert'
+      if (importMode === 'stocktake') assertUserPermission(currentAdmin, 'adjust_inventory')
       const now = Date.now()
       const summary = { total: rows.length, created: 0, updated: 0, skipped: 0, failed: [], mode: importMode }
       const seenCodes = new Set()
@@ -3204,6 +3255,10 @@ module.exports = {
           if (oldPart) partByCode.set(data.part_code, oldPart)
         }
         if (!oldPart) {
+          if (data.stock > 0 && !hasUserPermission(currentAdmin, 'stock_in_inventory')) {
+            summary.failed.push({ row: rowNo, part_code: data.part_code, part_name: data.part_name, reason: '无配件采购入库权限' })
+            continue
+          }
           if (!showCost) data.purchase_cost = 0
           const createData = { ...data, create_time: now, update_time: now }
           let addRes
@@ -3279,7 +3334,7 @@ module.exports = {
 
   async listInventoryFlows(params) {
     try {
-      requireAdminPermission(this, 'manage_inventory')
+      requireAdminPermission(this, 'view_inventory')
       const { part_id = '', order_id = '', page = 1, pageSize = 20 } = pickParam(this, params)
       const pagination = normalizePage(page, pageSize)
       const matchCond = {}
@@ -3302,7 +3357,7 @@ module.exports = {
 
   async useOrderParts(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'stock_out_inventory')
       const { order_id } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const found = await db.collection('cicada_orders').doc(order_id).get()
@@ -3318,7 +3373,7 @@ module.exports = {
   // 分配工程师
   async assignEngineer(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_staff')
+      const currentAdmin = requireAdminPermission(this, 'assign_engineer')
       let order_id, engineer_id
       if (params && params.order_id) {
         ({ order_id, engineer_id } = params)
@@ -3355,7 +3410,7 @@ module.exports = {
   // 更新工单状态
   async updateOrderStatus(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const currentAdmin = requireAdminPermission(this, 'update_order_status')
       let order_id, status
       if (params && params.order_id) {
         ({ order_id, status } = params)
@@ -3426,7 +3481,7 @@ module.exports = {
   // 快递签收只代表包裹到达；工作人员核对设备后在此确认正式入库。
   async confirmInboundArrival(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const currentAdmin = requireAdminPermission(this, 'confirm_inbound_arrival')
       const { order_id } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const found = await db.collection('cicada_orders').doc(order_id).get()
@@ -3478,9 +3533,9 @@ module.exports = {
   // 批量导入物流单：inbound=客户寄入签收，return=后台回寄发货
   async batchImportLogistics(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'import_logistics')
       const { type = 'return', rows, importDate = '' } = pickParam(this, params)
       const importType = type === 'inbound' ? 'inbound' : 'return'
+      const currentAdmin = requireAdminPermission(this, importType === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics')
       const normalizedList = normalizeLogisticsImportRows(rows, importType)
       if (!normalizedList.length) {
         return { code: -1, msg: '导入数据不能为空' }
@@ -3625,7 +3680,7 @@ module.exports = {
   // 批量导入回寄运单号，按工单号匹配并更新回寄物流信息
   async batchImportReturnLogistics(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'import_logistics')
+      const currentAdmin = requireAdminPermission(this, 'import_return_logistics')
       const { rows } = pickParam(this, params)
       const normalizedRows = normalizeImportRows(rows)
       if (!normalizedRows.length) {
@@ -3771,7 +3826,7 @@ module.exports = {
   // 批量回寄发货，按工单编号更新回寄物流并将状态置为已发货
   async batchUpdateShipping(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'import_logistics')
+      const currentAdmin = requireAdminPermission(this, 'record_return_logistics')
       const { shippingList } = pickParam(this, params)
       const normalizedList = normalizeShippingList(shippingList)
       if (!normalizedList.length) {
@@ -3910,7 +3965,7 @@ module.exports = {
   // 更新工单备注：admin_remark 仅后台可见，print_remark 用于随件打印
   async updateRemarks(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_remarks')
+      const currentAdmin = requireAdminPermission(this, 'edit_order_remarks')
       const { orderId, order_id, adminRemark, printRemark } = pickParam(this, params)
       const targetOrderId = order_id || orderId
       if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
@@ -3950,8 +4005,8 @@ module.exports = {
   // 轻量维修记录：只保存工程师的实际作业快照，不触发报价配件出库或库存扣减。
   async saveRepairRecord(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_remarks')
-      const { order_id, orderId, content, parts, photos } = pickParam(this, params)
+      const currentAdmin = requireAdminPermission(this, 'edit_repair_record')
+      const { order_id, orderId, content, parts, products, photos } = pickParam(this, params)
       const targetOrderId = order_id || orderId
       if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
 
@@ -3962,7 +4017,7 @@ module.exports = {
       const normalizedContent = normalizeText(content)
       if (normalizedContent.length > 1000) return { code: -1, msg: '维修说明不能超过1000字' }
       const rawParts = Array.isArray(parts) ? parts : []
-      if (rawParts.length > 30) return { code: -1, msg: '实际使用配件不能超过30项' }
+      if (rawParts.length > 1500) return { code: -1, msg: '实际使用配件汇总不能超过1500项' }
       const normalizedParts = rawParts.map((part = {}) => {
         const quantity = Number(part.quantity)
         if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('配件数量必须为正整数')
@@ -3975,6 +4030,29 @@ module.exports = {
         }
       }).filter(part => part.part_id || part.part_code || part.name)
 
+      const rawProducts = Array.isArray(products) ? products : []
+      if (rawProducts.length > 50) return { code: -1, msg: '产品维修明细不能超过50项' }
+      const normalizedProducts = rawProducts.map((product = {}) => {
+        const productParts = Array.isArray(product.parts) ? product.parts : []
+        if (productParts.length > 30) throw new Error('单个产品的实际使用配件不能超过30项')
+        return {
+          product_id: normalizeText(product.product_id || product.productId || product._id),
+          product_name: normalizeText(product.product_name || product.productName || product.name),
+          product_model: normalizeText(product.product_model || product.productModel || product.model),
+          sn: normalizeText(product.sn || product.device_sn || product.deviceSn),
+          fault: normalizeText(product.fault || product.fault_reason || product.faultReason).slice(0, 1000),
+          received_detail: normalizeText(product.received_detail || product.receivedDetail).slice(0, 1000),
+          repair_action: normalizeText(product.repair_action || product.repairAction).slice(0, 1000),
+          parts: productParts.map((part = {}) => ({
+            part_id: normalizeText(part.part_id || part.partId || part._id),
+            part_code: normalizeText(part.part_code || part.partCode || part.code),
+            name: normalizeText(part.name || part.part_name),
+            model: normalizeText(part.model || part.part_model),
+            quantity: Math.max(1, Number(part.quantity || part.qty || 1) || 1)
+          })).filter(part => part.part_id || part.part_code || part.name)
+        }
+      }).filter(product => product.product_id || product.product_name || product.product_model || product.sn || product.fault || product.received_detail || product.repair_action || product.parts.length)
+
       const rawPhotos = Array.isArray(photos) ? photos : []
       if (rawPhotos.length > 6) return { code: -1, msg: '维修照片最多上传6张' }
       const normalizedPhotos = rawPhotos
@@ -3986,6 +4064,7 @@ module.exports = {
       const repairRecord = {
         content: normalizedContent,
         parts: normalizedParts,
+        products: normalizedProducts,
         photos: normalizedPhotos,
         engineer_id: normalizeText(currentAdmin._id || currentAdmin.id),
         engineer_name: normalizeText(currentAdmin.name || currentAdmin.username || currentAdmin.nickname) || '后台人员',
@@ -4008,7 +4087,7 @@ module.exports = {
   // 保存客户随设备寄入的配件明细和实拍凭证；确认签收由 confirmReceivedParts 单独完成
   async saveReceivedParts(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_remarks')
+      const currentAdmin = requireAdminPermission(this, 'edit_received_parts')
       const { order_id, orderId, parts, photos } = pickParam(this, params)
       const targetOrderId = order_id || orderId
       if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
@@ -4065,7 +4144,7 @@ module.exports = {
   // 将已保存的收货配件明细标记为已签收，记录后台操作人和时间
   async confirmReceivedParts(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const currentAdmin = requireAdminPermission(this, 'confirm_received_parts')
       const { order_id, orderId } = pickParam(this, params)
       const targetOrderId = order_id || orderId
       if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
@@ -4113,7 +4192,7 @@ module.exports = {
   // 保存工单产品/设备信息（后台按 SN 回填后落库），并按新 SN 重算工单在保快照
   async saveOrderItems(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_remarks')
+      const currentAdmin = requireAdminPermission(this, 'edit_order_items')
       const { order_id, orderId, items } = pickParam(this, params)
       const targetOrderId = order_id || orderId
       if (!targetOrderId) return { code: -1, msg: '缺少工单ID' }
@@ -4151,7 +4230,7 @@ module.exports = {
           || nextManualWarrantyStatus !== normalizeText(owned.manual_warranty_status)
           || nextReason !== normalizeText(owned.coverage_reason)
       })
-      if (changesWarrantyEvidence) assertRolePermission(currentAdmin, 'issue_quote')
+      if (changesWarrantyEvidence) assertUserPermission(currentAdmin, 'issue_quote')
 
       // 逐条更新工单项（仅限本工单下的项，按 _id 精确更新）
       for (const item of items) {
@@ -4592,7 +4671,7 @@ module.exports = {
   // 管理员误取消后恢复到取消前状态。旧工单优先从审计事件找回原状态。
   async restoreCancelledOrder(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'update_status')
+      const currentAdmin = requireAdminPermission(this, 'restore_cancelled_order')
       const { order_id } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       return await restoreCancelledOrderById(order_id, currentAdmin)
@@ -4737,7 +4816,7 @@ module.exports = {
   // 没有任何流水的卡单可在人工确认后 reset，再使用 retry 重新扣减库存。
   async recoverOrderInventory(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'manage_inventory')
+      const currentAdmin = requireAdminPermission(this, 'adjust_inventory')
       const { order_id, action = 'inspect', confirm = false } = pickParam(this, params)
       if (!order_id) return { code: -1, msg: '缺少工单ID' }
       const found = await db.collection('cicada_orders').doc(order_id).get()
@@ -5278,7 +5357,7 @@ module.exports = {
   // 售后工程师绩效：统计指定月份各工程师的完工工单数（含负责品类/区域），默认当月
   async getEngineerPerformance(params) {
     try {
-      requireAdminPermission(this, 'manage_staff')
+      requireAdminPermission(this, 'view_engineer_performance')
       const body = pickParam(this, params)
       const now = new Date()
       const year = Number(body.year) || now.getFullYear()
@@ -5391,8 +5470,8 @@ module.exports = {
         unavailable.push('工单待办')
       }
 
-      const addOrderGroup = ({ key, title, severity, roles, filter, description }) => {
-        if (!canViewNotificationGroup(currentAdmin, roles)) return
+      const addOrderGroup = ({ key, title, severity, permissions, filter, description }) => {
+        if (!canViewNotificationGroup(currentAdmin, permissions)) return
         const matched = orders.filter(filter).sort((a, b) => Number(b.update_time || b.create_time || 0) - Number(a.update_time || a.create_time || 0))
         if (!matched.length) return
         groups.push({
@@ -5406,22 +5485,22 @@ module.exports = {
 
       if (!unavailable.length) {
         addOrderGroup({
-          key: 'quote', title: '待报价', severity: 'info', roles: ['admin', 'engineer', 'support'],
+          key: 'quote', title: '待报价', severity: 'info', permissions: ['issue_quote'],
           filter: order => matchesTodoType(order, 'quote'),
           description: order => `当前状态：${getOrderStatusLabel(order.status || '待处理')}`
         })
         addOrderGroup({
-          key: 'payment', title: '待核销', severity: 'warning', roles: ['admin', 'finance'],
+          key: 'payment', title: '待核销', severity: 'warning', permissions: ['confirm_payment'],
           filter: order => matchesTodoType(order, 'payment'),
           description: () => '客户已提交付款凭证，等待核验'
         })
         addOrderGroup({
-          key: 'invoice', title: '待开票', severity: 'warning', roles: ['admin', 'finance'],
+          key: 'invoice', title: '待开票', severity: 'warning', permissions: ['update_invoice'],
           filter: order => matchesTodoType(order, 'invoice'),
           description: () => '客户已提交开票申请，等待处理'
         })
         addOrderGroup({
-          key: 'sla_warning', title: 'SLA 临近超时', severity: 'warning', roles: ['admin', 'engineer', 'support'],
+          key: 'sla_warning', title: 'SLA 临近超时', severity: 'warning', permissions: ['view_order'],
           filter: order => getSlaInfo(order).level === 'warning',
           description: order => {
             const sla = getSlaInfo(order)
@@ -5429,14 +5508,14 @@ module.exports = {
           }
         })
         addOrderGroup({
-          key: 'sla_critical', title: 'SLA 已超时', severity: 'critical', roles: ['admin', 'engineer', 'support'],
+          key: 'sla_critical', title: 'SLA 已超时', severity: 'critical', permissions: ['view_order'],
           filter: order => getSlaInfo(order).level === 'critical',
           description: order => {
             const sla = getSlaInfo(order)
             return `${sla.title || '当前阶段'}已停留 ${sla.dwell_hours} 小时，需优先处理`
           }
         })
-        if (canViewNotificationGroup(currentAdmin, ['admin', 'engineer', 'support'])) {
+        if (canViewNotificationGroup(currentAdmin, ['view_order'])) {
           try {
             const exceptions = await collectLogisticsExceptions(orders)
             if (exceptions.length) {
@@ -5570,9 +5649,10 @@ module.exports = {
   // 物流台账：两段物流（寄出/回寄）汇总，支持分页拉全量导出；超扫描上限返回 truncated
   async getLogisticsLedger(params) {
     try {
-      const currentAdmin = requireAdminPermission(this, 'export_order')
-      const canConfirmArrival = hasRolePermission(currentAdmin.role, 'update_status')
-      const { status = '', keyword = '', startDate = '', endDate = '', page = 1, pageSize = 20 } = pickParam(this, params)
+      const requestParams = pickParam(this, params)
+      const currentAdmin = requireAdminPermission(this, requestParams.forExport === true ? 'export_order' : 'view_order')
+      const canConfirmArrival = hasUserPermission(currentAdmin, 'confirm_inbound_arrival')
+      const { status = '', keyword = '', startDate = '', endDate = '', page = 1, pageSize = 20 } = requestParams
       const pagination = normalizePage(page, pageSize)
       const kw = normalizeText(keyword).toLowerCase()
       const matchCond = { status: dbCmd.neq('cancelled') }

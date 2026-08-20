@@ -2,7 +2,8 @@
   "name": "cicada-admin-kb",
   "version": "1.0.0",
   "dependencies": {
-    "cicada-admin-auth": "file:../common/cicada-admin-auth"
+    "cicada-admin-auth": "file:../common/cicada-admin-auth",
+    "cicada-order-workflow": "file:../common/cicada-order-workflow"
   },
   "cloudfunction-config": {
     "path": "/cicada-admin-kb"

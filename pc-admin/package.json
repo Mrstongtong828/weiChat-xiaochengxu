@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "mock": "node scripts/local-mock-server.mjs",
+    "test": "node --test",
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "vite build",
+    "postbuild": "node scripts/check-build-output.mjs",
     "preview": "vite preview",
     "check:urls": "node scripts/check-admin-urls.mjs",
     "check:staff": "node scripts/check-admin-staff.mjs",

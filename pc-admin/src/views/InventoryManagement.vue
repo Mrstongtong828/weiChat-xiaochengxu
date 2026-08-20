@@ -6,21 +6,21 @@
         <p class="section-desc">维护报价可选配件、库存预警和出入库流水，避免维修报价后才发现缺货。</p>
       </div>
       <div class="title-actions">
-        <el-button size="small" @click="downloadTemplate">
+        <el-button v-if="canImport" size="small" @click="downloadTemplate">
           下载模板
         </el-button>
-        <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+        <el-date-picker v-if="canExport" v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
           start-placeholder="建档开始" end-placeholder="建档结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="export-date-range" />
-        <el-button size="small" :loading="exporting" @click="exportInventory">
+        <el-button v-if="canExport" size="small" :loading="exporting" @click="exportInventory">
           <el-icon><Download /></el-icon> 导出库存
         </el-button>
-        <el-button size="small" type="primary" plain @click="openImportDialog">
+        <el-button v-if="canImport" size="small" type="primary" plain @click="openImportDialog">
           <el-icon><Upload /></el-icon> 批量导入
         </el-button>
-        <el-button size="small" plain :loading="importingSamples" @click="importSampleParts">
+        <el-button v-if="canEdit" size="small" plain :loading="importingSamples" @click="importSampleParts">
           <el-icon><Upload /></el-icon> 导入示例配件
         </el-button>
-        <el-button type="primary" size="small" @click="openPartDialog(null)">
+        <el-button v-if="canEdit" type="primary" size="small" @click="openPartDialog(null)">
           <el-icon><Plus /></el-icon> 新增配件
         </el-button>
       </div>
@@ -34,7 +34,7 @@
       </el-select>
       <el-button type="primary" plain @click="loadParts">查询</el-button>
       <span v-if="selectedParts.length" class="selection-count">已选 {{ selectedParts.length }} 个</span>
-      <el-button
+      <el-button v-if="canEdit"
         type="warning"
         plain
         :disabled="!selectedEnabledParts.length"
@@ -53,7 +53,7 @@
             <span>点击“新增配件”手工录入，或导入常用牙科仪器检修配件示例，后续报价弹窗会自动引用库存和售价。</span>
           </div>
         </template>
-        <el-table-column type="selection" width="46"></el-table-column>
+        <el-table-column v-if="canEdit" type="selection" width="46"></el-table-column>
         <el-table-column prop="part_code" label="配件编码" width="180" show-overflow-tooltip></el-table-column>
         <el-table-column prop="part_name" label="配件名称" min-width="160" show-overflow-tooltip>
           <template #default="{ row }"><span class="cell-primary">{{ row.part_name || '-' }}</span></template>
@@ -77,12 +77,12 @@
         </el-table-column>
         <el-table-column label="状态" width="130">
           <template #default="{ row }">
-            <el-switch v-model="row.enabled" active-text="启用" inactive-text="禁用" @change="togglePart(row)"></el-switch>
+            <el-switch v-model="row.enabled" :disabled="!canEdit" active-text="启用" inactive-text="禁用" @change="togglePart(row)"></el-switch>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="150" align="right" fixed="right">
           <template #default="{ row }">
-            <el-button type="primary" link @click="openPartDialog(row)">编辑</el-button>
+            <el-button v-if="canEdit || canAdjust" type="primary" link @click="openPartDialog(row)">{{ canEdit ? '编辑' : '库存' }}</el-button>
             <el-button type="info" link @click="openFlowDialog(row)">流水</el-button>
           </template>
         </el-table-column>
@@ -100,17 +100,17 @@
 
     <el-dialog v-model="partDialogVisible" :title="partForm._id ? '编辑配件' : '新增配件'" width="620px" align-center>
       <el-form :model="partForm" label-width="96px">
-        <el-form-item label="配件编码"><el-input v-model.trim="partForm.part_code" placeholder="如 PART-HANDPIECE-BEARING"></el-input></el-form-item>
-        <el-form-item label="配件名称"><el-input v-model.trim="partForm.part_name" placeholder="请输入配件名称"></el-input></el-form-item>
-        <el-form-item label="型号"><el-input v-model.trim="partForm.model" placeholder="请输入型号"></el-input></el-form-item>
+        <el-form-item label="配件编码"><el-input v-model.trim="partForm.part_code" :disabled="!canEdit" placeholder="如 PART-HANDPIECE-BEARING"></el-input></el-form-item>
+        <el-form-item label="配件名称"><el-input v-model.trim="partForm.part_name" :disabled="!canEdit" placeholder="请输入配件名称"></el-input></el-form-item>
+        <el-form-item label="型号"><el-input v-model.trim="partForm.model" :disabled="!canEdit" placeholder="请输入型号"></el-input></el-form-item>
         <el-form-item label="适配机型">
-          <el-select v-model="partForm.compatible_models" multiple filterable allow-create default-first-option style="width:100%;" placeholder="输入后回车添加"></el-select>
+          <el-select v-model="partForm.compatible_models" :disabled="!canEdit" multiple filterable allow-create default-first-option style="width:100%;" placeholder="输入后回车添加"></el-select>
         </el-form-item>
-        <el-form-item v-if="canViewCost" label="采购成本"><el-input-number v-model="partForm.purchase_cost" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
-        <el-form-item label="销售单价"><el-input-number v-model="partForm.sale_price" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
-        <el-form-item label="当前库存"><el-input-number v-model="partForm.stock" :min="0" :precision="0" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
-        <el-form-item label="预警阈值"><el-input-number v-model="partForm.warning_threshold" :min="0" :precision="0" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
-        <el-form-item label="备注"><el-input v-model="partForm.remark" type="textarea" :rows="2"></el-input></el-form-item>
+        <el-form-item v-if="canViewCost" label="采购成本"><el-input-number v-model="partForm.purchase_cost" :disabled="!canEdit" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
+        <el-form-item label="销售单价"><el-input-number v-model="partForm.sale_price" :disabled="!canEdit" :min="0" :precision="2" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
+        <el-form-item label="当前库存"><el-input-number v-model="partForm.stock" :disabled="!canAdjust" :min="0" :precision="0" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
+        <el-form-item label="预警阈值"><el-input-number v-model="partForm.warning_threshold" :disabled="!canEdit" :min="0" :precision="0" controls-position="right" style="width:100%;"></el-input-number></el-form-item>
+        <el-form-item label="备注"><el-input v-model="partForm.remark" :disabled="!canEdit" type="textarea" :rows="2"></el-input></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="partDialogVisible = false">取消</el-button>
@@ -187,15 +187,22 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch, onMounted } from 'vue'
+import { computed, reactive, ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { CircleClose } from '@element-plus/icons-vue'
 import { batchImportParts, batchUpdatePartStatus, exportParts, getPartList, savePart, updatePartStatus, getInventoryFlows } from '../api/inventory.js'
-import { getCurrentAdminRole } from '../config/menuAccess.js'
+import { hasPermission, shouldDisplayLocalError } from '../utils/permissions.js'
 import { downloadPartImportTemplate, exportPartsWorkbook, parsePartExcelFile } from '../utils/inventoryExcel.js'
 import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
+import { createLatestTask } from '../utils/latestTask.js'
+import { getAdminToken } from '../utils/adminSession.js'
 
 // 采购成本仅 admin/finance 可见可编辑（后端亦已对其他角色脱敏，前端同步隐藏）
-const canViewCost = ['superadmin', 'admin', 'finance'].includes(getCurrentAdminRole())
+const canViewCost = hasPermission('view_inventory_cost')
+const canEdit = hasPermission('edit_inventory')
+const canImport = hasPermission('import_inventory')
+const canExport = hasPermission('export_inventory')
+const canAdjust = ['stock_in_inventory', 'stock_out_inventory', 'adjust_inventory'].some(hasPermission)
 
 const parts = ref([])
 const flows = ref([])
@@ -265,7 +272,8 @@ const importModeHelp = computed(() => {
 
 const selectedEnabledParts = computed(() => selectedParts.value.filter(row => row.enabled !== false))
 
-const getToken = () => localStorage.getItem('adminToken')
+const getToken = getAdminToken
+const partListTask = createLatestTask()
 const formatTime = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
 
 const resetForm = (row = null) => {
@@ -284,19 +292,25 @@ const resetForm = (row = null) => {
 const loadParts = async () => {
   selectedParts.value = []
   loading.value = true
+  let ownsLoading = true
   try {
-    const data = await getPartList(getToken(), {
+    const result = await partListTask.run(() => getPartList(getToken(), {
       keyword: filters.keyword,
       stockStatus: filters.stockStatus,
       page: page.value,
       pageSize: pageSize.value
-    })
+    }))
+    if (!result.accepted) {
+      ownsLoading = false
+      return
+    }
+    const data = result.value
     parts.value = data.list || []
     total.value = Number(data.total || 0)
   } catch (error) {
-    ElMessage.error(error.message || '配件列表加载失败')
+    if (shouldDisplayLocalError(error)) ElMessage.error(error.message || '配件列表加载失败')
   } finally {
-    loading.value = false
+    if (ownsLoading) loading.value = false
   }
 }
 
@@ -499,6 +513,7 @@ const openFlowDialog = async (row) => {
 
 watch([page, pageSize], loadParts)
 onMounted(loadParts)
+onBeforeUnmount(() => partListTask.cancel())
 </script>
 
 <style scoped>

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Multi-platform dental equipment repair management system ("牙医仪器检修"). Two frontends share one uniCloud (Alipay Cloud) serverless backend:
 
 1. **Mini Program (client-facing)** — uni-app + Vue 3, primarily WeChat Mini Program. Customers submit repair orders and track progress. Calls cloud functions directly via `uniCloud.callFunction()`.
-2. **PC Admin Dashboard** (`pc-admin/`) — Vue 3 + Vite + Element Plus + Pinia. Staff (admin/engineer/finance/support) manage orders, customers, knowledge base, and settings. Calls cloud functions over HTTP (云函数 URL 化) via axios.
+2. **PC Admin Dashboard** (`pc-admin/`) — Vue 3 + Vite + Element Plus + Pinia. Staff (admin/engineer/finance/support/maintenance) manage orders, customers, knowledge base, and settings. Calls cloud functions over HTTP (云函数 URL 化) via axios.
 
 ## Repository Layout — read this first
 
@@ -52,18 +52,18 @@ Cloud functions live in `docte-master/uniCloud-alipay/cloudfunctions/`, organize
 
 ### Shared logic: `cloudfunctions/common/cicada-order-workflow`
 
-A shared module (required by admin functions) that is the **single source of truth** for the order state machine and RBAC. It exports `ORDER_STATUS`, `ORDER_STATUS_LABELS`, `ORDER_STATUS_TRANSITIONS`, `ROLE_LABELS`, `ALL_ROLES`, and the `PERMISSIONS` map. When changing statuses, transitions, roles, or who-can-do-what, edit this module — do not hardcode these in individual functions.
+A shared module (required by admin functions) that is the **single source of truth** for the order state machine and RBAC. It exports the order workflow constants plus `PERMISSION_DEFINITIONS`, `ROLE_PERMISSION_TEMPLATES`, `getEffectivePermissions(user)`, and account-level permission helpers. The legacy `PERMISSIONS` role map remains only for compatibility. When changing statuses, transitions, roles, or who-can-do-what, edit this module and the `cicada-admin-order` fallback together — do not hardcode authorization in individual functions.
 
 **Order status machine** (`ORDER_STATUS_TRANSITIONS`):
 `pending → sent/received/cancelled`, `sent → received/cancelled`, `received → inspecting/fixing/shipped/cancelled`, `inspecting → fixing/shipped/cancelled`, `fixing → shipped/completed/cancelled`, `shipped → completed`, `completed`/`cancelled` are terminal. The direct `received → shipped` path is restricted by the admin prerequisite to rejected-quote returns, and return logistics is still required.
 
-### RBAC model (this is `feat/rbac-enhancements`'s focus)
+### RBAC model
 
 Two distinct role spaces:
 - **Mini-program users**: `client` (customers). Stored in `cicada_users`.
-- **Staff** (`ALL_ROLES`): `admin` (管理员), `engineer` (工程师), `finance` (财务), `support` (客服). PC Admin only. `superadmin` (超级管理员) sits above these — it is **not** in `ALL_ROLES` but is always authorized (treated like `admin`, plus unconditional `isSuperAdmin` passes in `cicada-order-workflow`). Frontend menu gating lives in `pc-admin/src/config/menuAccess.js` (`MENU_ROLES` per view; `superadmin` always allowed, unlisted views default-allow) — keep it in sync with the backend `PERMISSIONS` map.
+- **Staff** (`ALL_ROLES`): `superadmin` (超级管理员), `admin` (管理员), `engineer` (工程师), `finance` (财务), `support` (客服), `maintenance` (后台维护人员). PC Admin only. `admin` and `superadmin` always receive every registered permission; other staff use an explicit `permissions` array when present and otherwise fall back to their role template. Mini-program users remain `client`/`user` and are outside this staff permission model. `maintenance` defaults to basic dashboard/order/inventory/customer reads plus knowledge-base and system-settings maintenance.
 
-Permissions are gated by the `PERMISSIONS` map in `cicada-order-workflow`, e.g. `confirm_payment`/`update_invoice`/`view_payment_proof` → `admin`+`finance`; `update_status`/`issue_quote`/`manage_kb` → `admin`+`engineer`; `manage_staff`/`manage_settings` → `admin` only; `update_remarks`/`add_timeline` → `admin`+`engineer`+`support`. Admin functions authorize via `verifyAdminToken(token, allowedRoles)`. The frontend mirrors this gating (login returns role flags `isAdmin/isEngineer/isFinance/isSupport`); keep both sides in sync.
+Admin cloud objects authorize business actions with the full current user and `hasUserPermission`/`assertUserPermission`; do not authorize a new or migrated endpoint from `role` alone. Login and `getMyPermissions` return the effective permission list. Frontend menu gating lives in `pc-admin/src/config/menuAccess.js` (`MENU_PERMISSIONS`), while page buttons use `pc-admin/src/utils/permissions.js`; both are convenience gates and must mirror backend checks. Inventory receiving, issuing, and stocktake are separate permissions, as are staff viewing, creation, editing, enable/disable, and password reset.
 
 ### Database collections (all prefixed `cicada_`)
 

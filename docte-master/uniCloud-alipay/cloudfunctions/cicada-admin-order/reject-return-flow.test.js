@@ -18,13 +18,17 @@ let activeOrder = order
 let updatedOrder = null
 
 global.uniCloud = {
+  httpclient: {
+    async request() { return { data: {} } }
+  },
   database() {
     return {
       command: {
         neq: value => ({ neq: value }),
         in: value => ({ in: value }),
         gt: value => ({ gt: value }),
-        or: value => ({ or: value })
+        or: value => ({ or: value }),
+        push: value => ({ push: value })
       },
       collection(name) {
         if (name === 'cicada_orders') {
@@ -111,7 +115,7 @@ test('未确认方案的正常已签收维修单不能直接回寄', async () =>
     shippingList: [{ orderNo: 'DR-1', returnCompany: '顺丰速运', returnNo: 'SF123456789012' }]
   })
 
-  assert.equal(result.code, 0)
+  assert.equal(result.code, 0, result.msg)
   assert.equal(result.data.success, 0)
   assert.equal(result.data.errors[0].reason, '维修前必须先确认维修方案')
   assert.equal(updatedOrder, null)
@@ -196,7 +200,7 @@ test('拒修设备回寄后结案会推进为已归档', async () => {
     status: 'completed'
   })
 
-  assert.equal(result.code, 0)
+  assert.equal(result.code, 0, result.msg)
   assert.equal(updatedOrder.status, 'completed')
   assert.equal(updatedOrder.needs_return, false)
   assert.equal(updatedOrder.archive_status, 'archived')

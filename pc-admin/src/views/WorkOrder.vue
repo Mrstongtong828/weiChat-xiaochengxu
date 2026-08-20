@@ -68,7 +68,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-tooltip content="按当前筛选条件导出工单表格" placement="top">
+        <el-tooltip v-if="canPerformOrderAction('export_order')" content="按当前筛选条件导出工单表格" placement="top">
           <el-button type="primary" class="top-btn-text" @click="openExportDialog"><el-icon><Download /></el-icon> 导出</el-button>
         </el-tooltip>
         <el-popover placement="bottom-end" trigger="click" width="360" :teleported="false">
@@ -303,7 +303,7 @@
               <el-tooltip content="打开工单详情，处理报价、付款、物流、发票和结案" placement="top">
                 <el-button type="primary" link @click="openDrawer(row)">处理</el-button>
               </el-tooltip>
-              <el-tooltip v-if="canPerformOrderAction('update_remarks')" :content="getRemarkTooltip(row)" placement="top">
+              <el-tooltip v-if="canPerformOrderAction('edit_order_remarks')" :content="getRemarkTooltip(row)" placement="top">
                 <el-button
                   type="primary"
                   link
@@ -461,7 +461,7 @@
                   <div class="drawer-info-item is-wide">
                     <span>负责工程师</span>
                     <div class="assign-engineer-row">
-                      <template v-if="canPerformOrderAction('manage_staff')">
+                      <template v-if="canPerformOrderAction('assign_engineer')">
                         <el-select
                           v-model="assignEngineerId"
                           :placeholder="engineerOptions.length ? '选择工程师' : '暂无工程师账号'"
@@ -664,8 +664,8 @@
                   <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
                 </div>
                 <div class="received-parts-footer">
-                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_remarks')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
-                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_status')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('edit_received_parts')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('confirm_received_parts')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
                 </div>
               </div>
             </div>
@@ -1070,7 +1070,7 @@
                   配件出库：{{ currentOrder.inventoryStatus === 'outbound_processing' ? '处理中' : '失败' }}
                 </span>
                 <el-button
-                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('manage_inventory')"
+                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('adjust_inventory')"
                   type="warning"
                   size="small"
                   plain
@@ -1216,44 +1216,43 @@
                 :closable="false"
                 show-icon
               />
-              <div class="repair-record-field">
-                <strong>实际维修说明</strong>
-                <el-input
-                  v-model="repairRecordForm.content"
-                  type="textarea"
-                  :rows="4"
-                  maxlength="1000"
-                  show-word-limit
-                  placeholder="填写本次维修处理内容，例如故障原因、维修项目和测试结果"
-                />
+              <div class="repair-product-toolbar">
+                <span class="section-helper">每个产品分别记录故障、收货情况、维修措施和实际使用配件。</span>
+                <el-button v-if="canPerformOrderAction('edit_repair_record')" type="primary" plain size="small" @click="addRepairProduct"><el-icon><Plus /></el-icon>新增产品</el-button>
               </div>
-              <div class="repair-record-field">
-                <div class="repair-parts-head">
-                  <div>
-                    <strong>实际使用配件</strong>
-                    <span class="section-helper">记录工程师本次实际用料，不会再次扣减库存。</span>
-                  </div>
-                  <div v-if="canPerformOrderAction('update_remarks')" class="repair-parts-actions">
-                    <el-button v-if="canPerformOrderAction('manage_inventory')" size="small" plain @click="openPartPicker('repair')"><el-icon><Box /></el-icon>从库存选择</el-button>
-                    <el-button size="small" type="primary" plain @click="addManualRepairPart"><el-icon><Plus /></el-icon>手动添加</el-button>
-                  </div>
+              <div v-for="(product, productIndex) in repairRecordForm.products" :key="product.key" class="repair-product-record">
+                <div class="repair-product-record-head">
+                  <strong>产品 {{ productIndex + 1 }}：{{ product.productName || '未命名产品' }}</strong>
+                  <el-button v-if="canPerformOrderAction('edit_repair_record') && product.source === 'manual'" link type="danger" size="small" @click="removeRepairProduct(productIndex)">移除产品</el-button>
                 </div>
-                <div v-if="repairRecordForm.parts.length" class="repair-parts-list">
-                  <div class="repair-part-columns" aria-hidden="true"><span>使用</span><span>配件名称</span><span>配件编码</span><span>型号/规格</span><span>数量</span><span></span></div>
-                  <div v-for="(part, index) in repairRecordForm.parts" :key="part.key" class="repair-part-row">
-                    <el-checkbox v-model="part.used" aria-label="实际使用"></el-checkbox>
-                    <el-input v-model="part.name" maxlength="120" placeholder="配件名称" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-input v-model="part.partCode" class="repair-part-meta-input" maxlength="80" placeholder="编码（选填）" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-input v-model="part.model" class="repair-part-meta-input" maxlength="120" placeholder="型号/规格（选填）" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" :disabled="!canPerformOrderAction('update_remarks')" />
-                    <el-tooltip content="删除配件" placement="top">
-                      <el-button v-if="canPerformOrderAction('update_remarks')" link type="danger" aria-label="删除配件" @click="removeRepairPart(index)"><el-icon><Delete /></el-icon></el-button>
-                    </el-tooltip>
-                  </div>
+                <div class="repair-product-meta-grid">
+                  <el-input v-model="product.productName" maxlength="120" placeholder="产品名称" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <el-input v-model="product.model" maxlength="120" placeholder="型号" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <el-input v-model="product.sn" maxlength="120" placeholder="编号/SN（选填）" :disabled="!canPerformOrderAction('edit_repair_record')" />
                 </div>
-                <div v-else class="repair-parts-empty">
-                  <span>还没有记录实际用料</span>
-                  <small>可从库存带入配件，也可手动填写临时配件。</small>
+                <div class="repair-record-field"><strong>故障现象</strong><el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品的故障现象" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field"><strong>收货明细</strong><el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品实际收到的附件、外观和数量" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field"><strong>维修措施</strong><el-input v-model="product.repairAction" type="textarea" :rows="3" maxlength="1000" placeholder="填写该产品的维修项目、处理过程和测试结果" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field">
+                  <div class="repair-parts-head">
+                    <div><strong>使用配件</strong><span class="section-helper">配件只记录到当前产品，不会再次扣减库存。</span></div>
+                    <div v-if="canPerformOrderAction('edit_repair_record')" class="repair-parts-actions">
+                      <el-button v-if="canPerformOrderAction('view_inventory')" size="small" plain @click="openPartPicker('repair', productIndex)"><el-icon><Box /></el-icon>从库存选择</el-button>
+                      <el-button size="small" type="primary" plain @click="addManualRepairPart(productIndex)"><el-icon><Plus /></el-icon>手动添加</el-button>
+                    </div>
+                  </div>
+                  <div v-if="product.parts.length" class="repair-parts-list">
+                    <div class="repair-part-columns" aria-hidden="true"><span>使用</span><span>配件名称</span><span>配件编码</span><span>型号/规格</span><span>数量</span><span></span></div>
+                    <div v-for="(part, partIndex) in product.parts" :key="part.key" class="repair-part-row">
+                      <el-checkbox v-model="part.used" aria-label="实际使用" :disabled="!canPerformOrderAction('edit_repair_record')"></el-checkbox>
+                      <el-input v-model="part.name" maxlength="120" placeholder="配件名称" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input v-model="part.partCode" class="repair-part-meta-input" maxlength="80" placeholder="编码（选填）" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input v-model="part.model" class="repair-part-meta-input" maxlength="120" placeholder="型号/规格（选填）" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-button v-if="canPerformOrderAction('edit_repair_record')" link type="danger" aria-label="删除配件" @click="removeRepairPart(productIndex, partIndex)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                  </div>
+                  <div v-else class="repair-parts-empty"><span>该产品还没有记录实际用料</span><small>可从库存带入，也可手动填写临时配件。</small></div>
                 </div>
               </div>
               <div class="repair-record-field">
@@ -1271,7 +1270,7 @@
                 </div>
               </div>
               <el-button
-                v-if="canPerformOrderAction('update_remarks')"
+                v-if="canPerformOrderAction('edit_repair_record')"
                 type="primary"
                 size="small"
                 :loading="repairRecordSaving"
@@ -1322,7 +1321,7 @@
                 </div>
               </div>
             </div>
-            <div v-if="canPerformOrderAction('update_status')" class="drawer-section">
+            <div v-if="canPerformOrderAction('update_order_status')" class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">更改工单进度</p>
                 <el-tag type="info" size="small">{{ getNextAction(currentOrder).label }}</el-tag>
@@ -1432,7 +1431,7 @@
             </template>
           </el-dropdown>
           <el-button @click="drawerVisible=false">关闭</el-button>
-          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
+          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_order_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
             <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">推进至{{ newStatus }}</el-button>
           </el-tooltip>
         </div>
@@ -1857,19 +1856,21 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
+import { CirclePlus, DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
 import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
-import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
+import { formatOrderAttachments } from '../modules/workOrders/exportFields.js'
 import { createCurrentMonthRange, dateRangeShortcuts, formatLocalDate, toApiDateRange } from '../utils/dateRange.js'
+import { getAdminToken } from '../utils/adminSession.js'
+import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
+import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
-import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
-import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
+import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { getQuotePublishPresentation, isManualWarrantyFreeItem, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
 import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
@@ -2206,6 +2207,13 @@ const getPaymentPreviewList = (proofs = []) => {
 }
 
 const loading = ref(false)
+const workOrderQuery = createWorkOrderQuery({
+  fetchPage: getOrderList,
+  transform: transformOrders,
+  toStatus: toEnglishStatus,
+  resolveCustomerType: resolveCustomerTypeValue,
+  toDateRange: toApiDateRange
+})
 const importing = ref(false)
 const quickStatusLoading = ref(false)
 const restoringOrderId = ref('')
@@ -2220,87 +2228,13 @@ const todoTypeMap = {
   exception: '异常工单'
 }
 
-const createManualOrderItem = () => ({
-  key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  product_name: '',
-  product_category: '',
-  product_model: '',
-  sn: '',
-  buy_date: '',
-  warranty_start_date: '',
-  invoice_received_date: '',
-  manufacture_date: '',
-  warranty_months: 0,
-  warranty_expire: '',
-  fault_desc: '',
-  lookupLoading: false
-})
-
-const todayDateString = () => new Date().toISOString().slice(0, 10)
-
 const createOrderDialogVisible = ref(false)
 const createOrderSubmitting = ref(false)
 const createOrderFormRef = ref(null)
-const createOrderForm = reactive({
-  received_date: todayDateString(),
-  customer: {
-    customer_id: '',
-    customer_type: 'clinic',
-    name: '',
-    contact: '',
-    phone: '',
-    address: '',
-    biz_user: ''
-  },
-  status: 'received',
-  ship_out_info: {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: '',
-    logistics_company: '',
-    logistics_no: '',
-    received_at: ''
-  },
-  ship_back_info: {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: ''
-  },
-  items: [createManualOrderItem()],
-  admin_remark: ''
-})
+const createOrderForm = reactive(createManualOrderDraft())
 
 const resetCreateOrderForm = () => {
-  createOrderForm.received_date = todayDateString()
-  Object.assign(createOrderForm.customer, {
-    customer_id: '',
-    customer_type: 'clinic',
-    name: '',
-    contact: '',
-    phone: '',
-    address: '',
-    biz_user: ''
-  })
-  createOrderForm.status = 'received'
-  Object.assign(createOrderForm.ship_out_info, {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: '',
-    logistics_company: '',
-    logistics_no: '',
-    received_at: ''
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: ''
-  })
-  createOrderForm.items = [createManualOrderItem()]
-  createOrderForm.admin_remark = ''
+  Object.assign(createOrderForm, createManualOrderDraft())
   createOrderFormRef.value?.clearValidate()
 }
 
@@ -2321,39 +2255,6 @@ const onCreateOrderProductNameChange = (item) => {
 const removeCreateOrderItem = (index) => {
   if (createOrderForm.items.length <= 1) return
   createOrderForm.items.splice(index, 1)
-}
-
-const fillCreateOrderShipping = () => {
-  const { name, contact, phone, address } = createOrderForm.customer
-  Object.assign(createOrderForm.ship_out_info, {
-    name: contact || createOrderForm.ship_out_info.name,
-    phone: phone || createOrderForm.ship_out_info.phone,
-    unit: name || createOrderForm.ship_out_info.unit,
-    detail: address || createOrderForm.ship_out_info.detail
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: contact || createOrderForm.ship_back_info.name,
-    phone: phone || createOrderForm.ship_back_info.phone,
-    unit: name || createOrderForm.ship_back_info.unit,
-    detail: address || createOrderForm.ship_back_info.detail
-  })
-}
-
-const syncCreateOrderShipping = () => {
-  const { name, contact, phone, address } = createOrderForm.customer
-  Object.assign(createOrderForm.ship_out_info, {
-    name: contact,
-    phone,
-    unit: name,
-    detail: address,
-    received_at: createOrderForm.received_date
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: contact,
-    phone,
-    unit: name,
-    detail: address
-  })
 }
 
 const lookupCreateOrderItemBySn = async (item) => {
@@ -2390,56 +2291,17 @@ const lookupCreateOrderItemBySn = async (item) => {
   }
 }
 
-const validateCreateOrderForm = () => {
-  syncCreateOrderShipping()
-  const customer = createOrderForm.customer
-  const customerType = resolveCustomerTypeValue(customer.customer_type)
-  if (!customerType) return '请选择或输入客户类型'
-  if (customerType.length > 40) return '客户类型不能超过 40 个字符'
-  customer.customer_type = customerType
-  if (!customer.name.trim()) return '请填写客户/单位名称'
-  if (!customer.contact.trim()) return '请填写联系人'
-  if (!/^1\d{10}$/.test(customer.phone.trim())) return '请填写正确的 11 位手机号'
-  if (!customer.address.trim()) return '请填写客户地址'
-  if (!createOrderForm.received_date) return '请选择收件日期'
-  if (!createOrderForm.items.length) return '请至少添加一台维修设备'
-  for (let index = 0; index < createOrderForm.items.length; index += 1) {
-    const item = createOrderForm.items[index]
-    const prefix = `设备 ${index + 1}`
-    if (!item.product_name.trim()) return `${prefix}：请填写产品名称`
-    if (item.product_name.trim().length > 80) return `${prefix}：产品名称不能超过 80 个字符`
-    if (!item.product_model.trim()) return `${prefix}：请填写产品型号`
-    if (item.product_model.trim().length > 80) return `${prefix}：产品型号不能超过 80 个字符`
-    if (!item.sn.trim()) return `${prefix}：请填写设备 SN`
-    if (!item.fault_desc.trim()) return `${prefix}：请填写故障描述`
-  }
-  const out = createOrderForm.ship_out_info
-  const back = createOrderForm.ship_back_info
-  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户名称、联系方式和客户地址'
-  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善客户名称、联系方式和客户地址'
-  if (createOrderForm.status === 'sent' && !out.logistics_no.trim()) return '运输中工单必须填写寄入物流单号'
-  return ''
-}
-
 const submitCreateOrder = async () => {
-  const validationError = validateCreateOrderForm()
-  if (validationError) {
-    ElMessage.warning(validationError)
+  const submission = prepareManualOrderSubmission(createOrderForm, resolveCustomerTypeValue)
+  if (submission.error) {
+    ElMessage.warning(submission.error)
     return
   }
 
   createOrderSubmitting.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const payload = {
-      customer: { ...createOrderForm.customer },
-      status: createOrderForm.status,
-      ship_out_info: { ...createOrderForm.ship_out_info },
-      ship_back_info: { ...createOrderForm.ship_back_info },
-      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item, warranty_months: 12 })),
-      admin_remark: createOrderForm.admin_remark
-    }
-    const result = await createAdminOrder(token, payload)
+    const result = await createAdminOrder(token, submission.payload)
     createOrderDialogVisible.value = false
     wo.page = 1
     await Promise.all([loadOrders(), refreshStatusBreakdown()])
@@ -2625,7 +2487,7 @@ const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
 const expectedBatchDeleteConfirmText = computed(() => `确认删除${deleteTargetOrders.value.length}个工单`)
 const deleteDialogTitle = computed(() => deleteTargetOrders.value.length === 1 ? '删除工单' : '批量删除工单')
-const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
+const activeLogisticsImportLabel = computed(() => activeLogisticsImportType.value === 'inbound' ? '客户寄入签收' : '后台回寄发货')
 const logisticsImportTip = computed(() => {
   return activeLogisticsImportType.value === 'inbound'
     ? '签收单用于客户寄入设备：请填写工单编号、物流公司、物流单号、签收时间，导入后状态更新为已签收。'
@@ -2650,9 +2512,18 @@ const statusSummaryCards = computed(() => {
   ]
 })
 
-const applyStatusFilter = (filter) => {
-  // 状态卡表示用户要查看该状态下的全部工单，不能继续叠加首页带入的待办条件。
+const clearStatusCardConflicts = () => {
+  // 状态卡数字只按创建日期统计；点击后清除未纳入卡片统计口径的筛选，保证数字与列表一致。
+  wo.search = ''
+  searchInvoiceStatus.value = ''
+  wo.warrantyFilter = ''
+  wo.customerTypeFilter = ''
+  slaFilter.value = ''
   activeTodoType.value = ''
+}
+
+const applyStatusFilter = (filter) => {
+  clearStatusCardConflicts()
   wo.filter = wo.filter === filter ? '' : filter
 }
 
@@ -2685,9 +2556,9 @@ const canPerformOrderAction = (action) => {
   return Boolean(workflowConfig.value && workflowConfig.value.permissions && workflowConfig.value.permissions[action])
 }
 
-const canChangeOrderStatus = computed(() => ['admin', 'superadmin'].includes(workflowConfig.value && workflowConfig.value.role))
+const canChangeOrderStatus = computed(() => canPerformOrderAction('update_order_status'))
 
-// ============== 指派工程师（仅 manage_staff 权限，与后端 assignEngineer 同键） ==============
+// ============== 指派工程师（前后端均使用 assign_engineer 权限） ==============
 const engineerOptions = ref([])
 const assignEngineerId = ref('')
 const assigningEngineer = ref(false)
@@ -2792,10 +2663,13 @@ const getReturnShipmentBlockReason = (order = {}) => {
 }
 
 const getAllowedStatusOptions = (order = {}) => {
-  if (!order || !canChangeOrderStatus.value) return []
+  if (!order || (!canChangeOrderStatus.value && !canPerformOrderAction('record_return_logistics'))) return []
   const currentStatus = getOrderStatusValue(order)
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
   return transitions.filter(targetStatus => {
+    if (targetStatus === 'shipped') {
+      if (!canPerformOrderAction('record_return_logistics') && !canChangeOrderStatus.value) return false
+    } else if (!canChangeOrderStatus.value) return false
     if (targetStatus === 'sent' && currentStatus === 'pending' && !order.logisticsNo) return false
     if (targetStatus === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
       const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
@@ -2843,13 +2717,13 @@ const getManualStatusOptions = (order = {}) => {
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
 const canRecordReturnLogistics = computed(() => (
   Boolean(currentOrder.value)
-  && canPerformOrderAction('import_logistics')
+  && canPerformOrderAction('record_return_logistics')
   && !currentOrder.value.returnNo
   && canMoveOrderToStatus(currentOrder.value, '已回寄')
 ))
 const returnLogisticsHint = computed(() => {
   if (!currentOrder.value) return '请选择工单'
-  if (!canPerformOrderAction('import_logistics')) return '当前角色无权录入回寄物流'
+  if (!canPerformOrderAction('record_return_logistics')) return '当前账号无权录入回寄物流'
   if (currentOrder.value.returnNo) return '回寄物流已录入，等待结案'
   if (canRecordReturnLogistics.value) return '填写物流公司和回寄单号后，工单将更新为已回寄'
   return getReturnShipmentBlockReason(currentOrder.value) || '当前工单不可回寄'
@@ -2860,65 +2734,46 @@ const getTransitionableOrders = (status, source = selectedOrders.value) => {
 }
 
 const hasBatchStatusOptions = computed(() => {
-  return canPerformOrderAction('update_status') &&
+  return canPerformOrderAction('update_order_status') &&
     selectedOrders.value.some(order => canMoveOrderToStatus(order, '处理中') || canMoveOrderToStatus(order, '已完成'))
+})
+
+const getOrderQueryState = () => ({
+  filter: wo.filter,
+  page: wo.page,
+  pageSize: wo.pageSize,
+  search: wo.search,
+  invoiceStatus: searchInvoiceStatus.value,
+  warrantyFilter: wo.warrantyFilter,
+  customerTypeFilter: wo.customerTypeFilter,
+  todoType: activeTodoType.value,
+  slaLevel: slaFilter.value,
+  dateRange: listDateRange.value
 })
 
 const loadOrders = async () => {
   loading.value = true
+  let ownsLoading = true
   try {
-    const token = localStorage.getItem('adminToken')
-    const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
-    const data = await getOrderList(token, statusFilter, wo.page, wo.pageSize, {
-      keyword: wo.search.trim(),
-      invoiceStatus: searchInvoiceStatus.value,
-      warrantyStatus: wo.warrantyFilter,
-      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
-      todoType: activeTodoType.value,
-      slaLevel: slaFilter.value,
-      ...toApiDateRange(listDateRange.value),
-      responseMode: 'page'
-    })
-    const list = Array.isArray(data) ? data : (data.list || [])
-    orders.value = transformOrders(list)
-    totalOrders.value = Array.isArray(data) ? orders.value.length : Number(data.total || 0)
+    const result = await workOrderQuery.loadPage(getAdminToken(), getOrderQueryState())
+    if (!result.accepted) {
+      ownsLoading = false
+      return
+    }
+    orders.value = result.rows
+    totalOrders.value = result.total
     selectedOrders.value = []
   } catch (error) {
     orders.value = []
     totalOrders.value = 0
-    ElMessage.error(error.message || '工单列表加载失败')
+    if (!error.__displayed) ElMessage.error(error.message || '工单列表加载失败')
   } finally {
-    loading.value = false
+    if (ownsLoading) loading.value = false
   }
 }
 
 const fetchAllFilteredOrders = async (dateRange = null) => {
-  const token = localStorage.getItem('adminToken')
-  const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
-  const pageSize = 100
-  let page = 1
-  let total = 0
-  const allOrders = []
-
-  while (true) {
-    const data = await getOrderList(token, statusFilter, page, pageSize, {
-      keyword: wo.search.trim(),
-      invoiceStatus: searchInvoiceStatus.value,
-      warrantyStatus: wo.warrantyFilter,
-      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
-      todoType: activeTodoType.value,
-      slaLevel: slaFilter.value,
-      ...toApiDateRange(dateRange),
-      responseMode: 'page'
-    })
-    const list = Array.isArray(data) ? data : (data.list || [])
-    total = Number((Array.isArray(data) ? list.length : data.total) || 0)
-    allOrders.push(...transformOrders(list))
-    if (allOrders.length >= total || list.length < pageSize) break
-    page += 1
-  }
-
-  return allOrders
+  return workOrderQuery.loadAll(getAdminToken(), getOrderQueryState(), dateRange)
 }
 
 const wo = reactive({ search: '', filter: '', warrantyFilter: '', customerTypeFilter: '', page: 1, pageSize: 10 })
@@ -2954,13 +2809,14 @@ onMounted(async () => {
   } catch (error) {
     ElMessage.error(error.message || '工单权限配置加载失败')
   }
-  // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
-  if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
+  // 工程师列表仅在拥有指派权限时请求
+  if (canPerformOrderAction('assign_engineer')) loadEngineerOptions()
   loadOrders()
   refreshStatusBreakdown()
 })
 
 onBeforeUnmount(() => {
+  workOrderQuery.cancel()
   window.removeEventListener('resize', updateIsMobile)
 })
 
@@ -3080,7 +2936,7 @@ const canManuallyRegisterInvoice = computed(() => (
 const remarkSaving = ref(false)
 const repairRecordSaving = ref(false)
 const repairPhotoUploading = ref(false)
-const repairRecordForm = reactive({ content: '', parts: [], photos: [] })
+const repairRecordForm = reactive({ content: '', products: [], photos: [] })
 const receivedPartsSaving = ref(false)
 const receivedPartsConfirming = ref(false)
 const receivedPartPhotoUploading = ref(false)
@@ -3095,6 +2951,7 @@ const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
 const pickerParts = ref([])
 const partPickerTarget = ref('quote')
+const repairProductPickerIndex = ref(-1)
 const logisticsCompanyOptions = [
   '顺丰速运',
   '京东物流',
@@ -3114,7 +2971,7 @@ const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
 
 const hasRepairRecord = computed(() => Boolean(
   repairRecordForm.content.trim()
-  || repairRecordForm.parts.some(part => part.used)
+  || repairRecordForm.products.some(product => product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.parts.some(part => part.used))
   || repairRecordForm.photos.length
 ))
 const isRepairingOrder = computed(() => currentOrder.value && currentOrder.value.statusEn === 'fixing')
@@ -3153,24 +3010,81 @@ const createRepairPart = (part = {}, used = false, index = 0) => ({
   used
 })
 
+const createRepairProduct = (item = {}, index = 0, fallbackContent = '') => ({
+  key: item.key || `repair-product-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  productId: item.productId || item.product_id || item._id || '',
+  productName: item.productName || item.product_name || item.name || '',
+  model: item.model || item.productModel || item.product_model || '',
+  sn: item.sn || item.device_sn || '',
+  fault: item.fault || item.faultReason || item.fault_reason || fallbackContent,
+  receivedDetail: item.receivedDetail || item.received_detail || '',
+  repairAction: item.repairAction || item.repair_action || '',
+  source: item.source === 'order' ? 'order' : 'manual',
+  parts: Array.isArray(item.parts) ? item.parts.map((part, partIndex) => createRepairPart(part, true, partIndex)) : []
+})
+
+const repairPartIdentity = (part = {}) => {
+  const partId = String(part.partId || part.part_id || part._id || '').trim()
+  const partCode = String(part.partCode || part.part_code || part.code || '').trim()
+  if (partId) return `id:${partId}`
+  if (partCode) return `code:${partCode.toUpperCase()}`
+  return `name:${String(part.name || part.part_name || '').trim().toUpperCase()}|${String(part.model || part.part_model || '').trim().toUpperCase()}`
+}
+
+const aggregateRepairParts = (parts = []) => {
+  const aggregated = new Map()
+  parts.forEach((part) => {
+    const key = repairPartIdentity(part)
+    const quantity = Math.max(1, Number(part.quantity || 1) || 1)
+    if (aggregated.has(key)) {
+      aggregated.get(key).quantity += quantity
+      return
+    }
+    aggregated.set(key, { ...part, quantity })
+  })
+  return Array.from(aggregated.values())
+}
+
+const repairProductIdentity = (product = {}) => {
+  const productId = String(product.productId || product.product_id || product._id || '').trim()
+  const sn = String(product.sn || product.device_sn || '').trim().toUpperCase()
+  const name = String(product.productName || product.product_name || product.name || '').trim().toUpperCase()
+  const model = String(product.model || product.productModel || product.product_model || '').trim().toUpperCase()
+  if (productId) return `id:${productId}`
+  if (sn) return `sn:${sn}`
+  return name || model ? `product:${name}|${model}` : ''
+}
+
 const resetRepairRecordForm = (order = {}) => {
   const saved = order.repairRecord || {}
   repairRecordForm.content = saved.content || ''
+  const savedProducts = Array.isArray(saved.products) ? saved.products : []
+  const orderItems = Array.isArray(order.itemsList) ? order.itemsList : []
+  const matchedSavedProducts = new Set()
+  repairRecordForm.products = orderItems.map((item, index) => {
+    const key = item.key || item.productId || item.product_id || item._id || item.sn || item.device_sn || `${index}`
+    const identity = repairProductIdentity(item)
+    const existing = savedProducts.find(product => identity && repairProductIdentity(product) === identity) || {}
+    if (savedProducts.includes(existing)) matchedSavedProducts.add(existing)
+    return createRepairProduct({ ...item, ...existing, key, source: 'order' }, index, index === 0 ? saved.content || '' : '')
+  })
+  savedProducts.forEach((product, index) => {
+    if (!matchedSavedProducts.has(product)) {
+      repairRecordForm.products.push(createRepairProduct({ ...product, source: 'manual' }, orderItems.length + index))
+    }
+  })
   repairRecordForm.photos = (saved.photos || []).map(photo => ({
     fileID: photo.fileID || photo.fileId || photo.url || '',
     url: photo.url || photo.fileID || photo.fileId || ''
   })).filter(photo => photo.fileID || photo.url)
   const savedParts = Array.isArray(saved.parts) ? saved.parts : []
-  const savedByKey = new Map(savedParts.map(part => [part.partId || part.part_id || part.partCode || part.part_code || part.name, part]))
-  const quoteParts = getQuoteSummary(order).parts || []
-  repairRecordForm.parts = quoteParts.map((part, index) => {
-    const key = part.partId || part.part_id || part.partCode || part.part_code || part.code || part.name || part.part_name
-    return createRepairPart(savedByKey.get(key) || part, Boolean(savedByKey.get(key)), index)
-  })
+  if (!repairRecordForm.products.length) repairRecordForm.products = [createRepairProduct()]
+  const productPartKeys = new Set(repairRecordForm.products.flatMap(product => product.parts.map(repairPartIdentity)))
   savedParts.forEach((part, index) => {
-    const key = part.partId || part.part_id || part.partCode || part.part_code || part.name
-    if (!repairRecordForm.parts.some(item => (item.partId || item.partCode || item.name) === key)) {
-      repairRecordForm.parts.push(createRepairPart(part, true, quoteParts.length + index))
+    const key = repairPartIdentity(part)
+    if (!productPartKeys.has(key)) {
+      repairRecordForm.products[0].parts.push(createRepairPart(part, true, repairRecordForm.products[0].parts.length + index))
+      productPartKeys.add(key)
     }
   })
 }
@@ -3780,15 +3694,16 @@ const loadPickerParts = async () => {
   }
 }
 
-const openPartPicker = async (target = 'quote') => {
+const openPartPicker = async (target = 'quote', productIndex = -1) => {
   partPickerTarget.value = target === 'repair' ? 'repair' : 'quote'
+  repairProductPickerIndex.value = target === 'repair' ? productIndex : -1
   partPickerKeyword.value = ''
   partPickerVisible.value = true
   await loadPickerParts()
 }
 
 const canRestoreCancelledOrder = (order = {}) => {
-  if (!canPerformOrderAction('update_status') || order.status !== '已取消') return false
+  if (!canPerformOrderAction('restore_cancelled_order') || order.status !== '已取消') return false
   if ((order.quoteStatus || order.quote_status) === 'rejected') return false
   const timeline = Array.isArray(order.timeline) ? order.timeline : []
   const userCancelled = timeline.some(item => item && item.title === '已取消')
@@ -3809,45 +3724,65 @@ const selectQuotePart = (part) => {
   partPickerVisible.value = false
 }
 
-const addManualRepairPart = () => {
-  if (repairRecordForm.parts.length >= 30) {
-    ElMessage.warning('实际使用配件不能超过 30 项')
+const addRepairProduct = () => {
+  if (repairRecordForm.products.length >= 50) {
+    ElMessage.warning('产品维修明细不能超过 50 项')
     return
   }
-  repairRecordForm.parts.push(createRepairPart({}, true, repairRecordForm.parts.length))
+  repairRecordForm.products.push(createRepairProduct({}, repairRecordForm.products.length))
 }
 
-const removeRepairPart = (index) => {
-  repairRecordForm.parts.splice(index, 1)
+const removeRepairProduct = (productIndex) => {
+  if (repairRecordForm.products[productIndex]?.source !== 'manual') return
+  repairRecordForm.products.splice(productIndex, 1)
 }
 
-const selectRepairPart = (part) => {
+const addManualRepairPart = (productIndex) => {
+  const product = repairRecordForm.products[productIndex]
+  if (!product) return
+  if (product.parts.length >= 30) {
+    ElMessage.warning('单个产品的实际使用配件不能超过 30 项')
+    return
+  }
+  product.parts.push(createRepairPart({}, true, product.parts.length))
+}
+
+const removeRepairPart = (productIndex, partIndex) => {
+  repairRecordForm.products[productIndex]?.parts.splice(partIndex, 1)
+}
+
+const selectRepairPart = (part, productIndex = repairProductPickerIndex.value) => {
+  const product = repairRecordForm.products[productIndex]
+  if (!product) {
+    ElMessage.warning('请选择要使用该配件的产品')
+    return
+  }
   const partId = part._id || part.part_id || part.partId || ''
   const partCode = part.part_code || part.partCode || ''
-  const existing = repairRecordForm.parts.find(item => (
+  const existing = product.parts.find(item => (
     (partId && item.partId === partId) || (partCode && item.partCode === partCode)
   ))
   if (existing) {
     existing.used = true
     existing.quantity = Math.min(999, Math.max(1, Number(existing.quantity || 1)) + 1)
   } else {
-    if (repairRecordForm.parts.length >= 30) {
-      ElMessage.warning('实际使用配件不能超过 30 项')
+    if (product.parts.length >= 30) {
+      ElMessage.warning('单个产品的实际使用配件不能超过 30 项')
       return
     }
-    repairRecordForm.parts.push(createRepairPart({
+    product.parts.push(createRepairPart({
       partId,
       partCode,
       name: part.part_name || part.partName || part.name || '',
       model: part.model || '',
       quantity: 1
-    }, true, repairRecordForm.parts.length))
+    }, true, product.parts.length))
   }
   partPickerVisible.value = false
 }
 
 const selectPickerPart = (part) => {
-  if (partPickerTarget.value === 'repair') selectRepairPart(part)
+  if (partPickerTarget.value === 'repair') selectRepairPart(part, repairProductPickerIndex.value)
   else selectQuotePart(part)
 }
 
@@ -3879,7 +3814,7 @@ const getRemarkTooltip = (row) => {
 }
 
 const openRemarkDialog = (row) => {
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -4153,7 +4088,7 @@ const handleQuickStatusChange = async (row, status) => {
   }
 
   if (status === '已回寄') {
-    if (!canPerformOrderAction('import_logistics')) {
+    if (!canPerformOrderAction('record_return_logistics')) {
       ElMessage.error('当前角色无权导入回寄物流')
       return false
     }
@@ -4245,7 +4180,7 @@ const handleBatchProcessing = async () => {
     ElMessage.warning('请先勾选要处理的工单')
     return
   }
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('update_order_status')) {
     ElMessage.error('当前角色无权批量修改工单状态')
     return
   }
@@ -4297,7 +4232,7 @@ const handleBatchComplete = async () => {
     ElMessage.warning('请先勾选要结单的工单')
     return
   }
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('update_order_status')) {
     ElMessage.error('当前角色无权批量修改工单状态')
     return
   }
@@ -4361,7 +4296,7 @@ const openReturnLogisticsDialog = () => {
 
 const confirmQuickShip = async () => {
   if (!currentQuickOrder.value) return
-  if (!canPerformOrderAction('import_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
+  if (!canPerformOrderAction('record_return_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
     ElMessage.error('当前角色或工单状态不允许回寄发货')
     return
   }
@@ -4836,7 +4771,7 @@ const syncCurrentRefundStatus = async () => {
 }
 
 const handleRecoverInventory = async () => {
-  if (!currentOrder.value || !canPerformOrderAction('manage_inventory')) return
+  if (!currentOrder.value || !canPerformOrderAction('adjust_inventory')) return
   inventoryRecovering.value = true
   const orderId = currentOrder.value._id
   try {
@@ -4872,7 +4807,7 @@ const handleRecoverInventory = async () => {
 
 const saveRemarks = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -4929,20 +4864,44 @@ const removeRepairPhoto = (index) => {
 
 const saveCurrentRepairRecord = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_repair_record')) {
     ElMessage.error('当前角色无权保存维修记录')
     return
   }
-  const usedParts = repairRecordForm.parts.filter(part => part.used)
+  const usedParts = aggregateRepairParts(repairRecordForm.products.flatMap(product => product.parts.filter(part => part.used)))
   if (usedParts.some(part => !String(part.name || '').trim())) {
     ElMessage.warning('请填写实际使用配件的名称')
+    return
+  }
+  const incompleteProduct = repairRecordForm.products.find(product => (
+    !String(product.productName || '').trim()
+    && (product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.parts.some(part => part.used))
+  ))
+  if (incompleteProduct) {
+    ElMessage.warning('请填写产品名称')
     return
   }
   repairRecordSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
     const result = await saveRepairRecord(token, currentOrder.value._id, {
-      content: repairRecordForm.content,
+      content: repairRecordForm.products.map(product => product.repairAction).filter(Boolean).join('\n') || repairRecordForm.content,
+      products: repairRecordForm.products.map(product => ({
+        product_id: product.productId,
+        product_name: product.productName,
+        product_model: product.model,
+        sn: product.sn,
+        fault: product.fault,
+        received_detail: product.receivedDetail,
+        repair_action: product.repairAction,
+        parts: product.parts.filter(part => part.used).map(part => ({
+          part_id: part.partId,
+          part_code: part.partCode,
+          name: part.name,
+          model: part.model,
+          quantity: part.quantity
+        }))
+      })),
       parts: usedParts.map(part => ({
         part_id: part.partId,
         part_code: part.partCode,
@@ -5042,7 +5001,7 @@ const receivedPartsPayload = () => receivedPartsForm.parts
 
 const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
   if (!currentOrder.value) return false
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_received_parts')) {
     if (!silent) ElMessage.error('当前角色无权保存收货配件明细')
     return false
   }
@@ -5078,7 +5037,7 @@ const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
 
 const confirmCurrentReceivedParts = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('confirm_received_parts')) {
     ElMessage.error('当前角色无权确认配件签收')
     return
   }
@@ -5111,7 +5070,7 @@ const confirmCurrentReceivedParts = async () => {
 
 const confirmSaveRemark = async () => {
   if (!currentRemarkOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -5224,7 +5183,8 @@ const handleBatchToolbarCommand = (command) => {
 }
 
 const openImportDialog = (type = 'return') => {
-  if (!canPerformOrderAction('import_logistics')) {
+  const permission = type === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics'
+  if (!canPerformOrderAction(permission)) {
     ElMessage.error('当前角色无权导入物流')
     return
   }
@@ -5233,12 +5193,14 @@ const openImportDialog = (type = 'return') => {
   importDialogVisible.value = true
 }
 
-const downloadImportTemplate = (type = 'return') => {
-  downloadShippingTemplate(type)
+const downloadImportTemplate = async (type = 'return') => {
+  const { downloadShippingTemplate } = await import('../utils/shippingImport.js')
+  await downloadShippingTemplate(type)
 }
 
 const handleImportFile = async (uploadFile) => {
-  if (!canPerformOrderAction('import_logistics')) {
+  const permission = activeLogisticsImportType.value === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics'
+  if (!canPerformOrderAction(permission)) {
     ElMessage.error('当前角色无权导入物流')
     return
   }
@@ -5248,6 +5210,7 @@ const handleImportFile = async (uploadFile) => {
   importing.value = true
   try {
     const importType = activeLogisticsImportType.value
+    const { parseShippingExcelFile } = await import('../utils/shippingImport.js')
     const rows = await parseShippingExcelFile(file, importType)
     if (!rows.length) {
       ElMessage.warning('Excel 中没有可导入的数据')
@@ -5292,6 +5255,7 @@ const confirmExportExcel = async () => {
     ElMessage.warning('所选时间段内没有可导出的工单')
     return
   }
+  const { exportOrdersToWorkbook } = await import('../utils/orderExport.js')
   await exportOrdersToWorkbook(sourceOrders, selectedFieldConfigs)
   exportDialogVisible.value = false
   ElMessage.success(`已导出${usingSelectedOrders ? '选中' : '当前筛选'}工单 ${sourceOrders.length} 条`)
@@ -5489,6 +5453,11 @@ const confirmExportExcel = async () => {
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }
+.repair-product-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
+.repair-product-record { margin-top: 14px; padding: 12px; border: 1px solid #cfe6d7; border-radius: 6px; background: rgba(255,255,255,.72); }
+.repair-product-record-head { display:flex; justify-content:space-between; gap:12px; color:#1d2129; }
+.repair-product-record-head span { color:#7a8699; font-size:12px; }
+.repair-product-meta-grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:8px; margin-top:10px; }
 .repair-record-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .repair-record-field > strong { color: #1d2129; font-size: 14px; }
 .repair-parts-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
@@ -5790,6 +5759,8 @@ const confirmExportExcel = async () => {
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
   .repair-parts-head { align-items: flex-start; flex-direction: column; }
+  .repair-product-toolbar { align-items:flex-start; flex-direction:column; }
+  .repair-product-meta-grid { grid-template-columns:1fr; }
   .repair-parts-actions { width: 100%; }
   .repair-parts-actions .el-button { flex: 1; margin: 0; }
   .repair-part-columns { display: none; }

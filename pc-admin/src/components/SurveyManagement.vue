@@ -7,7 +7,7 @@
       :closable="false"
       class="survey-alert"
     />
-    <el-form :model="surveyConfig" label-width="120px" class="print-form">
+    <el-form v-if="canManageSettings" :model="surveyConfig" label-width="120px" class="print-form">
       <el-form-item label="是否启用"><el-switch v-model="surveyConfig.enabled" active-text="启用" inactive-text="停用" /></el-form-item>
       <el-form-item label="页面标题"><el-input v-model="surveyConfig.title" placeholder="如 售后服务调研表" /></el-form-item>
       <el-form-item label="页面说明"><el-input v-model="surveyConfig.subtitle" type="textarea" :rows="2" placeholder="展示在标题下方的说明文案" /></el-form-item>
@@ -18,7 +18,7 @@
       <el-form-item label="成功标题"><el-input v-model="surveyConfig.successTitle" placeholder="如 提交成功" /></el-form-item>
       <el-form-item label="成功提示"><el-input v-model="surveyConfig.successMessage" type="textarea" :rows="2" placeholder="提交成功后弹窗展示的内容" /></el-form-item>
     </el-form>
-    <div class="save-row"><el-button type="primary" :loading="savingSurvey" @click="saveSurveyConfig">保存调研配置</el-button></div>
+    <div v-if="canManageSettings" class="save-row"><el-button type="primary" :loading="savingSurvey" @click="saveSurveyConfig">保存调研配置</el-button></div>
 
     <el-divider />
     <div class="qual-head"><span>调研提交记录</span><div class="survey-record-actions"><el-button v-if="canDeleteSurvey" type="danger" plain :disabled="!selectedSurveyRows.length" :loading="deletingSurveys" @click="deleteSelectedSurveys">批量删除<span v-if="selectedSurveyRows.length">（{{ selectedSurveyRows.length }}）</span></el-button><el-button type="primary" link :loading="surveyLoading" @click="loadSurveyRecords">刷新记录</el-button></div></div>
@@ -36,7 +36,7 @@
       <el-table-column prop="resolved" label="是否解决" width="110" /><el-table-column prop="comment" label="反馈内容" min-width="220" show-overflow-tooltip />
       <el-table-column prop="contact" label="联系方式" width="150" show-overflow-tooltip />
       <el-table-column label="提交时间" width="170"><template #default="{ row }">{{ formatSurveyTime(row.create_time) }}</template></el-table-column>
-      <el-table-column label="状态" width="130"><template #default="{ row }"><el-select :model-value="row.status || 'new'" size="small" @change="(status) => changeSurveyStatus(row, status)"><el-option label="新提交" value="new" /><el-option label="已联系" value="contacted" /><el-option label="已关闭" value="closed" /></el-select></template></el-table-column>
+      <el-table-column label="状态" width="130"><template #default="{ row }"><el-select :model-value="row.status || 'new'" size="small" :disabled="!canHandleFeedback" @change="(status) => changeSurveyStatus(row, status)"><el-option label="新提交" value="new" /><el-option label="已联系" value="contacted" /><el-option label="已关闭" value="closed" /></el-select></template></el-table-column>
     </el-table>
     <div class="survey-pagination"><el-pagination v-model:current-page="surveyQuery.page" v-model:page-size="surveyQuery.pageSize" :total="surveyTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @size-change="loadSurveyRecords" @current-change="loadSurveyRecords" /></div>
   </div>
@@ -46,7 +46,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSettings, saveSettings, getSurveyList, updateSurveyStatus, deleteSurveys } from '../api/admin.js'
-import { getCurrentAdminRole } from '../config/menuAccess.js'
+import { hasPermission } from '../utils/permissions.js'
 
 const token = () => localStorage.getItem('adminToken')
 const surveyConfig = reactive({ enabled: true, title: '售后服务调研表', subtitle: '提交一次真实售后体验反馈，工作人员核对后为您登记调研福利。', giftText: '查看原调研有礼海报', ratingMax: 5, successTitle: '提交成功', successMessage: '感谢参与售后调研，工作人员会根据联系方式核对并登记福利。' })
@@ -59,7 +59,9 @@ const deletingSurveys = ref(false)
 const savingSurvey = ref(false)
 const surveyTotal = ref(0)
 const surveyQuery = reactive({ keyword: '', status: '', page: 1, pageSize: 10 })
-const canDeleteSurvey = ['admin', 'superadmin'].includes(getCurrentAdminRole())
+const canHandleFeedback = hasPermission('handle_feedback')
+const canManageSettings = hasPermission('manage_settings')
+const canDeleteSurvey = canHandleFeedback
 const parseList = (value, fallback) => { const list = String(value || '').split(/[,\n，、]+/).map(item => item.trim()).filter(Boolean).slice(0, 8); return list.length ? list : fallback }
 const applyConfig = (value) => { try { const parsed = value ? JSON.parse(value) : {}; if (!parsed || typeof parsed !== 'object') return; Object.assign(surveyConfig, { enabled: parsed.enabled !== false, title: parsed.title || surveyConfig.title, subtitle: parsed.subtitle || surveyConfig.subtitle, giftText: parsed.giftText || surveyConfig.giftText, ratingMax: Math.max(1, Math.min(10, Number(parsed.ratingMax) || 5)), successTitle: parsed.successTitle || surveyConfig.successTitle, successMessage: parsed.successMessage || surveyConfig.successMessage }); if (Array.isArray(parsed.satisfactionOptions)) surveySatisfactionText.value = parsed.satisfactionOptions.join(','); if (Array.isArray(parsed.resolvedOptions)) surveyResolvedText.value = parsed.resolvedOptions.join(',') } catch (error) { console.warn('parse survey config failed:', error) } }
 const loadConfig = async () => { const data = await getSettings(token()); applyConfig(data && data.survey_config) }
@@ -83,7 +85,7 @@ const deleteSelectedSurveys = async () => {
     if (error !== 'cancel' && error?.message !== 'cancel') ElMessage.error(error.message || '删除调研记录失败')
   } finally { deletingSurveys.value = false }
 }
-onMounted(async () => { await loadConfig(); await loadSurveyRecords() })
+onMounted(async () => { if (canManageSettings) await loadConfig(); await loadSurveyRecords() })
 </script>
 
 <style scoped>

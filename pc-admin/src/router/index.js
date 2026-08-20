@@ -2,23 +2,33 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import MainLayout from '../components/Layout/MainLayout.vue'
 import { clearAdminSession } from '../utils/adminSession.js'
-import { canAccessMenu } from '../config/menuAccess.js'
+import { canAccessMenu, getFirstAccessibleMenu } from '../config/menuAccess.js'
+import { ADMIN_NAV_ITEMS } from '../config/adminCatalog.js'
 
 // 各业务页按需懒加载：拆成独立异步 chunk，首屏只下载登录 + 布局壳，
 // 避免把 WorkOrder(3000+ 行)、Settings 等一次性打进首屏包。
-const Home = () => import('../views/Home.vue')
-const WorkOrder = () => import('../views/WorkOrder.vue')
-const FaultDB = () => import('../views/FaultDB.vue')
-const Users = () => import('../views/Users.vue')
-const CustomerManagement = () => import('../views/CustomerManagement.vue')
-const Feedback = () => import('../views/Feedback.vue')
-const InventoryManagement = () => import('../views/InventoryManagement.vue')
-const SettlementManagement = () => import('../views/SettlementManagement.vue')
-const LogisticsMonitor = () => import('../views/LogisticsMonitor.vue')
-const InvoiceManagement = () => import('../views/InvoiceManagement.vue')
-const FinanceCenter = () => import('../views/FinanceCenter.vue')
-const Settings = () => import('../views/Settings.vue')
-const AuditLog = () => import('../views/AuditLog.vue')
+const adminViewLoaders = {
+  home: () => import('../views/Home.vue'),
+  workorder: () => import('../views/WorkOrder.vue'),
+  customers: () => import('../views/CustomerManagement.vue'),
+  inventory: () => import('../views/InventoryManagement.vue'),
+  finance: () => import('../views/FinanceCenter.vue'),
+  settlement: () => import('../views/SettlementManagement.vue'),
+  logistics: () => import('../views/LogisticsMonitor.vue'),
+  invoices: () => import('../views/InvoiceManagement.vue'),
+  faultdb: () => import('../views/FaultDB.vue'),
+  users: () => import('../views/Users.vue'),
+  feedback: () => import('../views/Feedback.vue'),
+  audit: () => import('../views/AuditLog.vue'),
+  settings: () => import('../views/Settings.vue')
+}
+const AccessDenied = () => import('../views/AccessDenied.vue')
+
+const adminRoutes = ADMIN_NAV_ITEMS.map(item => ({
+  path: item.path,
+  name: item.name,
+  component: adminViewLoaders[item.key]
+}))
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -29,19 +39,8 @@ const router = createRouter({
       component: MainLayout,
       redirect: '/home',
       children: [
-        { path: 'home', name: 'Home', component: Home },
-        { path: 'workorder', name: 'WorkOrder', component: WorkOrder },
-        { path: 'customers', name: 'CustomerManagement', component: CustomerManagement },
-        { path: 'inventory', name: 'InventoryManagement', component: InventoryManagement },
-        { path: 'finance', name: 'FinanceCenter', component: FinanceCenter },
-        { path: 'settlement', name: 'SettlementManagement', component: SettlementManagement },
-        { path: 'invoices', name: 'InvoiceManagement', component: InvoiceManagement },
-        { path: 'logistics', name: 'LogisticsMonitor', component: LogisticsMonitor },
-        { path: 'faultdb', name: 'FaultDB', component: FaultDB },
-        { path: 'users', name: 'Users', component: Users },
-        { path: 'feedback', name: 'Feedback', component: Feedback },
-        { path: 'audit', name: 'AuditLog', component: AuditLog },
-        { path: 'settings', name: 'Settings', component: Settings },
+        ...adminRoutes,
+        { path: 'forbidden', name: 'AccessDenied', component: AccessDenied },
       ]
     }
   ]
@@ -58,10 +57,15 @@ router.beforeEach((to, from, next) => {
     next({ name: 'Login', query: { redirect: to.fullPath } })
     return
   }
-  // 按角色门禁：无权访问的页面重定向到工作台首页
+  if (to.name === 'AccessDenied') {
+    next()
+    return
+  }
+  // 按账号权限门禁：优先跳转到首个可访问页面；无业务权限时展示明确提示。
   const menu = to.path.replace(/^\//, '')
   if (menu && !canAccessMenu(menu)) {
-    next({ path: '/home' })
+    const fallback = getFirstAccessibleMenu()
+    next({ path: fallback ? `/${fallback}` : '/forbidden' })
     return
   }
   next()
