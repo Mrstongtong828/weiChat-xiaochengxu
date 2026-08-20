@@ -113,7 +113,7 @@
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right" align="right">
           <template #default="{row}">
-            <el-button type="primary" link @click="openDialog(row)">查看并处理</el-button>
+            <el-button type="primary" link @click="openDialog(row)">{{ canHandleFeedback ? '查看并处理' : '查看详情' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -136,7 +136,7 @@
   <el-dialog v-model="dialogVisible" title="反馈处理" width="640px" align-center top="6vh">
     <template v-if="current">
       <!-- 反馈原始信息 -->
-      <div class="block">
+      <div v-if="canHandleFeedback" class="block">
         <div class="block-title">反馈信息</div>
         <div class="info-grid">
           <div><label>客户</label><span>{{current.customerName || '未提供'}}</span></div>
@@ -167,7 +167,7 @@
       </div>
 
       <!-- 内部处理 -->
-      <div class="block">
+      <div v-if="canHandleFeedback" class="block">
         <div class="block-title">内部处理</div>
         <div class="form-row">
           <label>负责人</label>
@@ -229,8 +229,8 @@
     </template>
 
     <template #footer>
-      <el-button type="warning" plain @click="doUpgrade">升级投诉</el-button>
-      <el-button type="success" :loading="closing" @click="doClose">结案</el-button>
+      <el-button v-if="canHandleFeedback" type="warning" plain @click="doUpgrade">升级投诉</el-button>
+      <el-button v-if="canHandleFeedback" type="success" :loading="closing" @click="doClose">结案</el-button>
       <el-button @click="dialogVisible = false">关闭</el-button>
     </template>
   </el-dialog>
@@ -246,13 +246,14 @@ import {
   assignFeedback, setFeedbackUrgency, replyFeedback, linkFeedbackOrder,
   recordFeedbackVisit, closeFeedback, upgradeFeedback, markFeedbackRead, deleteFeedbacks, getSurveyList
 } from '../api/admin.js'
-import { getCurrentAdminRole } from '../config/menuAccess.js'
+import { hasPermission } from '../utils/permissions.js'
 import SurveyManagement from '../components/SurveyManagement.vue'
 
 const STATUS_OPTIONS = ['待处理', '处理中', '已回复', '已结案', '已升级']
 const ROLE_LABELS = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服', superadmin: '超管' }
 const OVERDUE_MS = 48 * 3600 * 1000
-const canDeleteFeedback = computed(() => ['superadmin', 'admin', 'support'].includes(getCurrentAdminRole()))
+const canHandleFeedback = computed(() => hasPermission('handle_feedback'))
+const canDeleteFeedback = canHandleFeedback
 
 const loading = ref(false)
 const saving = ref(false)
@@ -513,7 +514,7 @@ const doUpgrade = async () => {
 onMounted(() => {
   loadList()
   loadDashboardStats()
-  loadStaff()
+  if (canHandleFeedback.value) loadStaff()
 })
 </script>
 

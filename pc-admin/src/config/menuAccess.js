@@ -1,33 +1,27 @@
-// 后台各页面允许访问的角色（前端门禁，与后端权限点对应）。
-// superadmin 始终放行；未在表中的页面默认放行。
-export const MENU_ROLES = {
-  home: ['superadmin', 'admin', 'engineer', 'finance', 'support'],
-  workorder: ['superadmin', 'admin', 'engineer', 'finance', 'support'],
-  customers: ['superadmin', 'admin', 'support'],
-  inventory: ['superadmin', 'admin', 'engineer'],
-  finance: ['superadmin', 'admin', 'finance'],
-  settlement: ['superadmin', 'admin', 'finance'],
-  logistics: ['superadmin', 'admin', 'engineer', 'support'],
-  invoices: ['superadmin', 'admin', 'finance'],
-  faultdb: ['superadmin', 'admin', 'engineer'],
-  users: ['superadmin', 'admin'],
-  feedback: ['superadmin', 'admin', 'support'],
-  audit: ['superadmin', 'admin', 'finance'],
-  settings: ['superadmin', 'admin']
+import { getStoredAdminUser, hasPermission } from '../utils/permissions.js'
+
+// 页面门禁与后端权限键保持一致；未登记页面默认放行。
+export const MENU_PERMISSIONS = {
+  home: 'view_dashboard',
+  workorder: 'view_order',
+  customers: 'view_customer',
+  inventory: 'view_inventory',
+  finance: 'view_settlement',
+  settlement: 'view_settlement',
+  logistics: 'view_order',
+  invoices: 'update_invoice',
+  faultdb: 'manage_kb',
+  users: 'view_staff',
+  feedback: 'view_feedback',
+  audit: 'view_audit_log',
+  settings: 'manage_settings'
 }
 
-export const getCurrentAdminRole = () => {
-  try {
-    const user = JSON.parse(localStorage.getItem('adminUser') || '{}')
-    return user.role || ''
-  } catch (e) {
-    return ''
-  }
+export const getCurrentAdminRole = () => getStoredAdminUser().role || ''
+
+export const canAccessMenu = (menu) => {
+  const permission = MENU_PERMISSIONS[menu]
+  return permission ? hasPermission(permission) : true
 }
 
-export const canAccessMenu = (menu, role = getCurrentAdminRole()) => {
-  const allowed = MENU_ROLES[menu]
-  if (!allowed) return true
-  if (role === 'superadmin') return true
-  return allowed.includes(role)
-}
+export const getFirstAccessibleMenu = () => Object.keys(MENU_PERMISSIONS).find(canAccessMenu) || ''

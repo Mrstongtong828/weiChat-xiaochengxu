@@ -6,8 +6,8 @@
     />
     <div class="li-form">
       <el-radio-group v-model="importType" size="small">
-        <el-radio-button value="inbound">导入签收单（客户寄入）</el-radio-button>
-        <el-radio-button value="return">导入回寄单（后台发货）</el-radio-button>
+        <el-radio-button v-if="canImportInbound" value="inbound">导入签收单（客户寄入）</el-radio-button>
+        <el-radio-button v-if="canImportReturn" value="return">导入回寄单（后台发货）</el-radio-button>
       </el-radio-group>
       <div class="li-row">
         <span class="li-label">业务日期</span>
@@ -55,9 +55,12 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { batchImportLogistics } from '../api/order.js'
 import { downloadShippingTemplate, parseShippingExcelFile } from '../utils/shippingImport.js'
+import { hasPermission } from '../utils/permissions.js'
 
 const getToken = () => localStorage.getItem('adminToken')
-const importType = ref('return')
+const canImportInbound = hasPermission('import_inbound_logistics')
+const canImportReturn = hasPermission('import_return_logistics')
+const importType = ref(canImportReturn ? 'return' : 'inbound')
 const shipDate = ref(new Date().toISOString().slice(0, 10))
 const importing = ref(false)
 const result = ref(null)

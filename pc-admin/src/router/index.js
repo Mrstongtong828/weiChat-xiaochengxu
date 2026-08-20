@@ -2,7 +2,7 @@ import { createRouter, createWebHashHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import MainLayout from '../components/Layout/MainLayout.vue'
 import { clearAdminSession } from '../utils/adminSession.js'
-import { canAccessMenu } from '../config/menuAccess.js'
+import { canAccessMenu, getFirstAccessibleMenu } from '../config/menuAccess.js'
 
 // 各业务页按需懒加载：拆成独立异步 chunk，首屏只下载登录 + 布局壳，
 // 避免把 WorkOrder(3000+ 行)、Settings 等一次性打进首屏包。
@@ -19,6 +19,7 @@ const InvoiceManagement = () => import('../views/InvoiceManagement.vue')
 const FinanceCenter = () => import('../views/FinanceCenter.vue')
 const Settings = () => import('../views/Settings.vue')
 const AuditLog = () => import('../views/AuditLog.vue')
+const AccessDenied = () => import('../views/AccessDenied.vue')
 
 const router = createRouter({
   history: createWebHashHistory(),
@@ -42,6 +43,7 @@ const router = createRouter({
         { path: 'feedback', name: 'Feedback', component: Feedback },
         { path: 'audit', name: 'AuditLog', component: AuditLog },
         { path: 'settings', name: 'Settings', component: Settings },
+        { path: 'forbidden', name: 'AccessDenied', component: AccessDenied },
       ]
     }
   ]
@@ -58,10 +60,15 @@ router.beforeEach((to, from, next) => {
     next({ name: 'Login', query: { redirect: to.fullPath } })
     return
   }
-  // 按角色门禁：无权访问的页面重定向到工作台首页
+  if (to.name === 'AccessDenied') {
+    next()
+    return
+  }
+  // 按账号权限门禁：优先跳转到首个可访问页面；无业务权限时展示明确提示。
   const menu = to.path.replace(/^\//, '')
   if (menu && !canAccessMenu(menu)) {
-    next({ path: '/home' })
+    const fallback = getFirstAccessibleMenu()
+    next({ path: fallback ? `/${fallback}` : '/forbidden' })
     return
   }
   next()

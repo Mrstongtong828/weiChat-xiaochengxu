@@ -7,7 +7,7 @@
       </div>
       <div class="title-actions">
         <el-button v-if="canEdit" size="small" @click="tagMgrVisible = true">标签管理</el-button>
-        <el-button v-if="canCreate" size="small" @click="importVisible = true">批量导入</el-button>
+        <el-button v-if="canImport" size="small" @click="importVisible = true">批量导入</el-button>
         <el-date-picker v-if="canExport" v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
           start-placeholder="导出开始" end-placeholder="导出结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="export-date-range" />
         <el-button v-if="canExport" size="small" @click="doExport" :loading="exporting">导出</el-button>
@@ -425,6 +425,7 @@ const canEdit = computed(() => hasCustomerPermission('edit', hasFallbackRole('ad
 const canCancel = computed(() => hasCustomerPermission('cancel', hasFallbackRole('admin')))
 const canViewPhone = computed(() => hasCustomerPermission('view_phone', hasFallbackRole('admin')))
 const canDevice = computed(() => hasCustomerPermission('device', hasFallbackRole('admin', 'engineer', 'support')))
+const canImport = computed(() => hasCustomerPermission('import', hasFallbackRole('admin')))
 const canExport = computed(() => hasCustomerPermission('export', hasFallbackRole('admin')))
 
 const loading = ref(false)

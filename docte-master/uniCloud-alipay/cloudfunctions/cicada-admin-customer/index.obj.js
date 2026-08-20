@@ -3,6 +3,7 @@ const dbCmd = db.command
 const { createAdminAuthError, toAdminErrorResponse, normalizeAdminAuthResult, isAdminTokenExpired } = loadAdminAuthModule()
 const { normalizeOptionalDateRange } = loadDateRangeModule()
 const warrantyPolicy = loadWarrantyPolicyModule()
+const { ALL_ROLES, hasUserPermission } = loadWorkflowModule()
 
 function loadAdminAuthModule() {
   try {
@@ -28,21 +29,29 @@ function loadDateRangeModule() {
   }
 }
 
+function loadWorkflowModule() {
+  try {
+    return require('cicada-order-workflow')
+  } catch (packageError) {
+    return require('../common/cicada-order-workflow')
+  }
+}
+
 // ============== 角色权限 ==============
 // 说明：这里是「客户CRM域」专属的权限点（view/create/edit/cancel/view_phone/device/export），
 // 与 cicada-order-workflow 的「工单域」权限点（view_order/issue_quote 等）是不同命名空间，并非重复。
 // 但角色清单需与共享模块的 ALL_ROLES 保持一致——新增/调整员工角色时两处都要更新。
 // 含 superadmin：口径与 cicada-order-workflow 的 ALL_ROLES 一致，避免超管被客户模块拒之门外
-const STAFF_ROLES = ['superadmin', 'admin', 'engineer', 'finance', 'support']
-const ROLE_LABELS = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
-const PERMISSIONS = {
-  view: STAFF_ROLES,                 // 查看客户列表/详情
-  create: ['admin', 'support'],      // 新增客户
-  edit: ['admin', 'support'],        // 编辑客户
-  cancel: ['admin'],                 // 注销客户（合规）
-  view_phone: ['admin'],             // 查看完整手机号
-  device: ['admin', 'engineer', 'support'], // 设备绑定/解绑
-  export: ['admin']                  // 导出
+const STAFF_ROLES = ALL_ROLES
+const CUSTOMER_PERMISSION_KEYS = {
+  view: 'view_customer',
+  create: 'edit_customer',
+  edit: 'edit_customer',
+  cancel: 'cancel_customer',
+  view_phone: 'view_customer_phone',
+  device: 'manage_customer_device',
+  import: 'import_customer',
+  export: 'export_customer'
 }
 
 const CUSTOMER_SOURCES = ['miniapp', 'offline', 'dealer_referral']
@@ -84,18 +93,16 @@ async function verifyAdminToken(token) {
 }
 
 function requirePermission(user, action) {
-  // superadmin 视同 admin 全权（与全局 hasRolePermission 口径一致）
-  if (user && user.role === 'superadmin') return true
-  const allowed = PERMISSIONS[action] || []
-  if (!allowed.includes(user.role)) throw new Error('无权限执行该操作')
+  const permission = CUSTOMER_PERMISSION_KEYS[action] || action
+  if (!hasUserPermission(user, permission)) throw new Error('无权限执行该操作')
   return true
 }
 
-function getPermissionConfigForRole(role) {
+function getPermissionConfigForUser(user) {
   return {
-    role,
+    role: user.role,
     permissions: Object.fromEntries(
-      Object.keys(PERMISSIONS).map(action => [action, role === 'superadmin' || (PERMISSIONS[action] || []).includes(role)])
+      Object.entries(CUSTOMER_PERMISSION_KEYS).map(([action, permission]) => [action, hasUserPermission(user, permission)])
     )
   }
 }
@@ -422,7 +429,7 @@ module.exports = {
     try {
       const p = pickParam(this, params)
       const admin = await verifyAdminToken(p.token)
-      return { code: 0, data: getPermissionConfigForRole(admin.role) }
+      return { code: 0, data: getPermissionConfigForUser(admin) }
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -1144,7 +1151,7 @@ module.exports = {
     try {
       const p = pickParam(this, params)
       const admin = await verifyAdminToken(p.token)
-      requirePermission(admin, 'create')
+      requirePermission(admin, 'import_customer')
       const rows = Array.isArray(p.rows) ? p.rows : []
       if (!rows.length) return { code: -1, msg: '没有可导入的数据' }
       if (rows.length > 1000) return { code: -1, msg: '单次最多导入 1000 条' }

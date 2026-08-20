@@ -68,7 +68,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-tooltip content="按当前筛选条件导出工单表格" placement="top">
+        <el-tooltip v-if="canPerformOrderAction('export_order')" content="按当前筛选条件导出工单表格" placement="top">
           <el-button type="primary" class="top-btn-text" @click="openExportDialog"><el-icon><Download /></el-icon> 导出</el-button>
         </el-tooltip>
         <el-popover placement="bottom-end" trigger="click" width="360" :teleported="false">
@@ -297,7 +297,7 @@
               <el-tooltip content="打开工单详情，处理报价、付款、物流、发票和结案" placement="top">
                 <el-button type="primary" link @click="openDrawer(row)">处理</el-button>
               </el-tooltip>
-              <el-tooltip v-if="canPerformOrderAction('update_remarks')" :content="getRemarkTooltip(row)" placement="top">
+              <el-tooltip v-if="canPerformOrderAction('edit_order_remarks')" :content="getRemarkTooltip(row)" placement="top">
                 <el-button
                   type="primary"
                   link
@@ -455,7 +455,7 @@
                   <div class="drawer-info-item is-wide">
                     <span>负责工程师</span>
                     <div class="assign-engineer-row">
-                      <template v-if="canPerformOrderAction('manage_staff')">
+                      <template v-if="canPerformOrderAction('assign_engineer')">
                         <el-select
                           v-model="assignEngineerId"
                           :placeholder="engineerOptions.length ? '选择工程师' : '暂无工程师账号'"
@@ -658,8 +658,8 @@
                   <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
                 </div>
                 <div class="received-parts-footer">
-                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_remarks')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
-                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_status')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('edit_received_parts')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('confirm_received_parts')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
                 </div>
               </div>
             </div>
@@ -1064,7 +1064,7 @@
                   配件出库：{{ currentOrder.inventoryStatus === 'outbound_processing' ? '处理中' : '失败' }}
                 </span>
                 <el-button
-                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('manage_inventory')"
+                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('adjust_inventory')"
                   type="warning"
                   size="small"
                   plain
@@ -1233,7 +1233,7 @@
                 </div>
               </div>
               <el-button
-                v-if="canPerformOrderAction('update_remarks')"
+                v-if="canPerformOrderAction('edit_repair_record')"
                 type="primary"
                 size="small"
                 :loading="repairRecordSaving"
@@ -1284,7 +1284,7 @@
                 </div>
               </div>
             </div>
-            <div v-if="canPerformOrderAction('update_status')" class="drawer-section">
+            <div v-if="canPerformOrderAction('update_order_status')" class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">更改工单进度</p>
                 <el-tag type="info" size="small">{{ getNextAction(currentOrder).label }}</el-tag>
@@ -1394,7 +1394,7 @@
             </template>
           </el-dropdown>
           <el-button @click="drawerVisible=false">关闭</el-button>
-          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
+          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_order_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
             <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">推进至{{ newStatus }}</el-button>
           </el-tooltip>
         </div>
@@ -2654,9 +2654,9 @@ const canPerformOrderAction = (action) => {
   return Boolean(workflowConfig.value && workflowConfig.value.permissions && workflowConfig.value.permissions[action])
 }
 
-const canChangeOrderStatus = computed(() => ['admin', 'superadmin'].includes(workflowConfig.value && workflowConfig.value.role))
+const canChangeOrderStatus = computed(() => canPerformOrderAction('update_order_status'))
 
-// ============== 指派工程师（仅 manage_staff 权限，与后端 assignEngineer 同键） ==============
+// ============== 指派工程师（前后端均使用 assign_engineer 权限） ==============
 const engineerOptions = ref([])
 const assignEngineerId = ref('')
 const assigningEngineer = ref(false)
@@ -2761,10 +2761,13 @@ const getReturnShipmentBlockReason = (order = {}) => {
 }
 
 const getAllowedStatusOptions = (order = {}) => {
-  if (!order || !canChangeOrderStatus.value) return []
+  if (!order || (!canChangeOrderStatus.value && !canPerformOrderAction('record_return_logistics'))) return []
   const currentStatus = getOrderStatusValue(order)
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
   return transitions.filter(targetStatus => {
+    if (targetStatus === 'shipped') {
+      if (!canPerformOrderAction('record_return_logistics') && !canChangeOrderStatus.value) return false
+    } else if (!canChangeOrderStatus.value) return false
     if (targetStatus === 'sent' && currentStatus === 'pending' && !order.logisticsNo) return false
     if (targetStatus === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
       const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
@@ -2806,13 +2809,13 @@ const getAllStatusOptions = (order = {}) => {
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
 const canRecordReturnLogistics = computed(() => (
   Boolean(currentOrder.value)
-  && canPerformOrderAction('import_logistics')
+  && canPerformOrderAction('record_return_logistics')
   && !currentOrder.value.returnNo
   && canMoveOrderToStatus(currentOrder.value, '已回寄')
 ))
 const returnLogisticsHint = computed(() => {
   if (!currentOrder.value) return '请选择工单'
-  if (!canPerformOrderAction('import_logistics')) return '当前角色无权录入回寄物流'
+  if (!canPerformOrderAction('record_return_logistics')) return '当前账号无权录入回寄物流'
   if (currentOrder.value.returnNo) return '回寄物流已录入，等待结案'
   if (canRecordReturnLogistics.value) return '填写物流公司和回寄单号后，工单将更新为已回寄'
   return getReturnShipmentBlockReason(currentOrder.value) || '当前工单不可回寄'
@@ -2823,7 +2826,7 @@ const getTransitionableOrders = (status, source = selectedOrders.value) => {
 }
 
 const hasBatchStatusOptions = computed(() => {
-  return canPerformOrderAction('update_status') &&
+  return canPerformOrderAction('update_order_status') &&
     selectedOrders.value.some(order => canMoveOrderToStatus(order, '处理中') || canMoveOrderToStatus(order, '已完成'))
 })
 
@@ -2922,8 +2925,8 @@ onMounted(async () => {
   } catch (error) {
     ElMessage.error(error.message || '工单权限配置加载失败')
   }
-  // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
-  if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
+  // 工程师列表仅在拥有指派权限时请求
+  if (canPerformOrderAction('assign_engineer')) loadEngineerOptions()
   loadOrders()
   refreshStatusBreakdown()
 })
@@ -3774,7 +3777,7 @@ const openPartPicker = async (target = 'quote') => {
 }
 
 const canRestoreCancelledOrder = (order = {}) => {
-  if (!canPerformOrderAction('update_status') || order.status !== '已取消') return false
+  if (!canPerformOrderAction('restore_cancelled_order') || order.status !== '已取消') return false
   if ((order.quoteStatus || order.quote_status) === 'rejected') return false
   const timeline = Array.isArray(order.timeline) ? order.timeline : []
   const userCancelled = timeline.some(item => item && item.title === '已取消')
@@ -3865,7 +3868,7 @@ const getRemarkTooltip = (row) => {
 }
 
 const openRemarkDialog = (row) => {
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -4062,7 +4065,7 @@ const handleQuickStatusChange = async (row, status) => {
   }
 
   if (status === '已回寄') {
-    if (!canPerformOrderAction('import_logistics')) {
+    if (!canPerformOrderAction('record_return_logistics')) {
       ElMessage.error('当前角色无权导入回寄物流')
       return false
     }
@@ -4155,7 +4158,7 @@ const handleBatchProcessing = async () => {
     ElMessage.warning('请先勾选要处理的工单')
     return
   }
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('update_order_status')) {
     ElMessage.error('当前角色无权批量修改工单状态')
     return
   }
@@ -4207,7 +4210,7 @@ const handleBatchComplete = async () => {
     ElMessage.warning('请先勾选要结单的工单')
     return
   }
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('update_order_status')) {
     ElMessage.error('当前角色无权批量修改工单状态')
     return
   }
@@ -4271,7 +4274,7 @@ const openReturnLogisticsDialog = () => {
 
 const confirmQuickShip = async () => {
   if (!currentQuickOrder.value) return
-  if (!canPerformOrderAction('import_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
+  if (!canPerformOrderAction('record_return_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
     ElMessage.error('当前角色或工单状态不允许回寄发货')
     return
   }
@@ -4746,7 +4749,7 @@ const syncCurrentRefundStatus = async () => {
 }
 
 const handleRecoverInventory = async () => {
-  if (!currentOrder.value || !canPerformOrderAction('manage_inventory')) return
+  if (!currentOrder.value || !canPerformOrderAction('adjust_inventory')) return
   inventoryRecovering.value = true
   const orderId = currentOrder.value._id
   try {
@@ -4782,7 +4785,7 @@ const handleRecoverInventory = async () => {
 
 const saveRemarks = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -4839,7 +4842,7 @@ const removeRepairPhoto = (index) => {
 
 const saveCurrentRepairRecord = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_repair_record')) {
     ElMessage.error('当前角色无权保存维修记录')
     return
   }
@@ -4962,7 +4965,7 @@ const receivedPartsPayload = () => receivedPartsForm.parts
 
 const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
   if (!currentOrder.value) return false
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_received_parts')) {
     if (!silent) ElMessage.error('当前角色无权保存收货配件明细')
     return false
   }
@@ -5002,7 +5005,7 @@ const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
 
 const confirmCurrentReceivedParts = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('confirm_received_parts')) {
     ElMessage.error('当前角色无权确认配件签收')
     return
   }
@@ -5039,7 +5042,7 @@ const confirmCurrentReceivedParts = async () => {
 
 const confirmSaveRemark = async () => {
   if (!currentRemarkOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -5152,7 +5155,8 @@ const handleBatchToolbarCommand = (command) => {
 }
 
 const openImportDialog = (type = 'return') => {
-  if (!canPerformOrderAction('import_logistics')) {
+  const permission = type === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics'
+  if (!canPerformOrderAction(permission)) {
     ElMessage.error('当前角色无权导入物流')
     return
   }
@@ -5166,7 +5170,8 @@ const downloadImportTemplate = (type = 'return') => {
 }
 
 const handleImportFile = async (uploadFile) => {
-  if (!canPerformOrderAction('import_logistics')) {
+  const permission = activeLogisticsImportType.value === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics'
+  if (!canPerformOrderAction(permission)) {
     ElMessage.error('当前角色无权导入物流')
     return
   }

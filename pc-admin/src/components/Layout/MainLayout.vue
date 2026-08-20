@@ -172,10 +172,11 @@
 import { computed, ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { changeMyPassword, getFeedbackStats, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
+import { changeMyPassword, getFeedbackStats, getMyPermissions, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
 import { getNotificationSummary } from '../../api/order.js'
 import { getWarrantyAlerts } from '../../api/customer.js'
-import { canAccessMenu, getCurrentAdminRole } from '../../config/menuAccess.js'
+import { canAccessMenu, getFirstAccessibleMenu } from '../../config/menuAccess.js'
+import { hasPermission, PERMISSION_CHANGED_EVENT, savePermissionSession } from '../../utils/permissions.js'
 import { uploadAvatarToCloud } from '../../utils/upload.js'
 
 const router = useRouter()
@@ -211,7 +212,7 @@ const menuTitles = {
 }
 
 const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
-const canLoadWarrantyNotifications = () => ['superadmin', 'admin', 'support'].includes(getCurrentAdminRole())
+const canLoadWarrantyNotifications = () => hasPermission('view_customer')
 const notificationTagType = (severity) => ({ critical: 'danger', warning: 'warning', info: 'primary' }[severity] || 'info')
 const notificationRoutes = {
   warranty_missing: { path: '/customers', query: { alert: 'missing' } },
@@ -251,7 +252,11 @@ const miniappDialogVisible = ref(false)
 const miniappLoading = ref(false)
 const miniappQrUrl = ref('')
 let miniappQrLoaded = false
-const canManageSettings = ['superadmin', 'admin'].includes(getCurrentAdminRole())
+const permissionRefreshVersion = ref(0)
+const canManageSettings = computed(() => {
+  permissionRefreshVersion.value
+  return hasPermission('manage_settings')
+})
 const isWebUrl = (v) => /^https?:\/\//i.test(String(v || ''))
 
 const openMiniappDialog = async () => {
@@ -531,6 +536,23 @@ const handleVisibilityChange = () => {
   }
 }
 
+const refreshPermissionSession = async () => {
+  const token = localStorage.getItem('adminToken')
+  if (!token) return
+  try {
+    const permissions = await getMyPermissions(token)
+    savePermissionSession(permissions)
+    permissionRefreshVersion.value += 1
+    const menu = route.path.replace(/^\//, '')
+    if (menu && menu !== 'forbidden' && !canAccessMenu(menu)) {
+      const fallback = getFirstAccessibleMenu()
+      router.replace(fallback ? `/${fallback}` : '/forbidden')
+    }
+  } catch (error) {
+    // 请求层负责展示错误；保留当前页面，避免权限刷新失败造成循环跳转。
+  }
+}
+
 const openPwdDialog = () => {
   pwdForm.oldPassword = ''
   pwdForm.newPassword = ''
@@ -582,12 +604,14 @@ onMounted(() => {
   resolveProfileAvatar()
   loadNotifications()
   loadFeedbackUnread()
+  refreshPermissionSession()
   notificationRefreshTimer = window.setInterval(() => {
     loadNotifications(true)
   }, 60000)
   feedbackRefreshTimer = window.setInterval(loadFeedbackUnread, 30000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('feedback-unread-changed', loadFeedbackUnread)
+  window.addEventListener(PERMISSION_CHANGED_EVENT, refreshPermissionSession)
   if (forcedPasswordChange.value) {
     ElMessage.warning('当前使用临时密码，请先修改登录密码')
     openPwdDialog()
@@ -600,6 +624,7 @@ onUnmounted(() => {
   if (feedbackRefreshTimer) window.clearInterval(feedbackRefreshTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('feedback-unread-changed', loadFeedbackUnread)
+  window.removeEventListener(PERMISSION_CHANGED_EVENT, refreshPermissionSession)
   window.removeEventListener('resize', checkMobile)
 })
 </script>

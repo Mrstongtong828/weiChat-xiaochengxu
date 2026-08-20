@@ -58,10 +58,10 @@
           <el-select v-model="filters.status" placeholder="全部状态" clearable size="small" style="width: 130px" @change="reloadLedger">
             <el-option v-for="s in STATUS_OPTIONS" :key="s.value" :label="s.label" :value="s.value" />
           </el-select>
-          <el-date-picker v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
+          <el-date-picker v-if="canExportLedger" v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
             start-placeholder="导出开始" end-placeholder="导出结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="lm-export-range" />
           <el-button type="primary" size="small" @click="reloadLedger">查询</el-button>
-          <el-button type="success" plain size="small" :loading="exporting" @click="exportLedger"><el-icon><Download /></el-icon>导出台账</el-button>
+          <el-button v-if="canExportLedger" type="success" plain size="small" :loading="exporting" @click="exportLedger"><el-icon><Download /></el-icon>导出台账</el-button>
         </div>
       </div>
       <el-table :data="ledger" v-loading="loadingLedger" size="small" empty-text="暂无物流记录" stripe>
@@ -168,7 +168,12 @@ import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../
 
 const route = useRoute()
 const workflowConfig = ref(null)
-const canImportLogistics = computed(() => Boolean(workflowConfig.value && workflowConfig.value.permissions && workflowConfig.value.permissions.import_logistics))
+const canImportLogistics = computed(() => Boolean(
+  workflowConfig.value && workflowConfig.value.permissions && (
+    workflowConfig.value.permissions.import_inbound_logistics || workflowConfig.value.permissions.import_return_logistics
+  )
+))
+const canExportLedger = computed(() => Boolean(workflowConfig.value?.permissions?.export_order))
 const resolveRouteTab = () => route.query.tab === 'import' && canImportLogistics.value
   ? 'import'
   : (route.query.tab === 'ledger' ? 'ledger' : 'exception')
@@ -332,7 +337,7 @@ const exportLedger = async () => {
     let truncated = false
     while (pageNo <= MAX_PAGES) {
       const data = await getLogisticsLedger(getToken(), {
-        keyword: filters.keyword, status: filters.status, ...toApiDateRange(exportDateRange.value), page: pageNo, pageSize: PAGE_SIZE
+        keyword: filters.keyword, status: filters.status, ...toApiDateRange(exportDateRange.value), page: pageNo, pageSize: PAGE_SIZE, forExport: true
       })
       const pageList = (data && data.list) || []
       totalCount = (data && data.total) || 0
