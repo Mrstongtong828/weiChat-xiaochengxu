@@ -113,14 +113,16 @@ function createWorkflowFallback() {
     admin: '管理员',
     engineer: '工程师',
     finance: '财务',
-    support: '客服'
+    support: '客服',
+    maintenance: '后台维护人员'
   }
   const ALL_ROLES = Object.keys(ROLE_LABELS)
   const ROLE_PERMISSION_TEMPLATES = {
     superadmin: [], admin: [],
     engineer: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'edit_order_items', 'edit_repair_record', 'view_inventory'],
     finance: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'confirm_payment', 'update_invoice', 'view_payment_proof', 'view_settlement', 'view_audit_log'],
-    support: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'confirm_inbound_arrival', 'edit_received_parts', 'confirm_received_parts', 'edit_order_items', 'edit_repair_record', 'record_return_logistics', 'view_customer', 'view_feedback', 'handle_feedback']
+    support: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'confirm_inbound_arrival', 'edit_received_parts', 'confirm_received_parts', 'edit_order_items', 'edit_repair_record', 'record_return_logistics', 'view_customer', 'view_feedback', 'handle_feedback'],
+    maintenance: ['view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'view_inventory', 'view_customer', 'manage_kb', 'manage_settings']
   }
   const ALL_PERMISSION_KEYS = [
     'view_dashboard', 'get_stats', 'get_workflow_config', 'view_order', 'create_order', 'delete_order', 'export_order',

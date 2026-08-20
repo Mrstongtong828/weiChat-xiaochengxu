@@ -88,7 +88,7 @@ const ACTION_LABELS = {
   assign_engineer: '分配工程师', wechat_pay_confirmed: '微信支付确认'
 }
 const SOURCE_LABELS = { client: '客户端', admin: '后台', system: '系统', wechat_pay: '微信支付' }
-const ROLE_LABELS = { admin: '管理员', superadmin: '超级管理员', engineer: '工程师', finance: '财务', support: '客服' }
+const ROLE_LABELS = { admin: '管理员', superadmin: '超级管理员', engineer: '工程师', finance: '财务', support: '客服', maintenance: '后台维护人员' }
 
 const filters = reactive({ orderNo: '', action: '', actorName: '', timeRange: null })
 const list = ref([])

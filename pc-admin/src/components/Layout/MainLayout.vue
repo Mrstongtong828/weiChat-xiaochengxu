@@ -211,7 +211,7 @@ const menuTitles = {
   audit: '工单操作审计日志（合规备查）'
 }
 
-const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
+const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服', maintenance: '后台维护人员' }
 const canLoadWarrantyNotifications = () => hasPermission('view_customer')
 const notificationTagType = (severity) => ({ critical: 'danger', warning: 'warning', info: 'primary' }[severity] || 'info')
 const notificationRoutes = {

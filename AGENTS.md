@@ -36,7 +36,7 @@ PC Admin has targeted check scripts: `npm run check:urls`, `check:staff`, `check
 - **Shared modules** (`cloudfunctions/common/`):
   - `cicada-order-workflow` — single source of truth for order state machine (`ORDER_STATUS_TRANSITIONS`) and RBAC (`PERMISSIONS`). Admin functions have `createWorkflowFallback()` — update both if you change the shared module.
   - `cicada-express-provider` — express logistics provider abstraction.
-- **Staff roles** (in `PERMISSIONS`): `admin`, `engineer`, `finance`, `support`, plus `superadmin`. Mini-program users are `client`. Frontend menu gating in `pc-admin/src/config/menuAccess.js`.
+- **Staff roles** (in `PERMISSIONS`): `admin`, `engineer`, `finance`, `support`, `maintenance`, plus `superadmin`. Mini-program users are `client`. Frontend menu gating in `pc-admin/src/config/menuAccess.js`.
 - **SN normalization**: Identical `normalizeSn(v)` (trim → upperCase → `/\s-+/g` → '') duplicated across `cicada-client-order`, `cicada-admin-customer`, `cicada-admin-order`, `cicada-client-user`, `cicada-maintenance`. Change the rule in all copies.
 
 ## Git remotes

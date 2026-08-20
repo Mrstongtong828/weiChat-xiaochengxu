@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Multi-platform dental equipment repair management system ("牙医仪器检修"). Two frontends share one uniCloud (Alipay Cloud) serverless backend:
 
 1. **Mini Program (client-facing)** — uni-app + Vue 3, primarily WeChat Mini Program. Customers submit repair orders and track progress. Calls cloud functions directly via `uniCloud.callFunction()`.
-2. **PC Admin Dashboard** (`pc-admin/`) — Vue 3 + Vite + Element Plus + Pinia. Staff (admin/engineer/finance/support) manage orders, customers, knowledge base, and settings. Calls cloud functions over HTTP (云函数 URL 化) via axios.
+2. **PC Admin Dashboard** (`pc-admin/`) — Vue 3 + Vite + Element Plus + Pinia. Staff (admin/engineer/finance/support/maintenance) manage orders, customers, knowledge base, and settings. Calls cloud functions over HTTP (云函数 URL 化) via axios.
 
 ## Repository Layout — read this first
 
@@ -61,7 +61,7 @@ A shared module (required by admin functions) that is the **single source of tru
 
 Two distinct role spaces:
 - **Mini-program users**: `client` (customers). Stored in `cicada_users`.
-- **Staff** (`ALL_ROLES`): `superadmin` (超级管理员), `admin` (管理员), `engineer` (工程师), `finance` (财务), `support` (客服). PC Admin only. `admin` and `superadmin` always receive every registered permission; other staff use an explicit `permissions` array when present and otherwise fall back to their role template. Mini-program users remain `client`/`user` and are outside this staff permission model.
+- **Staff** (`ALL_ROLES`): `superadmin` (超级管理员), `admin` (管理员), `engineer` (工程师), `finance` (财务), `support` (客服), `maintenance` (后台维护人员). PC Admin only. `admin` and `superadmin` always receive every registered permission; other staff use an explicit `permissions` array when present and otherwise fall back to their role template. Mini-program users remain `client`/`user` and are outside this staff permission model. `maintenance` defaults to basic dashboard/order/inventory/customer reads plus knowledge-base and system-settings maintenance.
 
 Admin cloud objects authorize business actions with the full current user and `hasUserPermission`/`assertUserPermission`; do not authorize a new or migrated endpoint from `role` alone. Login and `getMyPermissions` return the effective permission list. Frontend menu gating lives in `pc-admin/src/config/menuAccess.js` (`MENU_PERMISSIONS`), while page buttons use `pc-admin/src/utils/permissions.js`; both are convenience gates and must mirror backend checks. Inventory receiving, issuing, and stocktake are separate permissions, as are staff viewing, creation, editing, enable/disable, and password reset.
 

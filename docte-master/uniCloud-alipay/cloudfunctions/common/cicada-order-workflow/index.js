@@ -31,7 +31,8 @@ const ROLE_LABELS = {
   admin: '管理员',
   engineer: '工程师',
   finance: '财务',
-  support: '客服'
+  support: '客服',
+  maintenance: '后台维护人员'
 }
 
 const ALL_ROLES = Object.keys(ROLE_LABELS)
@@ -108,6 +109,10 @@ const ROLE_PERMISSION_TEMPLATES = {
     'confirm_inbound_arrival', 'edit_received_parts', 'confirm_received_parts',
     'edit_order_items', 'edit_repair_record', 'record_return_logistics',
     'view_customer', 'view_feedback', 'handle_feedback'
+  ],
+  maintenance: [
+    'view_dashboard', 'get_stats', 'get_workflow_config', 'view_order',
+    'view_inventory', 'view_customer', 'manage_kb', 'manage_settings'
   ]
 }
 

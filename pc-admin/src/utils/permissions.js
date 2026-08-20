@@ -38,3 +38,13 @@ export const notifyPermissionChanged = (target = globalThis.window) => {
     target.dispatchEvent(new CustomEvent(PERMISSION_CHANGED_EVENT))
   }
 }
+
+export const getRoleCompatibilityError = (role, catalog = {}) => {
+  const normalizedRole = String(role || '').trim()
+  if (!normalizedRole) return ''
+  const templates = catalog && catalog.roleTemplates
+  if (templates && Object.prototype.hasOwnProperty.call(templates, normalizedRole)) return ''
+  return '后台云函数尚未部署该角色，请先更新后台权限云函数后再保存'
+}
+
+export const shouldDisplayLocalError = (error) => !Boolean(error && error.__displayed)

@@ -87,6 +87,7 @@
           <el-option label="工程师" value="工程师"></el-option>
           <el-option label="财务" value="财务"></el-option>
           <el-option label="客服" value="客服"></el-option>
+          <el-option label="后台维护人员" value="后台维护人员"></el-option>
         </el-select>
       </el-form-item>
       <el-form-item label="负责品类">
@@ -133,7 +134,7 @@ import { computed, ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getStaffList, getPermissionCatalog, addStaff, editStaff, disableStaff, resetUserPassword } from '../api/admin.js'
 import { getEngineerPerformance } from '../api/performance.js'
-import { hasPermission } from '../utils/permissions.js'
+import { getRoleCompatibilityError, hasPermission, shouldDisplayLocalError } from '../utils/permissions.js'
 
 const users = ref([])
 const loading = ref(false)
@@ -153,14 +154,16 @@ const roleMap = {
   admin: '管理员',
   engineer: '工程师',
   finance: '财务',
-  support: '客服'
+  support: '客服',
+  maintenance: '后台维护人员'
 }
 const roleMapReverse = {
   超级管理员: 'superadmin',
   管理员: 'admin',
   工程师: 'engineer',
   财务: 'finance',
-  客服: 'support'
+  客服: 'support',
+  后台维护人员: 'maintenance'
 }
 
 const userDialogVisible = ref(false)
@@ -273,6 +276,12 @@ const openUserDialog = (user) => {
 }
 
 const saveUser = async () => {
+  const roleKey = roleMapReverse[userForm.role] || 'engineer'
+  const roleCompatibilityError = getRoleCompatibilityError(roleKey, permissionCatalog.value)
+  if (roleCompatibilityError) {
+    ElMessage.error(roleCompatibilityError)
+    return
+  }
   if (!userForm.name || !userForm.phone || !userForm.email) {
     ElMessage.warning('请完整填写用户信息')
     return
@@ -302,7 +311,7 @@ const saveUser = async () => {
       name: userForm.name,
       phone: userForm.phone,
       email: userForm.email.toLowerCase(),
-      role: roleMapReverse[userForm.role] || 'engineer',
+      role: roleKey,
       permissions: [...userForm.permissions],
       device_categories: userForm.device_categories,
       service_areas: userForm.service_areas
@@ -320,7 +329,7 @@ const saveUser = async () => {
     userDialogVisible.value = false
     await loadUsers()
   } catch (error) {
-    ElMessage.error(error.message || '操作失败')
+    if (shouldDisplayLocalError(error)) ElMessage.error(error.message || '操作失败')
   } finally {
     loading.value = false
   }

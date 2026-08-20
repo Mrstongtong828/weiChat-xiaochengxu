@@ -63,3 +63,19 @@ test('库存与账号管理的高风险动作可分别授权', () => {
   assert.equal(hasUserPermission(inboundOnly, 'stock_out_inventory'), false)
   assert.equal(hasUserPermission(inboundOnly, 'adjust_inventory'), false)
 })
+
+test('后台维护人员默认只开放后台内容维护与基础查询', () => {
+  const permissions = getEffectivePermissions({ role: 'maintenance' })
+  for (const key of [
+    'view_dashboard', 'get_stats', 'get_workflow_config', 'view_order',
+    'view_inventory', 'view_customer', 'manage_kb', 'manage_settings'
+  ]) {
+    assert.equal(permissions.includes(key), true, key)
+  }
+  for (const key of [
+    'issue_quote', 'confirm_payment', 'export_order', 'export_customer',
+    'adjust_inventory', 'view_staff', 'edit_staff'
+  ]) {
+    assert.equal(permissions.includes(key), false, key)
+  }
+})

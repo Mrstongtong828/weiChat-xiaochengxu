@@ -48,7 +48,8 @@
         "admin",
         "engineer",
         "finance",
-        "support"
+        "support",
+        "maintenance"
       ]
     },
     "permissions": {
