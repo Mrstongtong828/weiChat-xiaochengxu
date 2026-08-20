@@ -5145,8 +5145,50 @@ const hasPartsData = computed(() => {
   const o = currentOrder.value
   return !!(o && o.quoteDetail && (o.quoteDetail.parts || []).length > 0)
 })
-const printDoc = (docType) => {
+
+const hasActualRepairParts = (order = {}) => {
+  const parts = Array.isArray(order.repairRecord?.parts) ? order.repairRecord.parts : []
+  return parts.some(part => String(part?.name || part?.part_name || '').trim())
+}
+
+const confirmRepairPartsBeforePrint = async (orders = [], { canOpenRepair = false } = {}) => {
+  const missingOrders = orders.filter(order => !hasActualRepairParts(order))
+  if (!missingOrders.length) return true
+
+  if (canOpenRepair && orders.length === 1) {
+    try {
+      await ElMessageBox.confirm(
+        '当前工单尚未登记实际使用配件。去“维修”页补录后，配件明细会自动打印；也可以继续打印并让该栏保持空白。',
+        '配件明细未登记',
+        {
+          type: 'warning',
+          confirmButtonText: '去填写配件',
+          cancelButtonText: '仍然打印',
+          distinguishCancelAndClose: true
+        }
+      )
+      activeDrawerTab.value = 'repair'
+      return false
+    } catch (action) {
+      return action === 'cancel'
+    }
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `已选 ${missingOrders.length} 个工单未登记实际使用配件，继续打印时这些工单的配件明细将保持空白。`,
+      '配件明细未登记',
+      { type: 'warning', confirmButtonText: '仍然打印', cancelButtonText: '取消' }
+    )
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+const printDoc = async (docType) => {
   if (!currentOrder.value) return
+  if (['repair_order', 'inspection_report'].includes(docType) && !await confirmRepairPartsBeforePrint([currentOrder.value], { canOpenRepair: true })) return
   const raw = printSettingsRaw.value || {}
   const template = pickPrintTemplate(raw.print_templates, raw.print_config, docType)
   if (!openPrintWindow([currentOrder.value], template, docType)) {
@@ -5158,18 +5200,20 @@ const handlePrintCommand = (command) => {
   return printDoc(command)
 }
 
-const printConfiguredOrder = () => {
+const printConfiguredOrder = async () => {
   if (!currentOrder.value) return
+  if (!await confirmRepairPartsBeforePrint([currentOrder.value], { canOpenRepair: true })) return
   if (!openPrintWindow([currentOrder.value], printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
 }
 
-const handleConfiguredBatchPrint = () => {
+const handleConfiguredBatchPrint = async () => {
   if (!selectedOrders.value.length) {
     ElMessage.warning('请先勾选要打印的工单')
     return
   }
+  if (!await confirmRepairPartsBeforePrint(selectedOrders.value)) return
   if (!openPrintWindow(selectedOrders.value, printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }

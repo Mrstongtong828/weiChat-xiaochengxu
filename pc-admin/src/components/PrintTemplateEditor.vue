@@ -130,6 +130,7 @@
                     <small>系统字段</small>
                   </div>
                   <span>{{ groupLabel(item.group) }}{{ item.custom ? '' : ' · 名称和位置已锁定' }}</span>
+                  <div v-if="item.key === 'partsDetail'" class="field-editor-hint">可打印配件明细；关闭后此列改为手写说明，由工作人员手动填写。</div>
                 </div>
                 <div v-if="item.custom" class="field-row-actions">
                   <el-tooltip content="上移" placement="top">
@@ -610,6 +611,13 @@ const testPrint = () => {
   margin-top: 3px;
   color: #a8b1c0;
   font-size: 10px;
+}
+
+.field-editor-hint {
+  margin-top: 6px;
+  color: #165dff;
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .field-row-actions {
