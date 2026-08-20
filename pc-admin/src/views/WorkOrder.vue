@@ -1210,14 +1210,45 @@
                 :closable="false"
                 show-icon
               />
-              <div v-for="(product, productIndex) in repairRecordForm.products" :key="product.key" class="repair-product-record">
-                <div class="repair-product-record-head"><strong>产品 {{ productIndex + 1 }}：{{ product.productName || '未命名产品' }}</strong><span>{{ product.model || product.sn || '' }}</span></div>
-                <div class="repair-record-field"><strong>故障现象</strong><el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品的故障现象" /></div>
-                <div class="repair-record-field"><strong>收货明细</strong><el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品实际收到的附件、外观和数量" /></div>
-                <div class="repair-record-field"><strong>维修措施</strong><el-input v-model="product.repairAction" type="textarea" :rows="3" maxlength="1000" placeholder="填写该产品的维修项目、处理过程和测试结果" /></div>
-                <div class="repair-record-field"><strong>使用配件</strong><el-input v-model="product.partsText" type="textarea" :rows="2" maxlength="1000" placeholder="每行填写一个配件，可附型号和数量" /></div>
+              <div class="repair-product-toolbar">
+                <span class="section-helper">每个产品分别记录故障、收货情况、维修措施和实际使用配件。</span>
+                <el-button v-if="canPerformOrderAction('edit_repair_record')" type="primary" plain size="small" @click="addRepairProduct"><el-icon><Plus /></el-icon>新增产品</el-button>
               </div>
-              <div v-if="!repairRecordForm.products.length" class="repair-parts-empty">订单暂无产品明细，请先补充订单产品。</div>
+              <div v-for="(product, productIndex) in repairRecordForm.products" :key="product.key" class="repair-product-record">
+                <div class="repair-product-record-head">
+                  <strong>产品 {{ productIndex + 1 }}：{{ product.productName || '未命名产品' }}</strong>
+                  <el-button v-if="canPerformOrderAction('edit_repair_record') && product.source === 'manual'" link type="danger" size="small" @click="removeRepairProduct(productIndex)">移除产品</el-button>
+                </div>
+                <div class="repair-product-meta-grid">
+                  <el-input v-model="product.productName" maxlength="120" placeholder="产品名称" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <el-input v-model="product.model" maxlength="120" placeholder="型号" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <el-input v-model="product.sn" maxlength="120" placeholder="编号/SN（选填）" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                </div>
+                <div class="repair-record-field"><strong>故障现象</strong><el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品的故障现象" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field"><strong>收货明细</strong><el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品实际收到的附件、外观和数量" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field"><strong>维修措施</strong><el-input v-model="product.repairAction" type="textarea" :rows="3" maxlength="1000" placeholder="填写该产品的维修项目、处理过程和测试结果" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field">
+                  <div class="repair-parts-head">
+                    <div><strong>使用配件</strong><span class="section-helper">配件只记录到当前产品，不会再次扣减库存。</span></div>
+                    <div v-if="canPerformOrderAction('edit_repair_record')" class="repair-parts-actions">
+                      <el-button v-if="canPerformOrderAction('view_inventory')" size="small" plain @click="openPartPicker('repair', productIndex)"><el-icon><Box /></el-icon>从库存选择</el-button>
+                      <el-button size="small" type="primary" plain @click="addManualRepairPart(productIndex)"><el-icon><Plus /></el-icon>手动添加</el-button>
+                    </div>
+                  </div>
+                  <div v-if="product.parts.length" class="repair-parts-list">
+                    <div class="repair-part-columns" aria-hidden="true"><span>使用</span><span>配件名称</span><span>配件编码</span><span>型号/规格</span><span>数量</span><span></span></div>
+                    <div v-for="(part, partIndex) in product.parts" :key="part.key" class="repair-part-row">
+                      <el-checkbox v-model="part.used" aria-label="实际使用" :disabled="!canPerformOrderAction('edit_repair_record')"></el-checkbox>
+                      <el-input v-model="part.name" maxlength="120" placeholder="配件名称" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input v-model="part.partCode" class="repair-part-meta-input" maxlength="80" placeholder="编码（选填）" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input v-model="part.model" class="repair-part-meta-input" maxlength="120" placeholder="型号/规格（选填）" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-button v-if="canPerformOrderAction('edit_repair_record')" link type="danger" aria-label="删除配件" @click="removeRepairPart(productIndex, partIndex)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                  </div>
+                  <div v-else class="repair-parts-empty"><span>该产品还没有记录实际用料</span><small>可从库存带入，也可手动填写临时配件。</small></div>
+                </div>
+              </div>
               <div class="repair-record-field">
                 <strong>维修照片</strong>
                 <span class="section-helper">可选，最多 6 张；支持 JPG、PNG、WEBP，单张不超过 10MB。</span>
@@ -3051,7 +3082,7 @@ const canManuallyRegisterInvoice = computed(() => (
 const remarkSaving = ref(false)
 const repairRecordSaving = ref(false)
 const repairPhotoUploading = ref(false)
-const repairRecordForm = reactive({ content: '', parts: [], products: [], photos: [] })
+const repairRecordForm = reactive({ content: '', products: [], photos: [] })
 const receivedPartsSaving = ref(false)
 const receivedPartsConfirming = ref(false)
 const receivedPartPhotoUploading = ref(false)
@@ -3066,6 +3097,7 @@ const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
 const pickerParts = ref([])
 const partPickerTarget = ref('quote')
+const repairProductPickerIndex = ref(-1)
 const logisticsCompanyOptions = [
   '顺丰速运',
   '京东物流',
@@ -3085,8 +3117,7 @@ const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
 
 const hasRepairRecord = computed(() => Boolean(
   repairRecordForm.content.trim()
-  || repairRecordForm.products.some(product => product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.partsText.trim())
-  || repairRecordForm.parts.some(part => part.used)
+  || repairRecordForm.products.some(product => product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.parts.some(part => part.used))
   || repairRecordForm.photos.length
 ))
 const isRepairingOrder = computed(() => currentOrder.value && currentOrder.value.statusEn === 'fixing')
@@ -3125,24 +3156,67 @@ const createRepairPart = (part = {}, used = false, index = 0) => ({
   used
 })
 
+const createRepairProduct = (item = {}, index = 0, fallbackContent = '') => ({
+  key: item.key || `repair-product-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  productId: item.productId || item.product_id || item._id || '',
+  productName: item.productName || item.product_name || item.name || '',
+  model: item.model || item.productModel || item.product_model || '',
+  sn: item.sn || item.device_sn || '',
+  fault: item.fault || item.faultReason || item.fault_reason || fallbackContent,
+  receivedDetail: item.receivedDetail || item.received_detail || '',
+  repairAction: item.repairAction || item.repair_action || '',
+  source: item.source === 'order' ? 'order' : 'manual',
+  parts: Array.isArray(item.parts) ? item.parts.map((part, partIndex) => createRepairPart(part, true, partIndex)) : []
+})
+
+const repairPartIdentity = (part = {}) => {
+  const partId = String(part.partId || part.part_id || part._id || '').trim()
+  const partCode = String(part.partCode || part.part_code || part.code || '').trim()
+  if (partId) return `id:${partId}`
+  if (partCode) return `code:${partCode.toUpperCase()}`
+  return `name:${String(part.name || part.part_name || '').trim().toUpperCase()}|${String(part.model || part.part_model || '').trim().toUpperCase()}`
+}
+
+const aggregateRepairParts = (parts = []) => {
+  const aggregated = new Map()
+  parts.forEach((part) => {
+    const key = repairPartIdentity(part)
+    const quantity = Math.max(1, Number(part.quantity || 1) || 1)
+    if (aggregated.has(key)) {
+      aggregated.get(key).quantity += quantity
+      return
+    }
+    aggregated.set(key, { ...part, quantity })
+  })
+  return Array.from(aggregated.values())
+}
+
+const repairProductIdentity = (product = {}) => {
+  const productId = String(product.productId || product.product_id || product._id || '').trim()
+  const sn = String(product.sn || product.device_sn || '').trim().toUpperCase()
+  const name = String(product.productName || product.product_name || product.name || '').trim().toUpperCase()
+  const model = String(product.model || product.productModel || product.product_model || '').trim().toUpperCase()
+  if (productId) return `id:${productId}`
+  if (sn) return `sn:${sn}`
+  return name || model ? `product:${name}|${model}` : ''
+}
+
 const resetRepairRecordForm = (order = {}) => {
   const saved = order.repairRecord || {}
   repairRecordForm.content = saved.content || ''
   const savedProducts = Array.isArray(saved.products) ? saved.products : []
   const orderItems = Array.isArray(order.itemsList) ? order.itemsList : []
-  repairRecordForm.products = (orderItems.length ? orderItems : savedProducts).map((item, index) => {
-    const key = item.key || item.productId || item.product_id || item.sn || item.device_sn || `${index}`
-    const existing = savedProducts.find(product => (product.key || product.productId || product.product_id || product.sn) === key) || {}
-    return {
-      key,
-      productId: item.productId || item.product_id || item._id || existing.productId || existing.product_id || '',
-      productName: item.product_name || item.productName || item.name || existing.productName || existing.product_name || '',
-      model: item.product_model || item.productModel || item.model || existing.model || existing.product_model || '',
-      sn: item.sn || item.device_sn || existing.sn || '',
-      fault: existing.fault || existing.faultReason || (index === 0 ? saved.content || '' : ''),
-      receivedDetail: existing.receivedDetail || existing.received_detail || '',
-      repairAction: existing.repairAction || existing.repair_action || '',
-      partsText: Array.isArray(existing.parts) ? existing.parts.map(part => part.name || part.part_name || '').filter(Boolean).join('\n') : String(existing.partsText || '')
+  const matchedSavedProducts = new Set()
+  repairRecordForm.products = orderItems.map((item, index) => {
+    const key = item.key || item.productId || item.product_id || item._id || item.sn || item.device_sn || `${index}`
+    const identity = repairProductIdentity(item)
+    const existing = savedProducts.find(product => identity && repairProductIdentity(product) === identity) || {}
+    if (savedProducts.includes(existing)) matchedSavedProducts.add(existing)
+    return createRepairProduct({ ...item, ...existing, key, source: 'order' }, index, index === 0 ? saved.content || '' : '')
+  })
+  savedProducts.forEach((product, index) => {
+    if (!matchedSavedProducts.has(product)) {
+      repairRecordForm.products.push(createRepairProduct({ ...product, source: 'manual' }, orderItems.length + index))
     }
   })
   repairRecordForm.photos = (saved.photos || []).map(photo => ({
@@ -3150,16 +3224,13 @@ const resetRepairRecordForm = (order = {}) => {
     url: photo.url || photo.fileID || photo.fileId || ''
   })).filter(photo => photo.fileID || photo.url)
   const savedParts = Array.isArray(saved.parts) ? saved.parts : []
-  const savedByKey = new Map(savedParts.map(part => [part.partId || part.part_id || part.partCode || part.part_code || part.name, part]))
-  const quoteParts = getQuoteSummary(order).parts || []
-  repairRecordForm.parts = quoteParts.map((part, index) => {
-    const key = part.partId || part.part_id || part.partCode || part.part_code || part.code || part.name || part.part_name
-    return createRepairPart(savedByKey.get(key) || part, Boolean(savedByKey.get(key)), index)
-  })
+  if (!repairRecordForm.products.length) repairRecordForm.products = [createRepairProduct()]
+  const productPartKeys = new Set(repairRecordForm.products.flatMap(product => product.parts.map(repairPartIdentity)))
   savedParts.forEach((part, index) => {
-    const key = part.partId || part.part_id || part.partCode || part.part_code || part.name
-    if (!repairRecordForm.parts.some(item => (item.partId || item.partCode || item.name) === key)) {
-      repairRecordForm.parts.push(createRepairPart(part, true, quoteParts.length + index))
+    const key = repairPartIdentity(part)
+    if (!productPartKeys.has(key)) {
+      repairRecordForm.products[0].parts.push(createRepairPart(part, true, repairRecordForm.products[0].parts.length + index))
+      productPartKeys.add(key)
     }
   })
 }
@@ -3769,8 +3840,9 @@ const loadPickerParts = async () => {
   }
 }
 
-const openPartPicker = async (target = 'quote') => {
+const openPartPicker = async (target = 'quote', productIndex = -1) => {
   partPickerTarget.value = target === 'repair' ? 'repair' : 'quote'
+  repairProductPickerIndex.value = target === 'repair' ? productIndex : -1
   partPickerKeyword.value = ''
   partPickerVisible.value = true
   await loadPickerParts()
@@ -3798,45 +3870,65 @@ const selectQuotePart = (part) => {
   partPickerVisible.value = false
 }
 
-const addManualRepairPart = () => {
-  if (repairRecordForm.parts.length >= 30) {
-    ElMessage.warning('实际使用配件不能超过 30 项')
+const addRepairProduct = () => {
+  if (repairRecordForm.products.length >= 50) {
+    ElMessage.warning('产品维修明细不能超过 50 项')
     return
   }
-  repairRecordForm.parts.push(createRepairPart({}, true, repairRecordForm.parts.length))
+  repairRecordForm.products.push(createRepairProduct({}, repairRecordForm.products.length))
 }
 
-const removeRepairPart = (index) => {
-  repairRecordForm.parts.splice(index, 1)
+const removeRepairProduct = (productIndex) => {
+  if (repairRecordForm.products[productIndex]?.source !== 'manual') return
+  repairRecordForm.products.splice(productIndex, 1)
 }
 
-const selectRepairPart = (part) => {
+const addManualRepairPart = (productIndex) => {
+  const product = repairRecordForm.products[productIndex]
+  if (!product) return
+  if (product.parts.length >= 30) {
+    ElMessage.warning('单个产品的实际使用配件不能超过 30 项')
+    return
+  }
+  product.parts.push(createRepairPart({}, true, product.parts.length))
+}
+
+const removeRepairPart = (productIndex, partIndex) => {
+  repairRecordForm.products[productIndex]?.parts.splice(partIndex, 1)
+}
+
+const selectRepairPart = (part, productIndex = repairProductPickerIndex.value) => {
+  const product = repairRecordForm.products[productIndex]
+  if (!product) {
+    ElMessage.warning('请选择要使用该配件的产品')
+    return
+  }
   const partId = part._id || part.part_id || part.partId || ''
   const partCode = part.part_code || part.partCode || ''
-  const existing = repairRecordForm.parts.find(item => (
+  const existing = product.parts.find(item => (
     (partId && item.partId === partId) || (partCode && item.partCode === partCode)
   ))
   if (existing) {
     existing.used = true
     existing.quantity = Math.min(999, Math.max(1, Number(existing.quantity || 1)) + 1)
   } else {
-    if (repairRecordForm.parts.length >= 30) {
-      ElMessage.warning('实际使用配件不能超过 30 项')
+    if (product.parts.length >= 30) {
+      ElMessage.warning('单个产品的实际使用配件不能超过 30 项')
       return
     }
-    repairRecordForm.parts.push(createRepairPart({
+    product.parts.push(createRepairPart({
       partId,
       partCode,
       name: part.part_name || part.partName || part.name || '',
       model: part.model || '',
       quantity: 1
-    }, true, repairRecordForm.parts.length))
+    }, true, product.parts.length))
   }
   partPickerVisible.value = false
 }
 
 const selectPickerPart = (part) => {
-  if (partPickerTarget.value === 'repair') selectRepairPart(part)
+  if (partPickerTarget.value === 'repair') selectRepairPart(part, repairProductPickerIndex.value)
   else selectQuotePart(part)
 }
 
@@ -4846,9 +4938,17 @@ const saveCurrentRepairRecord = async () => {
     ElMessage.error('当前角色无权保存维修记录')
     return
   }
-  const usedParts = repairRecordForm.parts.filter(part => part.used)
+  const usedParts = aggregateRepairParts(repairRecordForm.products.flatMap(product => product.parts.filter(part => part.used)))
   if (usedParts.some(part => !String(part.name || '').trim())) {
     ElMessage.warning('请填写实际使用配件的名称')
+    return
+  }
+  const incompleteProduct = repairRecordForm.products.find(product => (
+    !String(product.productName || '').trim()
+    && (product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.parts.some(part => part.used))
+  ))
+  if (incompleteProduct) {
+    ElMessage.warning('请填写产品名称')
     return
   }
   repairRecordSaving.value = true
@@ -4864,7 +4964,13 @@ const saveCurrentRepairRecord = async () => {
         fault: product.fault,
         received_detail: product.receivedDetail,
         repair_action: product.repairAction,
-        parts: product.partsText.split(/\r?\n/).map(name => name.trim()).filter(Boolean).map(name => ({ name, quantity: 1 }))
+        parts: product.parts.filter(part => part.used).map(part => ({
+          part_id: part.partId,
+          part_code: part.partCode,
+          name: part.name,
+          model: part.model,
+          quantity: part.quantity
+        }))
       })),
       parts: usedParts.map(part => ({
         part_id: part.partId,
@@ -5418,9 +5524,11 @@ const confirmExportExcel = async () => {
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }
+.repair-product-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
 .repair-product-record { margin-top: 14px; padding: 12px; border: 1px solid #cfe6d7; border-radius: 6px; background: rgba(255,255,255,.72); }
 .repair-product-record-head { display:flex; justify-content:space-between; gap:12px; color:#1d2129; }
 .repair-product-record-head span { color:#7a8699; font-size:12px; }
+.repair-product-meta-grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:8px; margin-top:10px; }
 .repair-record-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .repair-record-field > strong { color: #1d2129; font-size: 14px; }
 .repair-parts-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
@@ -5722,6 +5830,8 @@ const confirmExportExcel = async () => {
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
   .repair-parts-head { align-items: flex-start; flex-direction: column; }
+  .repair-product-toolbar { align-items:flex-start; flex-direction:column; }
+  .repair-product-meta-grid { grid-template-columns:1fr; }
   .repair-parts-actions { width: 100%; }
   .repair-parts-actions .el-button { flex: 1; margin: 0; }
   .repair-part-columns { display: none; }

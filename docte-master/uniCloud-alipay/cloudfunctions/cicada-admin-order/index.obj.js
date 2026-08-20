@@ -4003,7 +4003,7 @@ module.exports = {
       const normalizedContent = normalizeText(content)
       if (normalizedContent.length > 1000) return { code: -1, msg: '维修说明不能超过1000字' }
       const rawParts = Array.isArray(parts) ? parts : []
-      if (rawParts.length > 30) return { code: -1, msg: '实际使用配件不能超过30项' }
+      if (rawParts.length > 1500) return { code: -1, msg: '实际使用配件汇总不能超过1500项' }
       const normalizedParts = rawParts.map((part = {}) => {
         const quantity = Number(part.quantity)
         if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('配件数量必须为正整数')
