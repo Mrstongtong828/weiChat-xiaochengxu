@@ -63,7 +63,6 @@ const FIELD_DEFINITIONS = {
     field('warrantyScope', '保修范围', 'item', { width: 9 }),
     field('chargeAmount', '收费（元）', 'item', { width: 8 }),
     field('remark', '备注', 'item', { width: 9 }),
-    field('receivedParts', '收货配件明细', 'section'),
     field('completedAt', '维修完成日期', 'footer'),
     field('shippedAt', '发货日期', 'footer'),
     field('returnNo', '寄出快递单号', 'footer'),
@@ -313,11 +312,13 @@ const getRepairItemFields = (config) => {
   ]
 }
 
+const renderPartsHandwriteCell = () => '<div class="parts-detail-handwrite"><span>手写说明：</span><span class="parts-detail-handwrite-line"></span></div>'
+
 const renderRepairItemCell = (fieldItem, item, index, order) => {
-  if (fieldItem.key === 'partsDetailHandwrite') {
-    return '<div class="parts-detail-handwrite"><span>手写说明：</span><span class="parts-detail-handwrite-line"></span></div>'
-  }
-  return escapeHtml(itemValue(fieldItem, item, index, order))
+  if (fieldItem.key === 'partsDetailHandwrite') return index === 0 ? renderPartsHandwriteCell() : ''
+  const value = itemValue(fieldItem, item, index, order)
+  if (fieldItem.key === 'partsDetail' && !String(value || '').trim() && index === 0) return renderPartsHandwriteCell()
+  return escapeHtml(value)
 }
 
 const getQuoteSummary = (order = {}) => {
@@ -626,7 +627,6 @@ const buildRepairSection = (order, config) => {
       ${renderHeader(config)}
       ${renderPairedMetaTable(metaFields, order)}
       ${itemTable}
-      ${sectionFields.some(item => item.key === 'receivedParts') ? renderReceivedPartsSection(order) : ''}
       ${completion}
       ${renderCustomFields(config, order)}
       ${signatures}
