@@ -1231,7 +1231,11 @@
                   <el-input v-model="product.sn" maxlength="120" placeholder="编号/SN（选填）" :disabled="!canPerformOrderAction('edit_repair_record')" />
                 </div>
                 <div class="repair-record-field"><strong>故障现象</strong><el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品的故障现象" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
-                <div class="repair-record-field"><strong>收货明细</strong><el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品实际收到的附件、外观和数量" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field">
+                  <strong>收货明细</strong>
+                  <span class="section-helper">确认配件签收后自动带入，无需重复填写；已有说明不会被覆盖。</span>
+                  <el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="确认配件签收后自动带入，也可补充外观等说明" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                </div>
                 <div class="repair-record-field"><strong>维修措施</strong><el-input v-model="product.repairAction" type="textarea" :rows="3" maxlength="1000" placeholder="填写该产品的维修项目、处理过程和测试结果" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
                 <div class="repair-record-field">
                   <div class="repair-parts-head">
@@ -1868,6 +1872,7 @@ import { createCurrentMonthRange, dateRangeShortcuts, formatLocalDate, toApiDate
 import { getAdminToken } from '../utils/adminSession.js'
 import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
 import { createWorkOrderQuery } from '../modules/workOrders/query.js'
+import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
@@ -3055,6 +3060,19 @@ const repairProductIdentity = (product = {}) => {
   return name || model ? `product:${name}|${model}` : ''
 }
 
+const applyReceivedPartsToRepairForm = (order = {}) => {
+  const reusedReceipt = reuseReceivedPartsInRepairRecord({
+    products: repairRecordForm.products,
+    repairPhotos: repairRecordForm.photos,
+    receivedParts: order.receivedParts,
+    receivedPhotos: order.receivedPartPhotos,
+    receiptStatus: order.receivedPartsReceipt?.status,
+    photoLimit: 6
+  })
+  repairRecordForm.products = reusedReceipt.products
+  repairRecordForm.photos = reusedReceipt.photos
+}
+
 const resetRepairRecordForm = (order = {}) => {
   const saved = order.repairRecord || {}
   repairRecordForm.content = saved.content || ''
@@ -3087,6 +3105,7 @@ const resetRepairRecordForm = (order = {}) => {
       productPartKeys.add(key)
     }
   })
+  applyReceivedPartsToRepairForm(order)
 }
 
 const createQuoteRow = (item = {}, type = 'services') => ({
@@ -5060,6 +5079,7 @@ const confirmCurrentReceivedParts = async () => {
     const orderBeforeConfirm = currentOrder.value
     const result = await confirmReceivedParts(token, orderBeforeConfirm._id)
     await refreshOrderAfterMutation(result, orderBeforeConfirm)
+    applyReceivedPartsToRepairForm(currentOrder.value)
     ElMessage.success('收货配件已确认签收')
   } catch (error) {
     ElMessage.error(error.message || '配件签收确认失败')
