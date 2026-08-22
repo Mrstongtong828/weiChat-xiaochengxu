@@ -1231,9 +1231,9 @@
                   <el-input v-model="product.sn" maxlength="120" placeholder="编号/SN（选填）" :disabled="!canPerformOrderAction('edit_repair_record')" />
                 </div>
                 <div class="repair-record-field">
-                  <strong>故障现象</strong>
-                  <span class="section-helper">默认带入客户填写的故障描述，维修师傅可修改为更清晰的专业描述。</span>
-                  <el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="客户故障描述会自动带入，可进一步修改" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <strong>故障现象及原因</strong>
+                  <span class="section-helper">默认带入客户填写的故障描述，请由维修工程师补充现场现象和检测确认的故障原因。</span>
+                  <el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写故障现象及维修工程师确认的故障原因" :disabled="!canPerformOrderAction('edit_repair_record')" />
                 </div>
                 <div class="repair-record-field">
                   <strong>收货明细</strong>

@@ -58,7 +58,7 @@ const FIELD_DEFINITIONS = {
     field('quantity', '数量', 'item', { width: 5, visible: false }),
     field('batchNo', '批号', 'item', { width: 9 }),
     field('partsDetail', '配件明细', 'item', { width: 13 }),
-    field('faultReason', '故障原因', 'item', { width: 13 }),
+    field('faultReason', '故障现象及原因', 'item', { width: 13 }),
     field('repairAction', '维修措施', 'item', { width: 17 }),
     field('warrantyScope', '保修范围', 'item', { width: 9 }),
     field('chargeAmount', '收费（元）', 'item', { width: 8 }),
@@ -446,6 +446,12 @@ const repairPartsText = (order = {}, index = 0) => {
   return itemCount > 1 && text ? `整单配件：${text}` : text
 }
 
+const repairProductRecord = (order = {}, index = 0) => {
+  const repairRecord = order.repairRecord || order.repair_record || {}
+  const products = Array.isArray(repairRecord.products) ? repairRecord.products : []
+  return products[index] || {}
+}
+
 const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
   const coverageMap = {
     free: '质保范围内',
@@ -454,6 +460,7 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     not_covered: '不在保修范围',
     pending: '待核验'
   }
+  const repairProduct = repairProductRecord(order, index)
   const values = {
     sequence: index + 1,
     productName: item.product_name,
@@ -462,7 +469,7 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     unit: item.unit || '台',
     quantity: item.quantity || 1,
     batchNo: item.batch_no || item.batchNo || item.sn || '',
-    faultReason: item.fault_reason || item.coverage_note || item.fault_desc,
+    faultReason: repairProduct.fault || item.fault_reason || item.coverage_note || item.fault_desc,
     repairAction: item.repair_action || item.fix_solution || item.fixSolution || '',
     warrantyScope: item.warranty_scope || coverageMap[item.coverage_result] || item.coverage_result || '',
     chargeAmount: item.charge_amount || item.chargeAmount || '',
