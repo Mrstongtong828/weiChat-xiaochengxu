@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { resolveRepairFaultDescription } from './repairRecordDefaults.js'
+import { resolveOrderFaultFallback, resolveRepairFaultDescription } from './repairRecordDefaults.js'
 
 test('customer fault description becomes the editable repair default', () => {
   assert.equal(
@@ -18,4 +18,11 @@ test('saved engineer description takes priority over the customer wording', () =
     }),
     '马达间歇性停转，清洁注油后故障仍存在'
   )
+})
+
+test('legacy order-level customer fault is only used for the first product', () => {
+  const order = { fault: '客户反馈设备间歇性停转' }
+
+  assert.equal(resolveOrderFaultFallback(order, 0), '客户反馈设备间歇性停转')
+  assert.equal(resolveOrderFaultFallback(order, 1), '')
 })

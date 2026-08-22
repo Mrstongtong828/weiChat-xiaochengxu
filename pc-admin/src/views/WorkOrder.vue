@@ -1877,7 +1877,7 @@ import { getAdminToken } from '../utils/adminSession.js'
 import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
 import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
-import { resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
+import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
@@ -3089,7 +3089,8 @@ const resetRepairRecordForm = (order = {}) => {
     const identity = repairProductIdentity(item)
     const existing = savedProducts.find(product => identity && repairProductIdentity(product) === identity) || {}
     if (savedProducts.includes(existing)) matchedSavedProducts.add(existing)
-    return createRepairProduct({ ...item, ...existing, key, source: 'order' }, index, index === 0 ? saved.content || '' : '')
+    const fallbackFault = resolveOrderFaultFallback(order, index) || (index === 0 ? saved.content || '' : '')
+    return createRepairProduct({ ...item, ...existing, key, source: 'order' }, index, fallbackFault)
   })
   savedProducts.forEach((product, index) => {
     if (!matchedSavedProducts.has(product)) {
