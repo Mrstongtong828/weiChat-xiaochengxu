@@ -8,11 +8,11 @@ PC 管理后台的工单处理抽屉可以保存并确认客户随设备寄入�
 
 ## 目标
 
-后台人员在 PC 管理后台完成“确认配件签收”后，如果工单仍处于“已提交”或“运输中”，前端应继续调用现有 `updateOrderStatus` 接口，将订单主状态推进为 `received`，随后以服务端响应刷新当前工单、列表和状态统计。
+后台人员在 PC 管理后台完成“确认配件签收”后，如果工单仍处于“已提交”或“运输中”，前端应根据物流入库标记调用现有 `confirmInboundArrival` 或 `updateOrderStatus` 接口，将订单主状态推进为 `received`，随后以服务端响应刷新当前工单、列表和状态统计。
 
 ## 非目标
 
-- 不修改 `confirmReceivedParts` 或 `updateOrderStatus` 的接口格式。
+- 不修改 `confirmReceivedParts`、`confirmInboundArrival` 或 `updateOrderStatus` 的接口格式。
 - 不绕过后端已有的权限、物流前置条件或状态机校验。
 - 不将已经进入“处理中”“已回寄”“已完成”“已取消”的工单回退到“已签收”。
 - 不在列表加载时自动写数据库，也不批量修复历史数据。
@@ -28,12 +28,13 @@ PC 管理后台的工单处理抽屉可以保存并确认客户随设备寄入�
 1. 调用 `confirmReceivedParts`，记录配件明细的签收人和签收时间。
 2. 从该接口的服务端响应合并最新工单快照。
 3. 判断签收前的订单主状态：
-   - `pending` 或 `sent`：调用 `updateOrderStatus(token, orderId, 'received')`。
+   - `pending` 或 `sent` 且 `arrival_confirm_status='pending'`：调用现有 `confirmInboundArrival`，完成物流送达后的正式入库确认。
+   - 其他 `pending` 或 `sent`：调用 `updateOrderStatus(token, orderId, 'received')`。
    - `received`、`inspecting`、`fixing`、`shipped`、`completed`、`cancelled`：不调用状态更新，防止重复请求或状态回退。
 4. 使用状态更新响应再次合并服务端快照。
 5. 统一重新加载当前筛选下的工单列表和状态统计。
 
-前端只编排现有两个后台接口。后端仍负责判断当前管理员权限、状态流转是否合法，以及寄入物流等前置条件是否满足。
+前端只编排现有的配件签收、入库确认和状态更新接口。后端仍负责判断当前管理员权限、状态流转是否合法，以及寄入物流等前置条件是否满足。
 
 ### 状态判断
 
@@ -56,8 +57,14 @@ PC 管理后台的工单处理抽屉可以保存并确认客户随设备寄入�
 
 - `pc-admin/src/views/WorkOrder.vue`
   - 增加签收后是否需要推进主状态的纯判断逻辑。
-  - 编排 `confirmReceivedParts` 与现有 `updateOrderStatus`。
+  - 编排 `confirmReceivedParts` 与现有 `confirmInboundArrival`/`updateOrderStatus`。
   - 对成功、无需推进和部分成功提供准确反馈。
+- `pc-admin/src/utils/orderTransform.js`
+  - 保留 `arrival_confirm_status`，供前端选择符合后端前置条件的现有接口。
+- `pc-admin/src/api/order.js`、`pc-admin/src/utils/request.js`
+  - 为状态同步请求提供可选的错误消息静默配置，避免拦截器错误与业务层部分成功警告重复展示；其他请求保持原行为。
+- `pc-admin/scripts/local-mock-server.mjs`
+  - 覆盖物流已签收、待确认入库的本地验证场景。
 - `pc-admin/scripts/check-received-parts-status-sync.mjs`
   - 静态检查签收与状态同步的关键调用顺序、状态保护和部分成功提示。
 - `pc-admin/package.json`
@@ -77,7 +84,7 @@ PC 管理后台的工单处理抽屉可以保存并确认客户随设备寄入�
 
 - 配件签收成功后存在 `pending`/`sent` 到 `received` 的自动推进逻辑。
 - 已签收或更后阶段不会自动回退。
-- 状态同步调用使用现有 `updateOrderStatus` API。
+- 状态同步根据 `arrival_confirm_status` 使用现有 `confirmInboundArrival` 或 `updateOrderStatus` API。
 - 部分成功时使用警告而不是整体失败提示。
 - 操作结束后刷新列表和状态统计。
 
@@ -104,7 +111,7 @@ npm run check:print
 1. `pending` 工单确认配件签收后，列表状态变为“已签收”。
 2. `sent` 工单确认配件签收后，列表状态变为“已签收”。
 3. `fixing` 或更后阶段工单确认配件签收后，主状态保持不变。
-4. 模拟 `updateOrderStatus` 失败时，配件签收信息仍保留，并显示部分成功警告。
+4. 模拟入库确认或状态更新失败时，配件签收信息仍保留，并显示部分成功警告。
 5. 状态筛选使工单离开当前列表时，抽屉仍保留服务端最新快照，状态统计完成刷新。
 
 ## 风险与边界
