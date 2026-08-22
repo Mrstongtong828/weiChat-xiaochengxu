@@ -1230,7 +1230,11 @@
                   <el-input v-model="product.model" maxlength="120" placeholder="型号" :disabled="!canPerformOrderAction('edit_repair_record')" />
                   <el-input v-model="product.sn" maxlength="120" placeholder="编号/SN（选填）" :disabled="!canPerformOrderAction('edit_repair_record')" />
                 </div>
-                <div class="repair-record-field"><strong>故障现象</strong><el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写该产品的故障现象" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field">
+                  <strong>故障现象</strong>
+                  <span class="section-helper">默认带入客户填写的故障描述，维修师傅可修改为更清晰的专业描述。</span>
+                  <el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="客户故障描述会自动带入，可进一步修改" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                </div>
                 <div class="repair-record-field">
                   <strong>收货明细</strong>
                   <span class="section-helper">确认配件签收后自动带入，无需重复填写；已有说明不会被覆盖。</span>
@@ -1873,6 +1877,7 @@ import { getAdminToken } from '../utils/adminSession.js'
 import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
 import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
+import { resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
@@ -3021,7 +3026,7 @@ const createRepairProduct = (item = {}, index = 0, fallbackContent = '') => ({
   productName: item.productName || item.product_name || item.name || '',
   model: item.model || item.productModel || item.product_model || '',
   sn: item.sn || item.device_sn || '',
-  fault: item.fault || item.faultReason || item.fault_reason || fallbackContent,
+  fault: resolveRepairFaultDescription(item, fallbackContent),
   receivedDetail: item.receivedDetail || item.received_detail || '',
   repairAction: item.repairAction || item.repair_action || '',
   source: item.source === 'order' ? 'order' : 'manual',
