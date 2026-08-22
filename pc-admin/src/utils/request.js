@@ -45,7 +45,8 @@ request.interceptors.response.use(
         handleSessionExpired(errMsg)
         return rejectWithDisplayedError(errMsg)
       }
-      ElMessage.error(errMsg)
+      const suppressErrorMessage = response.config && response.config.suppressErrorMessage === true
+      if (!suppressErrorMessage) ElMessage.error(errMsg)
       return rejectWithDisplayedError(errMsg)
     }
     return res.data !== undefined ? res.data : res
@@ -59,7 +60,8 @@ request.interceptors.response.use(
       handleSessionExpired(errMsg)
       return rejectWithDisplayedError(errMsg)
     }
-    ElMessage.error(errMsg)
+    const suppressErrorMessage = error.config && error.config.suppressErrorMessage === true
+    if (!suppressErrorMessage) ElMessage.error(errMsg)
     return rejectWithDisplayedError(errMsg)
   }
 )

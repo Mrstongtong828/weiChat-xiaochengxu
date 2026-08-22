@@ -55,6 +55,7 @@ const orders = [
     _id: 'order001',
     order_no: 'WX20260609001',
     status: 'pending',
+    arrival_confirm_status: 'pending',
     user_id: 'user001',
     create_time: now - 3600000,
     update_time: now - 1800000,
@@ -560,6 +561,14 @@ const handleAdminOrder = (method, body) => {
     }
     order.timeline = order.timeline || []
     order.timeline.push({ title: '收货配件已确认签收', desc: '本地 mock 已完成配件核对', time: Date.now(), done: true })
+    order.update_time = Date.now()
+    return ok(order)
+  }
+  if (method === 'confirmInboundArrival' && order) {
+    order.status = 'received'
+    order.arrival_confirm_status = 'confirmed'
+    order.arrival_confirmed_at = Date.now()
+    order.ship_out_info = { ...(order.ship_out_info || {}), received_at: Date.now() }
     order.update_time = Date.now()
     return ok(order)
   }

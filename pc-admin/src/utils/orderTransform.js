@@ -222,6 +222,7 @@ export const transformOrder = (order) => {
     status: toChineseStatus(order.status),
     statusEn: order.status,
     cancelledFromStatus: order.cancelled_from_status || order.cancelledFromStatus || '',
+    arrivalConfirmStatus: order.arrival_confirm_status || order.arrivalConfirmStatus || '',
     needsReturn: order.needs_return === true || order.needsReturn === true,
     archiveStatus: order.archive_status || order.archiveStatus || '',
     slaInfo: order.sla_info || order.slaInfo || null,

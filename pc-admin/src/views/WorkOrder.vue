@@ -1865,7 +1865,7 @@ import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { CirclePlus, DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmInboundArrival, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -1893,6 +1893,8 @@ const updateIsMobile = () => {
 }
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminActionStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
+const adminOrderStatusValues = new Set(['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled'])
+const receiptStatusSyncSourceStatuses = new Set(['pending', 'sent'])
 
 const getStatusType = (status) => {
   const statusMap = {
@@ -2642,6 +2644,11 @@ const copyReturnAddress = async (order = {}) => {
     else ElMessage.error('复制失败，请手动复制')
   }
 }
+const shouldSyncReceivedStatus = (order = {}) => receiptStatusSyncSourceStatuses.has(getOrderStatusValue(order))
+const shouldConfirmInboundArrival = (order = {}) => order.arrivalConfirmStatus === 'pending'
+const syncReceivedOrderStatus = (token, order = {}) => shouldConfirmInboundArrival(order)
+  ? confirmInboundArrival(token, order._id, { suppressErrorMessage: true })
+  : updateOrderStatus(token, order._id, 'received', { suppressErrorMessage: true })
 
 const getReturnShipmentBlockReason = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
@@ -3877,7 +3884,8 @@ const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {},
 const getMutationOrder = (result) => {
   const data = result && result.order ? result.order : result
   if (!data || typeof data !== 'object') return null
-  if (!(data._id || data.order_no || data.status || data.statusEn || data.received_parts_receipt || data.receivedPartsReceipt)) return null
+  const hasOrderStatus = adminOrderStatusValues.has(data.statusEn) || adminOrderStatusValues.has(data.status)
+  if (!(data._id || data.order_no || hasOrderStatus || data.received_parts_receipt || data.receivedPartsReceipt)) return null
   return data
 }
 
@@ -3885,12 +3893,15 @@ const mergeOrderSnapshot = (base, snapshot) => {
   if (!snapshot) return base
   const transformed = transformOrder(snapshot)
   const next = { ...(base || {}) }
-  const statusEn = snapshot.statusEn || (['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled'].includes(snapshot.status) ? snapshot.status : '')
+  const statusEn = snapshot.statusEn || (adminOrderStatusValues.has(snapshot.status) ? snapshot.status : '')
   if (statusEn) {
     next.statusEn = statusEn
     next.status = transformOrder({ status: statusEn }).status
   } else if (snapshot.status) {
     next.status = snapshot.status
+  }
+  if (hasOwn(snapshot, 'arrival_confirm_status') || hasOwn(snapshot, 'arrivalConfirmStatus')) {
+    next.arrivalConfirmStatus = transformed.arrivalConfirmStatus
   }
   if (hasOwn(snapshot, 'timeline') && Array.isArray(snapshot.timeline)) next.timeline = snapshot.timeline
   if (hasOwn(snapshot, 'update_time') || hasOwn(snapshot, 'updateTime')) {
@@ -5083,12 +5094,45 @@ const confirmCurrentReceivedParts = async () => {
   try {
     const token = localStorage.getItem('adminToken')
     const orderBeforeConfirm = currentOrder.value
-    const result = await confirmReceivedParts(token, orderBeforeConfirm._id)
-    await refreshOrderAfterMutation(result, orderBeforeConfirm)
+
+    let receiptResult
+    try {
+      receiptResult = await confirmReceivedParts(token, orderBeforeConfirm._id)
+    } catch (error) {
+      ElMessage.error(error.message || '配件签收确认失败')
+      return
+    }
+
+    const confirmedOrder = applyOrderSnapshot(receiptResult, orderBeforeConfirm) || orderBeforeConfirm
+    let finalResult = receiptResult
+    let statusSynced = false
+    let statusSyncError = null
+
+    if (shouldSyncReceivedStatus(confirmedOrder)) {
+      try {
+        finalResult = await syncReceivedOrderStatus(token, confirmedOrder)
+        applyOrderSnapshot(finalResult, confirmedOrder)
+        statusSynced = true
+      } catch (error) {
+        statusSyncError = error
+      }
+    }
+
+    try {
+      await refreshOrderAfterMutation(finalResult, confirmedOrder)
+    } catch (error) {
+      ElMessage.warning(`配件已确认签收，但后台数据刷新失败：${error.message || '未知错误'}`)
+      return
+    }
+
+    if (statusSyncError) {
+      ElMessage.warning(`配件已确认签收，但工单状态同步失败：${statusSyncError.message || '未知错误'}`)
+    } else if (statusSynced) {
+      ElMessage.success('收货配件已确认签收，工单状态已同步')
+    } else {
+      ElMessage.success('收货配件已确认签收')
+    }
     applyReceivedPartsToRepairForm(currentOrder.value)
-    ElMessage.success('收货配件已确认签收')
-  } catch (error) {
-    ElMessage.error(error.message || '配件签收确认失败')
   } finally {
     receivedPartsConfirming.value = false
   }
