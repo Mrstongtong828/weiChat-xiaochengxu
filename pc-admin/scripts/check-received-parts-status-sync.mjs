@@ -25,7 +25,7 @@ expect(block.indexOf('confirmReceivedParts(') >= 0 && block.indexOf('confirmRece
 expect(block.includes('if (shouldSyncReceivedStatus(confirmedOrder))'), 'missing no-regression status condition')
 expect(block.includes('ElMessage.warning(`配件已确认签收，但工单状态同步失败：${statusSyncError.message || \'未知错误\'}`)'), 'missing partial-success warning')
 expect(block.includes("ElMessage.success('收货配件已确认签收，工单状态已同步')"), 'missing synchronized success message')
-expect(block.includes('await refreshOrderAfterMutation(finalResult, confirmedOrder)'), 'missing unified order refresh')
+expect(block.includes('await refreshOrderAfterMutation(finalResult, confirmedOrder, {'), 'missing unified order refresh')
 expect(source.includes('const hasOrderStatus = adminOrderStatusValues.has(data.statusEn) || adminOrderStatusValues.has(data.status)'), 'old receipt-only responses can be mistaken for order snapshots')
 expect(transformSource.includes('arrivalConfirmStatus: order.arrival_confirm_status || order.arrivalConfirmStatus ||'), 'order transform drops arrival confirmation status')
 expect(mockSource.includes("if (method === 'confirmInboundArrival' && order)"), 'local mock misses inbound-arrival confirmation')

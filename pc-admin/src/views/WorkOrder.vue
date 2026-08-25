@@ -1831,6 +1831,7 @@ import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, re
 import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
 import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
+import { preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
@@ -2715,7 +2716,7 @@ const hasBatchStatusOptions = computed(() => {
     selectedOrders.value.some(order => canMoveOrderToStatus(order, '处理中') || canMoveOrderToStatus(order, '已完成'))
 })
 
-const loadOrders = async () => {
+const loadOrders = async ({ receiptSnapshot = null } = {}) => {
   loading.value = true
   try {
     const token = localStorage.getItem('adminToken')
@@ -2731,11 +2732,12 @@ const loadOrders = async () => {
       responseMode: 'page'
     })
     const list = Array.isArray(data) ? data : (data.list || [])
-    orders.value = transformOrders(list)
+    orders.value = preserveReceivedOrderSnapshot(transformOrders(list), receiptSnapshot)
     totalOrders.value = Array.isArray(data) ? orders.value.length : Number(data.total || 0)
     deviceModelOptions.value = Array.isArray(data.deviceModels) ? data.deviceModels : deviceModelOptions.value
     selectedOrders.value = []
   } catch (error) {
+    if (receiptSnapshot) throw error
     orders.value = []
     totalOrders.value = 0
     ElMessage.error(error.message || '工单列表加载失败')
@@ -3779,9 +3781,9 @@ const applyOrderSnapshot = (result, fallbackRow = null) => {
   return merged
 }
 
-const refreshOrderAfterMutation = async (result, row) => {
+const refreshOrderAfterMutation = async (result, row, { preserveReceiptSnapshot = false } = {}) => {
   const merged = applyOrderSnapshot(result, row)
-  await loadOrders()
+  await loadOrders({ receiptSnapshot: preserveReceiptSnapshot ? merged : null })
   const fresh = row && orders.value.find(item => item._id === row._id)
   if (fresh) {
     applyOrderSnapshot(fresh, row)
@@ -4764,7 +4766,9 @@ const confirmCurrentReceivedParts = async () => {
     }
 
     try {
-      await refreshOrderAfterMutation(finalResult, confirmedOrder)
+      await refreshOrderAfterMutation(finalResult, confirmedOrder, {
+        preserveReceiptSnapshot: statusSynced
+      })
     } catch (error) {
       ElMessage.warning(`配件已确认签收，但后台数据刷新失败：${error.message || '未知错误'}`)
       return
