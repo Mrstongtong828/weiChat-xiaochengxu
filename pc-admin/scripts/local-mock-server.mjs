@@ -54,7 +54,7 @@ const orders = [
   {
     _id: 'order001',
     order_no: 'WX20260609001',
-    status: 'pending',
+    status: 'sent',
     arrival_confirm_status: 'pending',
     user_id: 'user001',
     create_time: now - 3600000,
@@ -175,6 +175,8 @@ const orders = [
     ]
   }
 ]
+
+let staleReceiptListSnapshot = null
 
 const feedbacks = [
   {
@@ -483,7 +485,15 @@ const handleAdminOrder = (method, body) => {
     })
   }
   if (method === 'getAdminOrderList') {
-    const list = filterOrders(body)
+    let list = filterOrders(body)
+    if (staleReceiptListSnapshot && !body.status) {
+      const staleIndex = list.findIndex(order => order._id === staleReceiptListSnapshot._id)
+      if (staleIndex >= 0) {
+        list = [...list]
+        list[staleIndex] = staleReceiptListSnapshot
+        staleReceiptListSnapshot = null
+      }
+    }
     const page = Number(body.page || 1)
     const pageSize = Number(body.pageSize || list.length || 20)
     const start = (page - 1) * pageSize
@@ -565,6 +575,7 @@ const handleAdminOrder = (method, body) => {
     return ok(order)
   }
   if (method === 'confirmInboundArrival' && order) {
+    staleReceiptListSnapshot = JSON.parse(JSON.stringify(order))
     order.status = 'received'
     order.arrival_confirm_status = 'confirmed'
     order.arrival_confirmed_at = Date.now()

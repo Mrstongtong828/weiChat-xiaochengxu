@@ -1879,6 +1879,7 @@ import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
 import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
+import { preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
@@ -2768,7 +2769,7 @@ const getOrderQueryState = () => ({
   dateRange: listDateRange.value
 })
 
-const loadOrders = async () => {
+const loadOrders = async ({ receiptSnapshot = null } = {}) => {
   loading.value = true
   let ownsLoading = true
   try {
@@ -2777,10 +2778,11 @@ const loadOrders = async () => {
       ownsLoading = false
       return
     }
-    orders.value = result.rows
+    orders.value = preserveReceivedOrderSnapshot(result.rows, receiptSnapshot)
     totalOrders.value = result.total
     selectedOrders.value = []
   } catch (error) {
+    if (receiptSnapshot) throw error
     orders.value = []
     totalOrders.value = 0
     if (!error.__displayed) ElMessage.error(error.message || '工单列表加载失败')
@@ -3944,9 +3946,9 @@ const applyOrderSnapshot = (result, fallbackRow = null) => {
   return merged
 }
 
-const refreshOrderAfterMutation = async (result, row) => {
+const refreshOrderAfterMutation = async (result, row, { preserveReceiptSnapshot = false } = {}) => {
   const merged = applyOrderSnapshot(result, row)
-  await loadOrders()
+  await loadOrders({ receiptSnapshot: preserveReceiptSnapshot ? merged : null })
   const fresh = row && orders.value.find(item => item._id === row._id)
   if (fresh) {
     applyOrderSnapshot(fresh, row)
@@ -5119,7 +5121,9 @@ const confirmCurrentReceivedParts = async () => {
     }
 
     try {
-      await refreshOrderAfterMutation(finalResult, confirmedOrder)
+      await refreshOrderAfterMutation(finalResult, confirmedOrder, {
+        preserveReceiptSnapshot: statusSynced
+      })
     } catch (error) {
       ElMessage.warning(`配件已确认签收，但后台数据刷新失败：${error.message || '未知错误'}`)
       return
