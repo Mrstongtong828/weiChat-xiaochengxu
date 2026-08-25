@@ -10,6 +10,7 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     pageSize,
     keyword: filters.keyword || '',
     invoiceStatus: filters.invoiceStatus || '',
+    paymentStatus: filters.paymentStatus || '',
     warrantyStatus: filters.warrantyStatus || '',
     customerType: filters.customerType || filters.customer_type || '',
     todoType: filters.todoType || '',
@@ -264,7 +265,8 @@ export const getLogisticsLedger = (token, filters = {}) => {
     startDate: filters.startDate || '',
     endDate: filters.endDate || '',
     page: filters.page || 1,
-    pageSize: filters.pageSize || 20
+    pageSize: filters.pageSize || 20,
+    forExport: filters.forExport === true
   })
 }
 

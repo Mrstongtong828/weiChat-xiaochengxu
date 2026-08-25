@@ -378,6 +378,24 @@ function matchesSlaFilter(order = {}, slaLevel = '') {
   return info.level === level
 }
 
+function resolveOrderPaymentStatus(order = {}) {
+  return normalizeText(order.payment_status || order.paymentStatus || '')
+}
+
+function resolveOrderPayableTotal(order = {}) {
+  return Number(order.total_price || order.totalPrice || 0) || 0
+}
+
+function matchesPaymentStatus(order = {}, filter = '') {
+  const status = resolveOrderPaymentStatus(order)
+  if (filter === 'paid') return status === 'paid'
+  if (filter === 'pending') {
+    if (status === 'paid' || status === 'not_required' || status === 'refunded') return false
+    return resolveOrderPayableTotal(order) > 0
+  }
+  return !filter || status === filter
+}
+
 function getDirectTodoMatchCond(todoType = '') {
   const type = normalizeText(todoType)
   if (!type) return {}
@@ -2845,6 +2863,7 @@ module.exports = {
         pageSize = 20,
         keyword = '',
         invoiceStatus = '',
+        paymentStatus = '',
         warrantyStatus = '',
         customerType = '',
         customer_type = '',
@@ -2862,13 +2881,15 @@ module.exports = {
       const normalizedKeyword = normalizeText(keyword).toLowerCase()
       const compactKeyword = normalizedKeyword.replace(/[\s-]+/g, '')
       const normalizedInvoiceStatus = normalizeInvoiceStatusFilter(invoiceStatus)
+      const normalizedPaymentStatus = normalizeText(paymentStatus)
+      if (normalizedPaymentStatus && !['pending', 'paid'].includes(normalizedPaymentStatus)) return { code: -1, msg: '付款状态不正确' }
       const normalizedWarrantyStatus = normalizeText(warrantyStatus)
       const normalizedCustomerType = normalizeCustomerType(customerType || customer_type)
       const normalizedSlaLevel = normalizeText(slaLevel)
       const directMatchCond = buildDirectAdminOrderMatchCond({ status: statusList.length > 1 ? statusList : status, todoType })
       if (directMatchCond) applyCreateDateRange(directMatchCond, startDate, endDate)
       // 历史工单可能没有客户类型快照，筛选时需先用 CRM 档案补全后再判断。
-      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedInvoiceStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
+      const canUseDirectQuery = directMatchCond && !normalizedKeyword && !normalizedInvoiceStatus && !normalizedPaymentStatus && !normalizedWarrantyStatus && !normalizedCustomerType && !normalizedSlaLevel
 
       let list = []
       let total = 0
@@ -2944,6 +2965,7 @@ module.exports = {
           return matchesTodoType(order, todoType) &&
             (!normalizedKeyword || searchableText.includes(normalizedKeyword) || (compactKeyword && compactSearchableText.includes(compactKeyword))) &&
             (!normalizedInvoiceStatus || orderInvoiceStatus === normalizedInvoiceStatus) &&
+            matchesPaymentStatus(order, normalizedPaymentStatus) &&
             (!normalizedWarrantyStatus || normalizeText(order.warranty_status) === normalizedWarrantyStatus) &&
             (!normalizedCustomerType || orderCustomerType === normalizedCustomerType) &&
             matchesSlaFilter(order, normalizedSlaLevel)

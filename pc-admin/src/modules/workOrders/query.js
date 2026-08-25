@@ -10,6 +10,7 @@ export const createWorkOrderQuery = ({ fetchPage, transform, toStatus, resolveCu
   const filtersFrom = (state, dateRange = state.dateRange) => ({
     keyword: String(state.search || '').trim(),
     invoiceStatus: state.invoiceStatus || '',
+    paymentStatus: state.paymentStatus || '',
     warrantyStatus: state.warrantyFilter || '',
     customerType: resolveCustomerType(state.customerTypeFilter),
     todoType: state.todoType || '',

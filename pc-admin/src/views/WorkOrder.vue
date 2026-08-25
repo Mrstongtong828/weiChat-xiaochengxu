@@ -26,6 +26,11 @@
           <el-option label="未发票" value="未发票"></el-option>
           <el-option label="已发票" value="已发票"></el-option>
         </el-select>
+        <el-select v-model="searchPaymentStatus" placeholder="付款状态" clearable>
+          <el-option label="全部付款状态" value=""></el-option>
+          <el-option label="待付款" value="pending"></el-option>
+          <el-option label="已付款" value="paid"></el-option>
+        </el-select>
         <el-select v-model="wo.warrantyFilter" placeholder="质保状态" clearable>
           <el-option label="全部质保状态" value=""></el-option>
           <el-option label="在保" value="in_warranty"></el-option>
@@ -93,17 +98,33 @@
     <div class="attention-strip">
       <span class="attention-label">处理状态</span>
       <div class="status-summary-board">
-      <el-button
-        v-for="item in statusSummaryCards"
-        :key="item.key"
-        text
-        class="status-summary-card"
-        :class="[`status-summary-card--${item.tone}`, { active: wo.filter === item.filter }]"
-        @click="applyStatusFilter(item.filter)"
-      >
-        <span>{{ item.label }}</span>
-        <strong>{{ item.count }}</strong>
-      </el-button>
+        <el-button
+          v-for="item in statusSummaryCards"
+          :key="item.key"
+          text
+          class="status-summary-card"
+          :class="[`status-summary-card--${item.tone}`, { active: wo.filter === item.filter }]"
+          @click="applyStatusFilter(item.filter)"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.count }}</strong>
+        </el-button>
+      </div>
+      <div class="payment-summary" title="按创建日期统计待付款与已付款工单（含全部状态，不含免付款与已退款）；点击可筛选">
+        <span class="payment-summary-label">付款</span>
+        <div
+          v-for="item in paymentSummaryItems"
+          :key="item.key"
+          role="button"
+          tabindex="0"
+          class="payment-summary-item"
+          :class="[`payment-summary-item--${item.key}`, { active: searchPaymentStatus === item.filter }]"
+          @click="applyPaymentFilter(item.filter)"
+          @keydown.enter="applyPaymentFilter(item.filter)"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.count }}</strong>
+        </div>
       </div>
     </div>
 
@@ -1876,6 +1897,7 @@ import { createCurrentMonthRange, dateRangeShortcuts, formatLocalDate, toApiDate
 import { getAdminToken } from '../utils/adminSession.js'
 import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
 import { createWorkOrderQuery } from '../modules/workOrders/query.js'
+
 import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
 import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
@@ -2494,8 +2516,10 @@ const importResult = ref(null)
 const activeLogisticsImportType = ref('return')
 const shipDate = ref(new Date().toISOString().slice(0, 10))
 const searchInvoiceStatus = ref('')
+const searchPaymentStatus = ref('')
 const slaFilter = ref('')
 const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0, cancelled: 0 })
+const paymentBreakdown = ref({ pending: 0, paid: 0 })
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
 const expectedBatchDeleteConfirmText = computed(() => `确认删除${deleteTargetOrders.value.length}个工单`)
@@ -2525,6 +2549,11 @@ const statusSummaryCards = computed(() => {
   ]
 })
 
+const paymentSummaryItems = computed(() => [
+  { key: 'pending', label: '待付款', count: paymentBreakdown.value.pending, filter: 'pending' },
+  { key: 'paid', label: '已付款', count: paymentBreakdown.value.paid, filter: 'paid' }
+])
+
 const clearStatusCardConflicts = () => {
   // 状态卡数字只按创建日期统计；点击后清除未纳入卡片统计口径的筛选，保证数字与列表一致。
   wo.search = ''
@@ -2537,7 +2566,14 @@ const clearStatusCardConflicts = () => {
 
 const applyStatusFilter = (filter) => {
   clearStatusCardConflicts()
+  searchPaymentStatus.value = ''
   wo.filter = wo.filter === filter ? '' : filter
+}
+
+const applyPaymentFilter = (filter) => {
+  clearStatusCardConflicts()
+  wo.filter = ''
+  searchPaymentStatus.value = searchPaymentStatus.value === filter ? '' : filter
 }
 
 const loadStatusBreakdown = async () => {
@@ -2557,11 +2593,32 @@ const loadStatusBreakdown = async () => {
   }
 }
 
+let paymentBreakdownRequestId = 0
+const loadPaymentBreakdown = async () => {
+  const requestId = ++paymentBreakdownRequestId
+  const token = localStorage.getItem('adminToken')
+  const dateFilters = toApiDateRange(listDateRange.value)
+  try {
+    // 与「付款状态」筛选共用同一后端口径（全部状态），保证卡片数字与点击筛选后的列表总数一致。
+    const [pendingData, paidData] = await Promise.all([
+      getOrderList(token, '', 1, 1, { ...dateFilters, paymentStatus: 'pending', responseMode: 'page' }),
+      getOrderList(token, '', 1, 1, { ...dateFilters, paymentStatus: 'paid', responseMode: 'page' })
+    ])
+    if (requestId !== paymentBreakdownRequestId) return
+    const pendingTotal = Array.isArray(pendingData) ? pendingData.length : Number((pendingData && pendingData.total) || 0)
+    const paidTotal = Array.isArray(paidData) ? paidData.length : Number((paidData && paidData.total) || 0)
+    paymentBreakdown.value = { pending: pendingTotal, paid: paidTotal }
+  } catch (error) {
+    if (requestId !== paymentBreakdownRequestId) return
+    ElMessage.warning(error.message || '付款统计加载失败')
+  }
+}
+
 const refreshStatusBreakdown = async () => {
   try {
-    await loadStatusBreakdown()
+    await Promise.all([loadStatusBreakdown(), loadPaymentBreakdown()])
   } catch (error) {
-    ElMessage.warning(error.message || '处理状态统计加载失败')
+    ElMessage.warning(error.message || '工单概览统计加载失败')
   }
 }
 
@@ -2762,6 +2819,7 @@ const getOrderQueryState = () => ({
   pageSize: wo.pageSize,
   search: wo.search,
   invoiceStatus: searchInvoiceStatus.value,
+  paymentStatus: searchPaymentStatus.value,
   warrantyFilter: wo.warrantyFilter,
   customerTypeFilter: wo.customerTypeFilter,
   todoType: activeTodoType.value,
@@ -2849,7 +2907,7 @@ const reloadFromFilter = () => {
 
 // 下拉筛选变化立即生效
 watch(
-  () => [wo.filter, wo.warrantyFilter, wo.customerTypeFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
+  () => [wo.filter, wo.warrantyFilter, wo.customerTypeFilter, searchInvoiceStatus.value, searchPaymentStatus.value, activeTodoType.value, slaFilter.value],
   reloadFromFilter
 )
 
@@ -5398,7 +5456,7 @@ const confirmExportExcel = async () => {
 
 .attention-strip { display: flex; align-items: center; gap: 14px; min-height: 48px; margin-bottom: 16px; padding: 7px 10px; border: 1px solid #edf1f7; border-radius: 8px; background: #fff; }
 .attention-label { flex: none; color: #667085; font-size: 12px; font-weight: 700; }
-.status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(92px, 1fr)); flex: 1; gap: 8px; }
+.status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(82px, 1fr)); flex: 1; gap: 6px; }
 .status-summary-card { appearance: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; height: 34px; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 .status-summary-card:hover, .status-summary-card.active { border-color: #8bbcf2; background: #f7fbff; }
 .status-summary-card span { min-width: 0; overflow: hidden; color: #4e5969; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -5407,6 +5465,16 @@ const confirmExportExcel = async () => {
 .status-summary-card--processing strong { color: #1769aa; }
 .status-summary-card--shipped strong, .status-summary-card--completed strong { color: #238636; }
 .status-summary-card--cancelled strong { color: #b42318; }
+.payment-summary { display: flex; flex: none; align-items: center; min-height: 34px; margin-left: 2px; padding-left: 12px; border-left: 1px solid #e5e6eb; }
+.payment-summary-label { margin-right: 10px; color: #98a2b3; font-size: 11px; font-weight: 600; }
+.payment-summary-item { display: flex; align-items: baseline; gap: 4px; padding: 0 9px; white-space: nowrap; cursor: pointer; border-radius: 6px; transition: background .15s ease; }
+.payment-summary-item + .payment-summary-item { border-left: 1px solid #edf1f7; }
+.payment-summary-item span { color: #667085; font-size: 12px; }
+.payment-summary-item strong { color: #1d2129; font-size: 16px; line-height: 1; }
+.payment-summary-item--pending strong { color: #b86b00; }
+.payment-summary-item--paid strong { color: #238636; }
+.payment-summary-item:hover { background: #f2f4f7; }
+.payment-summary-item.active { background: #f2f4f7; box-shadow: inset 0 0 0 1px #e4e7ec; }
 
 .table-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
 .table-section-head > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
@@ -5848,7 +5916,9 @@ const confirmExportExcel = async () => {
 .invoice-已发票 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 
 @media screen and (max-width: 1200px) {
+  .attention-strip { align-items: flex-start; flex-wrap: wrap; }
   .status-summary-board { grid-template-columns: repeat(4, minmax(92px, 1fr)); }
+  .payment-summary { width: 100%; margin-left: 0; padding: 7px 0 0; border-top: 1px solid #edf1f7; border-left: 0; }
 }
 
 @media screen and (max-width: 768px) {
@@ -5861,6 +5931,7 @@ const confirmExportExcel = async () => {
   .selection-count { margin-right: 4px; white-space: nowrap; }
   .attention-strip { align-items: flex-start; flex-direction: column; gap: 8px; }
   .status-summary-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payment-summary { justify-content: flex-end; }
   .table-section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .table-section-head > div { align-items: flex-start; flex-direction: column; gap: 2px; }
   .drawer-body { gap: 8px; }
