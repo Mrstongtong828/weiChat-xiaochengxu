@@ -2,6 +2,8 @@
 
 面向牙科设备售后维修场景的多端系统。客户通过微信小程序提交报修并跟踪进度，管理员、工程师、财务和客服通过 PC 后台协同处理工单；两端共用 uniCloud（支付宝云）云函数与云数据库。
 
+> **项目状态**：微信小程序已上线，PC 管理后台已部署。生产环境 PC 后台地址：`https://admin.cicadadental.cn`，uniCloud 生产空间：`env-00jy6g4qwi94` / `cicada-aftersales`。
+>
 > 当前运行版本位于 `docte-master/` 和 `pc-admin/`。仓库根目录保留了一份不完整的旧版小程序文件，仅用于历史兼容，不应作为开发或部署入口。
 
 ## 项目组成
@@ -40,19 +42,23 @@ flowchart LR
 - 「产品视频」统一打开 CICADA 服务号主页；首页产品安装及维护保养视频、公司介绍页产品矩阵图片支持后台配置，并提供内置内容兜底
 
 ### PC 管理后台
-- 工单分页、筛选、**SLA 时效预警与筛选**、导出、批量操作和待办中心
-- 工单搜索支持**运单号**；工单支持**自定义字段**（自定义客户类型、对接业务员）与**批量删除**（软删除、记录原因与操作人）
-- 配件库存：配件目录、报价用料扣减、库存流水，**含「报价含配件但未绑库存」告警**
-- 结算与**微信支付 v3 退款**（全额 / 部分、幂等防重、写审计）
-- 客户 CRM：档案、设备台账、历史工单、标签、导入导出、合规日志
-- 故障知识库、反馈（投诉 / 建议）处理闭环（分派 / 紧急度 / 回复 / 回访 / 结案）
-- 系统设置：保修政策 / 收费办法**文档上传**、隐私合规内容、联系方式与公众号配置、小程序体验码
+- **工作台首页**：待办中心（待签收 / 待报价 / 待核销 / 待开票 / 待回寄 / 异常工单）、数据概览
+- **报修工单管理**：服务端分页、多条件筛选（状态 / 设备型号 / 发票状态 / 关键词 / 运单号 / SLA 时效）、导出、批量操作、软删除、自定义字段（客户类型 / 对接业务员）、线下手动录单
+- **维修报价**：三段式报价（配件 + 服务 + 其他）、草稿保存、报价发布、配件库存绑定与扣减、「报价含配件但未绑库存」告警
+- **配件库存管理**：配件目录（编码唯一）、库存流水、库存预警、采购成本按角色隐藏
+- **财务中心**：结算核销（微信支付自动确认 + 对公转账人工核销）、微信支付 v3 退款（全额 / 部分、幂等防重）、开票管理（申请 / 登记 / PDF 回传）、四流台账（订单 + 物流 + 资金 + 发票）、应收账龄
+- **物流管理**：批量导入（客户寄件 / 回寄两段）、物流台账、异常预警（48h 未揽收 / 72h 停滞）
+- **客户 CRM**：客户档案、设备台账、历史工单、标签管理、导入导出、合规访问日志
+- **产品故障知识库**：故障 KB、产品分类管理
+- **投诉与建议**：反馈处理闭环（分派 / 紧急度 / 回复 / 回访 / 结案），结案前必须有回访记录
+- **系统设置**：员工管理（角色 / 权限 / 启用禁用 / 重置密码）、保修政策 / 收费办法文档上传、隐私合规内容、联系方式与公众号配置、小程序首页图文配置、操作审计日志
 
 ### 权限与数据安全（RBAC）
-- 员工角色：`admin`（管理员）、`engineer`（工程师）、`finance`（财务）、`support`（客服）
-- 工单列表的客户手机号按角色脱敏，仅 `admin` 可见完整号（与 CRM `view_phone` 策略对齐）
-- 配件采购成本仅 `admin` / `finance` 可见，其他角色不下发成本字段
-- 权限唯一真相在 `cicada-order-workflow` 的 `PERMISSIONS` 表，前后端共同遵守
+- 员工角色：`superadmin`（超级管理员）、`admin`（管理员）、`engineer`（工程师）、`finance`（财务）、`support`（客服）、`maintenance`（后台维护人员）
+- `admin` 和 `superadmin` 自动拥有全部已注册权限；其他角色使用角色模板，支持按账号覆盖权限
+- 工单列表的客户手机号按角色脱敏，仅 `admin` / `superadmin` 可见完整号
+- 配件采购成本仅 `admin` / `superadmin` / `finance` 可见，其他角色不下发成本字段
+- 权限唯一真相在 `cicada-order-workflow` 的 `PERMISSIONS` 表，前后端共同遵守；前端菜单级和按钮级权限与后端接口级校验一致
 
 ## 订单状态机与数据闭环
 
@@ -70,22 +76,45 @@ flowchart LR
 
 ```text
 docte-master/                客户端小程序 + 共用 uniCloud 后端（运行版本）
-├─ api/                      小程序接口封装
-├─ pages/                    小程序页面
+├─ api/                      小程序接口封装（auth / repair / content / user / product）
+├─ pages/                    小程序主包页面（首页 / 登录）
+├─ pages-sub/                小程序分包页面（个人中心 / 地址 / 公司介绍 / 政策 / webview）
 ├─ components/               小程序组件
 ├─ store/                    小程序状态管理
 ├─ utils/                    请求、云函数和通用工具
 ├─ config/                   资源和业务配置
 ├─ static/                   小程序静态资源
 └─ uniCloud-alipay/          云函数、数据库 schema、公共模块和索引说明
+   ├─ cloudfunctions/        9 个云函数 + common 共享模块
+   └─ database/              25+ 集合 schema、索引说明、初始化数据
 pc-admin/                    PC 管理后台
+├─ src/
+│  ├─ views/                 页面组件（工单 / 客户 / 库存 / 财务 / 物流 / 知识库 / 反馈 / 设置等）
+│  ├─ api/                   后台接口封装（按业务模块拆分）
+│  ├─ config/                菜单 / 权限 / API 地址配置
+│  ├─ utils/                 请求拦截、权限工具、通用工具
+│  └─ router/                路由与守卫
+├─ public/                   静态资源
+└─ scripts/                  检查脚本（urls / staff / subscription / errors / security）
 docs/                        Agent / 协作文档
 scripts/                     本地检查脚本
 CLAUDE.md                    仓库导览与架构说明（最权威）
+AGENTS.md                    AI 协作规则与线上保护规则
 goal.md / DEPLOY_GOAL.md     阶段性 / 部署验收目标
 INDEX_TASK.md                数据库索引创建说明
 后端对接任务清单.md          后端接口补齐清单
 ```
+
+## 数据库概览
+
+所有集合使用 `cicada_` 前缀，共 25+ 个集合：
+
+- **核心业务**：`cicada_users`、`cicada_orders`、`cicada_order_items`、`cicada_order_events`、`cicada_user_devices`、`cicada_addresses`
+- **CRM**：`cicada_customers`、`cicada_customer_logs`、`cicada_customer_tags`
+- **库存 / 财务**：`cicada_parts`、`cicada_inventory_flows`
+- **内容 / 系统**：`cicada_fault_kb`、`cicada_product_categories`、`cicada_guides`、`cicada_feedbacks`、`cicada_settings`、`cicada_subscription_logs`、`cicada_rate_limits`、`cicada_admin_logs`、`cicada_sn_logs`、`cicada_surveys`、`cicada_password_resets`
+
+Schema 文件位于 `docte-master/uniCloud-alipay/database/*.schema.json`，索引需在 uniCloud 控制台手动创建。
 
 ## 环境要求
 
@@ -124,15 +153,15 @@ npm run build                # 产物输出到 dist/
 
 云函数位于 `docte-master/uniCloud-alipay/cloudfunctions/`：
 
-- `cicada-client-user`：用户登录、资料、投诉建议提交
-- `cicada-client-order`：客户工单、在保判定、支付、订阅消息
-- `cicada-client-public`：公共内容、政策、指南和知识库
-- `cicada-admin-order`：后台工单、配件库存、结算、退款、SLA（也承载工单列表的客户摘要与脱敏）
-- `cicada-admin-customer`：客户档案（CRM）、设备台账、历史工单、合规日志
-- `cicada-admin-kb`：后台故障知识库
-- `cicada-admin-sys`：系统、员工、配置和投诉处理闭环
-- `cicada-maintenance`：维护和后台清理任务
-- `cicada-express-callback`：外部物流状态回调
+- `cicada-client-user`：微信手机号登录、用户资料、投诉建议提交
+- `cicada-client-order`：客户工单创建 / 查询、在保判定、结构化报价暴露、微信支付 JSAPI 创建与回调验签、发票申请、订阅消息触发
+- `cicada-client-public`：公共内容、操作指南、故障知识库、政策文档、产品分类、服务评价
+- `cicada-admin-sys`（URL 化）：管理员登录、员工管理、系统设置、投诉建议处理闭环（分派 / 紧急度 / 回复 / 回访 / 结案）
+- `cicada-admin-order`（URL 化）：工单列表 / 详情 / 状态更新、三段式报价、配件库存、库存流水、结算核销、微信退款、物流批量导入 / 台账 / 异常预警、发票登记、四流台账、待办统计、SLA 预警、线下录单、应收账龄
+- `cicada-admin-customer`（URL 化）：客户 CRM 档案、设备台账、历史工单、标签、导入导出、合规日志
+- `cicada-admin-kb`（URL 化）：故障知识库 CRUD、产品分类管理
+- `cicada-maintenance`：过期限流记录清理、SN 标准化回填、异常数据检查
+- `cicada-express-callback`：外部物流状态回调接收与处理
 
 订单状态机、员工权限、发票策略、质保策略和物流供应商适配等共享逻辑位于 `cloudfunctions/common/`。涉及工单状态或角色权限时，应优先修改 `cicada-order-workflow`，并同步管理端云函数中的 fallback 实现。
 
@@ -141,6 +170,7 @@ npm run build                # 产物输出到 dist/
 上线前需要在 uniCloud 控制台手动创建数据库索引，尤其是：
 
 - `cicada_orders.order_no` 唯一索引
+- `cicada_users.username` 稀疏索引（sparse）
 - 用户工单查询相关的 `user_id + create_time` 复合索引
 - 后台状态筛选相关的 `status + create_time` 复合索引
 
@@ -196,9 +226,24 @@ npm run check:security
 ## 参考文档
 
 - [`CLAUDE.md`](CLAUDE.md)：仓库导览与架构说明（最权威）
+- [`AGENTS.md`](AGENTS.md)：AI 协作规则、线上小程序保护规则、Git 提交与部署规范
 - [`docte-master/README.md`](docte-master/README.md)：小程序与 uniCloud 后端开发说明
 - [`pc-admin/README.md`](pc-admin/README.md)：PC 后台开发与验收说明
+- [`pc-admin/配置指南.md`](pc-admin/配置指南.md)：PC 后台云函数 URL 化配置指南
 - [`docte-master/上线配置清单.md`](docte-master/上线配置清单.md)：支付、订阅消息、物流和索引上线清单
 - [`docte-master/uniCloud-alipay/database/INDEXES.md`](docte-master/uniCloud-alipay/database/INDEXES.md)：数据库索引说明
 - [`SCALING_GUIDE.md`](SCALING_GUIDE.md)：约 1000 用户容量调优
 - [`AFTERSALES_DEPLOY_ACCEPTANCE.md`](AFTERSALES_DEPLOY_ACCEPTANCE.md)：售后流程部署验收
+- [`AFTERSALES_QUOTE_GOAL.md`](AFTERSALES_QUOTE_GOAL.md)：售后报价 / 库存 / 结算目标
+- [`AFTERSALES_UX_OPTIMIZATION_GOAL.md`](AFTERSALES_UX_OPTIMIZATION_GOAL.md)：售后体验优化目标
+
+## Git 远程仓库
+
+| 远程 | 地址 | 用途 |
+| --- | --- | --- |
+| `origin` | `huaxie602/docte` | Issue / PRD 追踪 |
+| `weichat` | `Mrstongtong828/weiChat-xiaochengxu` | 小程序主仓库（feature 分支默认推送目标） |
+| `cicada` | `Mrstongtong828/CICADA-` | CICADA 品牌仓库 |
+| `data-guard` | `Mrstongtong828/data-guard` | 数据保护仓库 |
+
+Feature 分支默认跟踪 `weichat`，执行 `git push` 时推送到该远程。
