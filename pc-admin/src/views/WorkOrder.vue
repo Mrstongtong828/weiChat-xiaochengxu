@@ -684,6 +684,15 @@
                   <span>签收人：{{ receivedPartsForm.receipt.confirmed_by_name || '-' }}</span>
                   <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
                 </div>
+                <el-alert
+                  v-if="needsReceivedPartsStatusSync(currentOrder)"
+                  class="received-parts-sync-alert"
+                  type="warning"
+                  title="配件已签收，工单进度尚未同步"
+                  description="请先同步为已签收，再继续检测、维修或回寄。"
+                  :closable="false"
+                  show-icon
+                />
                 <div class="received-parts-footer">
                   <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('edit_received_parts')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
                   <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('confirm_received_parts')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
@@ -1350,7 +1359,7 @@
                 </div>
               </div>
             </div>
-            <div v-if="canPerformOrderAction('update_order_status')" class="drawer-section">
+            <div v-if="canPerformDrawerStatusAction(currentOrder)" class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">更改工单进度</p>
                 <el-tag type="info" size="small">{{ getNextAction(currentOrder).label }}</el-tag>
@@ -1460,8 +1469,8 @@
             </template>
           </el-dropdown>
           <el-button @click="drawerVisible=false">关闭</el-button>
-          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_order_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
-            <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">推进至{{ newStatus }}</el-button>
+          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformDrawerStatusAction(currentOrder) && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
+            <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">{{ drawerStatusActionLabel }}</el-button>
           </el-tooltip>
         </div>
       </div>
@@ -1899,12 +1908,15 @@ import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmis
 import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 
 import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
+import { needsReceivedPartsStatusSync, selectPreferredDrawerStatus } from '../modules/workOrders/receivedPartsStatus.js'
 import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
+import { preserveOrderSnapshot, preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { getQuotePublishPresentation, isManualWarrantyFreeItem, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
+import { getRecommendedWorkflowTab, getWorkflowStageIndex, isRepairStageReady } from '../modules/workOrders/workflowPresentation.js'
 import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
@@ -1916,7 +1928,6 @@ const updateIsMobile = () => {
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminActionStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminOrderStatusValues = new Set(['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled'])
-const receiptStatusSyncSourceStatuses = new Set(['pending', 'sent'])
 
 const getStatusType = (status) => {
   const statusMap = {
@@ -2141,6 +2152,9 @@ const getNextAction = (order = {}) => {
   if (['pending', 'draft'].includes(quoteStatus)) {
     return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
   }
+  if (quoteStatus === 'issued' && !isRepairStageReady(order, paymentStatus)) {
+    return { label: '待确认', desc: '等待客户确认报价或录入电话确认', type: 'warning' }
+  }
   if (order.chargeType === 'free' && ['issued', 'confirmed'].includes(quoteStatus)) {
     const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
     const inWarranty = Boolean(order.inWarranty ?? order.in_warranty)
@@ -2174,24 +2188,14 @@ const drawerWorkflowStages = [
 ]
 
 const getDrawerStageIndex = (order = {}) => {
-  if (order.status === '已完成' || order.returnNo || order.status === '已回寄') return 4
-  if (['处理中', '维修中'].includes(order.status)) return 3
-  const quoteStatus = order.quoteStatus || order.quote_status || ''
-  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 2
-  if (['已签收', '检测中', '处理中', '维修中'].includes(order.status)) return 1
-  return 0
+  return getWorkflowStageIndex(order, resolvePaymentStatus(order))
 }
 
 const getRecommendedDrawerTab = (order = {}) => {
-  const quoteStatus = order.quoteStatus || order.quote_status || ''
-  const paymentStatus = resolvePaymentStatus(order)
-  const invoiceState = normalizeInvoiceStatus(order)
-  if (['pending', 'draft', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
-  if (order.status === '已回寄' || order.returnNo || quoteStatus === 'rejected') return 'return'
-  if (['issued', 'confirmed'].includes(quoteStatus) && ['已签收', '处理中', '维修中'].includes(order.status)) return 'repair'
-  if (order.needInvoice && paymentStatus === 'paid' && !['已发票', '已寄出', '已签收'].includes(invoiceState)) return 'invoice'
-  if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 'repair'
-  return 'base'
+  return getRecommendedWorkflowTab(order, {
+    paymentStatus: resolvePaymentStatus(order),
+    invoiceState: normalizeInvoiceStatus(order)
+  })
 }
 
 const getNextStepButtonText = (order = {}) => {
@@ -2701,11 +2705,17 @@ const copyReturnAddress = async (order = {}) => {
     else ElMessage.error('复制失败，请手动复制')
   }
 }
-const shouldSyncReceivedStatus = (order = {}) => receiptStatusSyncSourceStatuses.has(getOrderStatusValue(order))
 const shouldConfirmInboundArrival = (order = {}) => order.arrivalConfirmStatus === 'pending'
+const shouldSyncReceivedStatus = (order = {}) => needsReceivedPartsStatusSync(order)
+const canSyncReceivedOrderStatus = (order = {}) => shouldConfirmInboundArrival(order)
+  ? canPerformOrderAction('confirm_inbound_arrival')
+  : canPerformOrderAction('update_order_status')
 const syncReceivedOrderStatus = (token, order = {}) => shouldConfirmInboundArrival(order)
   ? confirmInboundArrival(token, order._id, { suppressErrorMessage: true })
   : updateOrderStatus(token, order._id, 'received', { suppressErrorMessage: true })
+const canPerformDrawerStatusAction = (order = {}) => (
+  canChangeOrderStatus.value || (needsReceivedPartsStatusSync(order) && canSyncReceivedOrderStatus(order))
+)
 
 const getReturnShipmentBlockReason = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
@@ -2737,9 +2747,14 @@ const getReturnShipmentBlockReason = (order = {}) => {
 }
 
 const getAllowedStatusOptions = (order = {}) => {
-  if (!order || (!canChangeOrderStatus.value && !canPerformOrderAction('record_return_logistics'))) return []
+  if (!order || (!canPerformDrawerStatusAction(order) && !canPerformOrderAction('record_return_logistics'))) return []
   const currentStatus = getOrderStatusValue(order)
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
+  if (needsReceivedPartsStatusSync(order)) {
+    return transitions.includes('received') && canSyncReceivedOrderStatus(order)
+      ? [workflowStatusLabelMap.value.received || '已签收']
+      : []
+  }
   return transitions.filter(targetStatus => {
     if (targetStatus === 'shipped') {
       if (!canPerformOrderAction('record_return_logistics') && !canChangeOrderStatus.value) return false
@@ -2789,6 +2804,10 @@ const getManualStatusOptions = (order = {}) => {
 }
 
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
+const resetSelectedOrderStatus = (order = {}, activeTab = activeDrawerTab.value) => {
+  const allowedStatuses = getAllowedStatusOptions(order)
+  newStatus.value = selectPreferredDrawerStatus({ order, allowedStatuses, activeTab })
+}
 const canRecordReturnLogistics = computed(() => (
   Boolean(currentOrder.value)
   && canPerformOrderAction('record_return_logistics')
@@ -2826,7 +2845,7 @@ const getOrderQueryState = () => ({
   dateRange: listDateRange.value
 })
 
-const loadOrders = async () => {
+const loadOrders = async ({ receiptSnapshot = null, orderSnapshot = null } = {}) => {
   loading.value = true
   let ownsLoading = true
   try {
@@ -2835,10 +2854,12 @@ const loadOrders = async () => {
       ownsLoading = false
       return
     }
-    orders.value = result.rows
+    const receiptSafeRows = preserveReceivedOrderSnapshot(result.rows, receiptSnapshot)
+    orders.value = preserveOrderSnapshot(receiptSafeRows, orderSnapshot)
     totalOrders.value = result.total
     selectedOrders.value = []
   } catch (error) {
+    if (receiptSnapshot) throw error
     orders.value = []
     totalOrders.value = 0
     if (!error.__displayed) ElMessage.error(error.message || '工单列表加载失败')
@@ -2989,6 +3010,14 @@ const currentRemarkOrder = ref(null)
 const quickShipDialogVisible = ref(false)
 const remarkDialogVisible = ref(false)
 const newStatus = ref('')
+const drawerStatusActionLabel = computed(() => {
+  if (needsReceivedPartsStatusSync(currentOrder.value) && newStatus.value === '已签收') return '同步为已签收'
+  if (newStatus.value === '已回寄' && !currentOrder.value?.returnNo) return '录入回寄物流'
+  return `推进至${newStatus.value}`
+})
+watch(activeDrawerTab, (tab) => {
+  if (currentOrder.value) resetSelectedOrderStatus(currentOrder.value, tab)
+})
 const invoiceStatus = ref('无需开票')
 const invoiceFileUploading = ref(false)
 const invoiceFileName = ref('')
@@ -3542,10 +3571,7 @@ const openDrawer = (row) => {
   Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
   Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
   Object.keys(snLookupTimers).forEach((k) => { clearTimeout(snLookupTimers[k]); delete snLookupTimers[k] })
-  const allowedStatuses = getAllowedStatusOptions(row)
-  newStatus.value = (row.quoteStatus === 'rejected' && allowedStatuses.includes('已回寄'))
-    ? '已回寄'
-    : (allowedStatuses[0] || row.status)
+  resetSelectedOrderStatus(row, activeDrawerTab.value)
   const normalizedInvoiceStatus = normalizeInvoiceStatus(row)
   invoiceStatus.value = ['已寄出', '已签收'].includes(normalizedInvoiceStatus) ? '已发票' : normalizedInvoiceStatus
   invoiceForm.title = row.invoiceTitle || ''
@@ -3925,7 +3951,7 @@ const syncCurrentOrderFromList = (row) => {
   const fresh = orders.value.find(item => item._id === row._id)
   if (!fresh) return
   currentOrder.value = fresh
-  newStatus.value = fresh.status
+  resetSelectedOrderStatus(fresh)
   invoiceStatus.value = normalizeInvoiceStatus(fresh)
   invoiceForm.title = fresh.invoiceTitle || ''
   invoiceForm.taxNo = fresh.taxId || ''
@@ -3980,8 +4006,55 @@ const mergeOrderSnapshot = (base, snapshot) => {
   if (hasOwn(snapshot, 'received_parts_receipt') || hasOwn(snapshot, 'receivedPartsReceipt')) {
     next.receivedPartsReceipt = transformed.receivedPartsReceipt
   }
+  if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'return_company') || hasOwn(snapshot, 'returnCompany')) {
+    next.returnCompany = snapshot.return_company ?? snapshot.returnCompany ?? transformed.returnCompany ?? next.returnCompany
+  }
+  if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'return_no') || hasOwn(snapshot, 'returnNo')) {
+    next.returnNo = snapshot.return_no ?? snapshot.returnNo ?? transformed.returnNo ?? next.returnNo
+  }
+  if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'shipped_at') || hasOwn(snapshot, 'shippedAt')) {
+    next.shippedAt = snapshot.shipped_at ?? snapshot.shippedAt ?? transformed.shippedAt ?? next.shippedAt
+  }
+  if (hasOwn(snapshot, 'quote_status') || hasOwn(snapshot, 'quoteStatus')) next.quoteStatus = transformed.quoteStatus
+  if (hasOwn(snapshot, 'authorization_status') || hasOwn(snapshot, 'authorizationStatus')) next.authorizationStatus = transformed.authorizationStatus
+  if (hasOwn(snapshot, 'authorization_time') || hasOwn(snapshot, 'authorizationTime')) next.authorizationTime = transformed.authorizationTime
+  if (hasOwn(snapshot, 'payment_status') || hasOwn(snapshot, 'paymentStatus')) next.paymentStatus = transformed.paymentStatus
+  if (hasOwn(snapshot, 'payment_deadline') || hasOwn(snapshot, 'paymentDeadline')) next.paymentDeadline = transformed.paymentDeadline
+  if (hasOwn(snapshot, 'quote_detail') || hasOwn(snapshot, 'quoteDetail')) next.quoteDetail = transformed.quoteDetail
+  if (hasOwn(snapshot, 'quote_items') || hasOwn(snapshot, 'quoteItems')) next.quoteItems = transformed.quoteItems
+  if (hasOwn(snapshot, 'quote_remark') || hasOwn(snapshot, 'quoteRemark')) next.quoteRemark = transformed.quoteRemark
+  if (hasOwn(snapshot, 'quote_time') || hasOwn(snapshot, 'quoteTime')) next.quoteTime = transformed.quoteTime
+  if (hasOwn(snapshot, 'parts_fee') || hasOwn(snapshot, 'partsFee')) next.partsFee = transformed.partsFee
+  if (hasOwn(snapshot, 'labor_fee') || hasOwn(snapshot, 'laborFee')) next.laborFee = transformed.laborFee
+  if (hasOwn(snapshot, 'total_price') || hasOwn(snapshot, 'totalPrice')) next.totalPrice = transformed.totalPrice
   if (Array.isArray(snapshot.itemsList)) next.itemsList = transformed.itemsList
   return next
+}
+
+const createMutationSnapshot = (order = {}, result = {}) => ({
+  ...result,
+  _id: order._id,
+  order_no: order.id,
+  update_time: result.update_time ?? result.updateTime ?? Date.now()
+})
+
+const createReturnShipmentSnapshot = (order = {}, returnCompany = '', returnNo = '') => {
+  const updateTime = Date.now()
+  return {
+    _id: order._id,
+    order_no: order.id,
+    statusEn: 'shipped',
+    returnCompany,
+    returnNo,
+    shippedAt: updateTime,
+    updateTime,
+    needsReturn: false,
+    archiveStatus: order.needsReturn ? 'returned' : order.archiveStatus,
+    timeline: [
+      ...(Array.isArray(order.timeline) ? order.timeline : []),
+      { title: '回寄发货', desc: `${returnCompany || '物流'} ${returnNo}`, time: updateTime, done: true }
+    ]
+  }
 }
 
 // 变更接口成功后先应用服务端快照，再刷新列表；即使筛选条件让工单离开列表，也不会残留旧状态。
@@ -3996,22 +4069,22 @@ const applyOrderSnapshot = (result, fallbackRow = null) => {
   if (listIndex >= 0) orders.value.splice(listIndex, 1, merged)
   if (currentOrder.value && currentOrder.value._id === orderId) {
     currentOrder.value = merged
-    newStatus.value = merged.status
+    resetSelectedOrderStatus(merged)
     resetReceivedPartsForm(merged)
   }
   return merged
 }
 
-const refreshOrderAfterMutation = async (result, row) => {
+const refreshOrderAfterMutation = async (result, row, { preserveReceiptSnapshot = false } = {}) => {
   const merged = applyOrderSnapshot(result, row)
-  await loadOrders()
+  await loadOrders({ receiptSnapshot: preserveReceiptSnapshot ? merged : null })
   const fresh = row && orders.value.find(item => item._id === row._id)
   if (fresh) {
     applyOrderSnapshot(fresh, row)
   } else if (merged && currentOrder.value && currentOrder.value._id === merged._id) {
     // 当前筛选已排除该工单，保留服务端快照给抽屉展示，不回退到旧行。
     currentOrder.value = merged
-    newStatus.value = merged.status
+    resetSelectedOrderStatus(merged)
     resetReceivedPartsForm(merged)
   }
   await refreshStatusBreakdown()
@@ -4168,7 +4241,8 @@ const buildBatchConfirmMessage = (actionText, targetOrders = [], skippedOrders =
 }
 
 const handleQuickStatusChange = async (row, status) => {
-  if (!canChangeOrderStatus.value) {
+  const isReceiptStatusRecovery = status === '已签收' && needsReceivedPartsStatusSync(row)
+  if (!canChangeOrderStatus.value && !(isReceiptStatusRecovery && canSyncReceivedOrderStatus(row))) {
     ElMessage.error('仅管理员可以修改工单状态')
     return false
   }
@@ -4245,9 +4319,13 @@ const handleQuickStatusChange = async (row, status) => {
     }
     quickStatusLoading.value = true
     const token = localStorage.getItem('adminToken')
-    const result = await updateOrderStatus(token, row._id, toEnglishStatus(status))
-    await refreshOrderAfterMutation(result, row)
-    ElMessage.success('工单状态更新成功')
+    const result = isReceiptStatusRecovery
+      ? await syncReceivedOrderStatus(token, row)
+      : await updateOrderStatus(token, row._id, toEnglishStatus(status))
+    await refreshOrderAfterMutation(result, row, {
+      preserveReceiptSnapshot: isReceiptStatusRecovery
+    })
+    ElMessage.success(isReceiptStatusRecovery ? '签收状态已同步，可继续处理工单' : '工单状态更新成功')
     return true
   } catch (error) {
     if (!isUserCancel(error)) {
@@ -4408,8 +4486,9 @@ const confirmQuickShip = async () => {
   quickStatusLoading.value = true
   try {
     const token = localStorage.getItem('adminToken')
+    const orderBeforeShipment = currentQuickOrder.value
     const result = await batchUpdateShipping(token, [{
-      orderNo: currentQuickOrder.value.id,
+      orderNo: orderBeforeShipment.id,
       returnCompany,
       returnNo
     }])
@@ -4417,10 +4496,14 @@ const confirmQuickShip = async () => {
       const reason = result && result.errors && result.errors[0] ? result.errors[0].reason : '快捷发货失败'
       throw new Error(reason)
     }
+    const shipmentSnapshot = applyOrderSnapshot(
+      createReturnShipmentSnapshot(orderBeforeShipment, returnCompany, returnNo),
+      orderBeforeShipment
+    ) || orderBeforeShipment
     ElMessage.success('快捷发货更新成功')
     quickShipDialogVisible.value = false
-    await Promise.all([loadOrders(), refreshStatusBreakdown()])
-    syncCurrentOrderFromList(currentQuickOrder.value)
+    await Promise.all([loadOrders({ orderSnapshot: shipmentSnapshot }), refreshStatusBreakdown()])
+    syncCurrentOrderFromList(orderBeforeShipment)
   } catch (error) {
     ElMessage.error(error.message || '快捷发货失败')
   } finally {
@@ -4434,8 +4517,9 @@ const confirmStatus = async () => {
     ElMessage.error('当前状态不允许执行该操作')
     return
   }
+  const isReceiptStatusRecovery = newStatus.value === '已签收' && needsReceivedPartsStatusSync(currentOrder.value)
   const changed = await handleQuickStatusChange(currentOrder.value, newStatus.value)
-  if (changed) {
+  if (changed && !isReceiptStatusRecovery) {
     drawerVisible.value = false
   }
 }
@@ -4569,28 +4653,13 @@ const saveOrderQuote = async (status = 'draft') => {
   quoteSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const result = await updateOrderQuote(token, currentOrder.value._id, payload)
+    const orderBeforeQuote = currentOrder.value
+    const result = await updateOrderQuote(token, orderBeforeQuote._id, payload)
+    const quoteSnapshot = applyOrderSnapshot(createMutationSnapshot(orderBeforeQuote, result), orderBeforeQuote) || orderBeforeQuote
     ElMessage.success(status === 'issued' ? '报价已发布' : '报价草稿已保存')
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    const updatedOrder = fresh || (result
-      ? {
-          ...currentOrder.value,
-          quoteDetail: result.quote_detail ?? result.quoteDetail ?? currentOrder.value.quoteDetail,
-          quoteItems: result.quote_items ?? result.quoteItems ?? currentOrder.value.quoteItems,
-          quoteStatus: result.quote_status ?? result.quoteStatus ?? status,
-          quoteRemark: result.quote_remark ?? result.quoteRemark ?? currentOrder.value.quoteRemark,
-          quoteTime: result.quote_update_time ?? result.quoteTime ?? currentOrder.value.quoteTime,
-          paymentDeadline: result.payment_deadline ?? result.paymentDeadline ?? currentOrder.value.paymentDeadline,
-          partsFee: Number(result.parts_fee ?? result.partsFee ?? currentOrder.value.partsFee ?? 0),
-          laborFee: Number(result.labor_fee ?? result.laborFee ?? currentOrder.value.laborFee ?? 0),
-          totalPrice: Number(result.total_price ?? result.totalPrice ?? currentOrder.value.totalPrice ?? total),
-          paymentStatus: result.payment_status ?? result.paymentStatus ?? currentOrder.value.paymentStatus,
-          needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
-          archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
-          timeline: result.timeline ?? currentOrder.value.timeline
-        }
-      : null)
+    await loadOrders({ orderSnapshot: quoteSnapshot })
+    const fresh = orders.value.find(item => item._id === orderBeforeQuote._id)
+    const updatedOrder = fresh || quoteSnapshot
     if (updatedOrder) {
       currentOrder.value = updatedOrder
       resetQuoteForm(updatedOrder)
@@ -4606,17 +4675,11 @@ const saveOrderQuote = async (status = 'draft') => {
 const phoneDecisionSaving = ref(false)
 
 const refreshOrderAfterDecision = async (result = {}) => {
-  await loadOrders()
-  const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-  const updatedOrder = fresh || {
-    ...currentOrder.value,
-    quoteStatus: result.quote_status ?? result.quoteStatus ?? currentOrder.value.quoteStatus,
-    authorizationStatus: result.authorization_status ?? result.authorizationStatus ?? currentOrder.value.authorizationStatus,
-    status: result.status ?? result.status ?? currentOrder.value.status,
-    needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
-    archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
-    timeline: result.timeline ?? currentOrder.value.timeline
-  }
+  const orderBeforeDecision = currentOrder.value
+  const decisionSnapshot = applyOrderSnapshot(createMutationSnapshot(orderBeforeDecision, result), orderBeforeDecision) || orderBeforeDecision
+  await loadOrders({ orderSnapshot: decisionSnapshot })
+  const fresh = orders.value.find(item => item._id === orderBeforeDecision._id)
+  const updatedOrder = fresh || decisionSnapshot
   currentOrder.value = updatedOrder
   resetQuoteForm(updatedOrder)
   activeDrawerTab.value = getRecommendedDrawerTab(updatedOrder)
@@ -5177,7 +5240,9 @@ const confirmCurrentReceivedParts = async () => {
     }
 
     try {
-      await refreshOrderAfterMutation(finalResult, confirmedOrder)
+      await refreshOrderAfterMutation(finalResult, confirmedOrder, {
+        preserveReceiptSnapshot: statusSynced
+      })
     } catch (error) {
       ElMessage.warning(`配件已确认签收，但后台数据刷新失败：${error.message || '未知错误'}`)
       return
