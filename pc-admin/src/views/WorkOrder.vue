@@ -684,6 +684,15 @@
                   <span>签收人：{{ receivedPartsForm.receipt.confirmed_by_name || '-' }}</span>
                   <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
                 </div>
+                <el-alert
+                  v-if="needsReceivedPartsStatusSync(currentOrder)"
+                  class="received-parts-sync-alert"
+                  type="warning"
+                  title="配件已签收，工单进度尚未同步"
+                  description="请先同步为已签收，再继续检测、维修或回寄。"
+                  :closable="false"
+                  show-icon
+                />
                 <div class="received-parts-footer">
                   <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('edit_received_parts')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
                   <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('confirm_received_parts')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
@@ -1350,7 +1359,7 @@
                 </div>
               </div>
             </div>
-            <div v-if="canPerformOrderAction('update_order_status')" class="drawer-section">
+            <div v-if="canPerformDrawerStatusAction(currentOrder)" class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">更改工单进度</p>
                 <el-tag type="info" size="small">{{ getNextAction(currentOrder).label }}</el-tag>
@@ -1460,8 +1469,8 @@
             </template>
           </el-dropdown>
           <el-button @click="drawerVisible=false">关闭</el-button>
-          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_order_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
-            <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">推进至{{ newStatus }}</el-button>
+          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformDrawerStatusAction(currentOrder) && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
+            <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">{{ drawerStatusActionLabel }}</el-button>
           </el-tooltip>
         </div>
       </div>
@@ -1899,6 +1908,7 @@ import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmis
 import { createWorkOrderQuery } from '../modules/workOrders/query.js'
 
 import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
+import { needsReceivedPartsStatusSync, selectPreferredDrawerStatus } from '../modules/workOrders/receivedPartsStatus.js'
 import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
 import { preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
@@ -1917,7 +1927,6 @@ const updateIsMobile = () => {
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminActionStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminOrderStatusValues = new Set(['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled'])
-const receiptStatusSyncSourceStatuses = new Set(['pending', 'sent'])
 
 const getStatusType = (status) => {
   const statusMap = {
@@ -2702,11 +2711,17 @@ const copyReturnAddress = async (order = {}) => {
     else ElMessage.error('复制失败，请手动复制')
   }
 }
-const shouldSyncReceivedStatus = (order = {}) => receiptStatusSyncSourceStatuses.has(getOrderStatusValue(order))
 const shouldConfirmInboundArrival = (order = {}) => order.arrivalConfirmStatus === 'pending'
+const shouldSyncReceivedStatus = (order = {}) => needsReceivedPartsStatusSync(order)
+const canSyncReceivedOrderStatus = (order = {}) => shouldConfirmInboundArrival(order)
+  ? canPerformOrderAction('confirm_inbound_arrival')
+  : canPerformOrderAction('update_order_status')
 const syncReceivedOrderStatus = (token, order = {}) => shouldConfirmInboundArrival(order)
   ? confirmInboundArrival(token, order._id, { suppressErrorMessage: true })
   : updateOrderStatus(token, order._id, 'received', { suppressErrorMessage: true })
+const canPerformDrawerStatusAction = (order = {}) => (
+  canChangeOrderStatus.value || (needsReceivedPartsStatusSync(order) && canSyncReceivedOrderStatus(order))
+)
 
 const getReturnShipmentBlockReason = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
@@ -2738,9 +2753,14 @@ const getReturnShipmentBlockReason = (order = {}) => {
 }
 
 const getAllowedStatusOptions = (order = {}) => {
-  if (!order || (!canChangeOrderStatus.value && !canPerformOrderAction('record_return_logistics'))) return []
+  if (!order || (!canPerformDrawerStatusAction(order) && !canPerformOrderAction('record_return_logistics'))) return []
   const currentStatus = getOrderStatusValue(order)
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
+  if (needsReceivedPartsStatusSync(order)) {
+    return transitions.includes('received') && canSyncReceivedOrderStatus(order)
+      ? [workflowStatusLabelMap.value.received || '已签收']
+      : []
+  }
   return transitions.filter(targetStatus => {
     if (targetStatus === 'shipped') {
       if (!canPerformOrderAction('record_return_logistics') && !canChangeOrderStatus.value) return false
@@ -2790,6 +2810,10 @@ const getManualStatusOptions = (order = {}) => {
 }
 
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
+const resetSelectedOrderStatus = (order = {}, activeTab = activeDrawerTab.value) => {
+  const allowedStatuses = getAllowedStatusOptions(order)
+  newStatus.value = selectPreferredDrawerStatus({ order, allowedStatuses, activeTab })
+}
 const canRecordReturnLogistics = computed(() => (
   Boolean(currentOrder.value)
   && canPerformOrderAction('record_return_logistics')
@@ -2991,6 +3015,14 @@ const currentRemarkOrder = ref(null)
 const quickShipDialogVisible = ref(false)
 const remarkDialogVisible = ref(false)
 const newStatus = ref('')
+const drawerStatusActionLabel = computed(() => {
+  if (needsReceivedPartsStatusSync(currentOrder.value) && newStatus.value === '已签收') return '同步为已签收'
+  if (newStatus.value === '已回寄' && !currentOrder.value?.returnNo) return '录入回寄物流'
+  return `推进至${newStatus.value}`
+})
+watch(activeDrawerTab, (tab) => {
+  if (currentOrder.value) resetSelectedOrderStatus(currentOrder.value, tab)
+})
 const invoiceStatus = ref('无需开票')
 const invoiceFileUploading = ref(false)
 const invoiceFileName = ref('')
@@ -3544,10 +3576,7 @@ const openDrawer = (row) => {
   Object.keys(snLookupResults).forEach((k) => delete snLookupResults[k])
   Object.keys(snLookupLoading).forEach((k) => delete snLookupLoading[k])
   Object.keys(snLookupTimers).forEach((k) => { clearTimeout(snLookupTimers[k]); delete snLookupTimers[k] })
-  const allowedStatuses = getAllowedStatusOptions(row)
-  newStatus.value = (row.quoteStatus === 'rejected' && allowedStatuses.includes('已回寄'))
-    ? '已回寄'
-    : (allowedStatuses[0] || row.status)
+  resetSelectedOrderStatus(row, activeDrawerTab.value)
   const normalizedInvoiceStatus = normalizeInvoiceStatus(row)
   invoiceStatus.value = ['已寄出', '已签收'].includes(normalizedInvoiceStatus) ? '已发票' : normalizedInvoiceStatus
   invoiceForm.title = row.invoiceTitle || ''
@@ -3927,7 +3956,7 @@ const syncCurrentOrderFromList = (row) => {
   const fresh = orders.value.find(item => item._id === row._id)
   if (!fresh) return
   currentOrder.value = fresh
-  newStatus.value = fresh.status
+  resetSelectedOrderStatus(fresh)
   invoiceStatus.value = normalizeInvoiceStatus(fresh)
   invoiceForm.title = fresh.invoiceTitle || ''
   invoiceForm.taxNo = fresh.taxId || ''
@@ -3998,7 +4027,7 @@ const applyOrderSnapshot = (result, fallbackRow = null) => {
   if (listIndex >= 0) orders.value.splice(listIndex, 1, merged)
   if (currentOrder.value && currentOrder.value._id === orderId) {
     currentOrder.value = merged
-    newStatus.value = merged.status
+    resetSelectedOrderStatus(merged)
     resetReceivedPartsForm(merged)
   }
   return merged
@@ -4013,7 +4042,7 @@ const refreshOrderAfterMutation = async (result, row, { preserveReceiptSnapshot 
   } else if (merged && currentOrder.value && currentOrder.value._id === merged._id) {
     // 当前筛选已排除该工单，保留服务端快照给抽屉展示，不回退到旧行。
     currentOrder.value = merged
-    newStatus.value = merged.status
+    resetSelectedOrderStatus(merged)
     resetReceivedPartsForm(merged)
   }
   await refreshStatusBreakdown()
@@ -4170,7 +4199,8 @@ const buildBatchConfirmMessage = (actionText, targetOrders = [], skippedOrders =
 }
 
 const handleQuickStatusChange = async (row, status) => {
-  if (!canChangeOrderStatus.value) {
+  const isReceiptStatusRecovery = status === '已签收' && needsReceivedPartsStatusSync(row)
+  if (!canChangeOrderStatus.value && !(isReceiptStatusRecovery && canSyncReceivedOrderStatus(row))) {
     ElMessage.error('仅管理员可以修改工单状态')
     return false
   }
@@ -4247,9 +4277,13 @@ const handleQuickStatusChange = async (row, status) => {
     }
     quickStatusLoading.value = true
     const token = localStorage.getItem('adminToken')
-    const result = await updateOrderStatus(token, row._id, toEnglishStatus(status))
-    await refreshOrderAfterMutation(result, row)
-    ElMessage.success('工单状态更新成功')
+    const result = isReceiptStatusRecovery
+      ? await syncReceivedOrderStatus(token, row)
+      : await updateOrderStatus(token, row._id, toEnglishStatus(status))
+    await refreshOrderAfterMutation(result, row, {
+      preserveReceiptSnapshot: isReceiptStatusRecovery
+    })
+    ElMessage.success(isReceiptStatusRecovery ? '签收状态已同步，可继续处理工单' : '工单状态更新成功')
     return true
   } catch (error) {
     if (!isUserCancel(error)) {
@@ -4436,8 +4470,9 @@ const confirmStatus = async () => {
     ElMessage.error('当前状态不允许执行该操作')
     return
   }
+  const isReceiptStatusRecovery = newStatus.value === '已签收' && needsReceivedPartsStatusSync(currentOrder.value)
   const changed = await handleQuickStatusChange(currentOrder.value, newStatus.value)
-  if (changed) {
+  if (changed && !isReceiptStatusRecovery) {
     drawerVisible.value = false
   }
 }
