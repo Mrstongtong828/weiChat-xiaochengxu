@@ -77,4 +77,5 @@ test('无效的选填工单不阻断带图片和手机号的反馈入库', async
   assert.equal(insertedFeedbacks[0].contact_type, 'phone')
   assert.equal(insertedFeedbacks[0].contact_value, '19705573921')
   assert.equal(insertedFeedbacks[0].rel_order_no, '')
+  assert.equal(insertedFeedbacks[0].is_read, false)
 })

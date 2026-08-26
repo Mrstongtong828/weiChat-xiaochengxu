@@ -147,7 +147,9 @@ function normalizeParts(quote = {}) {
 }
 
 function isFreeCoverageReason(value) {
-  return ['quality_issue', 'repair_warranty'].includes(normalizeText(value))
+  // 后台人工判断并填写原因后即可确认质保免费；原因分类由后台选项记录，
+  // 不再限制只能使用某两个固定分类。
+  return Boolean(normalizeText(value))
 }
 
 function buildRepairWarrantyExtension(order = {}, items = [], now = Date.now()) {

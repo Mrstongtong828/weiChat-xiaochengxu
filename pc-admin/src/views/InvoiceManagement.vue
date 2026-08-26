@@ -166,6 +166,7 @@ const onPageChange = (p) => { page.value = p; load() }
 const applyRouteFilter = () => {
   const requested = String(route.query.status || '')
   filters.status = requested === 'pending' ? '待开票' : (STATUS_OPTIONS.includes(requested) ? requested : '')
+  filters.keyword = String(route.query.keyword || '')
 }
 
 // ===== 登记开票 + 云存储原件归档 =====
@@ -254,7 +255,7 @@ const downloadTemplate = () => downloadInvoiceTemplate().catch(e => ElMessage.er
 // 开票数据导出已统一到「财务中心 · 四流台账导出」（FinanceCenter.vue）
 
 onMounted(() => { applyRouteFilter(); load() })
-watch(() => route.query.status, () => { applyRouteFilter(); reload() })
+watch(() => [route.query.status, route.query.keyword], () => { applyRouteFilter(); reload() })
 </script>
 
 <style scoped>

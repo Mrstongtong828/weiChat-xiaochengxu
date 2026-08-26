@@ -1,6 +1,6 @@
 {
   "name": "dentist-repair-user",
-  "version": "1.0.0",
+  "version": "1.4.5",
   "private": true,
   "description": "牙医仪器检修用户端微信小程序",
   "scripts": {

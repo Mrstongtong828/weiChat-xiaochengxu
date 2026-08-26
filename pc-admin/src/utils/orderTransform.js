@@ -115,6 +115,16 @@ const normalizeRepairRecord = (order = {}) => {
   const rawPhotos = Array.isArray(record && record.photos) ? record.photos : []
   return {
     content: record && record.content || '',
+    products: Array.isArray(record && record.products) ? record.products.map((product = {}) => ({
+      productId: product.product_id || product.productId || '',
+      productName: product.product_name || product.productName || '',
+      productModel: product.product_model || product.productModel || '',
+      sn: product.sn || product.device_sn || '',
+      fault: product.fault || product.fault_reason || '',
+      receivedDetail: product.received_detail || product.receivedDetail || '',
+      repairAction: product.repair_action || product.repairAction || '',
+      parts: Array.isArray(product.parts) ? product.parts : []
+    })) : [],
     parts: Array.isArray(record && record.parts) ? record.parts.map((part = {}) => ({
       partId: part.part_id || part.partId || '',
       partCode: part.part_code || part.partCode || part.code || '',
@@ -211,6 +221,8 @@ export const transformOrder = (order) => {
     // 状态
     status: toChineseStatus(order.status),
     statusEn: order.status,
+    cancelledFromStatus: order.cancelled_from_status || order.cancelledFromStatus || '',
+    arrivalConfirmStatus: order.arrival_confirm_status || order.arrivalConfirmStatus || '',
     needsReturn: order.needs_return === true || order.needsReturn === true,
     archiveStatus: order.archive_status || order.archiveStatus || '',
     slaInfo: order.sla_info || order.slaInfo || null,

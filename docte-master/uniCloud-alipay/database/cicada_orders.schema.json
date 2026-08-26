@@ -77,6 +77,26 @@
         "cancelled"
       ]
     },
+    "cancelled_from_status": {
+      "bsonType": "string",
+      "enum": [
+        "pending",
+        "sent",
+        "received",
+        "inspecting",
+        "fixing",
+        "shipped"
+      ],
+      "description": "工单取消前的状态，用于管理员误取消后恢复"
+    },
+    "cancelled_time": {
+      "bsonType": "timestamp",
+      "description": "最近一次取消工单的时间"
+    },
+    "cancelled_restore_time": {
+      "bsonType": "timestamp",
+      "description": "最近一次将误取消工单恢复的时间"
+    },
     "needs_return": {
       "bsonType": "bool",
       "description": "设备是否需要由售后安排回寄；客户拒绝报价且设备已寄入时为 true"

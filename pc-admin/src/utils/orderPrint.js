@@ -45,9 +45,9 @@ const FIELD_DEFINITIONS = {
     field('receivedAt', '收货日期', 'meta'),
     field('orderNo', '维修单号', 'meta', { visible: false }),
     field('logisticsNo', '快递单号', 'meta'),
-    field('freight', '运费（手填）', 'meta'),
+    field('freight', '运费', 'meta'),
     field('customerName', '客户名称', 'meta'),
-    field('supplier', '供货商（手填）', 'meta'),
+    field('supplier', '供货商', 'meta'),
     field('address', '客户名称/地址', 'meta'),
     field('complaintCode', '投诉编码', 'meta', { visible: false }),
     field('phone', '联系电话', 'meta', { visible: false }),
@@ -57,13 +57,12 @@ const FIELD_DEFINITIONS = {
     field('unit', '单位', 'item', { width: 5, visible: false }),
     field('quantity', '数量', 'item', { width: 5, visible: false }),
     field('batchNo', '批号', 'item', { width: 9 }),
-    field('partsDetail', '配件明细（手填）', 'item', { width: 13 }),
-    field('faultReason', '故障原因', 'item', { width: 13 }),
+    field('partsDetail', '配件明细', 'item', { width: 13 }),
+    field('faultReason', '故障现象及原因', 'item', { width: 13 }),
     field('repairAction', '维修措施', 'item', { width: 17 }),
     field('warrantyScope', '保修范围', 'item', { width: 9 }),
     field('chargeAmount', '收费（元）', 'item', { width: 8 }),
     field('remark', '备注', 'item', { width: 9 }),
-    field('receivedParts', '收货配件明细', 'section'),
     field('completedAt', '维修完成日期', 'footer'),
     field('shippedAt', '发货日期', 'footer'),
     field('returnNo', '寄出快递单号', 'footer'),
@@ -292,6 +291,36 @@ const formatDateTime = (value) => {
 const activeFields = (config, group) => (config.fields || [])
   .filter(item => item && item.group === group && item.visible !== false)
 
+const getRepairItemFields = (config) => {
+  const itemFields = activeFields(config, 'item')
+  const partsDetail = (config.fields || []).find(item => item && item.key === 'partsDetail')
+  if (!partsDetail || partsDetail.visible !== false) return itemFields
+
+  const handwriteField = {
+    key: 'partsDetailHandwrite',
+    label: partsDetail.label || '配件明细',
+    group: 'item',
+    width: partsDetail.width || 13,
+    custom: false
+  }
+  const insertAt = itemFields.findIndex(item => item && item.key === 'faultReason')
+  const targetIndex = insertAt >= 0 ? insertAt : itemFields.length
+  return [
+    ...itemFields.slice(0, targetIndex),
+    handwriteField,
+    ...itemFields.slice(targetIndex)
+  ]
+}
+
+const renderPartsHandwriteCell = () => '<div class="parts-detail-handwrite"><span>手写说明：</span><span class="parts-detail-handwrite-line"></span></div>'
+
+const renderRepairItemCell = (fieldItem, item, index, order) => {
+  if (fieldItem.key === 'partsDetailHandwrite') return index === 0 ? renderPartsHandwriteCell() : ''
+  const value = itemValue(fieldItem, item, index, order)
+  if (fieldItem.key === 'partsDetail' && !String(value || '').trim() && index === 0) return renderPartsHandwriteCell()
+  return escapeHtml(value)
+}
+
 const getQuoteSummary = (order = {}) => {
   const detail = order.quoteDetail || order.quote_detail || {}
   const parts = Array.isArray(detail.parts) ? detail.parts : []
@@ -390,6 +419,39 @@ const fieldValue = (fieldItem, order, context = {}) => {
   return values[fieldItem.key] ?? ''
 }
 
+const repairPartsText = (order = {}, index = 0) => {
+  const repairRecord = order.repairRecord || order.repair_record || {}
+  const productRecords = Array.isArray(repairRecord.products) ? repairRecord.products : []
+  const productRecord = productRecords[index]
+  if (productRecord) {
+    const productParts = Array.isArray(productRecord.parts) ? productRecord.parts : []
+    const text = productParts.map(part => {
+      const name = part && (part.name || part.part_name || part.partName) || ''
+      const model = part && (part.model || part.part_model || part.partModel || part.spec) || ''
+      const quantity = safeNum(part && (part.quantity ?? part.qty)) || 1
+      return name ? `${name}${model ? `（${model}）` : ''}×${quantity}` : ''
+    }).filter(Boolean).join('、')
+    return text
+  }
+  const actualParts = Array.isArray(repairRecord.parts) ? repairRecord.parts : []
+  if (index !== 0) return ''
+  const text = actualParts.map(part => {
+    const name = part && (part.name || part.part_name || part.partName) || ''
+    const model = part && (part.model || part.part_model || part.partModel || part.spec) || ''
+    const quantity = safeNum(part && (part.quantity ?? part.qty)) || 1
+    return name ? `${name}${model ? `（${model}）` : ''}×${quantity}` : ''
+  }).filter(Boolean).join('、')
+  if (!text) return ''
+  const itemCount = Array.isArray(order.itemsList) ? order.itemsList.length : 0
+  return itemCount > 1 && text ? `整单配件：${text}` : text
+}
+
+const repairProductRecord = (order = {}, index = 0) => {
+  const repairRecord = order.repairRecord || order.repair_record || {}
+  const products = Array.isArray(repairRecord.products) ? repairRecord.products : []
+  return products[index] || {}
+}
+
 const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
   const coverageMap = {
     free: '质保范围内',
@@ -398,15 +460,16 @@ const itemValue = (fieldItem, item = {}, index = 0, order = {}) => {
     not_covered: '不在保修范围',
     pending: '待核验'
   }
+  const repairProduct = repairProductRecord(order, index)
   const values = {
     sequence: index + 1,
     productName: item.product_name,
     productModel: item.product_model,
-    partsDetail: '',
+    partsDetail: repairPartsText(order, index),
     unit: item.unit || '台',
     quantity: item.quantity || 1,
     batchNo: item.batch_no || item.batchNo || item.sn || '',
-    faultReason: item.fault_reason || item.coverage_note || item.fault_desc,
+    faultReason: repairProduct.fault || item.fault_reason || item.coverage_note || item.fault_desc,
     repairAction: item.repair_action || item.fix_solution || item.fixSolution || '',
     warrantyScope: item.warranty_scope || coverageMap[item.coverage_result] || item.coverage_result || '',
     chargeAmount: item.charge_amount || item.chargeAmount || '',
@@ -529,7 +592,7 @@ const renderReceivedPartsSection = (order = {}) => {
 
 const buildRepairSection = (order, config) => {
   const metaFields = activeFields(config, 'meta')
-  const itemFields = activeFields(config, 'item')
+  const itemFields = getRepairItemFields(config)
   const sectionFields = activeFields(config, 'section')
   const footerFields = activeFields(config, 'footer')
   const signatureFields = activeFields(config, 'signature')
@@ -548,7 +611,7 @@ const buildRepairSection = (order, config) => {
         <thead><tr>${itemFields.map(item => '<th>' + escapeHtml(item.label) + '</th>').join('')}</tr></thead>
         <tbody>
           ${rows.map((item, index) => '<tr>' + itemFields.map(fieldItem =>
-            '<td>' + escapeHtml(itemValue(fieldItem, item, index, order)) + '</td>'
+            '<td>' + renderRepairItemCell(fieldItem, item, index, order) + '</td>'
           ).join('') + '</tr>').join('')}
         </tbody>
       </table>
@@ -571,7 +634,6 @@ const buildRepairSection = (order, config) => {
       ${renderHeader(config)}
       ${renderPairedMetaTable(metaFields, order)}
       ${itemTable}
-      ${sectionFields.some(item => item.key === 'receivedParts') ? renderReceivedPartsSection(order) : ''}
       ${completion}
       ${renderCustomFields(config, order)}
       ${signatures}
@@ -636,7 +698,7 @@ const buildInspectionReportSection = (order, config) => {
       </table>
       <table class="inspection-parts">
         <thead>
-          <tr><th rowspan="${partRows.length + 1}" class="parts-side-title">更换配件清单</th><th>配件名称</th><th>单位</th><th>数量</th><th>单价（手填）</th><th>金额（手填）</th><th>备注</th></tr>
+          <tr><th rowspan="${partRows.length + 1}" class="parts-side-title">更换配件清单</th><th>配件名称</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th><th>备注</th></tr>
         </thead>
         <tbody>
           ${partRows.map(part => `
@@ -649,7 +711,7 @@ const buildInspectionReportSection = (order, config) => {
               <td>${escapeHtml(part?.spec || '')}</td>
             </tr>
           `).join('')}
-          <tr><th colspan="5" class="amount-total">合计金额（手填）：</th><td colspan="2"></td></tr>
+          <tr><th colspan="5" class="amount-total">合计金额：</th><td colspan="2"></td></tr>
         </tbody>
       </table>
       ${reportRemark ? '<div class="inspection-remark"><b>备注：</b>' + escapeHtml(reportRemark) + '</div>' : ''}
@@ -876,6 +938,9 @@ export const buildPrintHtml = (printOrders = [], rawConfig = {}, docType = 'repa
           .repair-items th { padding: 1.6mm 1mm; text-align: center; font-family: SimSun, "Songti SC", serif; font-size: 10.5pt; }
           .repair-items td { height: 13mm; padding: 1.5mm 1mm; text-align: center; }
           .repair-items td:nth-child(n+7) { text-align: left; }
+          .parts-detail-handwrite { display: flex; flex-direction: column; align-items: flex-start; gap: 2mm; }
+          .parts-detail-handwrite span:first-child { color: #555; font-size: 9pt; }
+          .parts-detail-handwrite-line { display: block; width: 100%; min-height: 7mm; border-bottom: 1px solid #111; }
           .repair-completion th { width: 16%; text-align: left; font-family: SimSun, "Songti SC", serif; font-size: 11pt; }
           .repair-completion td { height: 8mm; }
           .department-signatures { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8mm; padding: 8mm 1mm 5mm; font-family: SimSun, "Songti SC", serif; font-size: 11pt; }

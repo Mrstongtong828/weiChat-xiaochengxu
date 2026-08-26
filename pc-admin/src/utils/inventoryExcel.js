@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 
 const normalizeText = (value) => String(value ?? '').trim()
 
@@ -48,7 +48,7 @@ const formatDate = () => {
 }
 
 export const downloadPartImportTemplate = async () => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const worksheet = workbook.addWorksheet('配件导入模板')
   worksheet.addRow(IMPORT_HEADERS)
   worksheet.addRow(['DENT-HP-BEARING-3.175', '高速手机陶瓷轴承', '3.175mm', '高速气涡轮手机、45度手机', 18, 45, 40, 10, '启用', '示例数据，可删除'])
@@ -69,7 +69,7 @@ export const downloadPartImportTemplate = async () => {
 }
 
 export const exportPartsWorkbook = async (rows = [], { canViewCost = true, filename = '' } = {}) => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const worksheet = workbook.addWorksheet('配件库存')
   const columns = [
     { header: '配件编码', key: 'part_code', width: 26 },
@@ -110,7 +110,7 @@ export const parsePartExcelFile = (file) => {
     const reader = new FileReader()
     reader.onload = async (event) => {
       try {
-        const workbook = new ExcelJS.Workbook()
+        const workbook = new (await loadExcelJS()).Workbook()
         await workbook.xlsx.load(event.target.result)
         const worksheet = workbook.worksheets[0]
         if (!worksheet) { resolve([]); return }

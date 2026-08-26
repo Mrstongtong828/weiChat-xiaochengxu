@@ -7,12 +7,20 @@
       </div>
     </div>
 
+    <div class="feedback-dashboard" v-loading="dashboardLoading">
+      <button v-for="card in dashboardCards" :key="card.key" type="button" class="feedback-stat" :class="[`is-${card.key}`, { 'is-active': activeCategory === card.key }]" @click="switchCategory(card.key)">
+        <span>{{ card.label }}</span><strong>{{ card.value }}</strong><small>{{ card.desc }}</small>
+      </button>
+    </div>
+
+    <el-tabs v-model="activeCategory" class="feedback-tabs" @tab-change="switchCategory">
+      <el-tab-pane label="投诉" name="complaint" />
+      <el-tab-pane label="建议" name="suggestion" />
+      <el-tab-pane label="调研有礼" name="survey" />
+    </el-tabs>
+
+    <template v-if="activeCategory !== 'survey'">
     <div class="filter-bar page-actions">
-      <el-select v-model="filters.type" placeholder="类型" style="width: 110px;" @change="reload">
-        <el-option label="全部类型" value="全部"></el-option>
-        <el-option label="投诉" value="投诉"></el-option>
-        <el-option label="建议" value="建议"></el-option>
-      </el-select>
       <el-select v-model="filters.status" placeholder="状态" style="width: 120px;" @change="reload">
         <el-option label="全部状态" value="全部"></el-option>
         <el-option v-for="s in STATUS_OPTIONS" :key="s" :label="s" :value="s"></el-option>
@@ -32,6 +40,17 @@
         @clear="reload"
       ></el-input>
       <el-button type="primary" @click="reload">查询</el-button>
+      <el-button
+        v-if="canDeleteFeedback"
+        type="danger"
+        plain
+        :disabled="!selectedRows.length"
+        :loading="deleting"
+        @click="deleteSelected"
+      >
+        <el-icon><Delete /></el-icon>
+        批量删除<span v-if="selectedRows.length">（{{ selectedRows.length }}）</span>
+      </el-button>
     </div>
 
     <div class="legend">
@@ -47,6 +66,7 @@
         class="modern-table"
         style="width: 100%;"
         :row-class-name="rowClassName"
+        @selection-change="onSelectionChange"
       >
         <template #empty>
           <div class="table-empty-guide">
@@ -54,9 +74,11 @@
             <span>小程序端提交投诉或建议后会同步到这里；也可以调整筛选条件查看历史记录。</span>
           </div>
         </template>
+        <el-table-column v-if="canDeleteFeedback" type="selection" width="48" fixed="left" />
         <el-table-column prop="submitTime" label="提交时间" width="160"></el-table-column>
         <el-table-column label="类型" width="80">
           <template #default="{row}">
+            <span v-if="!row.is_read" class="unread-dot" aria-label="未读"></span>
             <el-tag :type="row.type === '投诉' ? 'danger' : 'primary'" effect="light">{{row.type}}</el-tag>
           </template>
         </el-table-column>
@@ -91,7 +113,7 @@
         </el-table-column>
         <el-table-column label="操作" width="120" fixed="right" align="right">
           <template #default="{row}">
-            <el-button type="primary" link @click="openDialog(row)">查看并处理</el-button>
+            <el-button type="primary" link @click="openDialog(row)">{{ canHandleFeedback ? '查看并处理' : '查看详情' }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -107,12 +129,14 @@
         @current-change="onPageChange"
       />
     </div>
+    </template>
+    <SurveyManagement v-else />
   </div>
 
   <el-dialog v-model="dialogVisible" title="反馈处理" width="640px" align-center top="6vh">
     <template v-if="current">
       <!-- 反馈原始信息 -->
-      <div class="block">
+      <div v-if="canHandleFeedback" class="block">
         <div class="block-title">反馈信息</div>
         <div class="info-grid">
           <div><label>客户</label><span>{{current.customerName || '未提供'}}</span></div>
@@ -143,7 +167,7 @@
       </div>
 
       <!-- 内部处理 -->
-      <div class="block">
+      <div v-if="canHandleFeedback" class="block">
         <div class="block-title">内部处理</div>
         <div class="form-row">
           <label>负责人</label>
@@ -205,39 +229,54 @@
     </template>
 
     <template #footer>
-      <el-button type="warning" plain @click="doUpgrade">升级投诉</el-button>
-      <el-button type="success" :loading="closing" @click="doClose">结案</el-button>
+      <el-button v-if="canHandleFeedback" type="warning" plain @click="doUpgrade">升级投诉</el-button>
+      <el-button v-if="canHandleFeedback" type="success" :loading="closing" @click="doClose">结案</el-button>
       <el-button @click="dialogVisible = false">关闭</el-button>
     </template>
   </el-dialog>
+
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   getFeedbackList, getStaffList,
   assignFeedback, setFeedbackUrgency, replyFeedback, linkFeedbackOrder,
-  recordFeedbackVisit, closeFeedback, upgradeFeedback
+  recordFeedbackVisit, closeFeedback, upgradeFeedback, markFeedbackRead, deleteFeedbacks, getSurveyList
 } from '../api/admin.js'
+import { hasPermission } from '../utils/permissions.js'
+import { getAdminRoleLabel } from '../config/adminCatalog.js'
+import SurveyManagement from '../components/SurveyManagement.vue'
 
 const STATUS_OPTIONS = ['待处理', '处理中', '已回复', '已结案', '已升级']
-const ROLE_LABELS = { admin: '管理员', engineer: '工程师', finance: '财务', support: '客服', superadmin: '超管' }
 const OVERDUE_MS = 48 * 3600 * 1000
+const canHandleFeedback = computed(() => hasPermission('handle_feedback'))
+const canDeleteFeedback = canHandleFeedback
 
 const loading = ref(false)
 const saving = ref(false)
 const visiting = ref(false)
 const closing = ref(false)
 const linking = ref(false)
+const deleting = ref(false)
+const dashboardLoading = ref(false)
 const feedbackList = ref([])
+const selectedRows = ref([])
 const staffOptions = ref([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const filters = reactive({ status: '全部', type: '全部', urgency: '全部', keyword: '' })
+const activeCategory = ref('complaint')
+const dashboardStats = reactive({ complaint: 0, suggestion: 0, survey: 0 })
+const dashboardCards = computed(() => [
+  { key: 'complaint', label: '投诉', value: dashboardStats.complaint, desc: '客户投诉记录' },
+  { key: 'suggestion', label: '建议', value: dashboardStats.suggestion, desc: '客户建议记录' },
+  { key: 'survey', label: '调研有礼', value: dashboardStats.survey, desc: '调研表填写记录' }
+])
+const filters = reactive({ status: '全部', type: '投诉', urgency: '全部', keyword: '' })
 
 const dialogVisible = ref(false)
 const current = ref(null)
@@ -248,7 +287,7 @@ const form = reactive({
 
 const router = useRouter()
 const token = () => localStorage.getItem('adminToken')
-const roleLabel = (r) => ROLE_LABELS[r] || r
+const roleLabel = (r) => getAdminRoleLabel(r, r)
 
 // 跳转到关联工单（WorkOrder 页按关键词搜索 order_no）
 const goToOrder = (orderNo) => {
@@ -275,6 +314,32 @@ const mapRow = (item) => ({
   submitTime: formatTime(item.create_time)
 })
 
+const loadDashboardStats = async () => {
+  dashboardLoading.value = true
+  try {
+    const [complaints, suggestions, surveys] = await Promise.all([
+      getFeedbackList(token(), { type: '投诉', status: '全部', urgency: '全部', page: 1, pageSize: 1 }),
+      getFeedbackList(token(), { type: '建议', status: '全部', urgency: '全部', page: 1, pageSize: 1 }),
+      getSurveyList(token(), { page: 1, pageSize: 1, keyword: '', status: '' })
+    ])
+    dashboardStats.complaint = Number(complaints?.total || 0)
+    dashboardStats.suggestion = Number(suggestions?.total || 0)
+    dashboardStats.survey = Number(surveys?.total || 0)
+  } catch (error) {
+    // 请求拦截器负责提示，保留上一次成功统计。
+  } finally {
+    dashboardLoading.value = false
+  }
+}
+
+const switchCategory = (category) => {
+  activeCategory.value = category
+  selectedRows.value = []
+  if (category === 'survey') return
+  filters.type = category === 'complaint' ? '投诉' : '建议'
+  reload()
+}
+
 const loadList = async () => {
   loading.value = true
   try {
@@ -298,6 +363,7 @@ const loadList = async () => {
 
 const reload = () => { page.value = 1; loadList() }
 const onPageChange = (p) => { page.value = p; loadList() }
+const onSelectionChange = (rows) => { selectedRows.value = rows }
 
 const loadStaff = async () => {
   try {
@@ -306,7 +372,7 @@ const loadStaff = async () => {
   } catch (e) { /* ignore */ }
 }
 
-const openDialog = (row) => {
+const openDialog = async (row) => {
   current.value = row
   form.handlerId = row.handler_id || ''
   form.urgency = row.urgency || '普通'
@@ -317,6 +383,41 @@ const openDialog = (row) => {
   form.visitOpinion = row.visit_opinion || ''
   form.relOrderNo = row.rel_order_no || ''
   dialogVisible.value = true
+  if (!row.is_read) {
+    try {
+      await markFeedbackRead(token(), row._id)
+      row.is_read = true
+      window.dispatchEvent(new CustomEvent('feedback-unread-changed'))
+    } catch (e) { /* interceptor toasts */ }
+  }
+}
+
+const deleteSelected = async () => {
+  if (!selectedRows.value.length || deleting.value) return
+  const ids = selectedRows.value.map(row => row._id)
+  try {
+    await ElMessageBox.confirm(
+      `确定永久删除选中的 ${ids.length} 条投诉与建议吗？此操作不可恢复。`,
+      '批量删除确认',
+      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+    )
+  } catch (e) {
+    return
+  }
+
+  deleting.value = true
+  try {
+    const data = await deleteFeedbacks(token(), ids)
+    const deletedCount = Number(data.deleted || 0)
+    ElMessage.success(`已删除 ${deletedCount} 条反馈`)
+    const maxPage = Math.max(1, Math.ceil(Math.max(0, total.value - deletedCount) / pageSize.value))
+    if (page.value > maxPage) page.value = maxPage
+    await loadList()
+    await loadDashboardStats()
+    window.dispatchEvent(new CustomEvent('feedback-unread-changed'))
+  } catch (e) { /* interceptor toasts */ } finally {
+    deleting.value = false
+  }
 }
 
 const saveLinkOrder = async () => {
@@ -412,19 +513,31 @@ const doUpgrade = async () => {
 
 onMounted(() => {
   loadList()
-  loadStaff()
+  loadDashboardStats()
+  if (canHandleFeedback.value) loadStaff()
 })
 </script>
 
 <style scoped>
 .glass-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); margin-bottom: 20px; }
 .section-title { font-size: 16px; font-weight: 600; color: #1d2129; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.feedback-dashboard { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 8px 0 20px; }
+.feedback-stat { min-height: 112px; display: grid; grid-template-columns: 1fr auto; align-content: center; gap: 5px 12px; padding: 18px 20px; border: 1px solid #e5e8ee; border-radius: 8px; background: #fff; color: #4e5969; text-align: left; cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.feedback-stat:hover, .feedback-stat.is-active { border-color: #8aa4c8; box-shadow: 0 5px 16px rgba(31, 56, 88, .09); transform: translateY(-1px); }
+.feedback-stat span { font-size: 14px; font-weight: 600; }
+.feedback-stat strong { grid-row: 1 / 3; grid-column: 2; align-self: center; color: #1d2129; font-size: 30px; line-height: 1; }
+.feedback-stat small { color: #86909c; font-size: 12px; }
+.feedback-stat.is-complaint { border-left: 4px solid #e65f5c; }
+.feedback-stat.is-suggestion { border-left: 4px solid #2f86c7; }
+.feedback-stat.is-survey { border-left: 4px solid #45a070; }
+.feedback-tabs { margin-bottom: 14px; }
 .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; }
 .legend { font-size: 12px; color: #86909c; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
 .legend .dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-left: 10px; }
 .dot-highrisk { background: #fde2e2; border: 1px solid #f56c6c; }
 .dot-important { background: #fdf6ec; border: 1px solid #e6a23c; }
 .dot-overdue { background: #fef0e6; border: 1px solid #f08c3a; }
+.unread-dot { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #f56c6c; vertical-align: middle; }
 .table-responsive { width: 100%; overflow-x: auto; }
 .modern-table { min-width: 1100px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
@@ -448,4 +561,5 @@ onMounted(() => {
 .form-row.col { flex-direction: column; align-items: stretch; }
 .form-row label { color: #4e5969; font-size: 13px; min-width: 64px; }
 .form-row .hint { color: #c0c4cc; font-weight: 400; font-size: 12px; }
+@media (max-width: 760px) { .feedback-dashboard { grid-template-columns: 1fr; } .feedback-stat { min-height: 90px; } }
 </style>

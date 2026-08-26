@@ -98,6 +98,24 @@ export const getFeedbackList = (token, params = {}) => {
   return request.post(`${API_BASE.adminSys}/getFeedbackList`, { token, ...params })
 }
 
+export const getPermissionCatalog = (token) => {
+  return request.post(`${API_BASE.adminSys}/getPermissionCatalog`, { token })
+}
+
+export const getMyPermissions = (token) => {
+  return request.post(`${API_BASE.adminSys}/getMyPermissions`, { token })
+}
+
+// 标记反馈已读
+export const markFeedbackRead = (token, id) => {
+  return request.post(`${API_BASE.adminSys}/markFeedbackRead`, { token, id })
+}
+
+// 批量删除反馈
+export const deleteFeedbacks = (token, ids) => {
+  return request.post(`${API_BASE.adminSys}/deleteFeedbacks`, { token, ids })
+}
+
 // 分配负责人
 export const assignFeedback = (token, id, handlerId) => {
   return request.post(`${API_BASE.adminSys}/assignFeedback`, { token, id, handler_id: handlerId })
@@ -150,6 +168,10 @@ export const getSurveyList = (token, params = {}) => {
 
 export const updateSurveyStatus = (token, id, status) => {
   return request.post(`${API_BASE.adminSys}/updateSurveyStatus`, { token, id, status })
+}
+
+export const deleteSurveys = (token, ids) => {
+  return request.post(`${API_BASE.adminSys}/deleteSurveys`, { token, ids })
 }
 
 export const getGuides = (token) => {

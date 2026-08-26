@@ -26,6 +26,11 @@
           <el-option label="未发票" value="未发票"></el-option>
           <el-option label="已发票" value="已发票"></el-option>
         </el-select>
+        <el-select v-model="searchPaymentStatus" placeholder="付款状态" clearable>
+          <el-option label="全部付款状态" value=""></el-option>
+          <el-option label="待付款" value="pending"></el-option>
+          <el-option label="已付款" value="paid"></el-option>
+        </el-select>
         <el-select v-model="wo.warrantyFilter" placeholder="质保状态" clearable>
           <el-option label="全部质保状态" value=""></el-option>
           <el-option label="在保" value="in_warranty"></el-option>
@@ -68,7 +73,7 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
-        <el-tooltip content="按当前筛选条件导出工单表格" placement="top">
+        <el-tooltip v-if="canPerformOrderAction('export_order')" content="按当前筛选条件导出工单表格" placement="top">
           <el-button type="primary" class="top-btn-text" @click="openExportDialog"><el-icon><Download /></el-icon> 导出</el-button>
         </el-tooltip>
         <el-popover placement="bottom-end" trigger="click" width="360" :teleported="false">
@@ -93,17 +98,33 @@
     <div class="attention-strip">
       <span class="attention-label">处理状态</span>
       <div class="status-summary-board">
-      <el-button
-        v-for="item in statusSummaryCards"
-        :key="item.key"
-        text
-        class="status-summary-card"
-        :class="[`status-summary-card--${item.tone}`, { active: wo.filter === item.filter }]"
-        @click="applyStatusFilter(item.filter)"
-      >
-        <span>{{ item.label }}</span>
-        <strong>{{ item.count }}</strong>
-      </el-button>
+        <el-button
+          v-for="item in statusSummaryCards"
+          :key="item.key"
+          text
+          class="status-summary-card"
+          :class="[`status-summary-card--${item.tone}`, { active: wo.filter === item.filter }]"
+          @click="applyStatusFilter(item.filter)"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.count }}</strong>
+        </el-button>
+      </div>
+      <div class="payment-summary" title="按创建日期统计待付款与已付款工单（含全部状态，不含免付款与已退款）；点击可筛选">
+        <span class="payment-summary-label">付款</span>
+        <div
+          v-for="item in paymentSummaryItems"
+          :key="item.key"
+          role="button"
+          tabindex="0"
+          class="payment-summary-item"
+          :class="[`payment-summary-item--${item.key}`, { active: searchPaymentStatus === item.filter }]"
+          @click="applyPaymentFilter(item.filter)"
+          @keydown.enter="applyPaymentFilter(item.filter)"
+        >
+          <span>{{ item.label }}</span>
+          <strong>{{ item.count }}</strong>
+        </div>
       </div>
     </div>
 
@@ -205,7 +226,7 @@
         <el-table-column v-if="isTableColumnVisible('adminRemark')" prop="adminRemark" label="内部备注" min-width="180" show-overflow-tooltip></el-table-column>
         <el-table-column v-if="isTableColumnVisible('printRemark')" prop="printRemark" label="随件留言" min-width="180" show-overflow-tooltip></el-table-column>
 
-        <el-table-column v-if="isTableColumnVisible('progress')" width="180">
+        <el-table-column v-if="isTableColumnVisible('progress')" width="210">
           <template #header>
             <el-tooltip content="上方是系统建议动作；下方是当前工单状态，点击后仅显示允许流转到的状态" placement="top">
               <span class="table-header-help">进度与下一步</span>
@@ -221,7 +242,7 @@
               </div>
               <div class="progress-current-status">
                 <span class="progress-current-label">当前</span>
-                <el-dropdown trigger="click" :disabled="!getAllowedStatusOptions(row).length" @command="status => handleQuickStatusChange(row, status)">
+                <el-dropdown v-if="getManualStatusOptions(row).length" trigger="click" @command="status => handleQuickStatusChange(row, status)">
                   <span class="status-dropdown-trigger">
                     <el-tag
                       :class="'status-tag status-' + row.status"
@@ -229,15 +250,32 @@
                       effect="light"
                       round
                       size="small">
-                      {{ row.status }} <span v-if="getAllowedStatusOptions(row).length" class="status-dropdown-caret">▾</span>
+                      {{ row.status }} <span v-if="getManualStatusOptions(row).length" class="status-dropdown-caret">▾</span>
                     </el-tag>
                   </span>
                   <template #dropdown>
                     <el-dropdown-menu>
-                      <el-dropdown-item v-for="status in getAllowedStatusOptions(row)" :key="status" :command="status">{{ status }}</el-dropdown-item>
+                      <el-dropdown-item
+                        v-for="status in getManualStatusOptions(row)"
+                        :key="status"
+                        :command="status"
+                        :disabled="!canMoveOrderToStatus(row, status)">
+                        {{ status }}
+                      </el-dropdown-item>
                     </el-dropdown-menu>
                   </template>
                 </el-dropdown>
+                <span v-else class="status-readonly-tag">{{ row.status }}</span>
+                <el-button
+                  v-if="canRestoreCancelledOrder(row)"
+                  class="restore-cancelled-button"
+                  type="primary"
+                  link
+                  size="small"
+                  :icon="RefreshLeft"
+                  :loading="restoringOrderId === row._id"
+                  @click.stop="handleRestoreCancelledOrder(row)"
+                >恢复</el-button>
                 <span class="update-time" :class="{ 'is-overdue': getStatusDwell(row).level === 'warning' }">
                   {{ getStatusDwell(row).text }}
                 </span>
@@ -286,7 +324,7 @@
               <el-tooltip content="打开工单详情，处理报价、付款、物流、发票和结案" placement="top">
                 <el-button type="primary" link @click="openDrawer(row)">处理</el-button>
               </el-tooltip>
-              <el-tooltip v-if="canPerformOrderAction('update_remarks')" :content="getRemarkTooltip(row)" placement="top">
+              <el-tooltip v-if="canPerformOrderAction('edit_order_remarks')" :content="getRemarkTooltip(row)" placement="top">
                 <el-button
                   type="primary"
                   link
@@ -444,7 +482,7 @@
                   <div class="drawer-info-item is-wide">
                     <span>负责工程师</span>
                     <div class="assign-engineer-row">
-                      <template v-if="canPerformOrderAction('manage_staff')">
+                      <template v-if="canPerformOrderAction('assign_engineer')">
                         <el-select
                           v-model="assignEngineerId"
                           :placeholder="engineerOptions.length ? '选择工程师' : '暂无工程师账号'"
@@ -628,9 +666,9 @@
                     <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed'" type="danger" link @click="removeReceivedPart(index)">删除</el-button>
                   </div>
                 </div>
-                <p v-else class="empty-text received-parts-empty">暂无收货配件，可点击“新增配件”录入。</p>
+                <p v-else class="empty-text received-parts-empty">暂无收货配件记录。</p>
                 <div v-if="receivedPartsForm.receipt.status !== 'confirmed'" class="received-parts-actions">
-                  <el-button plain size="small" @click="addReceivedPart">新增配件</el-button>
+                  <el-button plain size="small" @click="addReceivedPart">继续添加一行</el-button>
                   <label v-if="receivedPartsForm.photos.length < 12" class="received-part-photo-upload">
                     <input type="file" accept="image/jpeg,image/png,image/webp" :disabled="receivedPartPhotoUploading" @change="handleReceivedPartPhotoSelect" />
                     <span>{{ receivedPartPhotoUploading ? '上传中…' : '上传实拍照片' }}</span>
@@ -647,8 +685,8 @@
                   <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
                 </div>
                 <div class="received-parts-footer">
-                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_remarks')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
-                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('update_status')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('edit_received_parts')" size="small" :loading="receivedPartsSaving" @click="saveCurrentReceivedParts">保存明细</el-button>
+                  <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('confirm_received_parts')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
                 </div>
               </div>
             </div>
@@ -830,7 +868,7 @@
                 <div class="quote-section">
                   <div class="quote-section-head">
                     <span>配件费用 <em>选填</em></span>
-                    <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="openPartPicker">添加配件</el-button>
+                    <el-button v-if="canPerformOrderAction('issue_quote')" type="primary" link @click="openPartPicker('quote')">添加配件</el-button>
                   </div>
                   <div v-for="(item, index) in quoteForm.parts" :key="item.localId" class="quote-row-grid quote-row-grid--parts">
                     <el-input v-model="item.partCode" :disabled="!canPerformOrderAction('issue_quote')" placeholder="配件编号"></el-input>
@@ -1053,7 +1091,7 @@
                   配件出库：{{ currentOrder.inventoryStatus === 'outbound_processing' ? '处理中' : '失败' }}
                 </span>
                 <el-button
-                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('manage_inventory')"
+                  v-if="['outbound_processing', 'outbound_failed'].includes(currentOrder.inventoryStatus) && canPerformOrderAction('adjust_inventory')"
                   type="warning"
                   size="small"
                   plain
@@ -1185,7 +1223,7 @@
               </template>
             </div>
           </el-tab-pane>
-          <el-tab-pane label="维修/回寄" name="service">
+          <el-tab-pane label="维修" name="repair">
             <div class="drawer-section repair-record-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">维修记录</p>
@@ -1199,30 +1237,52 @@
                 :closable="false"
                 show-icon
               />
-              <div class="repair-record-field">
-                <strong>实际维修说明</strong>
-                <el-input
-                  v-model="repairRecordForm.content"
-                  type="textarea"
-                  :rows="4"
-                  maxlength="1000"
-                  show-word-limit
-                  placeholder="填写本次维修处理内容，例如故障原因、维修项目和测试结果"
-                />
+              <div class="repair-product-toolbar">
+                <span class="section-helper">每个产品分别记录故障、收货情况、维修措施和实际使用配件。</span>
+                <el-button v-if="canPerformOrderAction('edit_repair_record')" type="primary" plain size="small" @click="addRepairProduct"><el-icon><Plus /></el-icon>新增产品</el-button>
               </div>
-              <div class="repair-record-field">
-                <strong>实际使用配件</strong>
-                <span class="section-helper">仅记录实际使用情况，不会再次扣减库存。</span>
-                <div v-if="repairRecordForm.parts.length" class="repair-parts-list">
-                  <div v-for="part in repairRecordForm.parts" :key="part.key" class="repair-part-row">
-                    <el-checkbox v-model="part.used">实际使用</el-checkbox>
-                    <span class="repair-part-name">{{ part.name || '未命名配件' }}</span>
-                    <span v-if="part.partCode" class="repair-part-code">{{ part.partCode }}</span>
-                    <span v-if="part.model" class="repair-part-code">{{ part.model }}</span>
-                    <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" />
-                  </div>
+              <div v-for="(product, productIndex) in repairRecordForm.products" :key="product.key" class="repair-product-record">
+                <div class="repair-product-record-head">
+                  <strong>产品 {{ productIndex + 1 }}：{{ product.productName || '未命名产品' }}</strong>
+                  <el-button v-if="canPerformOrderAction('edit_repair_record') && product.source === 'manual'" link type="danger" size="small" @click="removeRepairProduct(productIndex)">移除产品</el-button>
                 </div>
-                <span v-else class="empty-text">当前报价未包含配件，可仅填写维修说明。</span>
+                <div class="repair-product-meta-grid">
+                  <el-input v-model="product.productName" maxlength="120" placeholder="产品名称" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <el-input v-model="product.model" maxlength="120" placeholder="型号" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                  <el-input v-model="product.sn" maxlength="120" placeholder="编号/SN（选填）" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                </div>
+                <div class="repair-record-field">
+                  <strong>故障现象及原因</strong>
+                  <span class="section-helper">默认带入客户填写的故障描述，请由维修工程师补充现场现象和检测确认的故障原因。</span>
+                  <el-input v-model="product.fault" type="textarea" :rows="2" maxlength="1000" placeholder="填写故障现象及维修工程师确认的故障原因" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                </div>
+                <div class="repair-record-field">
+                  <strong>收货明细</strong>
+                  <span class="section-helper">确认配件签收后自动带入，无需重复填写；已有说明不会被覆盖。</span>
+                  <el-input v-model="product.receivedDetail" type="textarea" :rows="2" maxlength="1000" placeholder="确认配件签收后自动带入，也可补充外观等说明" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                </div>
+                <div class="repair-record-field"><strong>维修措施</strong><el-input v-model="product.repairAction" type="textarea" :rows="3" maxlength="1000" placeholder="填写该产品的维修项目、处理过程和测试结果" :disabled="!canPerformOrderAction('edit_repair_record')" /></div>
+                <div class="repair-record-field">
+                  <div class="repair-parts-head">
+                    <div><strong>使用配件</strong><span class="section-helper">配件只记录到当前产品，不会再次扣减库存。</span></div>
+                    <div v-if="canPerformOrderAction('edit_repair_record')" class="repair-parts-actions">
+                      <el-button v-if="canPerformOrderAction('view_inventory')" size="small" plain @click="openPartPicker('repair', productIndex)"><el-icon><Box /></el-icon>从库存选择</el-button>
+                      <el-button size="small" type="primary" plain @click="addManualRepairPart(productIndex)"><el-icon><Plus /></el-icon>手动添加</el-button>
+                    </div>
+                  </div>
+                  <div v-if="product.parts.length" class="repair-parts-list">
+                    <div class="repair-part-columns" aria-hidden="true"><span>使用</span><span>配件名称</span><span>配件编码</span><span>型号/规格</span><span>数量</span><span></span></div>
+                    <div v-for="(part, partIndex) in product.parts" :key="part.key" class="repair-part-row">
+                      <el-checkbox v-model="part.used" aria-label="实际使用" :disabled="!canPerformOrderAction('edit_repair_record')"></el-checkbox>
+                      <el-input v-model="part.name" maxlength="120" placeholder="配件名称" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input v-model="part.partCode" class="repair-part-meta-input" maxlength="80" placeholder="编码（选填）" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input v-model="part.model" class="repair-part-meta-input" maxlength="120" placeholder="型号/规格（选填）" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-input-number v-model="part.quantity" :min="1" :max="999" :precision="0" size="small" :disabled="!canPerformOrderAction('edit_repair_record')" />
+                      <el-button v-if="canPerformOrderAction('edit_repair_record')" link type="danger" aria-label="删除配件" @click="removeRepairPart(productIndex, partIndex)"><el-icon><Delete /></el-icon></el-button>
+                    </div>
+                  </div>
+                  <div v-else class="repair-parts-empty"><span>该产品还没有记录实际用料</span><small>可从库存带入，也可手动填写临时配件。</small></div>
+                </div>
               </div>
               <div class="repair-record-field">
                 <strong>维修照片</strong>
@@ -1239,13 +1299,15 @@
                 </div>
               </div>
               <el-button
-                v-if="canPerformOrderAction('update_remarks')"
+                v-if="canPerformOrderAction('edit_repair_record')"
                 type="primary"
                 size="small"
                 :loading="repairRecordSaving"
                 @click="saveCurrentRepairRecord"
               >保存维修记录</el-button>
             </div>
+          </el-tab-pane>
+          <el-tab-pane label="回寄" name="return">
             <div class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">回寄物流</p>
@@ -1288,7 +1350,7 @@
                 </div>
               </div>
             </div>
-            <div v-if="canPerformOrderAction('update_status')" class="drawer-section">
+            <div v-if="canPerformOrderAction('update_order_status')" class="drawer-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">更改工单进度</p>
                 <el-tag type="info" size="small">{{ getNextAction(currentOrder).label }}</el-tag>
@@ -1398,7 +1460,7 @@
             </template>
           </el-dropdown>
           <el-button @click="drawerVisible=false">关闭</el-button>
-          <el-tooltip v-if="activeDrawerTab === 'service' && canPerformOrderAction('update_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
+          <el-tooltip v-if="activeDrawerTab === 'return' && canPerformOrderAction('update_order_status') && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
             <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">推进至{{ newStatus }}</el-button>
           </el-tooltip>
         </div>
@@ -1515,7 +1577,7 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="partPickerVisible" title="选择库存配件" width="860px" align-center>
+  <el-dialog v-model="partPickerVisible" :title="partPickerTarget === 'repair' ? '选择实际使用配件' : '选择库存配件'" width="860px" align-center>
     <div class="part-picker-toolbar">
       <el-input v-model="partPickerKeyword" clearable placeholder="搜索配件编码 / 名称 / 型号" style="width: 280px;" @keyup.enter="loadPickerParts"></el-input>
       <el-button type="primary" plain :loading="partPickerLoading" @click="loadPickerParts">查询</el-button>
@@ -1534,7 +1596,7 @@
       </el-table-column>
       <el-table-column label="操作" width="100" align="right">
         <template #default="{ row }">
-          <el-button type="primary" link :disabled="Number(row.stock || 0) <= 0" @click="selectQuotePart(row)">选择</el-button>
+          <el-button type="primary" link :disabled="Number(row.stock || 0) <= 0" @click="selectPickerPart(row)">选择</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -1823,21 +1885,27 @@
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { DocumentCopy } from '@element-plus/icons-vue'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { CirclePlus, DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmInboundArrival, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
 import { customerTypeLabel, customerTypeMeta, customerTypeOptionsWithCurrent, resolveCustomerTypeValue } from '../config/customerTypes.js'
 import { getRepairProductModels, REPAIR_PRODUCT_OPTIONS } from '../config/repairProducts.js'
-import { exportOrdersToWorkbook, formatOrderAttachments, formatOrderItems } from '../utils/orderExport.js'
+import { formatOrderAttachments } from '../modules/workOrders/exportFields.js'
 import { createCurrentMonthRange, dateRangeShortcuts, formatLocalDate, toApiDateRange } from '../utils/dateRange.js'
-import { transformOrders } from '../utils/orderTransform.js'
+import { getAdminToken } from '../utils/adminSession.js'
+import { createManualOrderDraft, createManualOrderItem, prepareManualOrderSubmission } from '../modules/workOrders/manualOrder.js'
+import { createWorkOrderQuery } from '../modules/workOrders/query.js'
+
+import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/receivedPartsReuse.js'
+import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
+import { transformOrder, transformOrders } from '../utils/orderTransform.js'
+import { preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
-import { openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
-import { downloadShippingTemplate, getLogisticsImportTypeLabel, parseShippingExcelFile } from '../utils/shippingImport.js'
+import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
-import { getQuotePublishPresentation, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
+import { getQuotePublishPresentation, isManualWarrantyFreeItem, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
 import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
@@ -1847,13 +1915,16 @@ const updateIsMobile = () => {
   isMobile.value = window.innerWidth <= 768
 }
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
-const adminActionStatusOptions = ['已签收', '处理中', '已回寄', '已完成', '已取消']
+const adminActionStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
+const adminOrderStatusValues = new Set(['pending', 'sent', 'received', 'inspecting', 'fixing', 'shipped', 'completed', 'cancelled'])
+const receiptStatusSyncSourceStatuses = new Set(['pending', 'sent'])
 
 const getStatusType = (status) => {
   const statusMap = {
     '已提交': 'info',
     '运输中': 'warning',
     '已签收': 'warning',
+    '检测中': 'primary',
     '处理中': 'primary',
     '已回寄': 'success',
     '已完成': 'success',
@@ -2108,7 +2179,7 @@ const getDrawerStageIndex = (order = {}) => {
   if (['处理中', '维修中'].includes(order.status)) return 3
   const quoteStatus = order.quoteStatus || order.quote_status || ''
   if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 2
-  if (['已签收', '处理中', '维修中'].includes(order.status)) return 1
+  if (['已签收', '检测中', '处理中', '维修中'].includes(order.status)) return 1
   return 0
 }
 
@@ -2117,10 +2188,10 @@ const getRecommendedDrawerTab = (order = {}) => {
   const paymentStatus = resolvePaymentStatus(order)
   const invoiceState = normalizeInvoiceStatus(order)
   if (['pending', 'draft', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
-  if (order.status === '已回寄' || order.returnNo) return 'service'
-  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) && ['已签收', '处理中', '维修中'].includes(order.status)) return 'service'
+  if (order.status === '已回寄' || order.returnNo || quoteStatus === 'rejected') return 'return'
+  if (['issued', 'confirmed'].includes(quoteStatus) && ['已签收', '处理中', '维修中'].includes(order.status)) return 'repair'
   if (order.needInvoice && paymentStatus === 'paid' && !['已发票', '已寄出', '已签收'].includes(invoiceState)) return 'invoice'
-  if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 'service'
+  if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 'repair'
   return 'base'
 }
 
@@ -2129,7 +2200,8 @@ const getNextStepButtonText = (order = {}) => {
     quote: '去报价',
     payment: resolvePaymentStatus(order) === 'uploaded' ? '审核付款' : '查看收款',
     invoice: '去开票',
-    service: order.returnNo ? '查看回寄' : ((order.quoteStatus || order.quote_status) === 'rejected' ? '安排回寄' : '继续维修')
+    repair: '继续维修',
+    return: order.returnNo ? '查看回寄' : '安排回寄'
   }
   return labels[getRecommendedDrawerTab(order)] || '查看详情'
 }
@@ -2170,8 +2242,16 @@ const getPaymentPreviewList = (proofs = []) => {
 }
 
 const loading = ref(false)
+const workOrderQuery = createWorkOrderQuery({
+  fetchPage: getOrderList,
+  transform: transformOrders,
+  toStatus: toEnglishStatus,
+  resolveCustomerType: resolveCustomerTypeValue,
+  toDateRange: toApiDateRange
+})
 const importing = ref(false)
 const quickStatusLoading = ref(false)
+const restoringOrderId = ref('')
 const batchCompleting = ref(false)
 const batchDeleting = ref(false)
 const todoTypeMap = {
@@ -2183,87 +2263,13 @@ const todoTypeMap = {
   exception: '异常工单'
 }
 
-const createManualOrderItem = () => ({
-  key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-  product_name: '',
-  product_category: '',
-  product_model: '',
-  sn: '',
-  buy_date: '',
-  warranty_start_date: '',
-  invoice_received_date: '',
-  manufacture_date: '',
-  warranty_months: 0,
-  warranty_expire: '',
-  fault_desc: '',
-  lookupLoading: false
-})
-
-const todayDateString = () => new Date().toISOString().slice(0, 10)
-
 const createOrderDialogVisible = ref(false)
 const createOrderSubmitting = ref(false)
 const createOrderFormRef = ref(null)
-const createOrderForm = reactive({
-  received_date: todayDateString(),
-  customer: {
-    customer_id: '',
-    customer_type: 'clinic',
-    name: '',
-    contact: '',
-    phone: '',
-    address: '',
-    biz_user: ''
-  },
-  status: 'received',
-  ship_out_info: {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: '',
-    logistics_company: '',
-    logistics_no: '',
-    received_at: ''
-  },
-  ship_back_info: {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: ''
-  },
-  items: [createManualOrderItem()],
-  admin_remark: ''
-})
+const createOrderForm = reactive(createManualOrderDraft())
 
 const resetCreateOrderForm = () => {
-  createOrderForm.received_date = todayDateString()
-  Object.assign(createOrderForm.customer, {
-    customer_id: '',
-    customer_type: 'clinic',
-    name: '',
-    contact: '',
-    phone: '',
-    address: '',
-    biz_user: ''
-  })
-  createOrderForm.status = 'received'
-  Object.assign(createOrderForm.ship_out_info, {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: '',
-    logistics_company: '',
-    logistics_no: '',
-    received_at: ''
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: '',
-    phone: '',
-    unit: '',
-    detail: ''
-  })
-  createOrderForm.items = [createManualOrderItem()]
-  createOrderForm.admin_remark = ''
+  Object.assign(createOrderForm, createManualOrderDraft())
   createOrderFormRef.value?.clearValidate()
 }
 
@@ -2284,39 +2290,6 @@ const onCreateOrderProductNameChange = (item) => {
 const removeCreateOrderItem = (index) => {
   if (createOrderForm.items.length <= 1) return
   createOrderForm.items.splice(index, 1)
-}
-
-const fillCreateOrderShipping = () => {
-  const { name, contact, phone, address } = createOrderForm.customer
-  Object.assign(createOrderForm.ship_out_info, {
-    name: contact || createOrderForm.ship_out_info.name,
-    phone: phone || createOrderForm.ship_out_info.phone,
-    unit: name || createOrderForm.ship_out_info.unit,
-    detail: address || createOrderForm.ship_out_info.detail
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: contact || createOrderForm.ship_back_info.name,
-    phone: phone || createOrderForm.ship_back_info.phone,
-    unit: name || createOrderForm.ship_back_info.unit,
-    detail: address || createOrderForm.ship_back_info.detail
-  })
-}
-
-const syncCreateOrderShipping = () => {
-  const { name, contact, phone, address } = createOrderForm.customer
-  Object.assign(createOrderForm.ship_out_info, {
-    name: contact,
-    phone,
-    unit: name,
-    detail: address,
-    received_at: createOrderForm.received_date
-  })
-  Object.assign(createOrderForm.ship_back_info, {
-    name: contact,
-    phone,
-    unit: name,
-    detail: address
-  })
 }
 
 const lookupCreateOrderItemBySn = async (item) => {
@@ -2353,56 +2326,17 @@ const lookupCreateOrderItemBySn = async (item) => {
   }
 }
 
-const validateCreateOrderForm = () => {
-  syncCreateOrderShipping()
-  const customer = createOrderForm.customer
-  const customerType = resolveCustomerTypeValue(customer.customer_type)
-  if (!customerType) return '请选择或输入客户类型'
-  if (customerType.length > 40) return '客户类型不能超过 40 个字符'
-  customer.customer_type = customerType
-  if (!customer.name.trim()) return '请填写客户/单位名称'
-  if (!customer.contact.trim()) return '请填写联系人'
-  if (!/^1\d{10}$/.test(customer.phone.trim())) return '请填写正确的 11 位手机号'
-  if (!customer.address.trim()) return '请填写客户地址'
-  if (!createOrderForm.received_date) return '请选择收件日期'
-  if (!createOrderForm.items.length) return '请至少添加一台维修设备'
-  for (let index = 0; index < createOrderForm.items.length; index += 1) {
-    const item = createOrderForm.items[index]
-    const prefix = `设备 ${index + 1}`
-    if (!item.product_name.trim()) return `${prefix}：请填写产品名称`
-    if (item.product_name.trim().length > 80) return `${prefix}：产品名称不能超过 80 个字符`
-    if (!item.product_model.trim()) return `${prefix}：请填写产品型号`
-    if (item.product_model.trim().length > 80) return `${prefix}：产品型号不能超过 80 个字符`
-    if (!item.sn.trim()) return `${prefix}：请填写设备 SN`
-    if (!item.fault_desc.trim()) return `${prefix}：请填写故障描述`
-  }
-  const out = createOrderForm.ship_out_info
-  const back = createOrderForm.ship_back_info
-  if (!out.name.trim() || !/^1\d{10}$/.test(out.phone.trim()) || !out.detail.trim()) return '请完善客户名称、联系方式和客户地址'
-  if (!back.name.trim() || !/^1\d{10}$/.test(back.phone.trim()) || !back.detail.trim()) return '请完善客户名称、联系方式和客户地址'
-  if (createOrderForm.status === 'sent' && !out.logistics_no.trim()) return '运输中工单必须填写寄入物流单号'
-  return ''
-}
-
 const submitCreateOrder = async () => {
-  const validationError = validateCreateOrderForm()
-  if (validationError) {
-    ElMessage.warning(validationError)
+  const submission = prepareManualOrderSubmission(createOrderForm, resolveCustomerTypeValue)
+  if (submission.error) {
+    ElMessage.warning(submission.error)
     return
   }
 
   createOrderSubmitting.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const payload = {
-      customer: { ...createOrderForm.customer },
-      status: createOrderForm.status,
-      ship_out_info: { ...createOrderForm.ship_out_info },
-      ship_back_info: { ...createOrderForm.ship_back_info },
-      items: createOrderForm.items.map(({ key, lookupLoading, ...item }) => ({ ...item, warranty_months: 12 })),
-      admin_remark: createOrderForm.admin_remark
-    }
-    const result = await createAdminOrder(token, payload)
+    const result = await createAdminOrder(token, submission.payload)
     createOrderDialogVisible.value = false
     wo.page = 1
     await Promise.all([loadOrders(), refreshStatusBreakdown()])
@@ -2520,6 +2454,23 @@ const batchDeleteForm = reactive({
   confirmText: ''
 })
 const workflowConfig = ref(null)
+const fallbackWorkflowStatuses = [
+  { status: 'pending', label: '已提交' },
+  { status: 'sent', label: '运输中' },
+  { status: 'received', label: '已签收' },
+  { status: 'inspecting', label: '检测中' },
+  { status: 'fixing', label: '处理中' },
+  { status: 'shipped', label: '已回寄' },
+  { status: 'completed', label: '已完成' },
+  { status: 'cancelled', label: '已取消' }
+]
+const workflowStatuses = computed(() => {
+  const statuses = workflowConfig.value && workflowConfig.value.statuses
+  return Array.isArray(statuses) && statuses.length ? statuses : fallbackWorkflowStatuses
+})
+const workflowStatusLabelMap = computed(() => Object.fromEntries(
+  workflowStatuses.value.map(item => [item.status, item.label])
+))
 const printConfig = ref(parsePrintTemplates().repair_order)
 const printSettingsRaw = ref({})
 const exportDialogVisible = ref(false)
@@ -2565,13 +2516,15 @@ const importResult = ref(null)
 const activeLogisticsImportType = ref('return')
 const shipDate = ref(new Date().toISOString().slice(0, 10))
 const searchInvoiceStatus = ref('')
+const searchPaymentStatus = ref('')
 const slaFilter = ref('')
 const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0, cancelled: 0 })
+const paymentBreakdown = ref({ pending: 0, paid: 0 })
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
 const expectedBatchDeleteConfirmText = computed(() => `确认删除${deleteTargetOrders.value.length}个工单`)
 const deleteDialogTitle = computed(() => deleteTargetOrders.value.length === 1 ? '删除工单' : '批量删除工单')
-const activeLogisticsImportLabel = computed(() => getLogisticsImportTypeLabel(activeLogisticsImportType.value))
+const activeLogisticsImportLabel = computed(() => activeLogisticsImportType.value === 'inbound' ? '客户寄入签收' : '后台回寄发货')
 const logisticsImportTip = computed(() => {
   return activeLogisticsImportType.value === 'inbound'
     ? '签收单用于客户寄入设备：请填写工单编号、物流公司、物流单号、签收时间，导入后状态更新为已签收。'
@@ -2596,8 +2549,31 @@ const statusSummaryCards = computed(() => {
   ]
 })
 
+const paymentSummaryItems = computed(() => [
+  { key: 'pending', label: '待付款', count: paymentBreakdown.value.pending, filter: 'pending' },
+  { key: 'paid', label: '已付款', count: paymentBreakdown.value.paid, filter: 'paid' }
+])
+
+const clearStatusCardConflicts = () => {
+  // 状态卡数字只按创建日期统计；点击后清除未纳入卡片统计口径的筛选，保证数字与列表一致。
+  wo.search = ''
+  searchInvoiceStatus.value = ''
+  wo.warrantyFilter = ''
+  wo.customerTypeFilter = ''
+  slaFilter.value = ''
+  activeTodoType.value = ''
+}
+
 const applyStatusFilter = (filter) => {
+  clearStatusCardConflicts()
+  searchPaymentStatus.value = ''
   wo.filter = wo.filter === filter ? '' : filter
+}
+
+const applyPaymentFilter = (filter) => {
+  clearStatusCardConflicts()
+  wo.filter = ''
+  searchPaymentStatus.value = searchPaymentStatus.value === filter ? '' : filter
 }
 
 const loadStatusBreakdown = async () => {
@@ -2617,11 +2593,32 @@ const loadStatusBreakdown = async () => {
   }
 }
 
+let paymentBreakdownRequestId = 0
+const loadPaymentBreakdown = async () => {
+  const requestId = ++paymentBreakdownRequestId
+  const token = localStorage.getItem('adminToken')
+  const dateFilters = toApiDateRange(listDateRange.value)
+  try {
+    // 与「付款状态」筛选共用同一后端口径（全部状态），保证卡片数字与点击筛选后的列表总数一致。
+    const [pendingData, paidData] = await Promise.all([
+      getOrderList(token, '', 1, 1, { ...dateFilters, paymentStatus: 'pending', responseMode: 'page' }),
+      getOrderList(token, '', 1, 1, { ...dateFilters, paymentStatus: 'paid', responseMode: 'page' })
+    ])
+    if (requestId !== paymentBreakdownRequestId) return
+    const pendingTotal = Array.isArray(pendingData) ? pendingData.length : Number((pendingData && pendingData.total) || 0)
+    const paidTotal = Array.isArray(paidData) ? paidData.length : Number((paidData && paidData.total) || 0)
+    paymentBreakdown.value = { pending: pendingTotal, paid: paidTotal }
+  } catch (error) {
+    if (requestId !== paymentBreakdownRequestId) return
+    ElMessage.warning(error.message || '付款统计加载失败')
+  }
+}
+
 const refreshStatusBreakdown = async () => {
   try {
-    await loadStatusBreakdown()
+    await Promise.all([loadStatusBreakdown(), loadPaymentBreakdown()])
   } catch (error) {
-    ElMessage.warning(error.message || '处理状态统计加载失败')
+    ElMessage.warning(error.message || '工单概览统计加载失败')
   }
 }
 
@@ -2629,7 +2626,9 @@ const canPerformOrderAction = (action) => {
   return Boolean(workflowConfig.value && workflowConfig.value.permissions && workflowConfig.value.permissions[action])
 }
 
-// ============== 指派工程师（仅 manage_staff 权限，与后端 assignEngineer 同键） ==============
+const canChangeOrderStatus = computed(() => canPerformOrderAction('update_order_status'))
+
+// ============== 指派工程师（前后端均使用 assign_engineer 权限） ==============
 const engineerOptions = ref([])
 const assignEngineerId = ref('')
 const assigningEngineer = ref(false)
@@ -2703,6 +2702,11 @@ const copyReturnAddress = async (order = {}) => {
     else ElMessage.error('复制失败，请手动复制')
   }
 }
+const shouldSyncReceivedStatus = (order = {}) => receiptStatusSyncSourceStatuses.has(getOrderStatusValue(order))
+const shouldConfirmInboundArrival = (order = {}) => order.arrivalConfirmStatus === 'pending'
+const syncReceivedOrderStatus = (token, order = {}) => shouldConfirmInboundArrival(order)
+  ? confirmInboundArrival(token, order._id, { suppressErrorMessage: true })
+  : updateOrderStatus(token, order._id, 'received', { suppressErrorMessage: true })
 
 const getReturnShipmentBlockReason = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
@@ -2734,11 +2738,14 @@ const getReturnShipmentBlockReason = (order = {}) => {
 }
 
 const getAllowedStatusOptions = (order = {}) => {
-  if (!order || !canPerformOrderAction('update_status')) return []
+  if (!order || (!canChangeOrderStatus.value && !canPerformOrderAction('record_return_logistics'))) return []
   const currentStatus = getOrderStatusValue(order)
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
-  return adminActionStatusOptions.filter(status => {
-    const targetStatus = toEnglishStatus(status)
+  return transitions.filter(targetStatus => {
+    if (targetStatus === 'shipped') {
+      if (!canPerformOrderAction('record_return_logistics') && !canChangeOrderStatus.value) return false
+    } else if (!canChangeOrderStatus.value) return false
+    if (targetStatus === 'sent' && currentStatus === 'pending' && !order.logisticsNo) return false
     if (targetStatus === 'fixing' && ['received', 'inspecting'].includes(currentStatus)) {
       const total = Number(order.totalPrice ?? order.total_price ?? 0) || 0
       const paymentStatus = order.paymentStatus || order.payment_status
@@ -2764,20 +2771,34 @@ const getAllowedStatusOptions = (order = {}) => {
     if (['received', 'inspecting', 'fixing'].includes(currentStatus) && targetStatus === 'shipped') {
       if (getReturnShipmentBlockReason(order)) return false
     }
-    return targetStatus !== currentStatus && transitions.includes(targetStatus)
-  })
+    return targetStatus !== currentStatus
+  }).map(status => workflowStatusLabelMap.value[status] || status)
+}
+
+const getAllStatusOptions = (order = {}) => {
+  if (!order || !canChangeOrderStatus.value) return []
+  const currentStatus = getOrderStatusValue(order)
+  return workflowStatuses.value
+    .filter(item => item.status !== currentStatus)
+    .map(item => item.label)
+}
+
+// 表格标签展示完整人工状态菜单；不可按当前状态机流转的选项置灰，避免误以为只能改下一步。
+const getManualStatusOptions = (order = {}) => {
+  if (!order || !canPerformOrderAction('update_status')) return []
+  return adminStatusOptions.filter(status => status !== order.status)
 }
 
 const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
 const canRecordReturnLogistics = computed(() => (
   Boolean(currentOrder.value)
-  && canPerformOrderAction('import_logistics')
+  && canPerformOrderAction('record_return_logistics')
   && !currentOrder.value.returnNo
   && canMoveOrderToStatus(currentOrder.value, '已回寄')
 ))
 const returnLogisticsHint = computed(() => {
   if (!currentOrder.value) return '请选择工单'
-  if (!canPerformOrderAction('import_logistics')) return '当前角色无权录入回寄物流'
+  if (!canPerformOrderAction('record_return_logistics')) return '当前账号无权录入回寄物流'
   if (currentOrder.value.returnNo) return '回寄物流已录入，等待结案'
   if (canRecordReturnLogistics.value) return '填写物流公司和回寄单号后，工单将更新为已回寄'
   return getReturnShipmentBlockReason(currentOrder.value) || '当前工单不可回寄'
@@ -2788,65 +2809,48 @@ const getTransitionableOrders = (status, source = selectedOrders.value) => {
 }
 
 const hasBatchStatusOptions = computed(() => {
-  return canPerformOrderAction('update_status') &&
+  return canPerformOrderAction('update_order_status') &&
     selectedOrders.value.some(order => canMoveOrderToStatus(order, '处理中') || canMoveOrderToStatus(order, '已完成'))
 })
 
-const loadOrders = async () => {
+const getOrderQueryState = () => ({
+  filter: wo.filter,
+  page: wo.page,
+  pageSize: wo.pageSize,
+  search: wo.search,
+  invoiceStatus: searchInvoiceStatus.value,
+  paymentStatus: searchPaymentStatus.value,
+  warrantyFilter: wo.warrantyFilter,
+  customerTypeFilter: wo.customerTypeFilter,
+  todoType: activeTodoType.value,
+  slaLevel: slaFilter.value,
+  dateRange: listDateRange.value
+})
+
+const loadOrders = async ({ receiptSnapshot = null } = {}) => {
   loading.value = true
+  let ownsLoading = true
   try {
-    const token = localStorage.getItem('adminToken')
-    const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
-    const data = await getOrderList(token, statusFilter, wo.page, wo.pageSize, {
-      keyword: wo.search.trim(),
-      invoiceStatus: searchInvoiceStatus.value,
-      warrantyStatus: wo.warrantyFilter,
-      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
-      todoType: activeTodoType.value,
-      slaLevel: slaFilter.value,
-      ...toApiDateRange(listDateRange.value),
-      responseMode: 'page'
-    })
-    const list = Array.isArray(data) ? data : (data.list || [])
-    orders.value = transformOrders(list)
-    totalOrders.value = Array.isArray(data) ? orders.value.length : Number(data.total || 0)
+    const result = await workOrderQuery.loadPage(getAdminToken(), getOrderQueryState())
+    if (!result.accepted) {
+      ownsLoading = false
+      return
+    }
+    orders.value = preserveReceivedOrderSnapshot(result.rows, receiptSnapshot)
+    totalOrders.value = result.total
     selectedOrders.value = []
   } catch (error) {
+    if (receiptSnapshot) throw error
     orders.value = []
     totalOrders.value = 0
-    ElMessage.error(error.message || '工单列表加载失败')
+    if (!error.__displayed) ElMessage.error(error.message || '工单列表加载失败')
   } finally {
-    loading.value = false
+    if (ownsLoading) loading.value = false
   }
 }
 
 const fetchAllFilteredOrders = async (dateRange = null) => {
-  const token = localStorage.getItem('adminToken')
-  const statusFilter = wo.filter ? toEnglishStatus(wo.filter) : undefined
-  const pageSize = 100
-  let page = 1
-  let total = 0
-  const allOrders = []
-
-  while (true) {
-    const data = await getOrderList(token, statusFilter, page, pageSize, {
-      keyword: wo.search.trim(),
-      invoiceStatus: searchInvoiceStatus.value,
-      warrantyStatus: wo.warrantyFilter,
-      customerType: resolveCustomerTypeValue(wo.customerTypeFilter),
-      todoType: activeTodoType.value,
-      slaLevel: slaFilter.value,
-      ...toApiDateRange(dateRange),
-      responseMode: 'page'
-    })
-    const list = Array.isArray(data) ? data : (data.list || [])
-    total = Number((Array.isArray(data) ? list.length : data.total) || 0)
-    allOrders.push(...transformOrders(list))
-    if (allOrders.length >= total || list.length < pageSize) break
-    page += 1
-  }
-
-  return allOrders
+  return workOrderQuery.loadAll(getAdminToken(), getOrderQueryState(), dateRange)
 }
 
 const wo = reactive({ search: '', filter: '', warrantyFilter: '', customerTypeFilter: '', page: 1, pageSize: 10 })
@@ -2882,13 +2886,14 @@ onMounted(async () => {
   } catch (error) {
     ElMessage.error(error.message || '工单权限配置加载失败')
   }
-  // 工程师列表仅指派入口需要（manage_staff = admin），无权限不请求
-  if (canPerformOrderAction('manage_staff')) loadEngineerOptions()
+  // 工程师列表仅在拥有指派权限时请求
+  if (canPerformOrderAction('assign_engineer')) loadEngineerOptions()
   loadOrders()
   refreshStatusBreakdown()
 })
 
 onBeforeUnmount(() => {
+  workOrderQuery.cancel()
   window.removeEventListener('resize', updateIsMobile)
 })
 
@@ -2902,7 +2907,7 @@ const reloadFromFilter = () => {
 
 // 下拉筛选变化立即生效
 watch(
-  () => [wo.filter, wo.warrantyFilter, wo.customerTypeFilter, searchInvoiceStatus.value, activeTodoType.value, slaFilter.value],
+  () => [wo.filter, wo.warrantyFilter, wo.customerTypeFilter, searchInvoiceStatus.value, searchPaymentStatus.value, activeTodoType.value, slaFilter.value],
   reloadFromFilter
 )
 
@@ -3008,7 +3013,7 @@ const canManuallyRegisterInvoice = computed(() => (
 const remarkSaving = ref(false)
 const repairRecordSaving = ref(false)
 const repairPhotoUploading = ref(false)
-const repairRecordForm = reactive({ content: '', parts: [], photos: [] })
+const repairRecordForm = reactive({ content: '', products: [], photos: [] })
 const receivedPartsSaving = ref(false)
 const receivedPartsConfirming = ref(false)
 const receivedPartPhotoUploading = ref(false)
@@ -3022,6 +3027,8 @@ const partPickerVisible = ref(false)
 const partPickerLoading = ref(false)
 const partPickerKeyword = ref('')
 const pickerParts = ref([])
+const partPickerTarget = ref('quote')
+const repairProductPickerIndex = ref(-1)
 const logisticsCompanyOptions = [
   '顺丰速运',
   '京东物流',
@@ -3041,7 +3048,7 @@ const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
 
 const hasRepairRecord = computed(() => Boolean(
   repairRecordForm.content.trim()
-  || repairRecordForm.parts.some(part => part.used)
+  || repairRecordForm.products.some(product => product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.parts.some(part => part.used))
   || repairRecordForm.photos.length
 ))
 const isRepairingOrder = computed(() => currentOrder.value && currentOrder.value.statusEn === 'fixing')
@@ -3059,16 +3066,19 @@ const createReceivedPart = (part = {}, index = 0) => ({
 const resetReceivedPartsForm = (order = {}) => {
   const parts = Array.isArray(order.receivedParts) ? order.receivedParts : []
   const photos = Array.isArray(order.receivedPartPhotos) ? order.receivedPartPhotos : []
-  receivedPartsForm.parts = parts.map((part, index) => createReceivedPart(part, index))
+  const receipt = { ...(order.receivedPartsReceipt || { status: 'pending' }) }
+  receivedPartsForm.parts = parts.length
+    ? parts.map((part, index) => createReceivedPart(part, index))
+    : receipt.status === 'confirmed' ? [] : [createReceivedPart()]
   receivedPartsForm.photos = photos.map(photo => ({
     fileID: photo && typeof photo === 'object' ? (photo.fileID || photo.fileId || photo.url || '') : String(photo || ''),
     url: photo && typeof photo === 'object' ? (photo.url || photo.fileID || photo.fileId || '') : String(photo || '')
   })).filter(photo => photo.fileID || photo.url)
-  receivedPartsForm.receipt = { ...(order.receivedPartsReceipt || { status: 'pending' }) }
+  receivedPartsForm.receipt = receipt
 }
 
 const createRepairPart = (part = {}, used = false, index = 0) => ({
-  key: `${part.partId || part.part_id || part.partCode || part.part_code || part.name || 'part'}-${index}`,
+  key: part.key || `repair-part-${part.partId || part.part_id || part.partCode || part.part_code || index}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   partId: part.partId || part.part_id || part._id || '',
   partCode: part.partCode || part.part_code || part.code || '',
   name: part.name || part.part_name || '',
@@ -3077,26 +3087,98 @@ const createRepairPart = (part = {}, used = false, index = 0) => ({
   used
 })
 
+const createRepairProduct = (item = {}, index = 0, fallbackContent = '') => ({
+  key: item.key || `repair-product-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  productId: item.productId || item.product_id || item._id || '',
+  productName: item.productName || item.product_name || item.name || '',
+  model: item.model || item.productModel || item.product_model || '',
+  sn: item.sn || item.device_sn || '',
+  fault: resolveRepairFaultDescription(item, fallbackContent),
+  receivedDetail: item.receivedDetail || item.received_detail || '',
+  repairAction: item.repairAction || item.repair_action || '',
+  source: item.source === 'order' ? 'order' : 'manual',
+  parts: Array.isArray(item.parts) ? item.parts.map((part, partIndex) => createRepairPart(part, true, partIndex)) : []
+})
+
+const repairPartIdentity = (part = {}) => {
+  const partId = String(part.partId || part.part_id || part._id || '').trim()
+  const partCode = String(part.partCode || part.part_code || part.code || '').trim()
+  if (partId) return `id:${partId}`
+  if (partCode) return `code:${partCode.toUpperCase()}`
+  return `name:${String(part.name || part.part_name || '').trim().toUpperCase()}|${String(part.model || part.part_model || '').trim().toUpperCase()}`
+}
+
+const aggregateRepairParts = (parts = []) => {
+  const aggregated = new Map()
+  parts.forEach((part) => {
+    const key = repairPartIdentity(part)
+    const quantity = Math.max(1, Number(part.quantity || 1) || 1)
+    if (aggregated.has(key)) {
+      aggregated.get(key).quantity += quantity
+      return
+    }
+    aggregated.set(key, { ...part, quantity })
+  })
+  return Array.from(aggregated.values())
+}
+
+const repairProductIdentity = (product = {}) => {
+  const productId = String(product.productId || product.product_id || product._id || '').trim()
+  const sn = String(product.sn || product.device_sn || '').trim().toUpperCase()
+  const name = String(product.productName || product.product_name || product.name || '').trim().toUpperCase()
+  const model = String(product.model || product.productModel || product.product_model || '').trim().toUpperCase()
+  if (productId) return `id:${productId}`
+  if (sn) return `sn:${sn}`
+  return name || model ? `product:${name}|${model}` : ''
+}
+
+const applyReceivedPartsToRepairForm = (order = {}) => {
+  const reusedReceipt = reuseReceivedPartsInRepairRecord({
+    products: repairRecordForm.products,
+    repairPhotos: repairRecordForm.photos,
+    receivedParts: order.receivedParts,
+    receivedPhotos: order.receivedPartPhotos,
+    receiptStatus: order.receivedPartsReceipt?.status,
+    photoLimit: 6
+  })
+  repairRecordForm.products = reusedReceipt.products
+  repairRecordForm.photos = reusedReceipt.photos
+}
+
 const resetRepairRecordForm = (order = {}) => {
   const saved = order.repairRecord || {}
   repairRecordForm.content = saved.content || ''
+  const savedProducts = Array.isArray(saved.products) ? saved.products : []
+  const orderItems = Array.isArray(order.itemsList) ? order.itemsList : []
+  const matchedSavedProducts = new Set()
+  repairRecordForm.products = orderItems.map((item, index) => {
+    const key = item.key || item.productId || item.product_id || item._id || item.sn || item.device_sn || `${index}`
+    const identity = repairProductIdentity(item)
+    const existing = savedProducts.find(product => identity && repairProductIdentity(product) === identity) || {}
+    if (savedProducts.includes(existing)) matchedSavedProducts.add(existing)
+    const fallbackFault = resolveOrderFaultFallback(order, index) || (index === 0 ? saved.content || '' : '')
+    return createRepairProduct({ ...item, ...existing, key, source: 'order' }, index, fallbackFault)
+  })
+  savedProducts.forEach((product, index) => {
+    if (!matchedSavedProducts.has(product)) {
+      repairRecordForm.products.push(createRepairProduct({ ...product, source: 'manual' }, orderItems.length + index))
+    }
+  })
   repairRecordForm.photos = (saved.photos || []).map(photo => ({
     fileID: photo.fileID || photo.fileId || photo.url || '',
     url: photo.url || photo.fileID || photo.fileId || ''
   })).filter(photo => photo.fileID || photo.url)
   const savedParts = Array.isArray(saved.parts) ? saved.parts : []
-  const savedByKey = new Map(savedParts.map(part => [part.partId || part.part_id || part.partCode || part.part_code || part.name, part]))
-  const quoteParts = getQuoteSummary(order).parts || []
-  repairRecordForm.parts = quoteParts.map((part, index) => {
-    const key = part.partId || part.part_id || part.partCode || part.part_code || part.code || part.name || part.part_name
-    return createRepairPart(savedByKey.get(key) || part, Boolean(savedByKey.get(key)), index)
-  })
+  if (!repairRecordForm.products.length) repairRecordForm.products = [createRepairProduct()]
+  const productPartKeys = new Set(repairRecordForm.products.flatMap(product => product.parts.map(repairPartIdentity)))
   savedParts.forEach((part, index) => {
-    const key = part.partId || part.part_id || part.partCode || part.part_code || part.name
-    if (!repairRecordForm.parts.some(item => (item.partId || item.partCode || item.name) === key)) {
-      repairRecordForm.parts.push(createRepairPart(part, true, quoteParts.length + index))
+    const key = repairPartIdentity(part)
+    if (!productPartKeys.has(key)) {
+      repairRecordForm.products[0].parts.push(createRepairPart(part, true, repairRecordForm.products[0].parts.length + index))
+      productPartKeys.add(key)
     }
   })
+  applyReceivedPartsToRepairForm(order)
 }
 
 const createQuoteRow = (item = {}, type = 'services') => ({
@@ -3195,11 +3277,7 @@ const isCurrentOrderWarrantyFree = computed(() => {
   const items = Array.isArray(order.itemsList) ? order.itemsList : []
   return isWarrantyFreeSnapshot(order)
     && items.length > 0
-    && items.every(item => (
-      item.manual_warranty_status === 'in_warranty'
-      && item.coverage_result === 'free'
-      && ['quality_issue', 'repair_warranty'].includes(item.coverage_reason)
-    ))
+    && items.every(isManualWarrantyFreeItem)
 })
 const currentOrderProductKeywords = computed(() => {
   const order = currentOrder.value || {}
@@ -3650,10 +3728,6 @@ const saveOrderItemsInfo = async (options = {}) => {
     ElMessage.warning('质保免费前，请先人工判断设备为在保')
     return false
   }
-  if (items.some(item => item.coverage_result === 'free' && !['quality_issue', 'repair_warranty'].includes(item.coverage_reason))) {
-    ElMessage.warning('质保免费必须选择“非人为质量问题”或“同故障同更换件维修延保”')
-    return false
-  }
   savingOrderItems.value = true
   try {
     const token = localStorage.getItem('adminToken')
@@ -3712,9 +3786,20 @@ const loadPickerParts = async () => {
   }
 }
 
-const openPartPicker = async () => {
+const openPartPicker = async (target = 'quote', productIndex = -1) => {
+  partPickerTarget.value = target === 'repair' ? 'repair' : 'quote'
+  repairProductPickerIndex.value = target === 'repair' ? productIndex : -1
+  partPickerKeyword.value = ''
   partPickerVisible.value = true
   await loadPickerParts()
+}
+
+const canRestoreCancelledOrder = (order = {}) => {
+  if (!canPerformOrderAction('restore_cancelled_order') || order.status !== '已取消') return false
+  if ((order.quoteStatus || order.quote_status) === 'rejected') return false
+  const timeline = Array.isArray(order.timeline) ? order.timeline : []
+  const userCancelled = timeline.some(item => item && item.title === '已取消')
+  return !userCancelled
 }
 
 const selectQuotePart = (part) => {
@@ -3729,6 +3814,68 @@ const selectQuotePart = (part) => {
     amount: Number(part.sale_price || part.salePrice || 0)
   }))
   partPickerVisible.value = false
+}
+
+const addRepairProduct = () => {
+  if (repairRecordForm.products.length >= 50) {
+    ElMessage.warning('产品维修明细不能超过 50 项')
+    return
+  }
+  repairRecordForm.products.push(createRepairProduct({}, repairRecordForm.products.length))
+}
+
+const removeRepairProduct = (productIndex) => {
+  if (repairRecordForm.products[productIndex]?.source !== 'manual') return
+  repairRecordForm.products.splice(productIndex, 1)
+}
+
+const addManualRepairPart = (productIndex) => {
+  const product = repairRecordForm.products[productIndex]
+  if (!product) return
+  if (product.parts.length >= 30) {
+    ElMessage.warning('单个产品的实际使用配件不能超过 30 项')
+    return
+  }
+  product.parts.push(createRepairPart({}, true, product.parts.length))
+}
+
+const removeRepairPart = (productIndex, partIndex) => {
+  repairRecordForm.products[productIndex]?.parts.splice(partIndex, 1)
+}
+
+const selectRepairPart = (part, productIndex = repairProductPickerIndex.value) => {
+  const product = repairRecordForm.products[productIndex]
+  if (!product) {
+    ElMessage.warning('请选择要使用该配件的产品')
+    return
+  }
+  const partId = part._id || part.part_id || part.partId || ''
+  const partCode = part.part_code || part.partCode || ''
+  const existing = product.parts.find(item => (
+    (partId && item.partId === partId) || (partCode && item.partCode === partCode)
+  ))
+  if (existing) {
+    existing.used = true
+    existing.quantity = Math.min(999, Math.max(1, Number(existing.quantity || 1)) + 1)
+  } else {
+    if (product.parts.length >= 30) {
+      ElMessage.warning('单个产品的实际使用配件不能超过 30 项')
+      return
+    }
+    product.parts.push(createRepairPart({
+      partId,
+      partCode,
+      name: part.part_name || part.partName || part.name || '',
+      model: part.model || '',
+      quantity: 1
+    }, true, product.parts.length))
+  }
+  partPickerVisible.value = false
+}
+
+const selectPickerPart = (part) => {
+  if (partPickerTarget.value === 'repair') selectRepairPart(part, repairProductPickerIndex.value)
+  else selectQuotePart(part)
 }
 
 const removeQuoteRow = (type, index) => {
@@ -3759,7 +3906,7 @@ const getRemarkTooltip = (row) => {
 }
 
 const openRemarkDialog = (row) => {
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -3778,18 +3925,99 @@ const resetRemarkForm = () => {
 const syncCurrentOrderFromList = (row) => {
   if (!row || !currentOrder.value || currentOrder.value._id !== row._id) return
   const fresh = orders.value.find(item => item._id === row._id)
-  if (fresh) {
-    currentOrder.value = fresh
-    newStatus.value = fresh.status
-    invoiceStatus.value = normalizeInvoiceStatus(fresh)
-    invoiceForm.title = fresh.invoiceTitle || ''
-    invoiceForm.taxNo = fresh.taxId || ''
-    invoiceForm.remark = fresh.invoiceRemark || ''
-    invoiceForm.fileUrl = fresh.invoiceUrl || ''
-    invoiceForm.invoiceNo = fresh.invoiceNo || ''
-    invoiceForm.invoiceDate = fresh.invoiceDate || ''
-    resetQuoteForm(fresh)
+  if (!fresh) return
+  currentOrder.value = fresh
+  newStatus.value = fresh.status
+  invoiceStatus.value = normalizeInvoiceStatus(fresh)
+  invoiceForm.title = fresh.invoiceTitle || ''
+  invoiceForm.taxNo = fresh.taxId || ''
+  invoiceForm.remark = fresh.invoiceRemark || ''
+  invoiceForm.fileUrl = fresh.invoiceUrl || ''
+  invoiceForm.invoiceNo = fresh.invoiceNo || ''
+  invoiceForm.invoiceDate = fresh.invoiceDate || ''
+  resetQuoteForm(fresh)
+  resetReceivedPartsForm(fresh)
+}
+
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value || {}, key)
+
+const getMutationOrder = (result) => {
+  const data = result && result.order ? result.order : result
+  if (!data || typeof data !== 'object') return null
+  const hasOrderStatus = adminOrderStatusValues.has(data.statusEn) || adminOrderStatusValues.has(data.status)
+  if (!(data._id || data.order_no || hasOrderStatus || data.received_parts_receipt || data.receivedPartsReceipt)) return null
+  return data
+}
+
+const mergeOrderSnapshot = (base, snapshot) => {
+  if (!snapshot) return base
+  const transformed = transformOrder(snapshot)
+  const next = { ...(base || {}) }
+  const statusEn = snapshot.statusEn || (adminOrderStatusValues.has(snapshot.status) ? snapshot.status : '')
+  if (statusEn) {
+    next.statusEn = statusEn
+    next.status = transformOrder({ status: statusEn }).status
+  } else if (snapshot.status) {
+    next.status = snapshot.status
   }
+  if (hasOwn(snapshot, 'arrival_confirm_status') || hasOwn(snapshot, 'arrivalConfirmStatus')) {
+    next.arrivalConfirmStatus = transformed.arrivalConfirmStatus
+  }
+  if (hasOwn(snapshot, 'timeline') && Array.isArray(snapshot.timeline)) next.timeline = snapshot.timeline
+  if (hasOwn(snapshot, 'update_time') || hasOwn(snapshot, 'updateTime')) {
+    next.updateTime = transformed.updateTime || snapshot.updateTime || next.updateTime
+  }
+  if (hasOwn(snapshot, 'needs_return') || hasOwn(snapshot, 'needsReturn')) {
+    next.needsReturn = Boolean(snapshot.needs_return ?? snapshot.needsReturn)
+  }
+  if (hasOwn(snapshot, 'archive_status') || hasOwn(snapshot, 'archiveStatus')) {
+    next.archiveStatus = snapshot.archive_status || snapshot.archiveStatus || ''
+  }
+  if (hasOwn(snapshot, 'received_parts') || hasOwn(snapshot, 'receivedParts')) {
+    next.receivedParts = transformed.receivedParts
+  }
+  if (hasOwn(snapshot, 'received_part_photos') || hasOwn(snapshot, 'receivedPartPhotos')) {
+    next.receivedPartPhotos = transformed.receivedPartPhotos
+  }
+  if (hasOwn(snapshot, 'received_parts_receipt') || hasOwn(snapshot, 'receivedPartsReceipt')) {
+    next.receivedPartsReceipt = transformed.receivedPartsReceipt
+  }
+  if (Array.isArray(snapshot.itemsList)) next.itemsList = transformed.itemsList
+  return next
+}
+
+// 变更接口成功后先应用服务端快照，再刷新列表；即使筛选条件让工单离开列表，也不会残留旧状态。
+const applyOrderSnapshot = (result, fallbackRow = null) => {
+  const snapshot = getMutationOrder(result)
+  if (!snapshot) return fallbackRow
+  const orderId = snapshot._id || fallbackRow?._id || currentOrder.value?._id
+  if (!orderId) return fallbackRow
+  const listIndex = orders.value.findIndex(item => item._id === orderId)
+  const base = listIndex >= 0 ? orders.value[listIndex] : (currentOrder.value && currentOrder.value._id === orderId ? currentOrder.value : fallbackRow)
+  const merged = mergeOrderSnapshot(base, snapshot)
+  if (listIndex >= 0) orders.value.splice(listIndex, 1, merged)
+  if (currentOrder.value && currentOrder.value._id === orderId) {
+    currentOrder.value = merged
+    newStatus.value = merged.status
+    resetReceivedPartsForm(merged)
+  }
+  return merged
+}
+
+const refreshOrderAfterMutation = async (result, row, { preserveReceiptSnapshot = false } = {}) => {
+  const merged = applyOrderSnapshot(result, row)
+  await loadOrders({ receiptSnapshot: preserveReceiptSnapshot ? merged : null })
+  const fresh = row && orders.value.find(item => item._id === row._id)
+  if (fresh) {
+    applyOrderSnapshot(fresh, row)
+  } else if (merged && currentOrder.value && currentOrder.value._id === merged._id) {
+    // 当前筛选已排除该工单，保留服务端快照给抽屉展示，不回退到旧行。
+    currentOrder.value = merged
+    newStatus.value = merged.status
+    resetReceivedPartsForm(merged)
+  }
+  await refreshStatusBreakdown()
+  return merged
 }
 
 const isUserCancel = (error) => error === 'cancel' || error === 'close'
@@ -3942,6 +4170,10 @@ const buildBatchConfirmMessage = (actionText, targetOrders = [], skippedOrders =
 }
 
 const handleQuickStatusChange = async (row, status) => {
+  if (!canChangeOrderStatus.value) {
+    ElMessage.error('仅管理员可以修改工单状态')
+    return false
+  }
   if (!row || !status || row.status === status) {
     ElMessage.info('当前工单已是该状态')
     return false
@@ -3952,7 +4184,7 @@ const handleQuickStatusChange = async (row, status) => {
   }
 
   if (status === '已回寄') {
-    if (!canPerformOrderAction('import_logistics')) {
+    if (!canPerformOrderAction('record_return_logistics')) {
       ElMessage.error('当前角色无权导入回寄物流')
       return false
     }
@@ -3964,6 +4196,17 @@ const handleQuickStatusChange = async (row, status) => {
   }
 
   try {
+    const confirmationLines = [
+      `工单编号：${row.id || row.orderNo || row._id || '-'}`,
+      `客户：${row.customerName || row.clinicName || '-'}`,
+      `设备：${row.productName || row.productModel || '-'}`,
+      `设备 SN：${row.deviceSn || '-'}`,
+      `当前状态：${row.status || '-'}`,
+      `目标状态：${status}`
+    ]
+    if (row.logisticsNo) confirmationLines.push(`寄入物流：${row.logisticsCompany || '物流'} ${row.logisticsNo}`)
+    if (row.returnNo) confirmationLines.push(`回寄物流：${row.returnCompany || '物流'} ${row.returnNo}`)
+    confirmationLines.push('确认继续修改吗？修改后客户小程序将看到新的工单进度。')
     if (status === '已完成') {
       if (row.status !== '已回寄' || !row.returnNo) {
         ElMessage.error('禁止越级结单！该工单尚未录入回寄物流信息。')
@@ -3972,7 +4215,7 @@ const handleQuickStatusChange = async (row, status) => {
 
       if (row.needInvoice === true && normalizeInvoiceStatus(row) !== '已发票') {
         await ElMessageBox.confirm(
-          '该工单客户需要发票，但当前财务状态为未发票！确定要强制结单吗？',
+          `${confirmationLines.join('\n')}\n\n该工单客户需要发票，但当前财务状态为未发票！确定要强制结单吗？`,
           '强制结单确认',
           {
             confirmButtonText: '强制结单',
@@ -3982,7 +4225,7 @@ const handleQuickStatusChange = async (row, status) => {
         )
       } else {
         await ElMessageBox.confirm(
-          '确定将该工单标记为【已完成】吗？',
+          confirmationLines.join('\n'),
           '结单确认',
           {
             confirmButtonText: '确定',
@@ -3993,7 +4236,7 @@ const handleQuickStatusChange = async (row, status) => {
       }
     } else {
       await ElMessageBox.confirm(
-        `确定将工单变更为【${status}】吗？此操作将同步通知报修客户。`,
+        confirmationLines.join('\n'),
         '状态变更确认',
         {
           confirmButtonText: '确定',
@@ -4004,10 +4247,9 @@ const handleQuickStatusChange = async (row, status) => {
     }
     quickStatusLoading.value = true
     const token = localStorage.getItem('adminToken')
-    await updateOrderStatus(token, row._id, toEnglishStatus(status))
+    const result = await updateOrderStatus(token, row._id, toEnglishStatus(status))
+    await refreshOrderAfterMutation(result, row)
     ElMessage.success('工单状态更新成功')
-    await Promise.all([loadOrders(), refreshStatusBreakdown()])
-    syncCurrentOrderFromList(row)
     return true
   } catch (error) {
     if (!isUserCancel(error)) {
@@ -4034,7 +4276,7 @@ const handleBatchProcessing = async () => {
     ElMessage.warning('请先勾选要处理的工单')
     return
   }
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('update_order_status')) {
     ElMessage.error('当前角色无权批量修改工单状态')
     return
   }
@@ -4086,7 +4328,7 @@ const handleBatchComplete = async () => {
     ElMessage.warning('请先勾选要结单的工单')
     return
   }
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('update_order_status')) {
     ElMessage.error('当前角色无权批量修改工单状态')
     return
   }
@@ -4150,7 +4392,7 @@ const openReturnLogisticsDialog = () => {
 
 const confirmQuickShip = async () => {
   if (!currentQuickOrder.value) return
-  if (!canPerformOrderAction('import_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
+  if (!canPerformOrderAction('record_return_logistics') || !canMoveOrderToStatus(currentQuickOrder.value, '已回寄')) {
     ElMessage.error('当前角色或工单状态不允许回寄发货')
     return
   }
@@ -4285,15 +4527,15 @@ const saveOrderQuote = async (status = 'draft') => {
     items: currentOrder.value.itemsList
   })
   if (total <= 0 && zeroPriceWarrantyAction === 'save' && !isCurrentOrderWarrantyFree.value) {
-    ElMessage.warning('设备质保核验未通过，请检查质保日期和免费原因后重试')
+    ElMessage.warning('设备质保核验未通过，请确认每台设备均已人工判断在保并选择质保免费')
     return
   }
   if (total <= 0 && zeroPriceWarrantyAction === 'block') {
-    ElMessage.warning('发布零元质保方案前，请将每台设备标记为“质保免费”并选择免费原因')
+    ElMessage.warning('发布零元质保方案前，请将每台设备人工判断为在保并选择“质保免费”')
     return
   }
   if (total <= 0 && !isCurrentOrderWarrantyFree.value) {
-    ElMessage.warning('发布零元质保方案前，请逐台确认人工在保、质保免费及符合政策的免费原因')
+    ElMessage.warning('发布零元质保方案前，请逐台确认人工在保并选择质保免费')
     return
   }
 
@@ -4625,7 +4867,7 @@ const syncCurrentRefundStatus = async () => {
 }
 
 const handleRecoverInventory = async () => {
-  if (!currentOrder.value || !canPerformOrderAction('manage_inventory')) return
+  if (!currentOrder.value || !canPerformOrderAction('adjust_inventory')) return
   inventoryRecovering.value = true
   const orderId = currentOrder.value._id
   try {
@@ -4661,7 +4903,7 @@ const handleRecoverInventory = async () => {
 
 const saveRemarks = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -4718,16 +4960,45 @@ const removeRepairPhoto = (index) => {
 
 const saveCurrentRepairRecord = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_repair_record')) {
     ElMessage.error('当前角色无权保存维修记录')
+    return
+  }
+  const usedParts = aggregateRepairParts(repairRecordForm.products.flatMap(product => product.parts.filter(part => part.used)))
+  if (usedParts.some(part => !String(part.name || '').trim())) {
+    ElMessage.warning('请填写实际使用配件的名称')
+    return
+  }
+  const incompleteProduct = repairRecordForm.products.find(product => (
+    !String(product.productName || '').trim()
+    && (product.fault.trim() || product.receivedDetail.trim() || product.repairAction.trim() || product.parts.some(part => part.used))
+  ))
+  if (incompleteProduct) {
+    ElMessage.warning('请填写产品名称')
     return
   }
   repairRecordSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
     const result = await saveRepairRecord(token, currentOrder.value._id, {
-      content: repairRecordForm.content,
-      parts: repairRecordForm.parts.filter(part => part.used).map(part => ({
+      content: repairRecordForm.products.map(product => product.repairAction).filter(Boolean).join('\n') || repairRecordForm.content,
+      products: repairRecordForm.products.map(product => ({
+        product_id: product.productId,
+        product_name: product.productName,
+        product_model: product.model,
+        sn: product.sn,
+        fault: product.fault,
+        received_detail: product.receivedDetail,
+        repair_action: product.repairAction,
+        parts: product.parts.filter(part => part.used).map(part => ({
+          part_id: part.partId,
+          part_code: part.partCode,
+          name: part.name,
+          model: part.model,
+          quantity: part.quantity
+        }))
+      })),
+      parts: usedParts.map(part => ({
         part_id: part.partId,
         part_code: part.partCode,
         name: part.name,
@@ -4758,6 +5029,34 @@ const addReceivedPart = () => {
 
 const removeReceivedPart = (index) => {
   receivedPartsForm.parts.splice(index, 1)
+  if (!receivedPartsForm.parts.length) {
+    receivedPartsForm.parts.push(createReceivedPart())
+  }
+}
+
+const handleRestoreCancelledOrder = async (row) => {
+  if (!row || row.status !== '已取消' || restoringOrderId.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定恢复工单 ${row.id || row._id} 吗？系统会切回取消前的处理进度。`,
+      '恢复已取消工单',
+      {
+        confirmButtonText: '确认恢复',
+        cancelButtonText: '暂不恢复',
+        type: 'warning'
+      }
+    )
+    restoringOrderId.value = row._id
+    const token = localStorage.getItem('adminToken')
+    const result = await restoreCancelledOrder(token, row._id)
+    ElMessage.success(`工单已恢复为【${result.statusLabel || '原处理状态'}】`)
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
+    syncCurrentOrderFromList(row)
+  } catch (error) {
+    if (!isUserCancel(error) && !error.__displayed) ElMessage.error(error.message || '恢复工单失败')
+  } finally {
+    restoringOrderId.value = ''
+  }
 }
 
 const handleReceivedPartPhotoSelect = async (event) => {
@@ -4798,7 +5097,7 @@ const receivedPartsPayload = () => receivedPartsForm.parts
 
 const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
   if (!currentOrder.value) return false
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_received_parts')) {
     if (!silent) ElMessage.error('当前角色无权保存收货配件明细')
     return false
   }
@@ -4814,18 +5113,14 @@ const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
   receivedPartsSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    await saveReceivedParts(
+    const orderBeforeSave = currentOrder.value
+    const result = await saveReceivedParts(
       token,
-      currentOrder.value._id,
+      orderBeforeSave._id,
       parts,
       receivedPartsForm.photos.map(photo => photo.fileID || photo.url).filter(Boolean)
     )
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) {
-      currentOrder.value = fresh
-      resetReceivedPartsForm(fresh)
-    }
+    await refreshOrderAfterMutation(result, orderBeforeSave)
     if (!silent) ElMessage.success('收货配件明细已保存')
     return true
   } catch (error) {
@@ -4838,7 +5133,7 @@ const saveCurrentReceivedParts = async ({ silent = false } = {}) => {
 
 const confirmCurrentReceivedParts = async () => {
   if (!currentOrder.value) return
-  if (!canPerformOrderAction('update_status')) {
+  if (!canPerformOrderAction('confirm_received_parts')) {
     ElMessage.error('当前角色无权确认配件签收')
     return
   }
@@ -4858,16 +5153,48 @@ const confirmCurrentReceivedParts = async () => {
   receivedPartsConfirming.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    await confirmReceivedParts(token, currentOrder.value._id)
-    ElMessage.success('收货配件已确认签收')
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    if (fresh) {
-      currentOrder.value = fresh
-      resetReceivedPartsForm(fresh)
+    const orderBeforeConfirm = currentOrder.value
+
+    let receiptResult
+    try {
+      receiptResult = await confirmReceivedParts(token, orderBeforeConfirm._id)
+    } catch (error) {
+      ElMessage.error(error.message || '配件签收确认失败')
+      return
     }
-  } catch (error) {
-    ElMessage.error(error.message || '配件签收确认失败')
+
+    const confirmedOrder = applyOrderSnapshot(receiptResult, orderBeforeConfirm) || orderBeforeConfirm
+    let finalResult = receiptResult
+    let statusSynced = false
+    let statusSyncError = null
+
+    if (shouldSyncReceivedStatus(confirmedOrder)) {
+      try {
+        finalResult = await syncReceivedOrderStatus(token, confirmedOrder)
+        applyOrderSnapshot(finalResult, confirmedOrder)
+        statusSynced = true
+      } catch (error) {
+        statusSyncError = error
+      }
+    }
+
+    try {
+      await refreshOrderAfterMutation(finalResult, confirmedOrder, {
+        preserveReceiptSnapshot: statusSynced
+      })
+    } catch (error) {
+      ElMessage.warning(`配件已确认签收，但后台数据刷新失败：${error.message || '未知错误'}`)
+      return
+    }
+
+    if (statusSyncError) {
+      ElMessage.warning(`配件已确认签收，但工单状态同步失败：${statusSyncError.message || '未知错误'}`)
+    } else if (statusSynced) {
+      ElMessage.success('收货配件已确认签收，工单状态已同步')
+    } else {
+      ElMessage.success('收货配件已确认签收')
+    }
+    applyReceivedPartsToRepairForm(currentOrder.value)
   } finally {
     receivedPartsConfirming.value = false
   }
@@ -4875,7 +5202,7 @@ const confirmCurrentReceivedParts = async () => {
 
 const confirmSaveRemark = async () => {
   if (!currentRemarkOrder.value) return
-  if (!canPerformOrderAction('update_remarks')) {
+  if (!canPerformOrderAction('edit_order_remarks')) {
     ElMessage.error('当前角色无权编辑备注')
     return
   }
@@ -4950,8 +5277,50 @@ const hasPartsData = computed(() => {
   const o = currentOrder.value
   return !!(o && o.quoteDetail && (o.quoteDetail.parts || []).length > 0)
 })
-const printDoc = (docType) => {
+
+const hasActualRepairParts = (order = {}) => {
+  const parts = Array.isArray(order.repairRecord?.parts) ? order.repairRecord.parts : []
+  return parts.some(part => String(part?.name || part?.part_name || '').trim())
+}
+
+const confirmRepairPartsBeforePrint = async (orders = [], { canOpenRepair = false } = {}) => {
+  const missingOrders = orders.filter(order => !hasActualRepairParts(order))
+  if (!missingOrders.length) return true
+
+  if (canOpenRepair && orders.length === 1) {
+    try {
+      await ElMessageBox.confirm(
+        '当前工单尚未登记实际使用配件。去“维修”页补录后，配件明细会自动打印；也可以继续打印并让该栏保持空白。',
+        '配件明细未登记',
+        {
+          type: 'warning',
+          confirmButtonText: '去填写配件',
+          cancelButtonText: '仍然打印',
+          distinguishCancelAndClose: true
+        }
+      )
+      activeDrawerTab.value = 'repair'
+      return false
+    } catch (action) {
+      return action === 'cancel'
+    }
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `已选 ${missingOrders.length} 个工单未登记实际使用配件，继续打印时这些工单的配件明细将保持空白。`,
+      '配件明细未登记',
+      { type: 'warning', confirmButtonText: '仍然打印', cancelButtonText: '取消' }
+    )
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+const printDoc = async (docType) => {
   if (!currentOrder.value) return
+  if (['repair_order', 'inspection_report'].includes(docType) && !await confirmRepairPartsBeforePrint([currentOrder.value], { canOpenRepair: true })) return
   const raw = printSettingsRaw.value || {}
   const template = pickPrintTemplate(raw.print_templates, raw.print_config, docType)
   if (!openPrintWindow([currentOrder.value], template, docType)) {
@@ -4963,18 +5332,20 @@ const handlePrintCommand = (command) => {
   return printDoc(command)
 }
 
-const printConfiguredOrder = () => {
+const printConfiguredOrder = async () => {
   if (!currentOrder.value) return
+  if (!await confirmRepairPartsBeforePrint([currentOrder.value], { canOpenRepair: true })) return
   if (!openPrintWindow([currentOrder.value], printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
 }
 
-const handleConfiguredBatchPrint = () => {
+const handleConfiguredBatchPrint = async () => {
   if (!selectedOrders.value.length) {
     ElMessage.warning('请先勾选要打印的工单')
     return
   }
+  if (!await confirmRepairPartsBeforePrint(selectedOrders.value)) return
   if (!openPrintWindow(selectedOrders.value, printConfig.value)) {
     ElMessage.error('浏览器拦截了打印窗口，请允许弹窗后重试')
   }
@@ -4988,7 +5359,8 @@ const handleBatchToolbarCommand = (command) => {
 }
 
 const openImportDialog = (type = 'return') => {
-  if (!canPerformOrderAction('import_logistics')) {
+  const permission = type === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics'
+  if (!canPerformOrderAction(permission)) {
     ElMessage.error('当前角色无权导入物流')
     return
   }
@@ -4997,12 +5369,14 @@ const openImportDialog = (type = 'return') => {
   importDialogVisible.value = true
 }
 
-const downloadImportTemplate = (type = 'return') => {
-  downloadShippingTemplate(type)
+const downloadImportTemplate = async (type = 'return') => {
+  const { downloadShippingTemplate } = await import('../utils/shippingImport.js')
+  await downloadShippingTemplate(type)
 }
 
 const handleImportFile = async (uploadFile) => {
-  if (!canPerformOrderAction('import_logistics')) {
+  const permission = activeLogisticsImportType.value === 'inbound' ? 'import_inbound_logistics' : 'import_return_logistics'
+  if (!canPerformOrderAction(permission)) {
     ElMessage.error('当前角色无权导入物流')
     return
   }
@@ -5012,6 +5386,7 @@ const handleImportFile = async (uploadFile) => {
   importing.value = true
   try {
     const importType = activeLogisticsImportType.value
+    const { parseShippingExcelFile } = await import('../utils/shippingImport.js')
     const rows = await parseShippingExcelFile(file, importType)
     if (!rows.length) {
       ElMessage.warning('Excel 中没有可导入的数据')
@@ -5023,6 +5398,10 @@ const handleImportFile = async (uploadFile) => {
     importResult.value = result
     importDialogVisible.value = false
     importResultVisible.value = true
+    for (const updatedOrder of (Array.isArray(result.orders) ? result.orders : [])) {
+      const matchingRow = orders.value.find(item => item._id === updatedOrder._id)
+      applyOrderSnapshot(updatedOrder, matchingRow || (currentOrder.value && currentOrder.value._id === updatedOrder._id ? currentOrder.value : null))
+    }
     ElMessage.success(`导入完成：成功 ${result.success} 条，失败 ${result.fail} 条`)
     await Promise.all([loadOrders(), refreshStatusBreakdown()])
   } catch (error) {
@@ -5052,6 +5431,7 @@ const confirmExportExcel = async () => {
     ElMessage.warning('所选时间段内没有可导出的工单')
     return
   }
+  const { exportOrdersToWorkbook } = await import('../utils/orderExport.js')
   await exportOrdersToWorkbook(sourceOrders, selectedFieldConfigs)
   exportDialogVisible.value = false
   ElMessage.success(`已导出${usingSelectedOrders ? '选中' : '当前筛选'}工单 ${sourceOrders.length} 条`)
@@ -5076,7 +5456,7 @@ const confirmExportExcel = async () => {
 
 .attention-strip { display: flex; align-items: center; gap: 14px; min-height: 48px; margin-bottom: 16px; padding: 7px 10px; border: 1px solid #edf1f7; border-radius: 8px; background: #fff; }
 .attention-label { flex: none; color: #667085; font-size: 12px; font-weight: 700; }
-.status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(92px, 1fr)); flex: 1; gap: 8px; }
+.status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(82px, 1fr)); flex: 1; gap: 6px; }
 .status-summary-card { appearance: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; height: 34px; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 .status-summary-card:hover, .status-summary-card.active { border-color: #8bbcf2; background: #f7fbff; }
 .status-summary-card span { min-width: 0; overflow: hidden; color: #4e5969; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -5085,6 +5465,16 @@ const confirmExportExcel = async () => {
 .status-summary-card--processing strong { color: #1769aa; }
 .status-summary-card--shipped strong, .status-summary-card--completed strong { color: #238636; }
 .status-summary-card--cancelled strong { color: #b42318; }
+.payment-summary { display: flex; flex: none; align-items: center; min-height: 34px; margin-left: 2px; padding-left: 12px; border-left: 1px solid #e5e6eb; }
+.payment-summary-label { margin-right: 10px; color: #98a2b3; font-size: 11px; font-weight: 600; }
+.payment-summary-item { display: flex; align-items: baseline; gap: 4px; padding: 0 9px; white-space: nowrap; cursor: pointer; border-radius: 6px; transition: background .15s ease; }
+.payment-summary-item + .payment-summary-item { border-left: 1px solid #edf1f7; }
+.payment-summary-item span { color: #667085; font-size: 12px; }
+.payment-summary-item strong { color: #1d2129; font-size: 16px; line-height: 1; }
+.payment-summary-item--pending strong { color: #b86b00; }
+.payment-summary-item--paid strong { color: #238636; }
+.payment-summary-item:hover { background: #f2f4f7; }
+.payment-summary-item.active { background: #f2f4f7; box-shadow: inset 0 0 0 1px #e4e7ec; }
 
 .table-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 10px; }
 .table-section-head > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
@@ -5249,13 +5639,26 @@ const confirmExportExcel = async () => {
 .assign-engineer-row { display: flex; align-items: center; gap: 8px; margin-top: 0; flex-wrap: wrap; }
 .drawer-section-head .drawer-section-title { margin-bottom: 0 !important; }
 .repair-record-section { background: #f5faf7; border: 1px solid #cfe6d7; }
+.repair-product-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
+.repair-product-record { margin-top: 14px; padding: 12px; border: 1px solid #cfe6d7; border-radius: 6px; background: rgba(255,255,255,.72); }
+.repair-product-record-head { display:flex; justify-content:space-between; gap:12px; color:#1d2129; }
+.repair-product-record-head span { color:#7a8699; font-size:12px; }
+.repair-product-meta-grid { display:grid; grid-template-columns:1.2fr 1fr 1fr; gap:8px; margin-top:10px; }
 .repair-record-field { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
 .repair-record-field > strong { color: #1d2129; font-size: 14px; }
+.repair-parts-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; }
+.repair-parts-head > div:first-child { min-width: 0; }
+.repair-parts-head strong, .repair-parts-head .section-helper { display: block; }
+.repair-parts-head strong { color: #1d2129; font-size: 14px; }
+.repair-parts-head .section-helper { margin-top: 4px; }
+.repair-parts-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .repair-parts-list { display: flex; flex-direction: column; gap: 6px; }
-.repair-part-row { display: grid; grid-template-columns: 92px minmax(120px, 1fr) minmax(80px, auto) minmax(80px, auto) 112px; align-items: center; gap: 8px; padding: 7px 8px; border: 1px solid #dde8e1; border-radius: 6px; background: #fff; }
-.repair-part-name { min-width: 0; color: #1d2129; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repair-part-code { color: #697a91; font-family: 'Consolas', 'Menlo', monospace; font-size: 12px; overflow-wrap: anywhere; }
+.repair-part-columns, .repair-part-row { display: grid; grid-template-columns: 40px minmax(150px, 1.25fr) minmax(120px, .8fr) minmax(120px, .8fr) 108px 28px; align-items: center; gap: 8px; }
+.repair-part-columns { padding: 0 8px; color: #7a8699; font-size: 11px; }
+.repair-part-row { padding: 8px; border: 1px solid #dde8e1; border-radius: 6px; background: #fff; }
 .repair-part-row :deep(.el-input-number) { width: 100%; }
+.repair-parts-empty { min-height: 86px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px dashed #cfded4; border-radius: 6px; background: rgba(255, 255, 255, .62); color: #526071; text-align: center; }
+.repair-parts-empty small { color: #8a97a8; }
 .repair-photo-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .repair-photo-item, .repair-photo-upload { width: 86px; height: 106px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid #d9e4dd; border-radius: 6px; background: #fff; overflow: hidden; }
 .repair-photo-item :deep(.el-image) { width: 76px; height: 76px; }
@@ -5474,6 +5877,8 @@ const confirmExportExcel = async () => {
 .progress-next-action { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 4px; }
 .progress-next-action > span:last-child { color: #667085; font-size: 11px; line-height: 1.35; }
 .progress-current-status { display: flex; min-width: 0; align-items: center; gap: 5px; }
+.status-readonly-tag { display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border: 1px solid #d9dfe8; border-radius: 999px; color: #667085; font-size: 12px; }
+.restore-cancelled-button { flex: none; padding: 0 2px; }
 .progress-current-label { flex: none; color: #98a2b3; font-size: 10px; }
 .sla-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; }
 .sla-cell span:last-child { color: #86909c; font-size: 11px; line-height: 1.35; }
@@ -5485,7 +5890,7 @@ const confirmExportExcel = async () => {
 .status-dropdown-caret { margin-left: 4px; font-size: 10px; }
 .status-已提交, .status-待处理 { background: #e6f4ff !important; color: #1890ff !important; border-color: #91d5ff !important; }
 .status-运输中, .status-已签收 { background: #fff7e6 !important; color: #ff9800 !important; border-color: #ffd666 !important; }
-.status-处理中, .status-维修中 { background: #e6f4ff !important; color: #1890ff !important; border-color: #91d5ff !important; }
+.status-检测中, .status-处理中, .status-维修中 { background: #e6f4ff !important; color: #1890ff !important; border-color: #91d5ff !important; }
 .status-已回寄, .status-已发货, .status-已完成 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 .status-已取消 { background: #fff1f0 !important; color: #f56c6c !important; border-color: #ffccc7 !important; }
 .status-已处理 { background: #f0f2f5 !important; color: #86909c !important; border-color: #d9d9d9 !important; }
@@ -5511,7 +5916,9 @@ const confirmExportExcel = async () => {
 .invoice-已发票 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 
 @media screen and (max-width: 1200px) {
+  .attention-strip { align-items: flex-start; flex-wrap: wrap; }
   .status-summary-board { grid-template-columns: repeat(4, minmax(92px, 1fr)); }
+  .payment-summary { width: 100%; margin-left: 0; padding: 7px 0 0; border-top: 1px solid #edf1f7; border-left: 0; }
 }
 
 @media screen and (max-width: 768px) {
@@ -5524,6 +5931,7 @@ const confirmExportExcel = async () => {
   .selection-count { margin-right: 4px; white-space: nowrap; }
   .attention-strip { align-items: flex-start; flex-direction: column; gap: 8px; }
   .status-summary-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payment-summary { justify-content: flex-end; }
   .table-section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .table-section-head > div { align-items: flex-start; flex-direction: column; gap: 2px; }
   .drawer-body { gap: 8px; }
@@ -5539,8 +5947,14 @@ const confirmExportExcel = async () => {
   .drawer-tabs :deep(.el-tabs__item) { padding: 0 10px; }
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
-  .repair-part-row { grid-template-columns: 92px minmax(0, 1fr) 92px; }
-  .repair-part-code { grid-column: 2 / -1; }
+  .repair-parts-head { align-items: flex-start; flex-direction: column; }
+  .repair-product-toolbar { align-items:flex-start; flex-direction:column; }
+  .repair-product-meta-grid { grid-template-columns:1fr; }
+  .repair-parts-actions { width: 100%; }
+  .repair-parts-actions .el-button { flex: 1; margin: 0; }
+  .repair-part-columns { display: none; }
+  .repair-part-row { grid-template-columns: 34px minmax(0, 1fr) 96px 28px; }
+  .repair-part-meta-input { grid-column: 2 / 4; }
   .quote-stage { padding-left: 0; }
   .quote-stage:not(:last-child)::before { display: none; }
   .quote-stage-head { margin-left: 0; }

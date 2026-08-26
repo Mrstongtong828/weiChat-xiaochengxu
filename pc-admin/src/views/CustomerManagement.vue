@@ -1,137 +1,78 @@
 <template>
-  <div class="glass-card">
-    <div class="section-title">
-      <div>
-        <span>客户管理</span>
-        <p class="section-desc">维护门诊/医院、代理商/经销商和自定义类型客户档案，统一查看客户资产、历史工单和服务标签。</p>
+  <div class="customer-asset-center">
+    <section class="customer-overview" aria-labelledby="customer-overview-title">
+      <div class="overview-heading">
+        <div><h2 id="customer-overview-title">客户资产概览</h2><p>客户、设备与售后维护统一统计</p></div>
+        <span>更新于 {{ overviewUpdatedAt || '--:--' }}</span>
       </div>
-      <div class="title-actions">
-        <el-button v-if="canEdit" size="small" @click="tagMgrVisible = true">标签管理</el-button>
-        <el-button v-if="canCreate" size="small" @click="importVisible = true">批量导入</el-button>
-        <el-date-picker v-if="canExport" v-model="exportDateRange" type="daterange" value-format="YYYY-MM-DD" range-separator="至"
-          start-placeholder="导出开始" end-placeholder="导出结束" :shortcuts="dateRangeShortcuts" unlink-panels clearable size="small" class="export-date-range" />
-        <el-button v-if="canExport" size="small" @click="doExport" :loading="exporting">导出</el-button>
-        <el-button v-if="canCreate" size="small" @click="confirmSync" :loading="syncing">同步小程序客户</el-button>
-        <el-button v-if="canCreate" type="primary" size="small" @click="openEdit(null)">
-          <el-icon><Plus /></el-icon> 新增客户
-        </el-button>
+      <div class="customer-metric-grid" v-loading="overviewLoading">
+        <button v-for="metric in customerMetrics" :key="metric.key" type="button" class="customer-metric" :class="[`is-${metric.tone}`, { 'is-expanded': metric.key === 'maintenance' && maintenancePanelVisible }]" :aria-expanded="metric.key === 'maintenance' ? maintenancePanelVisible : undefined" @click="applyMetric(metric.key)">
+          <span>{{ metric.label }}</span><strong>{{ metric.value }}</strong><small>{{ metric.key === 'maintenance' && maintenancePanelVisible ? '点击收起维护明细' : metric.note }}</small>
+          <i><el-icon><component :is="metric.icon" /></el-icon></i>
+          <em v-if="metric.key === 'maintenance'" class="metric-toggle-cue"><span>{{ maintenancePanelVisible ? '收起' : '查看' }}</span><el-icon><ArrowDown /></el-icon></em>
+        </button>
       </div>
-    </div>
-
-    <!-- 筛选栏 -->
-    <div class="filter-bar">
-      <el-input v-model.trim="filters.keyword" placeholder="客户名称 / 联系人 / 手机号" clearable
-        style="width:240px;" @keyup.enter="reload" @clear="reload" />
-      <el-select v-model="filters.customer_type" placeholder="客户类型" clearable filterable allow-create default-first-option style="width:200px;" @change="reload">
-        <el-option v-for="option in customerTypeOptionsWithCurrent(filters.customer_type)" :key="option.value" :label="option.label" :value="option.value" />
-      </el-select>
-      <el-select v-model="filters.status" style="width:130px;" @change="reload">
-        <el-option label="正常客户" value="active" />
-        <el-option label="已注销" value="cancelled" />
-        <el-option label="全部" value="all" />
-      </el-select>
-      <el-select v-model="filters.tag" placeholder="按标签筛选" clearable filterable style="width:160px;" @change="reload">
-        <el-option v-for="t in tags" :key="t._id" :label="t.name" :value="t.name" />
-      </el-select>
-      <el-button type="primary" @click="reload">查询</el-button>
-    </div>
-
-    <section class="warranty-alert-panel" v-loading="warrantyLoading">
-      <div class="warranty-alert-head">
-        <div>
-          <strong>保修待办</strong>
-          <span>优先补齐资料并跟进即将到期设备</span>
-        </div>
-        <div class="warranty-alert-actions">
-          <el-radio-group v-model="warrantyCategory" size="small" @change="loadWarrantyAlerts">
-            <el-radio-button label="">全部 {{ warrantyCounts.all }}</el-radio-button>
-            <el-radio-button label="missing">待补充 {{ warrantyCounts.missing }}</el-radio-button>
-            <el-radio-button label="expiring">30天内到期 {{ warrantyCounts.expiring }}</el-radio-button>
-            <el-radio-button label="expired">已过保 {{ warrantyCounts.expired }}</el-radio-button>
-          </el-radio-group>
-          <el-button size="small" @click="loadWarrantyAlerts">刷新</el-button>
-        </div>
-      </div>
-      <el-table :data="warrantyAlerts" size="small" class="warranty-alert-table" empty-text="当前没有需要处理的保修待办">
-        <el-table-column prop="customer_name" label="客户" min-width="110" show-overflow-tooltip />
-        <el-table-column label="设备" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">{{ [row.product_name, row.model].filter(Boolean).join(' / ') || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="提醒" width="120">
-          <template #default="{ row }"><el-tag size="small" :type="warrantyAlertTag(row.category)">{{ warrantyAlertLabel(row.category) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="质保到期" width="130">
-          <template #default="{ row }">{{ row.effective_expire || '待补充' }}</template>
-        </el-table-column>
-        <el-table-column prop="next_action" label="下一步" min-width="190" show-overflow-tooltip />
-        <el-table-column label="操作" width="96" align="right">
-          <template #default="{ row }"><el-button type="primary" link size="small" @click="openWarrantyAlert(row)">去处理</el-button></template>
-        </el-table-column>
-      </el-table>
-      <p v-if="warrantyTruncated" class="warranty-alert-note">当前待办数据较多，结果已按最近更新的设备优先展示；可完成本批处理后再继续查看。</p>
     </section>
 
-    <!-- 批量操作工具条 -->
-    <div v-if="selectedRows.length" class="batch-bar">
-      已选 <b>{{ selectedRows.length }}</b> 个客户
-      <el-button v-if="canEdit" size="small" type="primary" @click="openBatchTag('add')">批量打标</el-button>
-      <el-button v-if="canEdit" size="small" @click="openBatchTag('remove')">移除标签</el-button>
-    </div>
+    <section class="customer-ledger" aria-labelledby="customer-ledger-title">
+      <div class="ledger-heading">
+        <div><h2 id="customer-ledger-title">客户资产台账</h2><p>从客户档案进入设备、工单与售后记录</p></div>
+        <div class="title-actions">
+          <el-button v-if="canEdit" @click="tagMgrVisible = true">标签管理</el-button>
+          <el-button v-if="canImport" @click="importVisible = true"><el-icon><Upload /></el-icon>批量导入</el-button>
+          <el-button v-if="canExport" :loading="exporting" @click="doExport"><el-icon><Download /></el-icon>导出</el-button>
+          <el-dropdown v-if="canCreate" trigger="click" @command="handleCreateCommand">
+            <el-button>更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+            <template #dropdown><el-dropdown-menu><el-dropdown-item command="sync">同步小程序客户</el-dropdown-item></el-dropdown-menu></template>
+          </el-dropdown>
+          <el-button v-if="canCreate" type="primary" @click="openEdit(null)"><el-icon><Plus /></el-icon>新增客户</el-button>
+        </div>
+      </div>
 
-    <div class="table-responsive">
-      <el-table :data="list" class="modern-table" style="width:100%;" v-loading="loading" @selection-change="onSelectionChange">
-        <template #empty>
-          <div class="table-empty-guide">
-            <strong>暂无客户数据</strong>
-            <span>可以先新增线下客户，或通过“批量导入 / 同步小程序客户”建立客户档案。</span>
+      <div class="customer-filter-bar">
+        <el-input v-model.trim="filters.keyword" class="customer-search" placeholder="客户名称 / 联系人 / 手机号" clearable @keyup.enter="reload" @clear="reload"><template #prefix><el-icon><Search /></el-icon></template></el-input>
+        <el-select v-model="filters.customer_type" placeholder="全部客户类型" clearable filterable allow-create default-first-option @change="reload"><el-option v-for="option in customerTypeOptionsWithCurrent(filters.customer_type)" :key="option.value" :label="option.label" :value="option.value" /></el-select>
+        <el-select v-model="filters.tag" placeholder="全部客户标签" clearable filterable @change="reload"><el-option v-for="t in tags" :key="t._id" :label="t.name" :value="t.name" /></el-select>
+        <el-select v-model="filters.status" @change="reload"><el-option label="正常客户" value="active" /><el-option label="已注销" value="cancelled" /><el-option label="全部状态" value="all" /></el-select>
+        <el-button type="primary" @click="reload">查询</el-button><el-button @click="resetFilters">重置</el-button>
+      </div>
+
+      <transition name="maintenance-reveal">
+        <div v-if="maintenancePanelVisible" class="maintenance-panel" v-loading="warrantyLoading">
+          <div class="maintenance-head">
+            <div><strong>待维护客户</strong><span>按保修资料与到期状态生成</span></div>
+            <div><el-radio-group v-model="warrantyCategory" size="small" @change="loadWarrantyAlerts"><el-radio-button label="">全部 {{ warrantyCounts.all }}</el-radio-button><el-radio-button label="missing">待补充 {{ warrantyCounts.missing }}</el-radio-button><el-radio-button label="expiring">30天内到期 {{ warrantyCounts.expiring }}</el-radio-button><el-radio-button label="expired">已过保 {{ warrantyCounts.expired }}</el-radio-button></el-radio-group><el-button text circle aria-label="收起待维护客户明细" @click="maintenancePanelVisible = false"><el-icon><Close /></el-icon></el-button></div>
           </div>
-        </template>
-        <el-table-column type="selection" width="44" :selectable="(row) => row.status !== 'cancelled'" />
-        <el-table-column prop="name" label="客户名称" min-width="150" show-overflow-tooltip>
-          <template #default="{row}">
-            <span class="cell-primary">{{ row.name }}</span>
-            <el-tag v-if="row.status === 'cancelled'" size="small" type="info" effect="plain" style="margin-left:6px;">已注销</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="contact" label="联系人" width="110" show-overflow-tooltip />
-        <el-table-column label="手机号" width="170">
-          <template #default="{row}">
-            <span>{{ row.phoneFull || row.phone_mask || '-' }}</span>
-            <el-button v-if="canViewPhone && row.has_phone && !row.phoneFull" type="primary" link
-              size="small" @click="revealPhone(row)">查看</el-button>
-          </template>
-        </el-table-column>
-        <el-table-column label="类型" min-width="130">
-          <template #default="{row}"><el-tag class="customer-type-cell-tag" size="small" :type="typeTag(row.customer_type)" :title="typeLabel(row.customer_type)">{{ typeLabel(row.customer_type) }}</el-tag></template>
-        </el-table-column>
-        <el-table-column label="标签" min-width="140">
-          <template #default="{row}">
-            <el-tag v-for="t in (row.tags || [])" :key="t" size="small" :type="tagColor(t)" effect="plain" class="row-tag">{{ t }}</el-tag>
-            <span v-if="!(row.tags && row.tags.length)" class="muted">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="order_count" label="工单数" width="80" align="center" />
-        <el-table-column prop="device_count" label="设备数" width="80" align="center" />
-        <el-table-column label="最后报修" width="120">
-          <template #default="{row}">{{ row.last_order_time ? fmtDate(row.last_order_time) : '-' }}</template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right" align="right">
-          <template #default="{row}">
-            <el-button type="primary" link @click="openDetail(row)">详情</el-button>
-            <el-button v-if="canEdit && row.status !== 'cancelled'" type="primary" link @click="openEdit(row)">编辑</el-button>
-            <el-popconfirm v-if="canCancel && row.status !== 'cancelled'" width="240"
-              title="注销后将脱敏手机号/地址并解绑微信，且不可恢复，确定？" @confirm="doCancel(row)">
-              <template #reference><el-button type="danger" link>注销</el-button></template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
+          <el-table :data="warrantyAlerts" size="small" empty-text="当前没有需要处理的维护事项">
+            <el-table-column prop="customer_name" label="客户" min-width="150" show-overflow-tooltip /><el-table-column label="设备" min-width="170" show-overflow-tooltip><template #default="{ row }">{{ [row.product_name, row.model].filter(Boolean).join(' / ') || '-' }}</template></el-table-column>
+            <el-table-column label="提醒" width="110"><template #default="{ row }"><el-tag size="small" :type="warrantyAlertTag(row.category)">{{ warrantyAlertLabel(row.category) }}</el-tag></template></el-table-column>
+            <el-table-column label="质保到期" width="120"><template #default="{ row }">{{ row.effective_expire || '待补充' }}</template></el-table-column><el-table-column prop="next_action" label="下一步" min-width="210" show-overflow-tooltip />
+            <el-table-column label="操作" width="90" align="right"><template #default="{ row }"><el-button type="primary" link @click="openWarrantyAlert(row)">去处理</el-button></template></el-table-column>
+          </el-table>
+        </div>
+      </transition>
 
-    <div class="pager">
-      <el-pagination layout="total, prev, pager, next" :total="total"
-        :current-page="filters.page" :page-size="filters.pageSize" @current-change="onPage" />
-    </div>
+      <div v-if="selectedRows.length" class="batch-bar">已选 <b>{{ selectedRows.length }}</b> 个客户<el-button v-if="canEdit" size="small" type="primary" @click="openBatchTag('add')">批量打标</el-button><el-button v-if="canEdit" size="small" @click="openBatchTag('remove')">移除标签</el-button></div>
+
+      <div class="table-responsive">
+        <el-table :data="list" class="modern-table" v-loading="loading" @selection-change="onSelectionChange">
+          <template #empty><div class="table-empty-guide"><strong>暂无客户数据</strong><span>新增客户或调整筛选条件后，客户资产会显示在这里。</span></div></template>
+          <el-table-column type="selection" width="44" :selectable="row => row.status !== 'cancelled'" />
+          <el-table-column label="客户信息" min-width="220">
+            <template #default="{ row }"><div class="customer-identity"><span class="customer-avatar">{{ customerInitial(row.name) }}</span><div><strong>{{ row.name }}</strong><span><el-tag v-for="tag in (row.tags || []).slice(0, 2)" :key="tag" size="small" :type="tagColor(tag)" effect="plain">{{ tag }}</el-tag><small v-if="!(row.tags || []).length">{{ sourceLabel(row.source) }}</small></span></div></div></template>
+          </el-table-column>
+          <el-table-column label="客户类型" min-width="110"><template #default="{ row }"><el-tag class="customer-type-cell-tag" size="small" :type="typeTag(row.customer_type)" effect="plain">{{ typeLabel(row.customer_type) }}</el-tag></template></el-table-column>
+          <el-table-column label="联系人 / 手机号" min-width="150"><template #default="{ row }"><div class="contact-cell"><strong>{{ row.contact || '联系人待补充' }}</strong><span>{{ row.phoneFull || row.phone_mask || '手机号待补充' }}<el-button v-if="canViewPhone && row.has_phone && !row.phoneFull" type="primary" link size="small" @click="revealPhone(row)">查看</el-button></span></div></template></el-table-column>
+          <el-table-column label="客户资产" width="125"><template #default="{ row }"><button type="button" class="asset-count" @click="openDetailTab(row, 'device')"><strong>{{ row.device_count || 0 }}</strong><span>台设备</span></button><small class="order-count">{{ row.order_count || 0 }} 个历史工单</small></template></el-table-column>
+          <el-table-column label="最后报修" width="115"><template #default="{ row }"><span class="last-service">{{ row.last_order_time ? fmtDate(row.last_order_time) : '暂无报修' }}</span></template></el-table-column>
+          <el-table-column label="状态" width="90"><template #default="{ row }"><span class="customer-status" :class="{ disabled: row.status === 'cancelled' }">{{ row.status === 'cancelled' ? '已停用' : '正常' }}</span></template></el-table-column>
+          <el-table-column label="操作" width="175" fixed="right" align="right">
+            <template #default="{ row }"><el-button type="primary" link @click="openDetail(row)">详情</el-button><el-button v-if="canEdit && row.status !== 'cancelled'" type="primary" link @click="openEdit(row)">编辑</el-button><el-dropdown trigger="click" @command="command => handleRowCommand(command, row)"><el-button type="primary" link>更多<el-icon><ArrowDown /></el-icon></el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="device">查看设备</el-dropdown-item><el-dropdown-item command="order">查看工单</el-dropdown-item><el-dropdown-item command="log">操作记录</el-dropdown-item><el-dropdown-item v-if="canCancel && row.status !== 'cancelled'" command="cancel" divided>停用客户</el-dropdown-item></el-dropdown-menu></template></el-dropdown></template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <div class="pager"><el-pagination background layout="total, sizes, prev, pager, next" :page-sizes="[10, 20, 50]" :total="total" :current-page="filters.page" :page-size="filters.pageSize" @current-change="onPage" @size-change="onPageSize" /></div>
+    </section>
   </div>
 
   <!-- 新增 / 编辑弹窗 -->
@@ -179,10 +120,29 @@
   </el-dialog>
 
   <!-- 客户详情抽屉 -->
-  <el-drawer v-model="detailVisible" :title="detail.name || '客户详情'" size="60%">
-    <el-tabs v-model="activeTab" @tab-change="onTabChange">
-      <el-tab-pane label="基础信息" name="base">
-        <el-descriptions :column="2" border>
+  <el-drawer v-model="detailVisible" size="min(980px, 92vw)" class="customer-archive-drawer">
+    <template #header>
+      <div class="archive-header">
+        <span class="customer-avatar is-large">{{ customerInitial(detail.name) }}</span>
+        <div class="archive-identity">
+          <div><h2>{{ detail.name || '客户档案' }}</h2><span class="customer-status" :class="{ disabled: detail.status === 'cancelled' }">{{ detail.status === 'cancelled' ? '已停用' : '正常' }}</span></div>
+          <p>{{ typeLabel(detail.customer_type) }} · {{ detail.contact || '联系人待补充' }} · {{ detail.phoneFull || detail.phone_mask || '手机号待补充' }}</p>
+          <div><el-tag v-for="tag in (detail.tags || [])" :key="tag" size="small" :type="tagColor(tag)" effect="plain">{{ tag }}</el-tag><span v-if="!(detail.tags || []).length">{{ sourceLabel(detail.source) }}</span></div>
+        </div>
+      </div>
+    </template>
+
+    <div class="archive-summary" v-loading="detailLoading">
+      <div><span>设备档案</span><strong>{{ detail.device_count ?? devices.length ?? 0 }}</strong><small>台</small></div>
+      <div><span>历史工单</span><strong>{{ detail.order_count ?? orderData.total ?? 0 }}</strong><small>单</small></div>
+      <div><span>已完成工单</span><strong>{{ completedOrderCount }}</strong><small>单</small></div>
+      <div><span>最后报修</span><strong class="is-date">{{ detail.last_order_time ? fmtDate(detail.last_order_time) : '暂无报修' }}</strong></div>
+    </div>
+
+    <el-tabs v-model="activeTab" class="archive-tabs" @tab-change="onTabChange">
+      <el-tab-pane label="客户概览" name="base">
+        <div class="archive-section-heading"><div><strong>基本档案</strong><span>客户身份、联系信息与合作属性</span></div><el-button v-if="canEdit && detail.status !== 'cancelled'" @click="openEdit(detail)">编辑档案</el-button></div>
+        <el-descriptions :column="2" border class="archive-descriptions">
           <el-descriptions-item label="客户名称">{{ detail.name }}</el-descriptions-item>
           <el-descriptions-item label="客户类型">{{ typeLabel(detail.customer_type) }}</el-descriptions-item>
           <el-descriptions-item label="联系人">{{ detail.contact || '-' }}</el-descriptions-item>
@@ -204,7 +164,7 @@
         </el-descriptions>
       </el-tab-pane>
 
-      <el-tab-pane label="客户资产/SN台账" name="device">
+      <el-tab-pane label="设备档案" name="device">
         <div class="asset-summary">
           <div><span>设备总数</span><b>{{ assetSummary.total }}</b></div>
           <div><span>在保/延保</span><b>{{ assetSummary.covered }}</b></div>
@@ -246,7 +206,7 @@
         </el-table>
       </el-tab-pane>
 
-      <el-tab-pane label="历史工单" name="order">
+      <el-tab-pane label="售后记录" name="order">
         <div class="order-summary" v-if="orderData.total">
           共 <b>{{ orderData.total }}</b> 单，累计维修消费 <b>¥{{ orderData.total_amount }}</b>
         </div>
@@ -377,6 +337,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Close } from '@element-plus/icons-vue'
 import { useRoute } from 'vue-router'
 import {
   getCustomerPermissionConfig,
@@ -425,6 +386,7 @@ const canEdit = computed(() => hasCustomerPermission('edit', hasFallbackRole('ad
 const canCancel = computed(() => hasCustomerPermission('cancel', hasFallbackRole('admin')))
 const canViewPhone = computed(() => hasCustomerPermission('view_phone', hasFallbackRole('admin')))
 const canDevice = computed(() => hasCustomerPermission('device', hasFallbackRole('admin', 'engineer', 'support')))
+const canImport = computed(() => hasCustomerPermission('import', hasFallbackRole('admin')))
 const canExport = computed(() => hasCustomerPermission('export', hasFallbackRole('admin')))
 
 const loading = ref(false)
@@ -444,6 +406,58 @@ const warrantyLoading = ref(false)
 const warrantyCounts = ref({ all: 0, missing: 0, expiring: 0, expired: 0 })
 const warrantyTruncated = ref(false)
 const warrantyCategory = ref('')
+const overviewLoading = ref(false)
+const overviewUpdatedAt = ref('')
+const overviewCustomers = ref([])
+const maintenancePanelVisible = ref(false)
+const maintenanceCustomerCount = ref(0)
+
+const customerMetrics = computed(() => {
+  const recentThreshold = Date.now() - (30 * 24 * 60 * 60 * 1000)
+  const customers = overviewCustomers.value
+  return [
+    { key: 'all', label: '客户总数', value: customers.length, note: '有效客户档案', icon: 'User', tone: 'blue' },
+    { key: 'clinic', label: '合作机构', value: customers.filter(item => item.customer_type === 'clinic').length, note: '门诊与医院客户', icon: 'HomeFilled', tone: 'green' },
+    { key: 'devices', label: '设备总数', value: customers.reduce((sum, item) => sum + Number(item.device_count || 0), 0), note: '客户名下设备资产', icon: 'Box', tone: 'violet' },
+    { key: 'maintenance', label: '待维护客户', value: maintenanceCustomerCount.value, note: '存在保修待办事项', icon: 'Warning', tone: 'orange' },
+    { key: 'recent', label: '30天内报修', value: customers.filter(item => Number(item.last_order_time || 0) >= recentThreshold).length, note: '近期产生售后需求', icon: 'DataAnalysis', tone: 'red' }
+  ]
+})
+
+const loadOverview = async () => {
+  overviewLoading.value = true
+  try {
+    const pageSize = 100
+    const customers = []
+    let page = 1
+    let customerTotal = 0
+    do {
+      const data = await listCustomers({ status: 'active', page, pageSize })
+      const rows = data.list || []
+      customerTotal = Number(data.total || 0)
+      customers.push(...rows)
+      page += 1
+      if (rows.length < pageSize) break
+    } while (customers.length < customerTotal && page <= 100)
+
+    const maintenanceIds = new Set()
+    let alertPage = 1
+    let alertTotal = 0
+    do {
+      const data = await getWarrantyAlerts({ page: alertPage, pageSize })
+      const rows = data.list || []
+      alertTotal = Number(data.total || 0)
+      rows.forEach(item => { if (item.customer_id) maintenanceIds.add(item.customer_id) })
+      alertPage += 1
+      if (rows.length < pageSize) break
+    } while (((alertPage - 1) * pageSize) < alertTotal && alertPage <= 100)
+
+    overviewCustomers.value = customers
+    maintenanceCustomerCount.value = maintenanceIds.size
+    const now = new Date()
+    overviewUpdatedAt.value = `${pad(now.getHours())}:${pad(now.getMinutes())}`
+  } catch (e) { /* request interceptor handles errors */ } finally { overviewLoading.value = false }
+}
 
 const TAG_CATEGORY_LABELS = { device: '设备类', ops: '运营类', service: '售后类' }
 const tagCategoryLabel = (c) => TAG_CATEGORY_LABELS[c] || '运营类'
@@ -464,6 +478,21 @@ const load = async () => {
 }
 const reload = () => { filters.page = 1; load() }
 const onPage = (p) => { filters.page = p; load() }
+const onPageSize = (size) => { filters.pageSize = size; filters.page = 1; load() }
+const resetFilters = () => {
+  Object.assign(filters, { keyword: '', customer_type: '', status: 'active', tag: '', page: 1 })
+  load()
+}
+const customerInitial = (name) => String(name || '客').trim().slice(0, 1).toUpperCase()
+const applyMetric = (key) => {
+  if (key === 'all') resetFilters()
+  else if (key === 'clinic') { filters.customer_type = 'clinic'; filters.status = 'active'; reload() }
+  else if (key === 'maintenance') {
+    maintenancePanelVisible.value = !maintenancePanelVisible.value
+    if (maintenancePanelVisible.value) loadWarrantyAlerts()
+  }
+  else document.getElementById('customer-ledger-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 
 const loadWarrantyAlerts = async () => {
   warrantyLoading.value = true
@@ -498,9 +527,10 @@ const confirmSync = async () => {
     syncing.value = true
     const data = await syncCustomersFromUsers()
     ElMessage.success(`同步完成，新增 ${data.created} 条（扫描 ${data.scanned} 个用户）`)
-    reload()
+    reload(); loadOverview()
   } catch (e) { if (e !== 'cancel') { /* ignore */ } } finally { syncing.value = false }
 }
+const handleCreateCommand = (command) => { if (command === 'sync') confirmSync() }
 
 // ===== 新增/编辑 =====
 const editVisible = ref(false)
@@ -548,19 +578,28 @@ const saveCustomer = async () => {
       ElMessage.success('客户已新增')
     }
     editVisible.value = false
-    load()
+    load(); loadOverview()
     if (form.customer_type === 'dealer') loadDealers()
   } catch (e) { /* ignore */ } finally { saving.value = false }
 }
 
 const doCancel = async (row) => {
-  try { await cancelCustomer(row._id); ElMessage.success('客户已注销'); load() } catch (e) { /* ignore */ }
+  try { await cancelCustomer(row._id); ElMessage.success('客户已停用'); load(); loadOverview() } catch (e) { /* ignore */ }
+}
+const handleRowCommand = async (command, row) => {
+  if (['device', 'order', 'log'].includes(command)) { await openDetailTab(row, command); return }
+  if (command !== 'cancel') return
+  try {
+    await ElMessageBox.confirm(`停用后“${row.name}”将不能继续关联新设备，确定停用？`, '停用客户', { type: 'warning', confirmButtonText: '确定停用' })
+    await doCancel(row)
+  } catch (e) { if (e !== 'cancel') { /* ignore */ } }
 }
 
 // ===== 详情抽屉 =====
 const detailVisible = ref(false)
 const activeTab = ref('base')
 const tabLoading = ref(false)
+const detailLoading = ref(false)
 const detail = reactive({})
 const devices = ref([])
 const orderData = reactive({ list: [], total: 0, total_amount: 0 })
@@ -577,18 +616,27 @@ const assetSummary = computed(() => {
     snRate: total ? Math.round((snCount / total) * 100) : 0
   }
 })
+const completedOrderCount = computed(() => orderData.list.filter(order => order.status === 'completed').length)
 
-const openDetail = async (row) => {
-  activeTab.value = 'base'
+const openDetail = async (row, targetTab = 'base') => {
+  activeTab.value = targetTab
   Object.keys(detail).forEach(k => delete detail[k])
   devices.value = []; logs.value = []
   Object.assign(orderData, { list: [], total: 0, total_amount: 0 })
   detailVisible.value = true
+  detailLoading.value = true
   try {
     const data = await getCustomerDetail(row._id)
     Object.assign(detail, data)
-  } catch (e) { /* ignore */ }
+    const [deviceRows, orders] = await Promise.all([
+      listCustomerDevices(row._id),
+      listCustomerOrders(row._id)
+    ])
+    devices.value = deviceRows || []
+    Object.assign(orderData, orders || {})
+  } catch (e) { /* ignore */ } finally { detailLoading.value = false }
 }
+const openDetailTab = (row, tab) => openDetail(row, tab)
 
 const onTabChange = (name) => {
   if (!detail._id) return
@@ -673,10 +721,11 @@ const saveDevice = async () => {
     deviceVisible.value = false
     loadDevices()
     loadWarrantyAlerts()
+    loadOverview()
   } catch (e) { /* ignore */ } finally { saving.value = false }
 }
 const removeDevice = async (row) => {
-  try { await deleteCustomerDevice(detail._id, row._id); ElMessage.success('已解绑'); loadDevices() } catch (e) { /* ignore */ }
+  try { await deleteCustomerDevice(detail._id, row._id); ElMessage.success('已解绑'); loadDevices(); loadWarrantyAlerts(); loadOverview() } catch (e) { /* ignore */ }
 }
 
 // ===== 选择 =====
@@ -769,13 +818,13 @@ const submitImport = async () => {
   try {
     importResult.value = await batchImportCustomers(importPreview.value)
     importPreview.value = []
-    load()
+    load(); loadOverview()
   } catch (e) { /* ignore */ } finally { importing.value = false }
 }
 
 onMounted(() => {
   applyWarrantyRouteFilter()
-  loadPermissionConfig(); load(); loadDealers(); loadTags(); loadWarrantyAlerts()
+  loadPermissionConfig(); load(); loadOverview(); loadDealers(); loadTags(); loadWarrantyAlerts()
 })
 watch(() => route.query.alert, () => {
   applyWarrantyRouteFilter()
@@ -784,34 +833,100 @@ watch(() => route.query.alert, () => {
 </script>
 
 <style scoped>
-.glass-card { background: #fff; border-radius: 12px; padding: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); margin-bottom: 20px; }
-.section-title { font-size: 16px; font-weight: 600; color: #1d2129; margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between; }
-.title-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.export-date-range { width: 250px; }
-.filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
-.warranty-alert-panel { margin: 0 0 16px; border: 1px solid #dce9f8; border-radius: 8px; overflow: hidden; }
-.warranty-alert-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; background: #f7fbff; flex-wrap: wrap; }
-.warranty-alert-head strong { color: #1d2129; font-size: 14px; }
-.warranty-alert-head span { margin-left: 10px; color: #86909c; font-size: 12px; }
-.warranty-alert-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.warranty-alert-table { width: 100%; }
-.warranty-alert-note { margin: 0; padding: 8px 12px; color: #e6a23c; background: #fdf6ec; font-size: 12px; }
+.customer-asset-center { min-height: 100%; color: #17233c; }
+.customer-overview { margin-bottom: 16px; }
+.overview-heading, .ledger-heading, .maintenance-head, .archive-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.overview-heading { margin-bottom: 12px; }
+.overview-heading h2, .ledger-heading h2, .archive-header h2 { margin: 0; color: #17233c; letter-spacing: 0; }
+.overview-heading h2, .ledger-heading h2 { font-size: 18px; font-weight: 700; }
+.overview-heading p, .ledger-heading p { margin: 4px 0 0; color: #7b879d; font-size: 13px; }
+.overview-heading > span { color: #9aa5b8; font-size: 12px; white-space: nowrap; }
+.customer-metric-grid { display: grid; grid-template-columns: repeat(5, minmax(150px, 1fr)); gap: 12px; }
+.customer-metric { position: relative; min-height: 118px; padding: 18px; overflow: hidden; text-align: left; border: 1px solid #e6ebf2; border-radius: 8px; background: #fff; color: #17233c; cursor: pointer; transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
+.customer-metric:hover { border-color: #b8cffd; box-shadow: 0 8px 22px rgba(23, 35, 60, .07); transform: translateY(-1px); }
+.customer-metric:focus-visible, .asset-count:focus-visible { outline: 2px solid #246bfd; outline-offset: 2px; }
+.customer-metric > span { display: block; color: #67748a; font-size: 13px; }
+.customer-metric > strong { display: block; margin-top: 9px; font-size: 29px; line-height: 1; font-variant-numeric: tabular-nums; }
+.customer-metric > small { display: block; margin-top: 10px; color: #8b96a9; font-size: 12px; }
+.customer-metric > i { position: absolute; top: 21px; right: 18px; display: grid; width: 38px; height: 38px; place-items: center; border-radius: 50%; background: #edf3ff; color: #246bfd; font-size: 19px; font-style: normal; }
+.customer-metric.is-green > i { background: #eaf8f0; color: #15803d; }
+.customer-metric.is-violet > i { background: #f2efff; color: #7254d8; }
+.customer-metric.is-orange > i { background: #fff3e8; color: #c56a16; }
+.customer-metric.is-red > i { background: #fff0f0; color: #dc4c55; }
+.customer-metric.is-orange.is-expanded { border-color: #e9a45e; background: #fffaf5; box-shadow: 0 7px 18px rgba(197, 106, 22, .11); }
+.customer-metric.is-orange.is-expanded > i { background: #c56a16; color: #fff; }
+.metric-toggle-cue { position: absolute; right: 17px; bottom: 12px; display: inline-flex; align-items: center; gap: 3px; color: #b45d12; font-size: 11px; font-style: normal; font-weight: 600; }
+.metric-toggle-cue .el-icon { transition: transform .2s ease; }
+.customer-metric.is-expanded .metric-toggle-cue .el-icon { transform: rotate(180deg); }
+.customer-ledger { padding: 20px; border: 1px solid #e6ebf2; border-radius: 8px; background: #fff; }
+.ledger-heading { margin-bottom: 18px; }
+.title-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.customer-filter-bar { display: grid; grid-template-columns: minmax(230px, 1.5fr) repeat(3, minmax(150px, .8fr)) auto auto; gap: 10px; align-items: center; padding: 14px; margin-bottom: 16px; border: 1px solid #e8edf4; border-radius: 8px; background: #f8fafc; }
+.customer-search { min-width: 0; }
+.maintenance-panel { margin-bottom: 16px; overflow: hidden; border: 1px solid #f2d8bd; border-radius: 8px; background: #fff; }
+.maintenance-head { padding: 12px 14px; background: #fff8f1; }
+.maintenance-head > div { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.maintenance-head strong { color: #8c4b10; font-size: 14px; }
+.maintenance-head span { color: #9a6a40; font-size: 12px; }
+.maintenance-reveal-enter-active, .maintenance-reveal-leave-active { overflow: hidden; transition: opacity .2s ease, transform .2s ease; }
+.maintenance-reveal-enter-from, .maintenance-reveal-leave-to { opacity: 0; transform: translateY(-8px); }
 .table-responsive { width: 100%; overflow-x: auto; }
-.modern-table { min-width: 980px; }
+.modern-table { min-width: 1030px; }
 .modern-table :deep(.el-table__inner-wrapper::before) { display: none; }
-.modern-table :deep(th.el-table__cell) { background-color: #f7f8fa !important; color: #4e5969; font-weight: 600; border-bottom: none; }
-.modern-table :deep(td.el-table__cell) { border-bottom: 1px solid #f0f2f5; padding: 12px 0; }
+.modern-table :deep(th.el-table__cell) { height: 44px; background-color: #f4f7fb !important; color: #5e6b80; font-weight: 600; border-bottom: 1px solid #e7ecf3; }
+.modern-table :deep(td.el-table__cell) { border-bottom: 1px solid #edf0f5; padding: 13px 0; }
+.modern-table :deep(.el-table__row:hover > td.el-table__cell) { background: #f8fbff; }
+.customer-identity { display: flex; align-items: center; min-width: 0; gap: 11px; }
+.customer-avatar { display: grid; width: 36px; height: 36px; flex: 0 0 36px; place-items: center; border-radius: 50%; background: #eaf1ff; color: #246bfd; font-size: 14px; font-weight: 700; }
+.customer-avatar.is-large { width: 48px; height: 48px; flex-basis: 48px; font-size: 18px; }
+.customer-identity > div { min-width: 0; }
+.customer-identity strong { display: block; overflow: hidden; color: #17233c; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.customer-identity > div > span { display: flex; align-items: center; gap: 5px; min-height: 23px; margin-top: 4px; }
+.customer-identity small { color: #8b96a9; }
+.contact-cell { display: flex; flex-direction: column; gap: 4px; }
+.contact-cell strong { color: #34415a; font-size: 13px; font-weight: 600; }
+.contact-cell span { color: #7b879d; font-size: 12px; }
+.asset-count { padding: 0; border: 0; background: transparent; color: #246bfd; cursor: pointer; }
+.asset-count strong { margin-right: 4px; font-size: 17px; font-variant-numeric: tabular-nums; }
+.asset-count span { font-size: 12px; }
+.order-count { display: block; margin-top: 4px; color: #8b96a9; font-size: 12px; }
+.last-service { color: #4d5a70; font-size: 13px; font-variant-numeric: tabular-nums; }
+.customer-status { display: inline-flex; align-items: center; gap: 6px; color: #15803d; font-size: 12px; font-weight: 600; }
+.customer-status::before { width: 7px; height: 7px; border-radius: 50%; background: currentColor; content: ''; }
+.customer-status.disabled { color: #8b96a9; }
+.table-empty-guide { display: flex; min-height: 170px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; }
+.table-empty-guide strong { color: #34415a; }
+.table-empty-guide span { color: #8b96a9; font-size: 13px; }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }
+.archive-header { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.archive-identity { min-width: 0; }
+.archive-identity > div { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.archive-identity h2 { max-width: 620px; overflow: hidden; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.archive-identity p { margin: 5px 0; color: #667389; font-size: 13px; }
+.archive-identity > div:last-child > span { color: #8b96a9; font-size: 12px; }
+.archive-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; border: 1px solid #e5eaf2; border-radius: 8px; background: #f8fafc; }
+.archive-summary > div { padding: 14px 16px; border-right: 1px solid #e5eaf2; }
+.archive-summary > div:last-child { border-right: 0; }
+.archive-summary span { display: block; margin-bottom: 6px; color: #7b879d; font-size: 12px; }
+.archive-summary strong { color: #17233c; font-size: 22px; font-variant-numeric: tabular-nums; }
+.archive-summary strong.is-date { font-size: 15px; }
+.archive-summary small { margin-left: 3px; color: #7b879d; }
+.archive-tabs :deep(.el-tabs__header) { margin-bottom: 18px; }
+.archive-section-heading { margin-bottom: 12px; }
+.archive-section-heading > div { display: flex; flex-direction: column; gap: 3px; }
+.archive-section-heading strong { color: #25324a; font-size: 14px; }
+.archive-section-heading span { color: #8b96a9; font-size: 12px; }
+.archive-descriptions :deep(.el-descriptions__label) { width: 112px; color: #667389; }
 .tab-toolbar { margin-bottom: 12px; }
 .asset-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
-.asset-summary div { padding: 10px 12px; border: 1px solid #e5eefb; border-radius: 8px; background: #f7fbff; }
-.asset-summary span { display: block; color: #86909c; font-size: 12px; margin-bottom: 4px; }
-.asset-summary b { color: #1d2129; font-size: 18px; }
+.asset-summary div { padding: 10px 12px; border: 1px solid #e5eaf2; border-radius: 8px; background: #f8fafc; }
+.asset-summary span { display: block; margin-bottom: 4px; color: #7b879d; font-size: 12px; }
+.asset-summary b { color: #17233c; font-size: 18px; }
 .order-summary { margin-bottom: 12px; color: #4e5969; }
 .order-summary b { color: #f56c6c; }
 .text-danger { color: #f56c6c; font-weight: 600; }
-.batch-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; background: #ecf5ff; border-radius: 8px; color: #4e5969; }
-.batch-bar b { color: #409eff; }
+.batch-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; margin-bottom: 12px; border-radius: 8px; background: #edf4ff; color: #4e5969; }
+.batch-bar b { color: #246bfd; }
 .row-tag { margin-right: 4px; margin-bottom: 2px; }
 .customer-type-cell-tag { max-width: 100%; }
 .customer-type-cell-tag :deep(.el-tag__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -819,8 +934,33 @@ watch(() => route.query.alert, () => {
 .tag-add-row { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .import-tip { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .import-result { margin-top: 12px; }
-.warranty-form-block { margin: 6px 0 18px; padding: 14px 14px 2px; border: 1px solid #e5eefb; border-radius: 10px; background: #f7fbff; }
+.warranty-form-block { margin: 6px 0 18px; padding: 14px 14px 2px; border: 1px solid #e5eaf2; border-radius: 8px; background: #f8fafc; }
 .warranty-form-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; color: #1d2129; font-size: 14px; }
 .warranty-form-block > p { margin: 0 0 14px; color: #4e5969; font-size: 12px; line-height: 1.6; }
 .warranty-preview { margin: -6px 0 12px 100px; color: #4e5969; font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 1280px) {
+  .customer-metric-grid { grid-template-columns: repeat(3, minmax(160px, 1fr)); }
+  .customer-filter-bar { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+  .customer-search { grid-column: span 2; }
+}
+@media (max-width: 760px) {
+  .overview-heading, .ledger-heading, .maintenance-head { align-items: flex-start; flex-direction: column; }
+  .customer-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .customer-metric { min-height: 108px; padding: 14px; }
+  .customer-metric:last-child { grid-column: span 2; }
+  .customer-ledger { padding: 14px; }
+  .title-actions { justify-content: flex-start; }
+  .customer-filter-bar { grid-template-columns: 1fr 1fr; padding: 10px; }
+  .customer-search { grid-column: span 2; }
+  .archive-summary, .asset-summary { grid-template-columns: 1fr 1fr; }
+  .archive-summary > div:nth-child(2) { border-right: 0; }
+  .archive-summary > div:nth-child(-n + 2) { border-bottom: 1px solid #e5eaf2; }
+  .archive-identity h2 { max-width: 64vw; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .customer-metric { transition: none; }
+  .customer-metric:hover { transform: none; }
+  .metric-toggle-cue .el-icon, .maintenance-reveal-enter-active, .maintenance-reveal-leave-active { transition: none; }
+}
 </style>

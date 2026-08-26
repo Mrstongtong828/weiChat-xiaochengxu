@@ -26,8 +26,9 @@ test('invoice requests use one type and one 7-15 working day service level', () 
 test('corporate transfer detection remains specific to manual reconciliation', () => {
   assert.equal(isCorporateTransferPayment('offline_transfer'), true)
   assert.equal(isCorporateTransferPayment('bank_transfer'), true)
-  assert.equal(isCorporateTransferPayment('wechat_pay'), false)
-  assert.equal(isCorporateTransferPayment(''), false)
+  assert.equal(isInvoicePaymentMethod('wechat_pay'), true)
+  assert.equal(isInvoicePaymentMethod('offline_transfer'), true)
+  assert.equal(isInvoicePaymentMethod(''), false)
 })
 
 test('a paid corporate transfer can request a manual invoice', () => {
@@ -71,7 +72,7 @@ test('a completed unpaid WeChat order cannot request an invoice', () => {
     payment_method: 'wechat_pay',
     payment_status: 'pending',
     total_price: 1280
-  }), '付款完成后才能申请开票')
+  }), '需先确认微信支付到账后才能开票')
 })
 
 test('unfinished corporate orders cannot request an invoice', () => {

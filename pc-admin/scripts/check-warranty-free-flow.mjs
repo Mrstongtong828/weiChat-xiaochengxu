@@ -19,10 +19,18 @@ const adminView = fs.readFileSync(path.join(projectRoot, 'src', 'views', 'WorkOr
 assert.equal(
   resolveZeroPriceWarrantyAction({
     order: { chargeType: 'pending', inWarranty: false, warrantyStatus: 'unknown' },
-    items: [{ _id: 'item-1', coverage_result: 'free', coverage_reason: 'quality_issue' }]
+    items: [{ _id: 'item-1', manual_warranty_status: 'in_warranty', coverage_result: 'free', coverage_reason: 'quality_issue' }]
   }),
   'save',
   'a zero-price quote should save valid local warranty decisions before publishing'
+)
+assert.equal(
+  resolveZeroPriceWarrantyAction({
+    order: { chargeType: 'pending', inWarranty: false, warrantyStatus: 'unknown' },
+    items: [{ _id: 'item-1', manual_warranty_status: 'in_warranty', coverage_result: 'free', coverage_reason: '' }]
+  }),
+  'save',
+  'manual in-warranty plus warranty-free must publish when the optional reason is empty'
 )
 assert.equal(
   resolveZeroPriceWarrantyAction({
@@ -30,7 +38,7 @@ assert.equal(
     items: [{ _id: 'item-1', coverage_result: 'free', coverage_reason: 'human_damage' }]
   }),
   'block',
-  'an invalid free reason must not be auto-saved as warranty-free'
+  'a free conclusion without a manual in-warranty decision must be blocked'
 )
 assert.equal(
   resolveZeroPriceWarrantyAction({
@@ -48,7 +56,8 @@ assert.equal(getQuotePublishPresentation('rejected').buttonLabel, '重新发布�
 const requirements = [
   ['admin only allows zero amount when every item is explicitly warranty-free', adminOrder, /warranty_free_confirmed\s*===\s*true[\s\S]*零元质保方案要求所有设备均人工判断在保，且本次结论为质保免费/],
   ['admin stores item-level coverage result', adminOrder, /coverage_result/],
-  ['admin view requires explicit warranty-free item decision', adminView, /将每台设备标记为“质保免费”/],
+  ['admin view keeps warranty reason optional', adminView, /判断原因\s*<small>选填<\/small>/],
+  ['admin zero-price validation does not require the optional reason', adminView, /items\.every\(isManualWarrantyFreeItem\)/],
   ['admin marks warranty-free payment as not required', adminOrder, /payment_status\s*=\s*isWarrantyFree\s*\?\s*'not_required'/],
   ['paid quotes do not inherit warranty not-required status', adminOrder, /order\.payment_status\s*===\s*'paid'\s*\?\s*'paid'\s*:\s*'pending'/],
   ['shipping explicitly allows charge_type free', adminOrder, /paymentStatus\s*!==\s*'not_required'\s*\|\|\s*chargeType\s*!==\s*'free'/],
@@ -69,7 +78,7 @@ const requirements = [
   ['paid orders skip customer confirmation before return', workflow, /total > 0 && paymentStatus === 'paid'[\s\S]*return ''/],
   ['paid replacement parts receive a scoped repair extension', warrantyPolicy, /same_fault_same_replaced_part/],
   ['scoped repair warranty requires a manual fault-and-part match', warrantyPolicy, /scope === 'same_fault_same_replaced_part' && source\.repair_warranty_match !== true/],
-  ['free repair requires an allowed policy reason', adminOrder, /coverageResult\s*===\s*'free'\s*&&\s*warrantyPolicy\.isFreeCoverageReason\(coverageReason\)/],
+  ['free repair requires an explicit free conclusion', adminOrder, /coverageResult\s*===\s*'free'/],
   ['repair warranty duration is fixed to three months', warrantyPolicy, /const months = DEFAULT_REPAIR_PART_WARRANTY_MONTHS/],
   ['mini program states the correct one-way warranty freight policy', miniProgram, /客户承担寄入厂家运费，厂家承担维修完成后的单程回寄运费/],
   ['admin exposes all policy exclusion categories', adminView, /improper_disinfection[\s\S]*voltage_damage[\s\S]*unauthorized_repair[\s\S]*label_or_sn_damage[\s\S]*force_majeure_or_uninsured_transport/]

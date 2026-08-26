@@ -589,6 +589,7 @@ module.exports = {
         contact_value: normalizeText(contact_value).slice(0, 80),
         rel_order_no: linkedOrderNo,
         status: '待处理',
+        is_read: false,
         // Alipay uniCloud 的 timestamp 字段必须传 Date，不能传毫秒数。
         create_time: new Date()
       })

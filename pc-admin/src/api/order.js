@@ -10,12 +10,14 @@ export const getOrderList = (token, status, page = 1, pageSize = 20, filters = {
     pageSize,
     keyword: filters.keyword || '',
     invoiceStatus: filters.invoiceStatus || '',
+    paymentStatus: filters.paymentStatus || '',
     warrantyStatus: filters.warrantyStatus || '',
     customerType: filters.customerType || filters.customer_type || '',
     todoType: filters.todoType || '',
     slaLevel: filters.slaLevel || '',
     startDate: filters.startDate || '',
     endDate: filters.endDate || '',
+    forExport: filters.forExport === true,
     responseMode: filters.responseMode || 'array'
   })
 }
@@ -62,20 +64,20 @@ export const assignEngineer = (token, orderId, engineerId) => {
 }
 
 // 更新工单状态
-export const updateOrderStatus = (token, orderId, status) => {
+export const updateOrderStatus = (token, orderId, status, requestConfig = {}) => {
   return request.post(`${API_BASE.adminOrder}/updateOrderStatus`, {
     token,
     order_id: orderId,
     status
-  })
+  }, requestConfig)
 }
 
 // 快递签收后，由工作人员核对包裹与设备并确认正式入库
-export const confirmInboundArrival = (token, orderId) => {
+export const confirmInboundArrival = (token, orderId, requestConfig = {}) => {
   return request.post(`${API_BASE.adminOrder}/confirmInboundArrival`, {
     token,
     order_id: orderId
-  })
+  }, requestConfig)
 }
 
 // 批量导入回寄运单号
@@ -169,6 +171,15 @@ export const recordCustomerQuoteDecision = (token, orderId, decision, options = 
     channel: options.channel || 'phone'
   })
 }
+
+// 恢复被误取消的工单，后端会找回取消前状态
+export const restoreCancelledOrder = (token, orderId) => {
+  return request.post(`${API_BASE.adminOrder}/updateOrderStatus`, {
+    token,
+    order_id: orderId,
+    status: 'restore_cancelled'
+  })
+}
 export const updatePaymentStatus = (token, orderId, status, options = {}) => {
   return request.post(`${API_BASE.adminOrder}/updatePaymentStatus`, {
     token,
@@ -254,7 +265,8 @@ export const getLogisticsLedger = (token, filters = {}) => {
     startDate: filters.startDate || '',
     endDate: filters.endDate || '',
     page: filters.page || 1,
-    pageSize: filters.pageSize || 20
+    pageSize: filters.pageSize || 20,
+    forExport: filters.forExport === true
   })
 }
 
@@ -300,6 +312,16 @@ export const getInvoiceApplications = (token, filters = {}) => {
     keyword: filters.keyword || '',
     page: filters.page || 1,
     pageSize: filters.pageSize || 20
+  })
+}
+
+// 财务中心开票任务看板：复用开票申请查询，同时返回状态与时效汇总
+export const getInvoiceWorkboard = (token, filters = {}) => {
+  return getInvoiceApplications(token, {
+    status: filters.status || '',
+    keyword: filters.keyword || '',
+    page: 1,
+    pageSize: 100
   })
 }
 

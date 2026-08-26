@@ -43,6 +43,7 @@
         "create_order",
         "delete_order",
         "update_status",
+        "restore_cancelled_order",
         "issue_quote",
         "confirm_quote",
         "upload_payment_proof",
@@ -62,6 +63,7 @@
         "feedback_visit",
         "feedback_close",
         "feedback_upgrade",
+        "feedback_delete",
         "update_order_items"
       ]
     },

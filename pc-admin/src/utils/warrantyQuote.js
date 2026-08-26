@@ -1,5 +1,9 @@
 const WARRANTY_FREE_STATUSES = new Set(['in_warranty', 'extended'])
-const WARRANTY_FREE_REASONS = new Set(['quality_issue', 'repair_warranty'])
+
+export const isManualWarrantyFreeItem = (item = {}) => (
+  item.manual_warranty_status === 'in_warranty'
+  && item.coverage_result === 'free'
+)
 
 export const isWarrantyFreeSnapshot = (order = {}) => {
   const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
@@ -15,8 +19,7 @@ export const resolveZeroPriceWarrantyAction = ({ order = {}, items = [] } = {}) 
   if (Array.isArray(items) && items.length > 0 && items.every(item => (
     item
     && item._id
-    && item.coverage_result === 'free'
-    && WARRANTY_FREE_REASONS.has(item.coverage_reason)
+    && isManualWarrantyFreeItem(item)
   ))) return 'save'
   return 'block'
 }

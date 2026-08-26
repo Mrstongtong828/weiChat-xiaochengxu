@@ -10,15 +10,15 @@
       </div>
       <div class="nav-label">MAIN NAVIGATION</div>
       <el-menu :default-active="activeMenu" class="el-menu-vertical" :collapse="collapsed && !isMobile" :collapse-transition="false" @select="handleMenuSelect">
-        <el-menu-item v-if="canAccessMenu('home')" index="home"><el-icon><HomeFilled /></el-icon><template #title>工作台首页</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('workorder')" index="workorder"><el-icon><Document /></el-icon><template #title>报修工单管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('finance')" index="finance"><el-icon><Money /></el-icon><template #title>财务中心</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('logistics')" index="logistics"><el-icon><Van /></el-icon><template #title>物流管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('inventory')" index="inventory"><el-icon><Box /></el-icon><template #title>配件库存管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('customers')" index="customers"><el-icon><Avatar /></el-icon><template #title>客户管理</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('faultdb')" index="faultdb"><el-icon><Warning /></el-icon><template #title>产品故障知识库</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('feedback')" index="feedback"><el-icon><ChatDotSquare /></el-icon><template #title>投诉与建议</template></el-menu-item>
-        <el-menu-item v-if="canAccessMenu('settings')" index="settings"><el-icon><Setting /></el-icon><template #title>小程序配置</template></el-menu-item>
+        <el-menu-item v-for="item in accessibleSidebarNavItems" :key="item.key" :index="item.key">
+          <el-icon><component :is="item.icon" /></el-icon>
+          <template #title>
+            <el-badge v-if="item.key === 'feedback'" :value="feedbackUnreadCount" :max="99" :hidden="!feedbackUnreadCount" class="sidebar-feedback-badge">
+              <span>{{ item.menuLabel }}</span>
+            </el-badge>
+            <span v-else>{{ item.menuLabel }}</span>
+          </template>
+        </el-menu-item>
       </el-menu>
       <div class="sidebar-footer">
         <div class="status-card">
@@ -38,7 +38,7 @@
       <div class="top-header">
         <div class="header-left">
           <el-icon class="hamburger" @click="toggleSidebar"><Expand v-if="collapsed" /><Fold v-else /></el-icon>
-          <div class="breadcrumb-title">{{ menuTitles[activeMenu] || '检修管理后台' }}</div>
+          <div class="breadcrumb-title">{{ getAdminNavTitle(activeMenu) }}</div>
         </div>
         <div class="header-actions">
           <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="isMobile ? 296 : 440" trigger="click" @show="loadNotifications()">
@@ -114,7 +114,7 @@
           </div>
           <strong>{{ profileForm.realName || profileForm.username || '管理员' }}</strong>
           <span>{{ profileForm.role || '后台账号' }}</span>
-          <small>支持 JPG、PNG、WebP，文件不超过 2MB</small>
+          <small>支持 JPG、PNG、WebP，选择后自动裁成 512×512 并压缩</small>
         </div>
         <el-form :model="profileForm" label-position="top" class="profile-form" @submit.prevent="saveProfile">
           <el-form-item label="登录账号"><el-input v-model="profileForm.username" disabled></el-input></el-form-item>
@@ -165,10 +165,13 @@
 import { computed, ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { changeMyPassword, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
+import { changeMyPassword, getFeedbackStats, getMyPermissions, getSettings, getTempFileURL, updateMyProfile } from '../../api/admin.js'
 import { getNotificationSummary } from '../../api/order.js'
 import { getWarrantyAlerts } from '../../api/customer.js'
-import { canAccessMenu, getCurrentAdminRole } from '../../config/menuAccess.js'
+import { canAccessMenu, getFirstAccessibleMenu } from '../../config/menuAccess.js'
+import { getAdminNavTitle, getAdminRoleLabel, getSidebarAdminNav } from '../../config/adminCatalog.js'
+import { hasPermission, PERMISSION_CHANGED_EVENT, savePermissionSession } from '../../utils/permissions.js'
+import { prepareAvatarImage } from '../../utils/avatarImage.js'
 import { uploadAvatarToCloud } from '../../utils/upload.js'
 
 const router = useRouter()
@@ -181,26 +184,15 @@ const notificationLoading = ref(false)
 const notificationGroups = ref([])
 const notificationUnavailable = ref([])
 const notificationTotal = computed(() => notificationGroups.value.reduce((sum, group) => sum + Number(group.count || 0), 0))
+const feedbackUnreadCount = ref(0)
+const feedbackUnreadLoading = ref(false)
+let feedbackUnreadRefreshPending = false
 let notificationLoadedAt = 0
 let notificationRefreshTimer = null
+let feedbackRefreshTimer = null
 
-const menuTitles = {
-  home: '工作台首页',
-  workorder: '报修工单处理中心',
-  inventory: '配件库存管理',
-  finance: '财务中心（对账流水 · 开票管理）',
-  settlement: '结算管理',
-  logistics: '物流管理（批量导入 · 异常预警 · 台账）',
-  invoices: '开票管理（申请·开票·归档）',
-  faultdb: '产品分类与故障预设',
-  users: '用户管理',
-  settings: '小程序图文及政策配置',
-  feedback: '客户投诉与建议列表',
-  audit: '工单操作审计日志（合规备查）'
-}
-
-const roleMap = { superadmin: '超级管理员', admin: '管理员', engineer: '工程师', finance: '财务', support: '客服' }
-const canLoadWarrantyNotifications = () => ['superadmin', 'admin', 'support'].includes(getCurrentAdminRole())
+const accessibleSidebarNavItems = computed(() => getSidebarAdminNav().filter(item => canAccessMenu(item.key)))
+const canLoadWarrantyNotifications = () => hasPermission('view_customer')
 const notificationTagType = (severity) => ({ critical: 'danger', warning: 'warning', info: 'primary' }[severity] || 'info')
 const notificationRoutes = {
   warranty_missing: { path: '/customers', query: { alert: 'missing' } },
@@ -240,7 +232,11 @@ const miniappDialogVisible = ref(false)
 const miniappLoading = ref(false)
 const miniappQrUrl = ref('')
 let miniappQrLoaded = false
-const canManageSettings = ['superadmin', 'admin'].includes(getCurrentAdminRole())
+const permissionRefreshVersion = ref(0)
+const canManageSettings = computed(() => {
+  permissionRefreshVersion.value
+  return hasPermission('manage_settings')
+})
 const isWebUrl = (v) => /^https?:\/\//i.test(String(v || ''))
 
 const openMiniappDialog = async () => {
@@ -292,7 +288,7 @@ const syncProfileFromStorage = () => {
     profileForm.username = user.username || ''
     profileForm.realName = user.name || ''
     profileForm.phone = user.phone || ''
-    profileForm.role = user.roleDisplay || roleMap[user.role] || ''
+    profileForm.role = user.roleDisplay || getAdminRoleLabel(user.role)
     profileForm.avatar = user.avatar || ''
     profileAvatarUrl.value = user.avatarPreview || (/^https?:\/\//i.test(user.avatar || '') ? user.avatar : '')
   } catch (error) {
@@ -325,22 +321,19 @@ const revokePendingAvatar = () => {
   pendingAvatarFile = null
 }
 
-const handleAvatarSelect = (uploadFile) => {
+const handleAvatarSelect = async (uploadFile) => {
   const raw = uploadFile?.raw
   if (!raw) return
-  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp']
-  if (!allowedTypes.includes(raw.type) || !/\.(jpe?g|png|webp)$/i.test(raw.name || '')) {
-    ElMessage.warning('头像仅支持 JPG、PNG 或 WebP 图片')
-    return
+  try {
+    const prepared = await prepareAvatarImage(raw)
+    revokePendingAvatar()
+    avatarRemovalPending.value = false
+    pendingAvatarFile = prepared
+    pendingAvatarPreview.value = URL.createObjectURL(prepared)
+    if (prepared.size < raw.size) ElMessage.success('头像已自动裁切并压缩')
+  } catch (error) {
+    ElMessage.warning(error.message || '头像处理失败，请换一张图片')
   }
-  if (raw.size > 2 * 1024 * 1024) {
-    ElMessage.warning('头像图片不能超过 2MB')
-    return
-  }
-  revokePendingAvatar()
-  avatarRemovalPending.value = false
-  pendingAvatarFile = raw
-  pendingAvatarPreview.value = URL.createObjectURL(raw)
 }
 
 const removeAvatar = () => {
@@ -483,6 +476,29 @@ const loadNotifications = async (force = false) => {
   }
 }
 
+const loadFeedbackUnread = async () => {
+  if (!canAccessMenu('feedback')) return
+  if (feedbackUnreadLoading.value) {
+    feedbackUnreadRefreshPending = true
+    return
+  }
+  const token = localStorage.getItem('adminToken')
+  if (!token) return
+  feedbackUnreadLoading.value = true
+  try {
+    const stats = await getFeedbackStats(token)
+    feedbackUnreadCount.value = Number(stats?.unreadCount || 0)
+  } catch (error) {
+    // 全局请求拦截器负责提示；保留上一次成功的统计值。
+  } finally {
+    feedbackUnreadLoading.value = false
+    if (feedbackUnreadRefreshPending) {
+      feedbackUnreadRefreshPending = false
+      loadFeedbackUnread()
+    }
+  }
+}
+
 const goNotification = (key) => {
   const target = notificationRoutes[key]
   if (!target) return
@@ -491,7 +507,27 @@ const goNotification = (key) => {
 }
 
 const handleVisibilityChange = () => {
-  if (document.visibilityState === 'visible') loadNotifications(true)
+  if (document.visibilityState === 'visible') {
+    loadNotifications(true)
+    loadFeedbackUnread()
+  }
+}
+
+const refreshPermissionSession = async () => {
+  const token = localStorage.getItem('adminToken')
+  if (!token) return
+  try {
+    const permissions = await getMyPermissions(token)
+    savePermissionSession(permissions)
+    permissionRefreshVersion.value += 1
+    const menu = route.path.replace(/^\//, '')
+    if (menu && menu !== 'forbidden' && !canAccessMenu(menu)) {
+      const fallback = getFirstAccessibleMenu()
+      router.replace(fallback ? `/${fallback}` : '/forbidden')
+    }
+  } catch (error) {
+    // 请求层负责展示错误；保留当前页面，避免权限刷新失败造成循环跳转。
+  }
 }
 
 const openPwdDialog = () => {
@@ -544,8 +580,15 @@ onMounted(() => {
   syncProfileFromStorage()
   resolveProfileAvatar()
   loadNotifications()
-  notificationRefreshTimer = window.setInterval(() => loadNotifications(true), 60000)
+  loadFeedbackUnread()
+  refreshPermissionSession()
+  notificationRefreshTimer = window.setInterval(() => {
+    loadNotifications(true)
+  }, 60000)
+  feedbackRefreshTimer = window.setInterval(loadFeedbackUnread, 30000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('feedback-unread-changed', loadFeedbackUnread)
+  window.addEventListener(PERMISSION_CHANGED_EVENT, refreshPermissionSession)
   if (forcedPasswordChange.value) {
     ElMessage.warning('当前使用临时密码，请先修改登录密码')
     openPwdDialog()
@@ -555,7 +598,10 @@ onMounted(() => {
 onUnmounted(() => {
   revokePendingAvatar()
   if (notificationRefreshTimer) window.clearInterval(notificationRefreshTimer)
+  if (feedbackRefreshTimer) window.clearInterval(feedbackRefreshTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('feedback-unread-changed', loadFeedbackUnread)
+  window.removeEventListener(PERMISSION_CHANGED_EVENT, refreshPermissionSession)
   window.removeEventListener('resize', checkMobile)
 })
 </script>
@@ -698,6 +744,7 @@ onUnmounted(() => {
   background: #2563eb;
   color: #ffffff;
 }
+.sidebar-feedback-badge :deep(.el-badge__content) { background: #f56c6c; border-color: #ffffff; }
 :deep(.el-menu-item.is-active::after) {
   content: '';
   position: absolute;

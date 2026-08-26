@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs'
+import { loadExcelJS } from './excelLoader.js'
 import { customerTypeLabel } from '../config/customerTypes.js'
 
 const normalizeText = (value) => String(value ?? '').trim()
@@ -39,7 +39,7 @@ const cellToText = (value) => {
 
 // 下载导入模板
 export const downloadCustomerTemplate = async () => {
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const ws = workbook.addWorksheet('客户导入模板')
   ws.addRow(IMPORT_HEADERS)
   ws.addRow(['示例口腔诊所', '张医生', '13800138000', '门诊/医院', '某省某市某区某街道', '', '', '在保客户', '示例数据，可删除'])
@@ -71,7 +71,7 @@ export const exportCustomerWorkbook = async (rows = [], filename = '客户档案
     status: STATUS_LABELS[r.status] || r.status || '',
     create_time: r.create_time ? new Date(r.create_time).toLocaleString('zh-CN') : ''
   }))
-  const workbook = new ExcelJS.Workbook()
+  const workbook = new (await loadExcelJS()).Workbook()
   const ws = workbook.addWorksheet('客户档案')
   ws.columns = columns
   ws.addRows(data)
@@ -84,7 +84,7 @@ export const parseCustomerExcelFile = (file) => {
     const reader = new FileReader()
     reader.onload = async (event) => {
       try {
-        const workbook = new ExcelJS.Workbook()
+        const workbook = new (await loadExcelJS()).Workbook()
         await workbook.xlsx.load(event.target.result)
         const ws = workbook.worksheets[0]
         if (!ws) { resolve([]); return }

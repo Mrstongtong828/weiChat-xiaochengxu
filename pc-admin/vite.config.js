@@ -19,8 +19,6 @@ export default defineConfig({
         // 把重型三方库拆成独立异步 chunk，避免和业务代码挤在一个包里。
         // Vite 8 底层是 rolldown，manualChunks 需为函数形式。
         manualChunks(id) {
-          if (id.includes('@wangeditor')) return 'vendor-editor'
-          if (id.includes('exceljs')) return 'vendor-excel'
           if (id.includes('echarts') || id.includes('zrender')) return 'vendor-echarts'
           if (id.includes('element-plus')) return 'vendor-element'
         },

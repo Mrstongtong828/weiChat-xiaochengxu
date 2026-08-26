@@ -28,3 +28,31 @@ test('详情入口互斥选择工单，提交锁早于订阅授权', () => {
 	const submitBlock = source.slice(source.indexOf('const submitRepair = async'), source.indexOf('const openFaultSheet'))
 	assert.ok(submitBlock.indexOf('repairSubmitting.value = true') < submitBlock.indexOf("requestStatusSubscription('repair_submit')"))
 })
+
+test('选择不维修要求填写原因，且不等待订阅消息后才提交至后台', () => {
+	assert.match(source, /v-if="showRejectReasonDialog"/)
+	assert.match(source, /v-model\.trim="rejectReason"/)
+	assert.match(source, /@click="openRejectReasonDialog\(detailOrder\)"/)
+	const rejectBlock = source.slice(
+		source.indexOf('const submitRejectRepairQuote = async'),
+		source.indexOf('// 确认收货：已回寄 → 已完成')
+	)
+	assert.match(rejectBlock, /if \(!rejectReason\.value\.trim\(\)\)/)
+	assert.match(rejectBlock, /void requestStatusSubscription\('quote_reject'\)/)
+	assert.ok(
+		rejectBlock.indexOf("void requestStatusSubscription('quote_reject')")
+		< rejectBlock.indexOf('await rejectRepairQuote(')
+	)
+	assert.match(rejectBlock, /rejectReasonOrder\.value\.recordId \|\| rejectReasonOrder\.value\.id/)
+	assert.match(source, /quoteStatus === 'rejected' \? '已取消' : deriveDisplayStatus/)
+})
+
+test('服务进度可单独筛选已取消工单', () => {
+	assert.match(source, /const trackTabs = \['全部', '待处理', '维修中', '已发货', '已取消', '已完成', '未开票', '已开票'\]/)
+	assert.match(source, /if \(tab === '已取消'\) return item\.status === '已取消' \|\| item\.statusKey === 'cancelled' \|\| item\.quoteStatus === 'rejected'/)
+})
+
+test('首页全部角标排除已完成工单，服务进度可单独查看已完成工单', () => {
+	assert.match(source, /if \(resolveStatusKey\(item\) !== 'completed'\) acc\.all \+= 1/)
+	assert.match(source, /if \(tab === '已完成'\) return resolveStatusKey\(item\) === 'completed'/)
+})

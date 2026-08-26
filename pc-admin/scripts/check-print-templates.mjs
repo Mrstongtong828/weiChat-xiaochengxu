@@ -88,25 +88,51 @@ assert.match(repairHtml, /售后维修单/)
 assert.match(repairHtml, /维修措施/)
 assert.match(repairHtml, /更换机芯、充电顶针/)
 assert.match(repairHtml, /20E19 246/)
-assert.match(repairHtml, /received-part-print-group/)
-assert.match(repairHtml, /Calibration tool/)
-assert.match(repairHtml, /Packed with device/)
-assert.match(repairHtml, /System Admin/)
-assert.match(repairHtml, /data:image\/png;base64,dGVzdA==/)
+assert.doesNotMatch(repairHtml, /received-part-print-group/, '维修单不应再单独打印收货配件表')
+assert.doesNotMatch(repairHtml, /Calibration tool/)
+assert.doesNotMatch(repairHtml, /Packed with device/)
 assert.match(repairHtml, /维修完成日期/)
 assert.match(repairHtml, /快递单号/)
 assert.match(repairHtml, /SF1464395505986/)
 assert.match(repairHtml, /寄出快递单号/)
-assert.match(repairHtml, /运费（手填）/)
-assert.match(repairHtml, /供货商（手填）/)
-assert.match(repairHtml, /配件明细（手填）/)
+assert.match(repairHtml, /运费/)
+assert.match(repairHtml, /供货商/)
+assert.doesNotMatch(repairHtml, /手填/)
+assert.match(repairHtml, /配件明细/)
+assert.doesNotMatch(repairHtml, /配件明细（手填）/)
+assert.match(repairHtml, /机芯组件（T-Fine-II）×1/, '维修单应自动打印实际使用的配件，不再留空手写')
 assert.doesNotMatch(repairHtml, /思科达医疗器械/)
 assert.doesNotMatch(repairHtml, /¥20\.00/)
 assert.doesNotMatch(repairHtml, /2026年6月2日/, '维修单完工日期应留空，由工程师手写')
 assert.doesNotMatch(repairHtml, /2026年8月1日/, '维修单不应把更新时间当成完工日期')
 
+const handwriteRepairTemplate = defaultPrintTemplate('repair_order')
+handwriteRepairTemplate.fields.find(item => item.key === 'partsDetail').visible = false
+const handwriteRepairHtml = buildPrintHtml([order], handwriteRepairTemplate, 'repair_order')
+assert.match(handwriteRepairHtml, /配件明细/)
+assert.match(handwriteRepairHtml, /手写说明/)
+assert.match(handwriteRepairHtml, /parts-detail-handwrite-line/)
+assert.doesNotMatch(handwriteRepairHtml, /机芯组件（T-Fine-II）×1/, '关闭配件明细后不应再打印实际配件清单')
+
 const customerSubmittedHtml = buildPrintHtml([customerSubmittedOrder], repairTemplate, 'repair_order')
 assert.match(customerSubmittedHtml, /SN-CUSTOMER-0813/, '客户填写的产品序列号应显示在维修单批号列')
+
+const quotedOnlyHtml = buildPrintHtml([{
+  ...order,
+  repairRecord: { parts: [] }
+}], repairTemplate, 'repair_order')
+assert.doesNotMatch(quotedOnlyHtml, /机芯组件/, '未记录实际使用配件时，不应把报价配件打印成维修结果')
+assert.doesNotMatch(quotedOnlyHtml, /未登记实际使用配件/, '未记录实际配件时，模板应保持空白')
+assert.match(quotedOnlyHtml, /parts-detail-handwrite-line/, '没有实际配件时，配件明细列应保留手写区域')
+
+const multiDeviceHtml = buildPrintHtml([{
+  ...order,
+  itemsList: [
+    order.itemsList[0],
+    { ...order.itemsList[0], product_name: '热牙胶充填机', batch_no: 'SN-SECOND' }
+  ]
+}], repairTemplate, 'repair_order')
+assert.match(multiDeviceHtml, /整单配件：机芯组件（T-Fine-II）×1/, '多设备工单应明确配件属于整单，不能误归到第一台设备')
 
 repairTemplate.fields.find(item => item.key === 'batchNo').visible = false
 repairTemplate.fields.push({
@@ -140,9 +166,10 @@ assert.match(inspectionHtml, /售后服务检测报告单/)
 assert.match(inspectionHtml, /更换配件清单/)
 assert.match(inspectionHtml, /收货单号/)
 assert.match(inspectionHtml, /机芯组件/)
-assert.match(inspectionHtml, /单价（手填）/)
-assert.match(inspectionHtml, /金额（手填）/)
-assert.match(inspectionHtml, /合计金额（手填）/)
+assert.match(inspectionHtml, /单价/)
+assert.match(inspectionHtml, /金额/)
+assert.match(inspectionHtml, /合计金额/)
+assert.doesNotMatch(inspectionHtml, /手填/)
 assert.doesNotMatch(inspectionHtml, /¥380\.00/)
 assert.match(inspectionHtml, /售后部/)
 assert.match(inspectionHtml, /审批/)

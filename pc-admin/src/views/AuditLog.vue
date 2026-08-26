@@ -50,7 +50,7 @@
         <el-table-column label="操作人" width="170">
           <template #default="{ row }">
             <span>{{ row.actor_name || '—' }}</span>
-            <el-tag v-if="row.actor_role" size="small" class="role-tag">{{ ROLE_LABELS[row.actor_role] || row.actor_role }}</el-tag>
+            <el-tag v-if="row.actor_role" size="small" class="role-tag">{{ getAdminRoleLabel(row.actor_role, row.actor_role) }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="工单号" width="190" prop="order_no" />
@@ -77,8 +77,9 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { ElMessage } from 'element-plus'
-import ExcelJS from 'exceljs'
 import { getOrderEvents } from '../api/audit.js'
+import { getAdminRoleLabel } from '../config/adminCatalog.js'
+import { loadExcelJS } from '../utils/excelLoader.js'
 
 const ACTION_LABELS = {
   create_order: '新建工单', update_status: '状态变更', issue_quote: '发布报价',
@@ -88,7 +89,6 @@ const ACTION_LABELS = {
   assign_engineer: '分配工程师', wechat_pay_confirmed: '微信支付确认'
 }
 const SOURCE_LABELS = { client: '客户端', admin: '后台', system: '系统', wechat_pay: '微信支付' }
-const ROLE_LABELS = { admin: '管理员', superadmin: '超级管理员', engineer: '工程师', finance: '财务', support: '客服' }
 
 const filters = reactive({ orderNo: '', action: '', actorName: '', timeRange: null })
 const list = ref([])
@@ -146,7 +146,7 @@ const handleExport = async () => {
     const data = await getOrderEvents({ ...buildParams(), page: 1, pageSize: 1000 })
     const rows = data.list || []
     if (!rows.length) { ElMessage.warning('当前条件下没有可导出的记录'); return }
-    const workbook = new ExcelJS.Workbook()
+    const workbook = new (await loadExcelJS()).Workbook()
     const ws = workbook.addWorksheet('工单操作日志')
     ws.columns = [
       { header: '操作时间', key: 'time', width: 22 },
@@ -163,7 +163,7 @@ const handleExport = async () => {
       source: SOURCE_LABELS[r.source] || r.source,
       action: ACTION_LABELS[r.action] || r.action,
       actor: r.actor_name || '',
-      role: ROLE_LABELS[r.actor_role] || r.actor_role || '',
+      role: getAdminRoleLabel(r.actor_role, r.actor_role || ''),
       order_no: r.order_no || '',
       before: JSON.stringify(r.before || {}),
       after: JSON.stringify(r.after || {})

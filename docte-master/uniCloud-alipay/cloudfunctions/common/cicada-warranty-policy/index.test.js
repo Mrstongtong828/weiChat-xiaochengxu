@@ -53,10 +53,10 @@ test('creates one scoped three-month extension only for paid repairs with replac
   assert.equal(appendWarrantyExtension([extension], extension).length, 1)
 })
 
-test('free coverage requires an original quality issue or a manually matched repair warranty', () => {
+test('free coverage reason helper remains backward-compatible', () => {
   assert.equal(isFreeCoverageReason('quality_issue'), true)
   assert.equal(isFreeCoverageReason('repair_warranty'), true)
-  assert.equal(isFreeCoverageReason('human_damage'), false)
+  assert.equal(isFreeCoverageReason('human_damage'), true)
   assert.equal(isFreeCoverageReason(''), false)
 })
 

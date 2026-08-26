@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "mock": "node scripts/local-mock-server.mjs",
+    "test": "node --test",
+    "prebuild": "node scripts/clean-dist.mjs",
     "build": "vite build",
+    "postbuild": "node scripts/check-build-output.mjs",
     "preview": "vite preview",
     "check:urls": "node scripts/check-admin-urls.mjs",
     "check:staff": "node scripts/check-admin-staff.mjs",
@@ -19,7 +22,10 @@
     "check:logistics": "node scripts/check-logistics-readiness.mjs",
     "check:customer-types": "node scripts/check-customer-types.mjs",
     "check:policy-documents": "node scripts/check-policy-documents.mjs",
-    "check:repair-products": "node scripts/check-repair-products.mjs"
+    "check:repair-products": "node scripts/check-repair-products.mjs",
+    "check:settings-requests": "node scripts/check-settings-request-burst.mjs",
+    "check:receipt-status-sync": "node scripts/check-received-parts-status-sync.mjs",
+    "check:receipt-list-refresh": "node scripts/check-receipt-list-live-refresh.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

@@ -140,9 +140,10 @@ The CLI invocation used for an isolated project bound to this cloud space was:
 - `status, create_time desc`
 - `type, create_time desc`        # 后台按反馈类型筛选
 - `urgency, create_time desc`     # 后台按紧急等级筛选（高危预警/排序）
+- `is_read, create_time desc`     # 侧边栏未读投诉/建议数量
 
 > 后台 `cicada-admin-sys.getFeedbackList` 已改为 DB 端分页 + 状态/类型/紧急度筛选；关键词（内容/工单号/联系方式）走正则 `$or`，量大时建议另配文本索引或限制扫描范围。
-> 投诉处理流转（分配/回复/回访/结案/升级）复用 `cicada_order_events`，`action` 取 `feedback_*`，`order_no` 为关联工单号或 `FB-<id>`。
+> 投诉处理流转（分配/回复/回访/结案/升级/删除）复用 `cicada_order_events`，`action` 取 `feedback_*`，`order_no` 为关联工单号或 `FB-<id>`。
 
 ## cicada_fault_kb
 

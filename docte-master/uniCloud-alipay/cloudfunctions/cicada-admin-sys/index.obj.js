@@ -1,6 +1,13 @@
 const db = uniCloud.database()
 const crypto = require('crypto')
-const { ROLE_LABELS, ALL_ROLES, PERMISSIONS } = loadWorkflowModule()
+const {
+  ROLE_LABELS,
+  ALL_ROLES,
+  getEffectivePermissions,
+  getPermissionCatalogForManager,
+  hasUserPermission,
+  sanitizePermissions
+} = loadWorkflowModule()
 const { createAdminAuthError, toAdminErrorResponse, normalizeAdminAuthResult, isAdminTokenExpired } = loadAdminAuthModule()
 
 function loadWorkflowModule() {
@@ -205,6 +212,35 @@ async function verifyAdminToken(token, allowedRoles = ['admin'], options = {}) {
   if (user.must_change_password && !options.allowPasswordChange) throw new Error('当前使用临时密码，请先修改密码')
   if (user.role !== 'superadmin' && !allowedRoles.includes(user.role)) throw new Error('无权限')
   return user
+}
+
+async function verifyAdminPermission(token, permission, options = {}) {
+  const user = await verifyAdminToken(token, STAFF_ROLES, options)
+  if (!hasUserPermission(user, permission)) throw new Error('无权限')
+  return user
+}
+
+async function verifyAnyAdminPermission(token, permissions = [], options = {}) {
+  const user = await verifyAdminToken(token, STAFF_ROLES, options)
+  if (!permissions.some(permission => hasUserPermission(user, permission))) throw new Error('无权限')
+  return user
+}
+
+function normalizeAssignedPermissions(staff = {}) {
+  if (!Object.prototype.hasOwnProperty.call(staff, 'permissions')) return undefined
+  if (!Array.isArray(staff.permissions)) throw new Error('权限配置格式不正确')
+  const normalizedInput = [...new Set(staff.permissions.map(value => String(value || '').trim()).filter(Boolean))]
+  const permissions = sanitizePermissions(normalizedInput)
+  if (permissions.length !== normalizedInput.length) throw new Error('权限配置包含未知权限')
+  return permissions
+}
+
+function assertCanGrantPermissions(operator = {}, permissions = []) {
+  if (operator.role === 'superadmin') return true
+  const operatorPermissions = new Set(getEffectivePermissions(operator))
+  const forbidden = permissions.find(permission => !operatorPermissions.has(permission))
+  if (forbidden) throw new Error('不能授予当前账号自身不具备的权限')
+  return true
 }
 
 function normalizeIdentity(value = '') {
@@ -585,10 +621,28 @@ function validatePolicyDocumentSetting(key, value) {
   }
 }
 
-async function uploadAdminFile(ctx, params, defaultDir = 'guides/', allowedRoles = ['admin']) {
+function getUploadPermission(dir = '') {
+  const normalizedDir = String(dir || '').toLowerCase()
+  if (normalizedDir.startsWith('invoice/')) return 'update_invoice'
+  if (normalizedDir.startsWith('repair/')) return 'edit_repair_record'
+  if (normalizedDir.startsWith('received-parts/')) return 'edit_received_parts'
+  return 'manage_settings'
+}
+
+function maskContactValue(value = '') {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (/^1\d{10}$/.test(text)) return `${text.slice(0, 3)}****${text.slice(-4)}`
+  const at = text.indexOf('@')
+  if (at > 0) return `${text.slice(0, 1)}***${text.slice(at)}`
+  if (text.length <= 4) return '*'.repeat(text.length)
+  return `${text.slice(0, 2)}****${text.slice(-2)}`
+}
+
+async function uploadAdminFile(ctx, params, defaultDir = 'guides/') {
   const data = getRequestData(ctx, params)
   const { token, fileContent, fileName, fileType, dir } = data
-  await verifyAdminToken(token, allowedRoles)
+  await verifyAdminPermission(token, getUploadPermission(dir || defaultDir))
 
   if (!fileContent || !fileName) return { code: -1, msg: '缺少文件内容或文件名' }
   const maxEncodedLength = Math.ceil(25 * 1024 * 1024 * 4 / 3) + 4
@@ -749,6 +803,8 @@ module.exports = {
         isEngineer: user.role === 'engineer',
         isFinance: user.role === 'finance',
         isSupport: user.role === 'support',
+        permissions: getEffectivePermissions(user),
+        permissionVersion: 1,
         user: {
           _id: user._id,
           username: user.username,
@@ -757,6 +813,8 @@ module.exports = {
           avatar: user.avatar || '',
           role: user.role,
           roleDisplay: ROLE_LABELS[user.role] || user.role,
+          permissions: getEffectivePermissions(user),
+          permissionVersion: 1,
           mustChangePassword: Boolean(user.must_change_password)
         }
       }
@@ -965,13 +1023,14 @@ module.exports = {
       }
 
       if (!userId) return { code: -1, msg: '缺少用户ID' }
-      const operator = await verifyAdminToken(token, ['admin'])
+      const operator = await verifyAdminPermission(token, 'reset_staff_password')
 
       const col = db.collection('cicada_users')
       const targetRes = await col.doc(userId).get()
       const target = targetRes.data && targetRes.data[0]
       if (!target || !STAFF_ROLES.includes(target.role)) return { code: -1, msg: '用户不存在' }
       if (target.username === 'admin_root') return { code: -1, msg: 'admin_root 为紧急救援账号，禁止重置密码' }
+      if (target.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可重置超级管理员密码' }
 
       const temporaryPassword = genTemporaryPassword()
       await col.doc(userId).update({
@@ -1002,13 +1061,26 @@ module.exports = {
           ;({ token, action, staff } = body)
         }
       }
-      const operator = await verifyAdminToken(token, ['admin'])
+      const actionPermission = {
+        add: 'create_staff',
+        edit: 'edit_staff',
+        disable: 'toggle_staff'
+      }[action]
+      const operator = actionPermission
+        ? await verifyAdminPermission(token, actionPermission)
+        : await verifyAnyAdminPermission(token, ['view_staff', 'assign_engineer', 'handle_feedback'])
       const col = db.collection('cicada_users')
       if (action === 'add') {
         if (!staff || !staff.username || !staff.password) return { code: -1, msg: '账号和密码不能为空' }
         assertPasswordPolicy(staff.password, '登录密码')
         if (!STAFF_ROLES.includes(staff.role)) return { code: -1, msg: '角色不正确' }
         if (staff.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可创建超级管理员账号' }
+        const assignedPermissions = normalizeAssignedPermissions(staff)
+        const effectiveNewPermissions = getEffectivePermissions({
+          role: staff.role,
+          ...(assignedPermissions !== undefined ? { permissions: assignedPermissions } : {})
+        })
+        assertCanGrantPermissions(operator, effectiveNewPermissions)
         const normalizedEmail = normalizeEmail(staff.email)
         const exists = await col.where({ username: staff.username }).limit(1).get()
         if (exists.data.length) return { code: -1, msg: '账号已存在' }
@@ -1016,6 +1088,10 @@ module.exports = {
         if (emailExists.data.length) return { code: -1, msg: '邮箱已绑定其他后台账号' }
         const data = pickFields(staff, ['username', 'name', 'phone', 'avatar', 'role', 'device_categories', 'service_areas'])
         data.email = normalizedEmail
+        if (assignedPermissions !== undefined) {
+          data.permissions = assignedPermissions
+          data.permission_version = 1
+        }
         const res = await col.add({
           ...data,
           openid: '',
@@ -1023,11 +1099,15 @@ module.exports = {
           ...buildPasswordFields(staff.password),
           create_time: Date.now()
         })
-        await writeAdminLog(operator, 'staff_add', { id: res.id, name: staff.username }, { role: staff.role })
+        await writeAdminLog(operator, 'staff_add', { id: res.id, name: staff.username }, { role: staff.role, permissions: effectiveNewPermissions })
         return { code: 0, data: { id: res.id } }
       } else if (action === 'edit') {
         if (!staff || !staff._id) return { code: -1, msg: '缺少员工ID' }
-        const data = pickFields(staff, ['username', 'name', 'phone', 'avatar', 'role', 'disabled', 'device_categories', 'service_areas'])
+        const targetRes = await col.doc(staff._id).get()
+        const target = targetRes.data && targetRes.data[0]
+        if (!target || !STAFF_ROLES.includes(target.role)) return { code: -1, msg: '员工不存在' }
+        if (target.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可编辑超级管理员账号' }
+        const data = pickFields(staff, ['username', 'name', 'phone', 'avatar', 'role', 'device_categories', 'service_areas'])
         if (Object.prototype.hasOwnProperty.call(staff, 'email')) {
           data.email = normalizeEmail(staff.email)
           const emailExists = await col.where({ email: data.email, role: db.command.in(STAFF_ROLES), _id: db.command.neq(staff._id) }).limit(1).get()
@@ -1035,7 +1115,14 @@ module.exports = {
         }
         if (data.role && !STAFF_ROLES.includes(data.role)) return { code: -1, msg: '角色不正确' }
         if (data.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可设置超级管理员角色' }
+        const assignedPermissions = normalizeAssignedPermissions(staff)
+        if (assignedPermissions !== undefined) {
+          data.permissions = assignedPermissions
+          data.permission_version = 1
+        }
+        assertCanGrantPermissions(operator, getEffectivePermissions({ ...target, ...data }))
         if (staff.password) {
+          if (!hasUserPermission(operator, 'reset_staff_password')) throw new Error('无权限重置员工密码')
           assertPasswordPolicy(staff.password, '登录密码')
           Object.assign(data, buildPasswordFields(staff.password), { must_change_password: true, token: '', token_expire: 0, admin_sessions: [] })
         }
@@ -1044,18 +1131,47 @@ module.exports = {
         if (!res.updated) return { code: -1, msg: '员工不存在' }
         // 只记变更字段名，绝不写密码明文/哈希
         const changedFields = Object.keys(data).filter(k => !/^password/i.test(k))
-        await writeAdminLog(operator, 'staff_edit', { id: staff._id, name: data.username || staff.username || '' }, { fields: changedFields, passwordChanged: Boolean(staff.password), role: data.role || '' })
+        const beforePermissions = getEffectivePermissions(target)
+        const afterPermissions = getEffectivePermissions({ ...target, ...data })
+        await writeAdminLog(operator, 'staff_edit', { id: staff._id, name: data.username || staff.username || target.username || '' }, {
+          fields: changedFields,
+          passwordChanged: Boolean(staff.password),
+          role: data.role || target.role || '',
+          permissionsAdded: afterPermissions.filter(key => !beforePermissions.includes(key)),
+          permissionsRemoved: beforePermissions.filter(key => !afterPermissions.includes(key))
+        })
         return { code: 0 }
       } else if (action === 'disable') {
         if (!staff || !staff._id) return { code: -1, msg: '缺少员工ID' }
+        if (staff._id === operator._id) return { code: -1, msg: '当前登录账号不能禁用自身' }
+        const targetRes = await col.doc(staff._id).get()
+        const target = targetRes.data && targetRes.data[0]
+        if (!target || !STAFF_ROLES.includes(target.role)) return { code: -1, msg: '员工不存在' }
+        if (target.role === 'superadmin' && operator.role !== 'superadmin') return { code: -1, msg: '只有超级管理员可更改超级管理员状态' }
         const disabled = staff.disabled !== undefined ? staff.disabled : true
-        const res = await col.where({ _id: staff._id, role: db.command.in(STAFF_ROLES) }).update({ disabled })
+        const res = await col.where({ _id: staff._id, role: db.command.in(STAFF_ROLES) }).update({ disabled, token: '', token_expire: 0, admin_sessions: [] })
         if (!res.updated) return { code: -1, msg: '员工不存在' }
         await writeAdminLog(operator, 'staff_disable', { id: staff._id, name: (staff && staff.username) || '' }, { disabled })
         return { code: 0 }
       } else {
         const list = await col.where({ role: db.command.in(STAFF_ROLES) }).get()
-        const data = list.data.map(({ password, password_hash, password_salt, token, token_expire, ...staffInfo }) => staffInfo)
+        if (!hasUserPermission(operator, 'view_staff')) {
+          return {
+            code: 0,
+            data: list.data.map(item => ({
+              _id: item._id,
+              username: item.username || '',
+              name: item.name || item.nickname || '',
+              role: item.role,
+              disabled: Boolean(item.disabled)
+            }))
+          }
+        }
+        const data = list.data.map(({ password, password_hash, password_salt, token, token_expire, admin_sessions, ...staffInfo }) => ({
+          ...staffInfo,
+          permissions: getEffectivePermissions(staffInfo),
+          permission_version: Number(staffInfo.permission_version || 1)
+        }))
         return { code: 0, data }
       }
     } catch (e) {
@@ -1066,11 +1182,11 @@ module.exports = {
   async getFeedbackStats(params) {
     try {
       const { token } = getRequestData(this, params)
-      await verifyAdminToken(token, PERMISSIONS.view_feedback)
+      await verifyAdminPermission(token, 'view_feedback')
       const dbCmd = db.command
-      // 待处理 / 处理中 视为未结案待跟进
+      // 仅统计新入库时显式标记的未读反馈，历史数据不在部署后突然全部标红。
       const [pendingRes, highRiskRes] = await Promise.all([
-        db.collection('cicada_feedbacks').where({ status: dbCmd.in(['待处理', '处理中']) }).count(),
+        db.collection('cicada_feedbacks').where({ is_read: false }).count(),
         db.collection('cicada_feedbacks').where({
           urgency: '高危',
           status: dbCmd.in(['待处理', '处理中', '已回复', '已升级'])
@@ -1085,7 +1201,8 @@ module.exports = {
   async getFeedbackList(params) {
     try {
       const { token, status, type, urgency, keyword, page, pageSize } = getRequestData(this, params)
-      await verifyAdminToken(token, PERMISSIONS.view_feedback)
+      const currentAdmin = await verifyAdminPermission(token, 'view_feedback')
+      const canViewFullContact = hasUserPermission(currentAdmin, 'view_customer_phone')
       const dbCmd = db.command
       const { page: pageNum, pageSize: limit } = fbPage(page, pageSize)
 
@@ -1132,7 +1249,7 @@ module.exports = {
           content: item.content,
           images: item.images || [],
           contact_type: item.contact_type || '',
-          contact_value: item.contact_value || '',
+          contact_value: canViewFullContact ? (item.contact_value || '') : maskContactValue(item.contact_value),
           rel_order_no: item.rel_order_no || '',
           status: item.status || '待处理',
           urgency: item.urgency || '普通',
@@ -1146,11 +1263,13 @@ module.exports = {
           visit_satisfaction: item.visit_satisfaction || '',
           visit_opinion: item.visit_opinion || '',
           upgrade_note: item.upgrade_note || '',
+          is_read: item.is_read !== false,
+          read_time: item.read_time || 0,
           create_time: item.create_time || 0,
           handled_time: item.handled_time || 0,
           update_time: item.update_time || 0,
           customerName: u.name || u.nickname || '',
-          customerPhone: u.phone || ''
+          customerPhone: canViewFullContact ? (u.phone || '') : maskContactValue(u.phone)
         }
       })
 
@@ -1160,11 +1279,101 @@ module.exports = {
     }
   },
 
+  async getPermissionCatalog(params) {
+    try {
+      const { token } = getRequestData(this, params)
+      const operator = await verifyAdminPermission(token, 'view_staff')
+      const catalog = getPermissionCatalogForManager()
+      if (operator.role !== 'superadmin') {
+        catalog.roles = catalog.roles.filter(item => item.role !== 'superadmin')
+        delete catalog.roleTemplates.superadmin
+      }
+      return { code: 0, data: catalog }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  async getMyPermissions(params) {
+    try {
+      const { token } = getRequestData(this, params)
+      const user = await verifyAdminToken(token, STAFF_ROLES)
+      return {
+        code: 0,
+        data: {
+          role: user.role,
+          roleDisplay: ROLE_LABELS[user.role] || user.role,
+          permissions: getEffectivePermissions(user),
+          permissionVersion: 1
+        }
+      }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 管理员打开反馈详情后标记为已读。
+  async markFeedbackRead(params) {
+    try {
+      const { token, id } = getRequestData(this, params)
+      await verifyAdminPermission(token, 'view_feedback')
+      const feedback = await loadFeedback(id)
+      if (feedback.is_read === true) return { code: 0, msg: '反馈已读' }
+
+      await db.collection('cicada_feedbacks').doc(feedback._id).update({
+        is_read: true,
+        read_time: new Date()
+      })
+      return { code: 0, msg: '已标记为已读' }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
+  // 批量删除反馈，单次最多 100 条。
+  async deleteFeedbacks(params) {
+    try {
+      const { token, ids } = getRequestData(this, params)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
+      const feedbackIds = [...new Set((Array.isArray(ids) ? ids : []).map(id => fbText(id, 60)).filter(Boolean))]
+      if (!feedbackIds.length) return { code: -1, msg: '请选择要删除的反馈' }
+      if (feedbackIds.length > 100) return { code: -1, msg: '单次最多删除100条反馈' }
+
+      const col = db.collection('cicada_feedbacks')
+      const feedbackRes = await col.where({ _id: db.command.in(feedbackIds) }).get()
+      const feedbacks = feedbackRes.data || []
+      if (!feedbacks.length) return { code: -1, msg: '所选反馈不存在或已被删除' }
+
+      let deletedCount = 0
+      for (let offset = 0; offset < feedbacks.length; offset += 10) {
+        const batch = feedbacks.slice(offset, offset + 10)
+        const batchResults = await Promise.all(batch.map(async feedback => {
+          const removeRes = await col.doc(feedback._id).remove()
+          const deleted = Number(removeRes.deleted || 0)
+          if (!deleted) return 0
+          await writeFeedbackEvent(
+            operator,
+            feedback,
+            'feedback_delete',
+            { type: feedback.type || '', status: feedback.status || '', content: fbText(feedback.content, 200) },
+            { deleted: true }
+          )
+          return deleted
+        }))
+        deletedCount += batchResults.reduce((sum, deleted) => sum + deleted, 0)
+      }
+      if (!deletedCount) return { code: -1, msg: '所选反馈已被删除，请刷新列表' }
+      return { code: 0, data: { deleted: deletedCount }, msg: `已删除${deletedCount}条反馈` }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   // 分配负责人
   async assignFeedback(params) {
     try {
       const { token, id, handler_id } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
 
       let handlerName = ''
@@ -1197,7 +1406,7 @@ module.exports = {
   async setFeedbackUrgency(params) {
     try {
       const { token, id, urgency } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
       const level = fbText(urgency, 10)
       if (!['普通', '重要', '高危'].includes(level)) return { code: -1, msg: '紧急等级不正确' }
@@ -1212,7 +1421,7 @@ module.exports = {
   async linkFeedbackOrder(params) {
     try {
       const { token, id, order_no } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
       const targetOrderNo = fbText(order_no, 40)
 
@@ -1239,7 +1448,7 @@ module.exports = {
   async replyFeedback(params) {
     try {
       const { token, id, reply, process_result, process_note, status } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
 
       const replyText = fbText(reply, 1000)
@@ -1275,7 +1484,7 @@ module.exports = {
   async recordFeedbackVisit(params) {
     try {
       const { token, id, satisfaction, opinion } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
       const level = fbText(satisfaction, 10)
       if (!['满意', '一般', '不满意'].includes(level)) return { code: -1, msg: '请选择满意度' }
@@ -1301,7 +1510,7 @@ module.exports = {
   async closeFeedback(params) {
     try {
       const { token, id } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
       if (!feedback.visit_time) return { code: -1, msg: '请先完成回访登记再结案' }
       if (feedback.status === '已结案') return { code: -1, msg: '该反馈已结案' }
@@ -1319,7 +1528,7 @@ module.exports = {
   async upgradeFeedback(params) {
     try {
       const { token, id, note } = getRequestData(this, params)
-      const operator = await verifyAdminToken(token, PERMISSIONS.handle_feedback)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
       const feedback = await loadFeedback(id)
 
       await db.collection('cicada_feedbacks').doc(feedback._id).update({
@@ -1343,7 +1552,7 @@ module.exports = {
       } else if (this.params) {
         ({ token, settings } = this.params)
       }
-      const operator = await verifyAdminToken(token, ['admin'])
+      const operator = await verifyAdminPermission(token, 'manage_settings')
 
       if (!settings || typeof settings !== 'object') {
         return { code: -1, msg: '配置数据格式不正确' }
@@ -1400,7 +1609,8 @@ module.exports = {
       } else if (this.params) {
         ({ token, page = 1, pageSize = 20, keyword = '', status = '' } = this.params)
       }
-      await verifyAdminToken(token, ['admin', 'support'])
+      const currentAdmin = await verifyAdminPermission(token, 'view_feedback')
+      const canViewFullContact = hasUserPermission(currentAdmin, 'view_customer_phone')
       const pagination = fbPage(page, pageSize)
       const where = {}
       const kw = fbText(keyword, 80)
@@ -1427,7 +1637,10 @@ module.exports = {
       return {
         code: 0,
         data: {
-          list: listRes.data || [],
+          list: (listRes.data || []).map(item => ({
+            ...item,
+            contact: canViewFullContact ? (item.contact || '') : maskContactValue(item.contact)
+          })),
           total: countRes.total || 0,
           page: pagination.page,
           pageSize: pagination.pageSize
@@ -1446,7 +1659,7 @@ module.exports = {
       } else if (this.params) {
         ({ token, id, status } = this.params)
       }
-      await verifyAdminToken(token, ['admin', 'support'])
+      await verifyAdminPermission(token, 'handle_feedback')
       const surveyId = fbText(id, 60)
       const nextStatus = fbText(status, 30)
       if (!surveyId) return { code: -1, msg: '缺少调研记录ID' }
@@ -1461,6 +1674,36 @@ module.exports = {
     }
   },
 
+  // 管理员批量删除调研记录，单次最多 100 条，并保留审计记录。
+  async deleteSurveys(params) {
+    try {
+      let token, ids
+      if (params && params.token) ({ token, ids } = params)
+      else if (this.params) ({ token, ids } = this.params)
+      const operator = await verifyAdminPermission(token, 'handle_feedback')
+      const surveyIds = [...new Set((Array.isArray(ids) ? ids : []).map(id => fbText(id, 60)).filter(Boolean))]
+      if (!surveyIds.length) return { code: -1, msg: '请选择要删除的调研记录' }
+      if (surveyIds.length > 100) return { code: -1, msg: '单次最多删除100条调研记录' }
+      const col = db.collection('cicada_surveys')
+      const found = await col.where({ _id: db.command.in(surveyIds) }).get()
+      const surveys = found.data || []
+      if (!surveys.length) return { code: -1, msg: '所选调研记录不存在或已被删除' }
+      let deleted = 0
+      for (const survey of surveys) {
+        const result = await col.doc(survey._id).remove()
+        if (!Number(result.deleted || 0)) continue
+        deleted += 1
+        await writeAdminLog(operator, 'survey_delete', { id: survey._id, name: survey.order_no || survey.contact || '' }, {
+          satisfaction: survey.satisfaction || '', rating: survey.rating || '', status: survey.status || ''
+        })
+      }
+      if (!deleted) return { code: -1, msg: '所选调研记录已被删除，请刷新列表' }
+      return { code: 0, data: { deleted }, msg: `已删除${deleted}条调研记录` }
+    } catch (e) {
+      return { code: -1, msg: e.message }
+    }
+  },
+
   async getGuides(params) {
     try {
       let token
@@ -1469,7 +1712,7 @@ module.exports = {
       } else if (this.params) {
         ({ token } = this.params)
       }
-      await verifyAdminToken(token, ['admin'])
+      await verifyAdminPermission(token, 'manage_kb')
 
       await ensureGuideDefaults()
       const res = await db.collection('cicada_guides').orderBy('sort', 'asc').get()
@@ -1483,7 +1726,7 @@ module.exports = {
     try {
       const data = (params && params.token) ? params : (this.params || {})
       const { token, guide_id } = data
-      await verifyAdminToken(token, ['admin'])
+      await verifyAdminPermission(token, 'manage_kb')
 
       if (!guide_id) {
         return { code: -1, msg: '参数不完整' }
@@ -1516,7 +1759,7 @@ module.exports = {
     try {
       const data = (params && params.token) ? params : (this.params || {})
       const { token } = data
-      await verifyAdminToken(token, ['admin'])
+      await verifyAdminPermission(token, 'manage_kb')
 
       const category = String(data.category || '').trim()
       if (!category) return { code: -1, msg: '请填写教程栏目/分类' }
@@ -1549,7 +1792,7 @@ module.exports = {
     try {
       const data = (params && params.token) ? params : (this.params || {})
       const { token, guide_id } = data
-      await verifyAdminToken(token, ['admin'])
+      await verifyAdminPermission(token, 'manage_kb')
 
       if (!guide_id) return { code: -1, msg: '参数不完整' }
 
@@ -1577,7 +1820,7 @@ module.exports = {
   // 全体员工可上传（如财务上传发票PDF）；敏感性由「引用该文件的方法」各自鉴权（如 update_invoice）
   async uploadFile(params) {
     try {
-      return await uploadAdminFile(this, params, 'guides/', ['admin', 'finance', 'engineer', 'support'])
+      return await uploadAdminFile(this, params, 'guides/')
     } catch (e) {
       return { code: -1, msg: e.message }
     }
@@ -1596,7 +1839,7 @@ module.exports = {
     try {
       const data = getRequestData(this, params)
       const { token, keyPrefix } = data
-      await verifyAdminToken(token, ['admin', 'finance', 'engineer', 'support'])
+      await verifyAdminPermission(token, 'manage_settings')
       const policy = await issueOssUploadPolicy(keyPrefix || 'product-video/')
       return { code: 0, data: policy }
     } catch (e) {

@@ -54,7 +54,8 @@ const orders = [
   {
     _id: 'order001',
     order_no: 'WX20260609001',
-    status: 'pending',
+    status: 'sent',
+    arrival_confirm_status: 'pending',
     user_id: 'user001',
     create_time: now - 3600000,
     update_time: now - 1800000,
@@ -174,6 +175,8 @@ const orders = [
     ]
   }
 ]
+
+let staleReceiptListSnapshot = null
 
 const feedbacks = [
   {
@@ -482,7 +485,15 @@ const handleAdminOrder = (method, body) => {
     })
   }
   if (method === 'getAdminOrderList') {
-    const list = filterOrders(body)
+    let list = filterOrders(body)
+    if (staleReceiptListSnapshot && !body.status) {
+      const staleIndex = list.findIndex(order => order._id === staleReceiptListSnapshot._id)
+      if (staleIndex >= 0) {
+        list = [...list]
+        list[staleIndex] = staleReceiptListSnapshot
+        staleReceiptListSnapshot = null
+      }
+    }
     const page = Number(body.page || 1)
     const pageSize = Number(body.pageSize || list.length || 20)
     const start = (page - 1) * pageSize
@@ -563,6 +574,15 @@ const handleAdminOrder = (method, body) => {
     order.update_time = Date.now()
     return ok(order)
   }
+  if (method === 'confirmInboundArrival' && order) {
+    staleReceiptListSnapshot = JSON.parse(JSON.stringify(order))
+    order.status = 'received'
+    order.arrival_confirm_status = 'confirmed'
+    order.arrival_confirmed_at = Date.now()
+    order.ship_out_info = { ...(order.ship_out_info || {}), received_at: Date.now() }
+    order.update_time = Date.now()
+    return ok(order)
+  }
   if (method === 'updateOrderStatus' && order) {
     order.status = body.status || order.status
     order.update_time = Date.now()
@@ -624,8 +644,44 @@ const handleAdminOrder = (method, body) => {
     })
   }
 
-  if (method === 'batchUpdateShipping' || method === 'batchImportReturnLogistics' || method === 'batchImportLogistics') {
-    return ok({ success: true, total: Array.isArray(body.rows) ? body.rows.length : 0, failed: [] })
+  if (method === 'batchImportReturnLogistics' || method === 'batchImportLogistics') {
+    const rows = Array.isArray(body.rows) ? body.rows : []
+    const inbound = method === 'batchImportLogistics' && body.type === 'inbound'
+    const updatedOrders = []
+    const errors = []
+    for (const row of rows) {
+      const orderNo = row.orderNo || row.order_no || row.orderId || row.order_id
+      const target = orders.find(item => item.order_no === orderNo)
+      if (!target) {
+        errors.push({ orderNo: orderNo || '-', reason: '工单不存在' })
+        continue
+      }
+      const company = row.logisticsCompany || row.logistics_company || row.returnCompany || row.return_company || ''
+      const trackingNo = row.logisticsNo || row.logistics_no || row.returnNo || row.return_no || ''
+      if (inbound) {
+        target.status = 'received'
+        target.ship_out_info = { ...(target.ship_out_info || {}), logistics_company: company, logistics_no: trackingNo, received_at: Date.now() }
+        target.arrival_confirm_status = 'confirmed'
+      } else {
+        target.status = 'shipped'
+        target.ship_back_info = { ...(target.ship_back_info || {}), logistics_company: company, logistics_no: trackingNo }
+      }
+      target.update_time = Date.now()
+      updatedOrders.push(target)
+    }
+    return ok({
+      type: inbound ? 'inbound' : 'return',
+      success: updatedOrders.length,
+      total: rows.length,
+      fail: errors.length,
+      failed: errors,
+      errors,
+      warnings: [],
+      orders: updatedOrders
+    })
+  }
+  if (method === 'batchUpdateShipping') {
+    return ok({ success: true, total: Array.isArray(body.shippingList) ? body.shippingList.length : 0, failed: [] })
   }
 
   return fail(`Unknown local admin-order method: ${method}`)

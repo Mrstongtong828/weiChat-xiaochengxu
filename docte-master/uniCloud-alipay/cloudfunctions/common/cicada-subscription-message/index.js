@@ -111,7 +111,9 @@ function getInvoiceHint(order = {}) {
   const blockReason = getInvoiceRequestBlockReason(order)
   if (blockReason) {
     if (blockReason.includes('确认对公款项')) return '款项核销后可申请发票'
+    if (blockReason.includes('确认微信支付')) return '微信支付到账后可申请发票'
     if (blockReason.includes('完成并结单')) return '检修结单后可申请发票'
+    if (blockReason.includes('支付方式')) return '当前支付方式暂不支持发票'
     return '当前订单暂不支持申请发票'
   }
   if (invoiceInfo.need_invoice || status === '待开票' || status === '开具中') return '预计7-15个工作日完成开票'
