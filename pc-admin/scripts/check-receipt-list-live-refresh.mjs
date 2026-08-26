@@ -31,8 +31,9 @@ assert.equal(absentRows.length, 1)
 const unsyncedSnapshot = { ...receivedSnapshot, status: '运输中', statusEn: 'sent' }
 assert.equal(preserveReceivedOrderSnapshot(staleRows, unsyncedSnapshot), staleRows)
 
-assert.match(workOrderSource, /const loadOrders = async \(\{ receiptSnapshot = null \} = \{\}\) =>/)
-assert.match(workOrderSource, /preserveReceivedOrderSnapshot\(result\.rows, receiptSnapshot\)/)
+assert.match(workOrderSource, /const loadOrders = async \(\{ receiptSnapshot = null, orderSnapshot = null \} = \{\}\) =>/)
+assert.match(workOrderSource, /const receiptSafeRows = preserveReceivedOrderSnapshot\(result\.rows, receiptSnapshot\)/)
+assert.match(workOrderSource, /orders\.value = preserveOrderSnapshot\(receiptSafeRows, orderSnapshot\)/)
 assert.match(workOrderSource, /if \(receiptSnapshot\) throw error/)
 assert.match(workOrderSource, /preserveReceiptSnapshot: statusSynced/)
 assert.match(mockSource, /staleReceiptListSnapshot/)

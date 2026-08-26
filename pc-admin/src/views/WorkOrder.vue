@@ -1911,11 +1911,12 @@ import { reuseReceivedPartsInRepairRecord } from '../modules/workOrders/received
 import { needsReceivedPartsStatusSync, selectPreferredDrawerStatus } from '../modules/workOrders/receivedPartsStatus.js'
 import { resolveOrderFaultFallback, resolveRepairFaultDescription } from '../modules/workOrders/repairRecordDefaults.js'
 import { transformOrder, transformOrders } from '../utils/orderTransform.js'
-import { preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
+import { preserveOrderSnapshot, preserveReceivedOrderSnapshot } from '../utils/orderListSnapshot.js'
 import { toEnglishStatus } from '../utils/orderStatus.js'
 import { formatOrderItems, openPrintWindow, parsePrintTemplates, pickPrintTemplate } from '../utils/orderPrint.js'
 import { uploadFileToCloud } from '../utils/upload.js'
 import { getQuotePublishPresentation, isManualWarrantyFreeItem, isWarrantyFreeSnapshot, resolveZeroPriceWarrantyAction } from '../utils/warrantyQuote.js'
+import { getRecommendedWorkflowTab, getWorkflowStageIndex, isRepairStageReady } from '../modules/workOrders/workflowPresentation.js'
 import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMethod, resolveCorporateAccount } from '../config/corporateAccount.js'
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
@@ -2151,6 +2152,9 @@ const getNextAction = (order = {}) => {
   if (['pending', 'draft'].includes(quoteStatus)) {
     return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
   }
+  if (quoteStatus === 'issued' && !isRepairStageReady(order, paymentStatus)) {
+    return { label: '待确认', desc: '等待客户确认报价或录入电话确认', type: 'warning' }
+  }
   if (order.chargeType === 'free' && ['issued', 'confirmed'].includes(quoteStatus)) {
     const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
     const inWarranty = Boolean(order.inWarranty ?? order.in_warranty)
@@ -2184,24 +2188,14 @@ const drawerWorkflowStages = [
 ]
 
 const getDrawerStageIndex = (order = {}) => {
-  if (order.status === '已完成' || order.returnNo || order.status === '已回寄') return 4
-  if (['处理中', '维修中'].includes(order.status)) return 3
-  const quoteStatus = order.quoteStatus || order.quote_status || ''
-  if (['issued', 'confirmed', 'rejected'].includes(quoteStatus) || Number(order.totalPrice || 0) > 0) return 2
-  if (['已签收', '检测中', '处理中', '维修中'].includes(order.status)) return 1
-  return 0
+  return getWorkflowStageIndex(order, resolvePaymentStatus(order))
 }
 
 const getRecommendedDrawerTab = (order = {}) => {
-  const quoteStatus = order.quoteStatus || order.quote_status || ''
-  const paymentStatus = resolvePaymentStatus(order)
-  const invoiceState = normalizeInvoiceStatus(order)
-  if (['pending', 'draft', ''].includes(quoteStatus) && !['已提交', '运输中'].includes(order.status)) return 'quote'
-  if (order.status === '已回寄' || order.returnNo || quoteStatus === 'rejected') return 'return'
-  if (['issued', 'confirmed'].includes(quoteStatus) && ['已签收', '处理中', '维修中'].includes(order.status)) return 'repair'
-  if (order.needInvoice && paymentStatus === 'paid' && !['已发票', '已寄出', '已签收'].includes(invoiceState)) return 'invoice'
-  if (paymentStatus === 'paid' || paymentStatus === 'not_required') return 'repair'
-  return 'base'
+  return getRecommendedWorkflowTab(order, {
+    paymentStatus: resolvePaymentStatus(order),
+    invoiceState: normalizeInvoiceStatus(order)
+  })
 }
 
 const getNextStepButtonText = (order = {}) => {
@@ -2851,7 +2845,7 @@ const getOrderQueryState = () => ({
   dateRange: listDateRange.value
 })
 
-const loadOrders = async ({ receiptSnapshot = null } = {}) => {
+const loadOrders = async ({ receiptSnapshot = null, orderSnapshot = null } = {}) => {
   loading.value = true
   let ownsLoading = true
   try {
@@ -2860,7 +2854,8 @@ const loadOrders = async ({ receiptSnapshot = null } = {}) => {
       ownsLoading = false
       return
     }
-    orders.value = preserveReceivedOrderSnapshot(result.rows, receiptSnapshot)
+    const receiptSafeRows = preserveReceivedOrderSnapshot(result.rows, receiptSnapshot)
+    orders.value = preserveOrderSnapshot(receiptSafeRows, orderSnapshot)
     totalOrders.value = result.total
     selectedOrders.value = []
   } catch (error) {
@@ -4011,8 +4006,55 @@ const mergeOrderSnapshot = (base, snapshot) => {
   if (hasOwn(snapshot, 'received_parts_receipt') || hasOwn(snapshot, 'receivedPartsReceipt')) {
     next.receivedPartsReceipt = transformed.receivedPartsReceipt
   }
+  if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'return_company') || hasOwn(snapshot, 'returnCompany')) {
+    next.returnCompany = snapshot.return_company ?? snapshot.returnCompany ?? transformed.returnCompany ?? next.returnCompany
+  }
+  if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'return_no') || hasOwn(snapshot, 'returnNo')) {
+    next.returnNo = snapshot.return_no ?? snapshot.returnNo ?? transformed.returnNo ?? next.returnNo
+  }
+  if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'shipped_at') || hasOwn(snapshot, 'shippedAt')) {
+    next.shippedAt = snapshot.shipped_at ?? snapshot.shippedAt ?? transformed.shippedAt ?? next.shippedAt
+  }
+  if (hasOwn(snapshot, 'quote_status') || hasOwn(snapshot, 'quoteStatus')) next.quoteStatus = transformed.quoteStatus
+  if (hasOwn(snapshot, 'authorization_status') || hasOwn(snapshot, 'authorizationStatus')) next.authorizationStatus = transformed.authorizationStatus
+  if (hasOwn(snapshot, 'authorization_time') || hasOwn(snapshot, 'authorizationTime')) next.authorizationTime = transformed.authorizationTime
+  if (hasOwn(snapshot, 'payment_status') || hasOwn(snapshot, 'paymentStatus')) next.paymentStatus = transformed.paymentStatus
+  if (hasOwn(snapshot, 'payment_deadline') || hasOwn(snapshot, 'paymentDeadline')) next.paymentDeadline = transformed.paymentDeadline
+  if (hasOwn(snapshot, 'quote_detail') || hasOwn(snapshot, 'quoteDetail')) next.quoteDetail = transformed.quoteDetail
+  if (hasOwn(snapshot, 'quote_items') || hasOwn(snapshot, 'quoteItems')) next.quoteItems = transformed.quoteItems
+  if (hasOwn(snapshot, 'quote_remark') || hasOwn(snapshot, 'quoteRemark')) next.quoteRemark = transformed.quoteRemark
+  if (hasOwn(snapshot, 'quote_time') || hasOwn(snapshot, 'quoteTime')) next.quoteTime = transformed.quoteTime
+  if (hasOwn(snapshot, 'parts_fee') || hasOwn(snapshot, 'partsFee')) next.partsFee = transformed.partsFee
+  if (hasOwn(snapshot, 'labor_fee') || hasOwn(snapshot, 'laborFee')) next.laborFee = transformed.laborFee
+  if (hasOwn(snapshot, 'total_price') || hasOwn(snapshot, 'totalPrice')) next.totalPrice = transformed.totalPrice
   if (Array.isArray(snapshot.itemsList)) next.itemsList = transformed.itemsList
   return next
+}
+
+const createMutationSnapshot = (order = {}, result = {}) => ({
+  ...result,
+  _id: order._id,
+  order_no: order.id,
+  update_time: result.update_time ?? result.updateTime ?? Date.now()
+})
+
+const createReturnShipmentSnapshot = (order = {}, returnCompany = '', returnNo = '') => {
+  const updateTime = Date.now()
+  return {
+    _id: order._id,
+    order_no: order.id,
+    statusEn: 'shipped',
+    returnCompany,
+    returnNo,
+    shippedAt: updateTime,
+    updateTime,
+    needsReturn: false,
+    archiveStatus: order.needsReturn ? 'returned' : order.archiveStatus,
+    timeline: [
+      ...(Array.isArray(order.timeline) ? order.timeline : []),
+      { title: '回寄发货', desc: `${returnCompany || '物流'} ${returnNo}`, time: updateTime, done: true }
+    ]
+  }
 }
 
 // 变更接口成功后先应用服务端快照，再刷新列表；即使筛选条件让工单离开列表，也不会残留旧状态。
@@ -4444,8 +4486,9 @@ const confirmQuickShip = async () => {
   quickStatusLoading.value = true
   try {
     const token = localStorage.getItem('adminToken')
+    const orderBeforeShipment = currentQuickOrder.value
     const result = await batchUpdateShipping(token, [{
-      orderNo: currentQuickOrder.value.id,
+      orderNo: orderBeforeShipment.id,
       returnCompany,
       returnNo
     }])
@@ -4453,10 +4496,14 @@ const confirmQuickShip = async () => {
       const reason = result && result.errors && result.errors[0] ? result.errors[0].reason : '快捷发货失败'
       throw new Error(reason)
     }
+    const shipmentSnapshot = applyOrderSnapshot(
+      createReturnShipmentSnapshot(orderBeforeShipment, returnCompany, returnNo),
+      orderBeforeShipment
+    ) || orderBeforeShipment
     ElMessage.success('快捷发货更新成功')
     quickShipDialogVisible.value = false
-    await Promise.all([loadOrders(), refreshStatusBreakdown()])
-    syncCurrentOrderFromList(currentQuickOrder.value)
+    await Promise.all([loadOrders({ orderSnapshot: shipmentSnapshot }), refreshStatusBreakdown()])
+    syncCurrentOrderFromList(orderBeforeShipment)
   } catch (error) {
     ElMessage.error(error.message || '快捷发货失败')
   } finally {
@@ -4606,28 +4653,13 @@ const saveOrderQuote = async (status = 'draft') => {
   quoteSaving.value = true
   try {
     const token = localStorage.getItem('adminToken')
-    const result = await updateOrderQuote(token, currentOrder.value._id, payload)
+    const orderBeforeQuote = currentOrder.value
+    const result = await updateOrderQuote(token, orderBeforeQuote._id, payload)
+    const quoteSnapshot = applyOrderSnapshot(createMutationSnapshot(orderBeforeQuote, result), orderBeforeQuote) || orderBeforeQuote
     ElMessage.success(status === 'issued' ? '报价已发布' : '报价草稿已保存')
-    await loadOrders()
-    const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-    const updatedOrder = fresh || (result
-      ? {
-          ...currentOrder.value,
-          quoteDetail: result.quote_detail ?? result.quoteDetail ?? currentOrder.value.quoteDetail,
-          quoteItems: result.quote_items ?? result.quoteItems ?? currentOrder.value.quoteItems,
-          quoteStatus: result.quote_status ?? result.quoteStatus ?? status,
-          quoteRemark: result.quote_remark ?? result.quoteRemark ?? currentOrder.value.quoteRemark,
-          quoteTime: result.quote_update_time ?? result.quoteTime ?? currentOrder.value.quoteTime,
-          paymentDeadline: result.payment_deadline ?? result.paymentDeadline ?? currentOrder.value.paymentDeadline,
-          partsFee: Number(result.parts_fee ?? result.partsFee ?? currentOrder.value.partsFee ?? 0),
-          laborFee: Number(result.labor_fee ?? result.laborFee ?? currentOrder.value.laborFee ?? 0),
-          totalPrice: Number(result.total_price ?? result.totalPrice ?? currentOrder.value.totalPrice ?? total),
-          paymentStatus: result.payment_status ?? result.paymentStatus ?? currentOrder.value.paymentStatus,
-          needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
-          archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
-          timeline: result.timeline ?? currentOrder.value.timeline
-        }
-      : null)
+    await loadOrders({ orderSnapshot: quoteSnapshot })
+    const fresh = orders.value.find(item => item._id === orderBeforeQuote._id)
+    const updatedOrder = fresh || quoteSnapshot
     if (updatedOrder) {
       currentOrder.value = updatedOrder
       resetQuoteForm(updatedOrder)
@@ -4643,17 +4675,11 @@ const saveOrderQuote = async (status = 'draft') => {
 const phoneDecisionSaving = ref(false)
 
 const refreshOrderAfterDecision = async (result = {}) => {
-  await loadOrders()
-  const fresh = orders.value.find(item => item._id === currentOrder.value._id)
-  const updatedOrder = fresh || {
-    ...currentOrder.value,
-    quoteStatus: result.quote_status ?? result.quoteStatus ?? currentOrder.value.quoteStatus,
-    authorizationStatus: result.authorization_status ?? result.authorizationStatus ?? currentOrder.value.authorizationStatus,
-    status: result.status ?? result.status ?? currentOrder.value.status,
-    needsReturn: result.needs_return ?? result.needsReturn ?? currentOrder.value.needsReturn,
-    archiveStatus: result.archive_status ?? result.archiveStatus ?? currentOrder.value.archiveStatus,
-    timeline: result.timeline ?? currentOrder.value.timeline
-  }
+  const orderBeforeDecision = currentOrder.value
+  const decisionSnapshot = applyOrderSnapshot(createMutationSnapshot(orderBeforeDecision, result), orderBeforeDecision) || orderBeforeDecision
+  await loadOrders({ orderSnapshot: decisionSnapshot })
+  const fresh = orders.value.find(item => item._id === orderBeforeDecision._id)
+  const updatedOrder = fresh || decisionSnapshot
   currentOrder.value = updatedOrder
   resetQuoteForm(updatedOrder)
   activeDrawerTab.value = getRecommendedDrawerTab(updatedOrder)
