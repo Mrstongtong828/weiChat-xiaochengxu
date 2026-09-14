@@ -14,8 +14,8 @@
     </div>
 
     <el-tabs v-model="activeCategory" class="feedback-tabs" @tab-change="switchCategory">
-      <el-tab-pane label="投诉" name="complaint" />
       <el-tab-pane label="建议" name="suggestion" />
+      <el-tab-pane label="投诉" name="complaint" />
       <el-tab-pane label="调研有礼" name="survey" />
     </el-tabs>
 
@@ -133,11 +133,19 @@
     <SurveyManagement v-else />
   </div>
 
-  <el-dialog v-model="dialogVisible" title="反馈处理" width="640px" align-center top="6vh">
+  <el-drawer
+    v-model="dialogVisible"
+    title="反馈处理"
+    direction="rtl"
+    size="640px"
+    append-to-body
+    destroy-on-close
+    class="feedback-processing-drawer"
+  >
     <template v-if="current">
       <!-- 反馈原始信息 -->
-      <div v-if="canHandleFeedback" class="block">
-        <div class="block-title">反馈信息</div>
+      <div class="block">
+        <div class="block-title">反馈信息（客户填写，只读）</div>
         <div class="info-grid">
           <div><label>客户</label><span>{{current.customerName || '未提供'}}</span></div>
           <div><label>电话</label><span>{{current.customerPhone || current.contact_value || '—'}}</span></div>
@@ -207,7 +215,7 @@
       </div>
 
       <!-- 回访 -->
-      <div class="block">
+      <div v-if="canHandleFeedback" class="block">
         <div class="block-title">
           回访登记
           <span v-if="current.visit_satisfaction" class="visited">已回访 · {{current.visit_satisfaction}}</span>
@@ -233,7 +241,7 @@
       <el-button v-if="canHandleFeedback" type="success" :loading="closing" @click="doClose">结案</el-button>
       <el-button @click="dialogVisible = false">关闭</el-button>
     </template>
-  </el-dialog>
+  </el-drawer>
 
 </template>
 
@@ -269,14 +277,14 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
 
-const activeCategory = ref('complaint')
+const activeCategory = ref('suggestion')
 const dashboardStats = reactive({ complaint: 0, suggestion: 0, survey: 0 })
 const dashboardCards = computed(() => [
-  { key: 'complaint', label: '投诉', value: dashboardStats.complaint, desc: '客户投诉记录' },
   { key: 'suggestion', label: '建议', value: dashboardStats.suggestion, desc: '客户建议记录' },
+  { key: 'complaint', label: '投诉', value: dashboardStats.complaint, desc: '客户投诉记录' },
   { key: 'survey', label: '调研有礼', value: dashboardStats.survey, desc: '调研表填写记录' }
 ])
-const filters = reactive({ status: '全部', type: '投诉', urgency: '全部', keyword: '' })
+const filters = reactive({ status: '全部', type: '建议', urgency: '全部', keyword: '' })
 
 const dialogVisible = ref(false)
 const current = ref(null)
@@ -549,6 +557,9 @@ onMounted(() => {
 .pager { margin-top: 16px; display: flex; justify-content: flex-end; }
 
 .block { border: 1px solid #f0f2f5; border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+.feedback-processing-drawer :deep(.el-drawer__body) { padding: 0 20px 20px; background: #fbfcfe; }
+.feedback-processing-drawer :deep(.el-drawer__header) { margin-bottom: 0; padding: 18px 20px; border-bottom: 1px solid #eef1f5; background: #fff; }
+.feedback-processing-drawer :deep(.el-drawer__footer) { padding: 12px 20px; border-top: 1px solid #eef1f5; background: #fff; }
 .block-title { font-weight: 600; color: #1d2129; margin-bottom: 12px; display: flex; align-items: center; gap: 10px; }
 .visited { font-size: 12px; color: #67c23a; font-weight: 400; }
 .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; margin-bottom: 10px; }

@@ -3,7 +3,7 @@
     <div class="corporate-account__heading">
       <el-icon><OfficeBuilding /></el-icon>
       <div>
-        <strong>对公收款账户</strong>
+        <strong>付款账户信息</strong>
         <span>客户转账时备注工单编号，财务以银行流水为准核销</span>
       </div>
     </div>
@@ -19,6 +19,10 @@
       <div>
         <dt>账号</dt>
         <dd class="corporate-account__number">{{ account.accountNo }}</dd>
+      </div>
+      <div>
+        <dt>备注要求</dt>
+        <dd>转账时请备注工单编号</dd>
       </div>
     </dl>
   </section>
@@ -49,7 +53,7 @@ defineProps({
 .corporate-account__heading div { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
 .corporate-account__heading strong { font-size: 14px; }
 .corporate-account__heading span { color: #6b7785; font-size: 12px; line-height: 1.5; }
-.corporate-account__details { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 14px; margin: 0; }
+.corporate-account__details { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0; }
 .corporate-account__details div { min-width: 0; }
 .corporate-account__details dt { margin-bottom: 4px; color: #86909c; font-size: 12px; }
 .corporate-account__details dd { margin: 0; overflow-wrap: anywhere; color: #1d2129; font-size: 13px; font-weight: 600; line-height: 1.5; }
@@ -58,5 +62,9 @@ defineProps({
 @media screen and (max-width: 900px) {
   .corporate-account { grid-template-columns: 1fr; }
   .corporate-account__details { grid-template-columns: 1fr; }
+}
+
+@media screen and (max-width: 640px) {
+  .corporate-account__details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

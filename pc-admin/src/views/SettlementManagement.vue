@@ -219,8 +219,8 @@
 </template>
 
 <script setup>
-import { reactive, ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { reactive, ref, computed, watch, onMounted, nextTick } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getSettlementList } from '../api/settlement.js'
 import { updatePaymentStatus } from '../api/order.js'
@@ -230,13 +230,14 @@ import { Document } from '@element-plus/icons-vue'
 import { getPaymentMethodLabel, resolveCorporateAccount } from '../config/corporateAccount.js'
 
 const router = useRouter()
+const route = useRoute()
 const rows = ref([])
 const loading = ref(false)
 const confirmingOrderId = ref('')
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-const filters = reactive({ keyword: '', paymentStatus: '', paymentMethod: '' })
+const filters = reactive({ keyword: String(route.query.keyword || ''), paymentStatus: '', paymentMethod: '' })
 const corporateAccount = ref(resolveCorporateAccount())
 const getToken = () => localStorage.getItem('adminToken')
 
@@ -264,6 +265,15 @@ const loadSettlements = async () => {
     })
     rows.value = data.list || []
     total.value = Number(data.total || 0)
+    const target = String(route.query.keyword || '').trim()
+    if (target) {
+      const matched = rows.value.find(row => String(row.order_no || '').trim() === target)
+      if (matched) {
+        await nextTick()
+        openDetail(matched)
+        router.replace({ path: '/finance', query: { tab: 'settlement' } })
+      }
+    }
   } catch (error) {
     ElMessage.error(error.message || '结算列表加载失败')
   } finally {

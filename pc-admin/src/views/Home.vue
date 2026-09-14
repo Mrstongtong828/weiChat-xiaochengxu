@@ -101,6 +101,15 @@
     </section>
 
     <section class="todo-section">
+      <section class="feedback-board" v-loading="feedbackBoardLoading">
+        <div class="section-header"><div><h3>客户反馈</h3><p class="section-helper">投诉与建议的最新汇总</p></div><el-button type="primary" link @click="navigateTo('feedback', '')">查看投诉建议 <el-icon><ArrowRight /></el-icon></el-button></div>
+        <div class="feedback-board-grid">
+          <div class="feedback-board-total"><span>反馈总量</span><strong>{{ feedbackBoard.total }}</strong><small>未读 {{ feedbackBoard.unread }} 条</small></div>
+          <button type="button" class="feedback-board-metric is-complaint" @click="navigateTo('feedback', 'complaint')"><span>投诉</span><strong>{{ feedbackBoard.complaint }}</strong><div class="feedback-bar"><i :style="{ width: feedbackBoard.complaintRate + '%' }"></i></div><small>{{ feedbackBoard.complaintRate }}% · 需要优先跟进</small></button>
+          <button type="button" class="feedback-board-metric is-suggestion" @click="navigateTo('feedback', 'suggestion')"><span>建议</span><strong>{{ feedbackBoard.suggestion }}</strong><div class="feedback-bar"><i :style="{ width: feedbackBoard.suggestionRate + '%' }"></i></div><small>{{ feedbackBoard.suggestionRate }}% · 可转为改进任务</small></button>
+          <div class="feedback-board-metric is-survey"><span>调研有礼</span><strong>{{ feedbackBoard.survey }}</strong><small>客户调研填写记录</small></div>
+        </div>
+      </section>
       <div class="section-header">
         <div>
           <h3>待办中心</h3>
@@ -124,12 +133,12 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ChatLineRound, CircleCheck, Document, Money, Tickets, Timer } from '@element-plus/icons-vue'
 import { getStatistics, getTodoSummary, getDashboardSummary } from '../api/order.js'
-import { getFeedbackStats } from '../api/admin.js'
+import { getFeedbackStats, getFeedbackList } from '../api/admin.js'
 import { canAccessMenu } from '../config/menuAccess.js'
 import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../utils/dateRange.js'
 import RingChart from '../components/ui/RingChart.vue'
@@ -149,6 +158,8 @@ const stats = ref({ pendingCount: 0, todayCount: 0, unreadCount: 0 })
 const todoGroups = ref([])
 const todoLoading = ref(false)
 const todoError = ref('')
+const feedbackBoardLoading = ref(false)
+const feedbackBoard = reactive({ total: 0, unread: 0, complaint: 0, suggestion: 0, survey: 0, complaintRate: 0, suggestionRate: 0 })
 
 // 经营概览 + 数据看板：仅管理 / 财务可见（原依附 summary 权限，运营统计页已并入本页，
 // 改依附 finance 权限——角色完全相同 superadmin/admin/finance，可见范围不变）
@@ -360,10 +371,14 @@ const loadStats = async () => {
   todoLoading.value = true
   todoError.value = ''
   try {
-    const [orderStats, feedbackStats, todoSummary] = await Promise.all([
+    feedbackBoardLoading.value = true
+    const [orderStats, feedbackStats, todoSummary, complaints, suggestions, surveys] = await Promise.all([
       getStatistics(token),
       getFeedbackStats(token),
-      getTodoSummary(token)
+      getTodoSummary(token),
+      getFeedbackList(token, { type: '投诉', status: '全部', page: 1, pageSize: 1 }),
+      getFeedbackList(token, { type: '建议', status: '全部', page: 1, pageSize: 1 }),
+      getFeedbackList(token, { type: '调研有礼', status: '全部', page: 1, pageSize: 1 })
     ])
     stats.value = {
       pendingCount: orderStats.pendingCount || 0,
@@ -371,12 +386,20 @@ const loadStats = async () => {
       unreadCount: feedbackStats.unreadCount || 0
     }
     todoGroups.value = Array.isArray(todoSummary.groups) ? todoSummary.groups : []
+    feedbackBoard.unread = Number(feedbackStats.unreadCount || 0)
+    feedbackBoard.complaint = Number(complaints?.total || 0)
+    feedbackBoard.suggestion = Number(suggestions?.total || 0)
+    feedbackBoard.survey = Number(surveys?.total || 0)
+    feedbackBoard.total = feedbackBoard.complaint + feedbackBoard.suggestion + feedbackBoard.survey
+    feedbackBoard.complaintRate = feedbackBoard.total ? Math.round(feedbackBoard.complaint / feedbackBoard.total * 100) : 0
+    feedbackBoard.suggestionRate = feedbackBoard.total ? Math.round(feedbackBoard.suggestion / feedbackBoard.total * 100) : 0
   } catch (e) {
     console.error('加载统计数据失败:', e)
     todoError.value = e.message || '待办数据加载失败'
     ElMessage.error(todoError.value)
   } finally {
     todoLoading.value = false
+    feedbackBoardLoading.value = false
   }
 }
 
@@ -510,6 +533,23 @@ onMounted(() => {
 .stat-card p { margin: 8px 0 0; color: #536783; line-height: 1.5; font-size: 13px; }
 .stat-footer, .todo-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto; padding-top: 11px; border-top: 1px solid #eef3f8; color: #93a0b2; font-size: 12px; }.stat-footer span:last-child, .todo-footer span:last-child { color: #2563eb; font-weight: 700; }
 .todo-section { display: grid; gap: 12px; }
+.feedback-board { display: grid; gap: 12px; margin-bottom: 8px; }
+.feedback-board .section-helper { margin: 4px 0 0; }
+.feedback-board-grid { display: grid; grid-template-columns: 1.05fr repeat(3, minmax(0, 1fr)); gap: 10px; }
+.feedback-board-total, .feedback-board-metric { min-height: 118px; padding: 16px; border: 1px solid #e5ebf3; border-radius: 10px; background: #fff; text-align: left; }
+.feedback-board-total { display: flex; flex-direction: column; justify-content: center; background: linear-gradient(135deg, #eff6ff, #fff); }
+.feedback-board-total span, .feedback-board-metric span { color: #52637a; font-size: 13px; font-weight: 600; }
+.feedback-board-total strong { margin-top: 6px; color: #17212f; font-size: 30px; line-height: 1; }
+.feedback-board-total small, .feedback-board-metric small { margin-top: 8px; color: #86909c; font-size: 12px; }
+.feedback-board-metric { display: flex; flex-direction: column; cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+.feedback-board-metric:hover { transform: translateY(-2px); box-shadow: 0 5px 14px rgba(30, 111, 224, .1); }
+.feedback-board-metric strong { margin-top: 8px; color: #17212f; font-size: 28px; line-height: 1; }
+.feedback-board-metric.is-complaint { border-top: 3px solid #e65f5c; }
+.feedback-board-metric.is-suggestion { border-top: 3px solid #2f86c7; }
+.feedback-board-metric.is-survey { border-top: 3px solid #45a070; cursor: default; }
+.feedback-bar { height: 6px; margin-top: auto; overflow: hidden; border-radius: 999px; background: #edf1f6; }
+.feedback-bar i { display: block; height: 100%; border-radius: inherit; background: #e65f5c; }
+.is-suggestion .feedback-bar i { background: #2f86c7; }
 .section-header { margin-top: 10px; justify-content: flex-start; }
 .section-header h3 { margin: 0; font-size: 28px; font-weight: 900; color: #0f172a; }
 .todo-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -526,6 +566,7 @@ onMounted(() => {
 .dashboard-section { gap: 10px; }.dashboard-header { margin-top: 6px; align-items: center; }.dashboard-header h3 { position: relative; margin: 0; padding-left: 12px; font-size: 18px; line-height: 24px; }.dashboard-header h3::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 0; width: 3px; border-radius: 3px; background: #2563eb; }.dashboard-grid { gap: 12px; }.reference-chart-card { min-height: 306px; }.reference-chart-card :deep(.el-card__body) { min-height: 306px; padding: 16px 18px; }.reference-chart-card .ring-card-title { margin-bottom: 0; font-size: 15px; }.reference-chart-card :deep(.ring-chart) { height: 250px; }.money-card { gap: 6px; justify-content: flex-start; }.money-figure { margin-top: 8px; }.money-value { font-size: 35px; }.money-symbol { font-size: 18px; }.money-sub { font-size: 13px; }.money-chart { flex: 1; min-height: 0; margin-top: 2px; }.money-chart :deep(.line-chart) { height: 124px; }.money-chart-empty { flex: 1; display: grid; min-height: 124px; place-items: center; color: #94a3b8; font-size: 13px; }.money-foot { padding-top: 6px; font-size: 13px; }
 .todo-section { margin-top: 4px; gap: 10px; }.section-header { margin-top: 0; }.section-header h3 { position: relative; padding-left: 12px; font-size: 18px; line-height: 24px; }.section-header h3::before { content: ''; position: absolute; top: 2px; bottom: 2px; left: 0; width: 3px; border-radius: 3px; background: #2563eb; }.todo-grid { gap: 10px; }.todo-card { min-height: 112px; border-radius: 8px; }.todo-card :deep(.el-card__body) { min-height: 112px; padding: 14px 16px; }.todo-card-inner { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; height: 100%; }.todo-icon { width: 42px; height: 42px; border-radius: 12px; font-size: 19px; }.todo-copy { min-width: 0; display: flex; flex-direction: column; }.todo-title { min-height: 22px; gap: 8px; }.todo-label { overflow: hidden; font-size: 15px; line-height: 22px; text-overflow: ellipsis; white-space: nowrap; }.todo-title :deep(.el-tag) { min-width: 42px; height: 21px; padding: 0 7px; font-size: 11px; }.todo-desc { overflow: hidden; margin-top: 2px; color: #63758e; font-size: 12px; line-height: 18px; text-overflow: ellipsis; white-space: nowrap; }.todo-footer { justify-content: flex-start; margin-top: auto; padding-top: 5px; border: 0; font-size: 12px; }
 @media screen and (max-width: 900px) {
+  .feedback-board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hero-card { min-height: 170px; }
   .hero-copy { min-height: 170px; margin: 0; padding: 24px; }
   .hero-copy h2 { font-size: 28px; }
@@ -538,6 +579,7 @@ onMounted(() => {
 }
 
 @media screen and (max-width: 600px) {
+  .feedback-board-grid { grid-template-columns: 1fr; }
   .home-page { gap: 14px; }
   .hero-card {
     min-height: 0;

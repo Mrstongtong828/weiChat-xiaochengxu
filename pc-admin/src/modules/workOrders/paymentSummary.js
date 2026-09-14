@@ -1,7 +1,8 @@
 const PAYMENT_STAGE_STATUSES = new Set(['received', 'inspecting', 'fixing'])
 
 export const summarizePaymentStage = (orders = []) => {
-  return orders.reduce((summary, order = {}) => {
+  return orders.reduce((summary, order) => {
+    if (!order) return summary
     const status = order.statusEn || order.status
     if (!PAYMENT_STAGE_STATUSES.has(status)) return summary
 

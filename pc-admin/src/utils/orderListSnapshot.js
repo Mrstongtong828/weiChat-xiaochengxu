@@ -1,4 +1,4 @@
-const getOrderStatus = (order = {}) => String(order.statusEn || order.status || '')
+const getOrderStatus = (order = {}) => (order ? String(order.statusEn || order.status || '') : '')
 
 const statusRank = {
   pending: 0,
@@ -12,6 +12,7 @@ const statusRank = {
 }
 
 const getUpdateTime = (order = {}) => {
+  if (!order) return 0
   const value = order.updateTime || order.update_time || 0
   if (typeof value === 'number') return value
   const timestamp = Date.parse(String(value || '').replace(/-/g, '/'))
@@ -46,5 +47,5 @@ export const preserveOrderSnapshot = (orders = [], snapshot = null) => {
 }
 
 export const preserveReceivedOrderSnapshot = (orders = [], snapshot = null) => (
-  getOrderStatus(snapshot) === 'received' ? preserveOrderSnapshot(orders, snapshot) : orders
+  snapshot && getOrderStatus(snapshot) === 'received' ? preserveOrderSnapshot(orders, snapshot) : orders
 )

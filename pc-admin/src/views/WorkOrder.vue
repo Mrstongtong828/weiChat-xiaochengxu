@@ -97,6 +97,13 @@
 
     <div class="attention-strip">
       <span class="attention-label">处理状态</span>
+      <el-popover placement="bottom-start" trigger="click" width="220">
+        <template #reference><el-button text size="small" class="status-summary-config">显示项目</el-button></template>
+        <div class="status-summary-config-title">选择要显示的状态</div>
+        <el-checkbox-group v-model="statusSummaryVisibleKeys" class="status-summary-config-list">
+          <el-checkbox v-for="item in statusSummaryOptions" :key="item.key" :label="item.key">{{ item.label }}</el-checkbox>
+        </el-checkbox-group>
+      </el-popover>
       <div class="status-summary-board">
         <el-button
           v-for="item in statusSummaryCards"
@@ -372,18 +379,35 @@
     v-model="drawerVisible"
     title="工单处理"
     direction="rtl"
-    :size="isMobile ? '100%' : 'min(920px, 72vw)'"
+    :size="drawerSize"
     append-to-body
     destroy-on-close
     class="work-order-drawer"
   >
+    <button
+      v-if="!isMobile"
+      type="button"
+      class="drawer-resize-handle"
+      aria-label="拖动调整工单抽屉宽度，双击恢复默认宽度"
+      title="拖动调整宽度 · 双击恢复默认"
+      @pointerdown="startDrawerResize"
+      @dblclick="resetDrawerWidth"
+      @keydown="handleDrawerResizeKeydown"
+    ><span></span></button>
     <template v-if="currentOrder">
       <div class="drawer-body">
         <div class="drawer-sticky-head">
           <div class="drawer-order-head">
             <div class="drawer-order-identity">
               <span class="drawer-order-kicker">维修工单</span>
-              <strong class="drawer-order-id">{{ currentOrder.id }}</strong>
+              <div class="drawer-order-id-row">
+                <strong class="drawer-order-id">{{ currentOrder.id }}</strong>
+                <el-tooltip content="复制工单号" placement="top">
+                  <el-button class="drawer-order-copy" type="primary" link aria-label="复制工单号" @click="copyOrderId(currentOrder.id)">
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </el-tooltip>
+              </div>
               <span class="drawer-order-customer">{{ currentOrder.customerName || '未填写客户' }} · {{ currentOrder.clinicName || '未填写单位' }}</span>
             </div>
             <div class="drawer-order-status">
@@ -412,16 +436,22 @@
               class="drawer-workflow-stage"
               :class="{ 'is-done': index < getDrawerStageIndex(currentOrder), 'is-current': index === getDrawerStageIndex(currentOrder) }"
             >
-              <span class="drawer-workflow-dot">{{ index + 1 }}</span>
-              <span>{{ stage.label }}</span>
+              <el-tooltip :content="stage.tip" placement="top" :show-after="200">
+                <span class="drawer-workflow-stage-content">
+                  <span class="drawer-workflow-dot">{{ index + 1 }}</span>
+                  <span>{{ stage.label }}</span>
+                </span>
+              </el-tooltip>
             </div>
           </div>
         </div>
         <el-tabs v-model="activeDrawerTab" class="drawer-tabs">
           <el-tab-pane label="概览" name="base">
-            <div class="drawer-scroll-pane">
-              <div class="drawer-section customer-section">
-                <p class="drawer-section-title">客户信息</p>
+            <div class="drawer-scroll-pane overview-dashboard">
+              <div class="overview-customer-workorder">
+                <div class="overview-combined-title"><el-icon><User /></el-icon><strong>客户与工单信息</strong></div>
+              <div class="drawer-section customer-section overview-panel">
+                <div class="overview-subsection-title">客户信息</div>
                 <div class="drawer-info-grid drawer-info-grid--dense">
                   <div class="drawer-info-item">
                     <span>客户姓名</span>
@@ -461,21 +491,31 @@
                   </div>
                 </details>
               </div>
-              <div class="drawer-section">
-                <p class="drawer-section-title">工单信息</p>
+              <div class="drawer-section workorder-info-section overview-panel">
+                <div class="overview-subsection-title">工单信息</div>
                 <div class="drawer-info-grid drawer-info-grid--dense">
                   <div class="drawer-info-item">
                     <span>提交时间</span>
-                    <strong>{{currentOrder.submitTime || '-'}}</strong>
+                    <strong>{{ formatDrawerDateTime(currentOrder.submitTime) }}</strong>
                   </div>
                   <div class="drawer-info-item">
                     <span>更新时间</span>
-                    <strong>{{currentOrder.updateTime || '-'}}</strong>
+                    <strong>{{ formatDrawerDateTime(currentOrder.updateTime) }}</strong>
                   </div>
                   <div class="drawer-info-item">
                     <span>当前状态</span>
                     <strong class="drawer-status-inline">
-                      <el-tag :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light" size="small">{{currentOrder.status}}</el-tag>
+                      <el-select
+                        v-if="canPerformOrderAction('update_order_status') && getAllowedStatusOptions(currentOrder).length"
+                        :model-value="currentOrder.status"
+                        size="small"
+                        class="overview-status-select"
+                        @change="handleOverviewStatusChange"
+                      >
+                        <el-option :label="currentOrder.status" :value="currentOrder.status" disabled />
+                        <el-option v-for="status in getAllowedStatusOptions(currentOrder)" :key="status" :label="status" :value="status" />
+                      </el-select>
+                      <el-tag v-else :class="'status-tag status-' + currentOrder.status" :type="getStatusType(currentOrder.status)" effect="light" size="small">{{currentOrder.status}}</el-tag>
                       <span class="inline-muted">{{ getStatusDwell(currentOrder).text }}</span>
                     </strong>
                   </div>
@@ -506,8 +546,18 @@
                   </div>
                 </div>
               </div>
-              <div class="drawer-section">
-                <p class="drawer-section-title">寄入物流</p>
+              </div>
+              <div class="drawer-section logistics-overview-section overview-panel">
+                <div class="overview-panel-title">
+                  <div class="overview-panel-title-main"><el-icon><Van /></el-icon><strong>寄入物流</strong></div>
+                  <el-button
+                    v-if="canPerformOrderAction('import_inbound_logistics')"
+                    type="primary"
+                    link
+                    size="small"
+                    @click="openInboundLogisticsEditor"
+                  ><el-icon><Edit /></el-icon>修改物流单号</el-button>
+                </div>
                 <div class="drawer-info-grid drawer-info-grid--dense">
                   <div class="drawer-info-item">
                     <span>寄件人</span>
@@ -531,9 +581,9 @@
                   </div>
                 </div>
               </div>
-              <div class="drawer-section product-overview-section">
+              <div class="drawer-section product-overview-section overview-panel">
                 <div class="drawer-section-head">
-                  <p class="drawer-section-title">设备与故障</p>
+                  <div class="overview-panel-title"><el-icon><Box /></el-icon><strong>设备与故障</strong></div>
                   <el-button
                     v-if="currentOrder.itemsList && currentOrder.itemsList.length"
                     type="primary"
@@ -548,6 +598,14 @@
                     :key="item._id || `overview-${itemIndex}`"
                     class="overview-product-card"
                   >
+                    <el-image
+                      v-if="item.product_image_url || item.product_image || (item.image_urls && item.image_urls[0])"
+                      :src="item.product_image_url || item.product_image || item.image_urls[0]"
+                      :preview-src-list="item.image_urls || [item.product_image_url || item.product_image]"
+                      preview-teleported
+                      class="overview-product-image"
+                      fit="contain"
+                    ></el-image>
                     <div class="overview-product-head">
                       <strong>产品 {{ itemIndex + 1 }}：{{ item.product_name || '未命名产品' }}</strong>
                       <el-tag
@@ -592,6 +650,7 @@
                             :key="`overview-image-${itemIndex}-${index}`"
                             :src="img"
                             :preview-src-list="item.image_urls"
+                            preview-teleported
                             class="attachment-thumb"
                             fit="cover"
                           ></el-image>
@@ -605,6 +664,7 @@
                             :key="`overview-voucher-${itemIndex}-${index}`"
                             :src="img"
                             :preview-src-list="item.voucher_urls"
+                            preview-teleported
                             class="attachment-thumb"
                             fit="cover"
                           ></el-image>
@@ -647,23 +707,34 @@
                   </div>
                 </div>
               </div>
-              <div class="drawer-section received-parts-section">
+              <div class="drawer-section received-parts-section overview-panel">
                 <div class="drawer-section-head">
                   <div>
-                    <p class="drawer-section-title">收货配件明细</p>
+                    <div class="overview-panel-title"><el-icon><Document /></el-icon><strong>收货配件明细</strong></div>
                     <span class="section-helper">登记随设备寄入的配件，确认签收后会写入工单核验记录。</span>
                   </div>
                   <el-tag :type="receivedPartsForm.receipt.status === 'confirmed' ? 'success' : 'warning'" size="small">
                     {{ receivedPartsForm.receipt.status === 'confirmed' ? '已确认签收' : '待确认' }}
                   </el-tag>
                 </div>
+                <div class="received-part-columns" aria-hidden="true">
+                  <span>#</span><span>配件名称</span><span>数量</span><span>备注</span><span></span>
+                </div>
                 <div v-if="receivedPartsForm.parts.length" class="received-parts-list">
                   <div v-for="(part, index) in receivedPartsForm.parts" :key="part.key" class="received-part-row">
                     <span class="received-part-index">{{ index + 1 }}</span>
-                    <el-input v-model="part.name" :disabled="receivedPartsForm.receipt.status === 'confirmed'" placeholder="配件名称" maxlength="120" />
-                    <el-input-number v-model="part.quantity" :disabled="receivedPartsForm.receipt.status === 'confirmed'" :min="1" :max="9999" :precision="0" controls-position="right" placeholder="数量" />
-                    <el-input v-model="part.remark" :disabled="receivedPartsForm.receipt.status === 'confirmed'" placeholder="备注（选填）" maxlength="300" />
+                    <template v-if="receivedPartsForm.receipt.status === 'confirmed'">
+                      <strong class="received-part-value">{{ part.name || '-' }}</strong>
+                      <span class="received-part-value received-part-quantity">{{ part.quantity || 1 }}</span>
+                      <span class="received-part-value received-part-remark">{{ part.remark || '-' }}</span>
+                    </template>
+                    <template v-else>
+                      <el-input v-model="part.name" placeholder="配件名称" maxlength="120" />
+                      <el-input-number v-model="part.quantity" :min="1" :max="9999" :precision="0" controls-position="right" placeholder="数量" />
+                      <el-input v-model="part.remark" placeholder="备注（选填）" maxlength="300" />
+                    </template>
                     <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed'" type="danger" link @click="removeReceivedPart(index)">删除</el-button>
+                    <span v-else></span>
                   </div>
                 </div>
                 <p v-else class="empty-text received-parts-empty">暂无收货配件记录。</p>
@@ -676,13 +747,13 @@
                 </div>
                 <div v-if="receivedPartsForm.photos.length" class="received-part-photo-list">
                   <div v-for="(photo, index) in receivedPartsForm.photos" :key="photo.fileID || photo.url || index" class="received-part-photo-item">
-                    <el-image :src="photo.url" :preview-src-list="receivedPartPhotoPreviewUrls" fit="cover" />
+                    <el-image :src="photo.url" :preview-src-list="receivedPartPhotoPreviewUrls" fit="cover" preview-teleported />
                     <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed'" type="danger" link size="small" @click="removeReceivedPartPhoto(index)">删除</el-button>
                   </div>
                 </div>
                 <div v-if="receivedPartsForm.receipt.status === 'confirmed'" class="received-parts-receipt">
                   <span>签收人：{{ receivedPartsForm.receipt.confirmed_by_name || '-' }}</span>
-                  <span>签收时间：{{ formatTimelineTime(receivedPartsForm.receipt.confirmed_at) || '-' }}</span>
+                  <span>签收时间：{{ formatDrawerDateTime(receivedPartsForm.receipt.confirmed_at) }}</span>
                 </div>
                 <el-alert
                   v-if="needsReceivedPartsStatusSync(currentOrder)"
@@ -698,124 +769,119 @@
                   <el-button v-if="receivedPartsForm.receipt.status !== 'confirmed' && canPerformOrderAction('confirm_received_parts')" type="primary" size="small" :loading="receivedPartsConfirming || receivedPartsSaving" @click="confirmCurrentReceivedParts">确认配件签收</el-button>
                 </div>
               </div>
+              <div class="drawer-section order-summary-section overview-panel">
+                <div class="overview-panel-title"><el-icon><Tickets /></el-icon><strong>摘要信息</strong></div>
+                <div class="overview-summary-list">
+                  <div><span>工单编号</span><strong class="mono-text">{{currentOrder.id || '-'}}</strong></div>
+                  <div><span>工单类型</span><strong>维修工单</strong></div>
+                  <div>
+                    <span>用户类型</span>
+                    <strong>
+                      <el-tag v-if="customerTypeMeta(currentOrder.customerType)" size="small" effect="light" :type="customerTypeMeta(currentOrder.customerType).type">{{ customerTypeMeta(currentOrder.customerType).label }}</el-tag>
+                      <template v-else>-</template>
+                    </strong>
+                  </div>
+                  <div><span>工单来源</span><strong>{{currentOrder.source || '小程序提交'}}</strong></div>
+                </div>
+              </div>
+              <div class="drawer-section remark-overview-section overview-panel">
+                <div class="drawer-section-head">
+                  <div class="overview-panel-title"><el-icon><Document /></el-icon><span><strong>内部备注</strong><small>仅后台可见</small></span></div>
+                  <el-button v-if="canPerformOrderAction('edit_order_remarks') && !overviewRemarkEditing" type="primary" link size="small" @click="startOverviewRemarkEdit">编辑</el-button>
+                </div>
+                <template v-if="overviewRemarkEditing">
+                  <el-input v-model="overviewRemarkDraft" class="overview-remark-input" type="textarea" :rows="4" maxlength="1000" show-word-limit placeholder="填写内部跟进备注，仅后台员工可见" />
+                  <div class="overview-remark-actions">
+                    <el-button size="small" @click="cancelOverviewRemarkEdit">取消</el-button>
+                    <el-button type="primary" size="small" :loading="remarkSaving" @click="saveOverviewRemark">保存备注</el-button>
+                  </div>
+                </template>
+                <p v-else>{{currentOrder.adminRemark || '暂无内部备注'}}</p>
+              </div>
             </div>
           </el-tab-pane>
           <el-tab-pane label="检测与报价" name="quote">
-            <div class="drawer-section">
-              <p class="drawer-section-title">检测产品与故障</p>
+            <div class="quote-workbench-layout">
+            <div class="quote-workbench-device">
+            <div class="drawer-section quote-device-panel">
+              <div class="quote-device-heading">
+                <p class="drawer-section-title">设备信息</p>
+                <div class="quote-device-heading-actions">
+                  <el-button v-if="quoteDeviceEditing" type="primary" plain size="small" :loading="savingOrderItems" @click="saveOrderItemsInfo">保存设备信息</el-button>
+                  <el-button type="primary" link @click="quoteDeviceEditing = !quoteDeviceEditing">{{ quoteDeviceEditing ? '完成' : '编辑' }}</el-button>
+                </div>
+              </div>
               <div v-if="currentOrder.itemsList && currentOrder.itemsList.length" class="product-detail-list">
                 <div v-for="(item, itemIndex) in currentOrder.itemsList" :key="item._id || itemIndex" class="product-detail-card">
-                  <div class="product-card-title">产品 {{ itemIndex + 1 }}：{{ item.product_name || '未命名产品' }}</div>
-                  <div class="sn-edit-row">
-                    <span class="sn-edit-label">SN</span>
-                    <el-input v-model="item.sn" placeholder="输入 SN 序列号" class="sn-edit-input" @blur="lookupOrderItemSn(itemIndex)" @keyup.enter="lookupOrderItemSn(itemIndex, true)" />
-                    <el-button type="primary" :loading="snLookupLoading[itemIndex]" @click="lookupOrderItemSn(itemIndex, true)">查询</el-button>
-                    <el-tag v-if="warrantyTagMeta(snItemWarranty(itemIndex))" :type="warrantyTagMeta(snItemWarranty(itemIndex)).type" effect="light" round>
-                      {{ warrantyTagMeta(snItemWarranty(itemIndex)).label }}
-                    </el-tag>
+                  <div class="quote-device-summary">
+                    <el-image
+                      v-if="item.product_image_url || item.product_image || (item.image_urls && item.image_urls[0])"
+                      :src="item.product_image_url || item.product_image || item.image_urls[0]"
+                      :preview-src-list="[item.product_image_url || item.product_image || item.image_urls[0]]"
+                      preview-teleported
+                      class="quote-device-photo"
+                      fit="contain"
+                    ></el-image>
+                    <div class="quote-device-identity">
+                      <strong>{{ item.product_name || '未命名产品' }}</strong>
+                      <dl>
+                        <div><dt>SN</dt><dd>{{ item.sn || '未提供' }}</dd></div>
+                        <div><dt>设备分类</dt><dd>{{ item.product_category || '未提供' }}</dd></div>
+                        <div><dt>型号</dt><dd>{{ item.product_model || '未提供' }}</dd></div>
+                        <div><dt>采购日期</dt><dd>{{ item.buy_date || '未提供' }}</dd></div>
+                      </dl>
+                    </div>
                   </div>
-                  <div class="sn-fields-grid">
+                  <div v-if="quoteDeviceEditing" class="quote-device-edit-grid">
+                    <el-input v-model="item.sn" placeholder="输入 SN 序列号" @blur="lookupOrderItemSn(itemIndex)" @keyup.enter="lookupOrderItemSn(itemIndex, true)" />
                     <el-input v-model="item.product_category" placeholder="设备分类" />
                     <el-input v-model="item.product_model" placeholder="设备型号" />
                     <el-date-picker v-model="item.buy_date" type="date" value-format="YYYY-MM-DD" placeholder="采购日期" style="width:100%;" />
+                    <el-button type="primary" :loading="snLookupLoading[itemIndex]" @click="lookupOrderItemSn(itemIndex, true)">查询 SN</el-button>
                   </div>
-                  <div class="warranty-entry-row">
-                    <div class="warranty-entry-head">
-                      <strong>质保资料（选填）</strong>
-                      <span>发票和出厂日期仅作辅助参考，不影响人工质保判断和报价。</span>
+                  <div class="quote-device-warranty">
+                    <strong>质保信息 <small>选填</small></strong><span class="quote-device-source-hint">来源：小程序购买凭证、设备 SN 资料；可由工程师人工修正</span>
+                    <div v-if="quoteDeviceEditing" class="quote-warranty-edit-grid">
+                      <label><span>发票签收日</span><el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="未提供" clearable /></label>
+                      <label><span>SN 出厂日</span><el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="未提供" clearable /></label>
+                      <label><span>质保截止</span><el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="未指定" clearable /></label>
                     </div>
-                    <div>
-                      <span>发票签收日（选填）</span>
-                      <el-date-picker v-model="item.invoice_received_date" type="date" value-format="YYYY-MM-DD" placeholder="有效发票日期" clearable style="width:100%;" />
-                    </div>
-                    <div>
-                      <span>SN出厂日（选填）</span>
-                      <el-date-picker v-model="item.manufacture_date" type="date" value-format="YYYY-MM-DD" placeholder="无发票时使用" clearable style="width:100%;" />
-                    </div>
-                    <div>
-                      <span>质保月数</span>
-                      <span>统一12个月</span>
-                    </div>
-                    <div>
-                      <span>质保截止（选填）</span>
-                      <el-date-picker v-model="item.warranty_expire" type="date" value-format="YYYY-MM-DD" placeholder="可直接指定" clearable style="width:100%;" />
-                    </div>
-                    <p>{{ itemWarrantyPreview(item).detail }}</p>
+                    <dl v-else>
+                      <div><dt>发票签收日</dt><dd>{{ item.invoice_received_date || '未提供' }}</dd></div>
+                      <div><dt>SN 出厂日</dt><dd>{{ item.manufacture_date || '未提供' }}</dd></div>
+                      <div><dt>质保月数</dt><dd>12 个月</dd></div>
+                      <div><dt>质保截止</dt><dd>{{ item.warranty_expire || '可在判断区补充' }}</dd></div>
+                    </dl>
                   </div>
-                  <div class="coverage-review-row" :class="{ 'is-complete': isManualWarrantyComplete(item) }">
-                    <div class="coverage-review-head">
-                      <div>
-                        <strong>人工质保判断</strong>
-                        <span>发布报价的必填项，人工判断优先于日期资料</span>
-                      </div>
-                      <el-tag :type="isManualWarrantyComplete(item) ? 'success' : 'warning'" effect="light" size="small">
-                        {{ isManualWarrantyComplete(item) ? '判定已完成' : '待选择' }}
-                      </el-tag>
+                  <div class="quote-device-materials">
+                    <div class="quote-device-subhead"><strong>购买凭证</strong><span>小程序报修时上传的采购凭证</span></div>
+                    <div v-if="item.voucher_urls && item.voucher_urls.length" class="quote-material-list quote-material-list--images">
+                      <el-image v-for="(img, index) in item.voucher_urls" :key="`voucher-${itemIndex}-${index}`" :src="img" :preview-src-list="item.voucher_urls" class="quote-material-thumb" fit="cover" preview-teleported />
                     </div>
-                    <div class="coverage-fields-grid">
-                      <label class="coverage-field">
-                        <span>是否在保 <em>必填</em></span>
-                        <el-select v-model="item.manual_warranty_status" :disabled="!canPerformOrderAction('issue_quote')" placeholder="请选择在保或过保">
-                          <el-option v-for="option in manualWarrantyStatusOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
-                        </el-select>
-                      </label>
-                      <label class="coverage-field">
-                        <span>本次处理结论</span>
-                        <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="请选择收费维修或质保免费" clearable>
-                          <el-option v-for="option in coverageResultOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
-                        </el-select>
-                      </label>
-                      <label class="coverage-field">
-                        <span>判断原因 <small>选填</small></span>
-                        <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" placeholder="补充判断原因" clearable>
-                          <el-option v-for="option in coverageReasonOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
-                        </el-select>
-                      </label>
-                    </div>
-                    <el-input
-                      v-model="item.coverage_note"
-                      :disabled="!canPerformOrderAction('issue_quote')"
-                      placeholder="补充说明（选填），例如凭证、故障原因或不保原因"
-                      maxlength="200"
-                      show-word-limit
-                    ></el-input>
+                    <p v-else class="quote-device-empty">客户未上传购买凭证</p>
                   </div>
-                  <el-button v-if="snLookupResults[itemIndex] && snLookupResults[itemIndex].history && snLookupResults[itemIndex].history.length" type="primary" link @click="openSnHistory(itemIndex)">
-                    查看该设备历史工单（{{ snLookupResults[itemIndex].history.length }}）›
-                  </el-button>
-                  <p class="product-fault-line"><span>故障描述</span>{{ item.fault_desc || '-' }}</p>
-                  <template v-if="item.voucher_urls && item.voucher_urls.length">
-                    <p class="attachment-title">购买凭证</p>
-                    <div class="attachment-list">
-                      <el-image v-for="(img, index) in item.voucher_urls" :key="`voucher-${itemIndex}-${index}`" :src="img" :preview-src-list="item.voucher_urls" class="attachment-thumb" fit="cover"></el-image>
-                    </div>
-                  </template>
-                  <template v-if="item.image_urls && item.image_urls.length">
-                    <p class="attachment-title">故障图片</p>
-                    <div class="attachment-list">
-                      <el-image v-for="(img, index) in item.image_urls" :key="`image-${itemIndex}-${index}`" :src="img" :preview-src-list="item.image_urls" class="attachment-thumb" fit="cover"></el-image>
-                    </div>
-                  </template>
-                  <template v-if="item.video_urls && item.video_urls.length">
-                    <p class="attachment-title">故障视频</p>
-                    <div class="attachment-list">
-                      <a v-for="(video, index) in item.video_urls" :key="`video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" class="video-link" @click.prevent="openOrderVideo(video)">视频 {{ index + 1 }}</a>
-                    </div>
-                  </template>
-                  <template v-if="item.media_urls && item.media_urls.length">
-                    <p class="attachment-title">历史附件</p>
-                    <div class="attachment-list">
-                      <a v-for="(url, index) in item.media_urls" :key="`media-${itemIndex}-${index}`" :href="url" target="_blank" rel="noreferrer" class="video-link">附件 {{ index + 1 }}</a>
-                    </div>
-                  </template>
-                </div>
-                <div class="product-detail-actions">
-                  <el-button type="primary" plain :loading="savingOrderItems" @click="saveOrderItemsInfo">单独保存设备与判定</el-button>
-                  <span class="product-detail-tip">可直接继续填写报价；点击下方发布按钮时，系统会自动保存这里的人工判定。</span>
+                  <div class="quote-device-description">
+                    <strong>客户报修故障描述</strong><p>{{ item.fault_desc || '未提供' }}</p>
+                    <template v-if="item.image_urls && item.image_urls.length">
+                      <strong>故障图片</strong>
+                      <div class="quote-material-list quote-material-list--images"><el-image v-for="(img, index) in item.image_urls" :key="`fault-image-${itemIndex}-${index}`" :src="img" :preview-src-list="item.image_urls" class="quote-material-thumb" fit="cover" preview-teleported /></div>
+                    </template>
+                    <template v-if="item.video_urls && item.video_urls.length">
+                      <strong>故障视频</strong>
+                      <div class="quote-material-list"><a v-for="(video, index) in item.video_urls" :key="`fault-video-${itemIndex}-${index}`" :href="video" target="_blank" rel="noreferrer" @click.prevent="openOrderVideo(video)">查看故障视频 {{ index + 1 }}</a></div>
+                    </template>
+                    <template v-if="item.media_urls && item.media_urls.length">
+                      <strong>其他附件</strong>
+                      <div class="quote-material-list"><a v-for="(url, index) in item.media_urls" :key="`fault-media-${itemIndex}-${index}`" :href="url" target="_blank" rel="noreferrer">查看附件 {{ index + 1 }}</a></div>
+                    </template>
+                  </div>
+                  <el-button v-if="snLookupResults[itemIndex] && snLookupResults[itemIndex].history && snLookupResults[itemIndex].history.length" type="primary" link @click="openSnHistory(itemIndex)">查看该设备历史工单（{{ snLookupResults[itemIndex].history.length }}）›</el-button>
                 </div>
               </div>
               <p v-else class="empty-text">暂无产品明细</p>
             </div>
+            </div>
+            <div class="quote-workbench-main">
             <div class="drawer-section quote-editor-section">
               <div class="drawer-section-head">
                 <p class="drawer-section-title">维修报价</p>
@@ -825,34 +891,68 @@
                 <section class="quote-stage quote-stage--warranty">
                   <div class="quote-stage-head">
                     <span class="quote-stage-index">1</span>
-                    <div><strong>确认本次收费方式</strong><span>先完成设备级质保核验，再决定是否可免费维修。</span></div>
+                    <div><strong>人工质保判断</strong><span>发布报价的必填项，人工判断优先于日期资料。</span></div>
                   </div>
-                  <el-alert
-                    v-if="currentOrderWarrantyHint.show"
-                    :title="currentOrderWarrantyHint.text"
-                    :type="currentOrderWarrantyHint.type"
-                    :closable="false"
-                    show-icon
-                    class="quote-warranty-alert"
-                  ></el-alert>
+                  <div v-for="(item, itemIndex) in currentOrder.itemsList" :key="`warranty-${item._id || itemIndex}`" class="coverage-review-row" :class="{ 'is-complete': isManualWarrantyComplete(item) }">
+                    <div class="coverage-review-head">
+                      <div><strong>{{ item.product_name || `产品 ${itemIndex + 1}` }}</strong><span>{{ itemWarrantyPreview(item).detail }}</span></div>
+                      <el-tag :type="isManualWarrantyComplete(item) ? 'success' : 'warning'" effect="light" size="small">{{ isManualWarrantyComplete(item) ? '判定已完成' : '待选择' }}</el-tag>
+                    </div>
+                    <div class="coverage-fields-grid">
+                      <label class="coverage-field">
+                        <span>是否在保 <em>*</em></span>
+                        <el-select v-model="item.manual_warranty_status" :disabled="!canPerformOrderAction('issue_quote')" placeholder="请选择在保或保外维修">
+                          <el-option v-for="option in manualWarrantyStatusOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                        </el-select>
+                      </label>
+                      <label class="coverage-field">
+                        <span>本次处理结论 <em>*</em></span>
+                        <el-select v-model="item.coverage_result" :disabled="!canPerformOrderAction('issue_quote')" placeholder="请选择处理结论">
+                          <el-option v-for="option in coverageResultOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                        </el-select>
+                      </label>
+                      <label class="coverage-field">
+                        <span>判断原因 <small>选填</small></span>
+                        <el-select v-model="item.coverage_reason" :disabled="!canPerformOrderAction('issue_quote')" clearable placeholder="可补充判断原因">
+                          <el-option v-for="option in coverageReasonOptions" :key="option.value" :label="option.label" :value="option.value"></el-option>
+                        </el-select>
+                      </label>
+                    </div>
+                    <el-input v-model="item.coverage_note" :disabled="!canPerformOrderAction('issue_quote')" type="textarea" :rows="2" placeholder="补充说明（选填），例如凭证、故障原因或不保原因" maxlength="200" show-word-limit></el-input>
+                  </div>
+                </section>
+                <section class="quote-stage quote-stage--charge">
+                  <div class="quote-stage-head">
+                    <span class="quote-stage-index">2</span>
+                    <div><strong>确认本次收费方式</strong><span>先完成设备质保核验，再决定是否可免费维修。</span></div>
+                  </div>
+                  <div class="quote-charge-cards">
+                    <button
+                      type="button"
+                      class="quote-charge-card"
+                      :class="{ 'is-selected': currentChargeMode === 'paid' }"
+                      :disabled="!canPerformOrderAction('issue_quote')"
+                      @click="setChargeMode('paid')"
+                    >
+                      <span><strong>收费维修</strong><small>客户需要支付维修费用</small></span>
+                      <i aria-hidden="true">✓</i>
+                    </button>
+                    <button
+                      type="button"
+                      class="quote-charge-card"
+                      :class="{ 'is-selected': currentChargeMode === 'free' }"
+                      :disabled="!canPerformOrderAction('issue_quote')"
+                      @click="setChargeMode('free')"
+                    >
+                      <span><strong>免费维修</strong><small>符合质保政策</small></span>
+                      <i aria-hidden="true">✓</i>
+                    </button>
+                  </div>
                 </section>
                 <section class="quote-stage quote-stage--amount">
                   <div class="quote-stage-head">
-                    <span class="quote-stage-index">2</span>
-                    <div><strong>填写客户应付金额</strong><span>快速报价只需填最终金额；需要展示费用构成时再补充明细。</span></div>
-                  </div>
-                  <div class="quote-quick-panel">
-                    <div>
-                      <strong>最终报价</strong>
-                      <span>客户小程序将以此金额发起确认或付款。</span>
-                    </div>
-                    <el-input-number v-model="quoteForm.finalPrice" :disabled="!canPerformOrderAction('issue_quote')" :min="0" :precision="2" :step="10" controls-position="right" placeholder="客户最终应付金额"></el-input-number>
-                  </div>
-                </section>
-                <section class="quote-stage quote-stage--details">
-                  <div class="quote-stage-head">
                     <span class="quote-stage-index">3</span>
-                    <div><strong>补充费用构成</strong><span>配件、服务和其他费用均可选填，用于客户说明和打印清单。</span></div>
+                    <div><strong>填写报价明细</strong><span>快速报价只需填写最终金额；需要展示费用构成时再补充明细。</span></div>
                   </div>
                   <div class="quote-summary-bar">
                     <div><span>配件费</span><strong>{{ formatMoney(quotePartsFee) }}</strong></div>
@@ -860,6 +960,10 @@
                     <div><span>其他费</span><strong>{{ formatMoney(quoteOthersFee) }}</strong></div>
                     <div><span>自动合计</span><strong>{{ formatMoney(quoteAutoTotal) }}</strong></div>
                     <div><span>最终报价</span><strong class="quote-total">{{ formatMoney(quoteTotal) }}</strong></div>
+                  </div>
+                  <div class="quote-quick-panel">
+                    <div><strong>客户最终应付金额</strong><span>客户小程序将以此金额发起确认或付款。</span></div>
+                    <el-input-number v-model="quoteForm.finalPrice" :disabled="!canPerformOrderAction('issue_quote') || currentChargeMode === 'free'" :min="0" :precision="2" :step="10" controls-position="right" placeholder="客户最终应付金额"></el-input-number>
                   </div>
                   <el-alert
                     v-if="quoteInventoryWarnings.length"
@@ -869,9 +973,9 @@
                     :closable="false"
                     :title="quoteInventoryWarnings.join('；')"
                   ></el-alert>
-                  <details class="quote-detail-disclosure" :open="quoteAutoTotal > 0">
+                  <details class="quote-detail-disclosure">
                     <summary>
-                      <span>编辑费用明细</span>
+                      <el-icon class="quote-detail-icon"><Tickets /></el-icon><span>编辑费用明细</span>
                       <small>配件、服务或其他费用</small>
                     </summary>
                 <div class="quote-section">
@@ -936,20 +1040,26 @@
                     <span class="quote-stage-index">4</span>
                     <div><strong>设置维修保障与说明</strong><span>明确维修后的质保时长、付款期限和客户可见说明。</span></div>
                   </div>
-                  <div class="quote-terms-grid">
-                    <div class="quote-final-row">
-                      <span>维修质保(月)</span>
-                      <span>符合条件的全新原厂更换件固定3个月</span>
-                    </div>
-                    <div class="quote-final-row">
-                      <span>付款期限(天)</span>
+                  <div class="quote-terms-row">
+                    <label class="quote-term-control">
+                      <span>维修质保(月) <em>*</em></span>
+                      <el-select v-model="quoteForm.warrantyMonths" :disabled="!canPerformOrderAction('issue_quote')">
+                        <el-option :value="0" label="不提供维修质保" />
+                        <el-option :value="1" label="1 个月" />
+                        <el-option :value="3" label="3 个月" />
+                        <el-option :value="6" label="6 个月" />
+                        <el-option :value="12" label="12 个月" />
+                      </el-select>
+                    </label>
+                    <label class="quote-term-control">
+                      <span>付款期限(天) <em>*</em></span>
                       <el-input-number v-model="quoteForm.paymentDeadlineDays" :disabled="!canPerformOrderAction('issue_quote')" :min="1" :max="60" :step="1" controls-position="right"></el-input-number>
-                      <span class="quote-deadline-hint">发布后起算，默认 7 天</span>
-                    </div>
+                    </label>
+                    <div class="quote-deadline-card">发布后起算，默认 7 天</div>
                   </div>
-                  <div class="remark-field remark-field--customer">
+                  <div class="quote-customer-remark">
                     <div class="remark-field-head">
-                      <strong>客户可见报价备注</strong>
+                      <strong>客户可见报价备注 <small>（选填）</small></strong>
                       <span>会展示在小程序报价详情中</span>
                     </div>
                     <el-input
@@ -969,48 +1079,56 @@
                     <div><strong>{{ quotePublishPresentation.title }}</strong><span>{{ quotePublishPresentation.description }}</span></div>
                   </div>
                   <div v-if="canPerformOrderAction('issue_quote')" class="quote-actions">
-                    <span class="quote-actions-note">草稿仅后台可见，不会发送给客户</span>
-                    <el-button :loading="quoteSaving" @click="saveOrderQuote('draft')">仅保存草稿</el-button>
-                    <el-button type="primary" :loading="quoteSaving || savingOrderItems" @click="saveOrderQuote('issued')">{{ quotePublishPresentation.buttonLabel }}</el-button>
+                    <div class="quote-publish-copy"><strong>草稿仅后台可见，不会发送给客户</strong></div>
+                    <div class="quote-publish-buttons">
+                      <el-button :loading="quoteSaving" @click="saveOrderQuote('draft')">仅保存草稿</el-button>
+                      <el-button type="primary" :loading="quoteSaving || savingOrderItems" @click="saveOrderQuote('issued')">{{ quotePublishPresentation.buttonLabel }}</el-button>
+                    </div>
                   </div>
                 </section>
-                <section v-if="canPerformOrderAction('issue_quote') && (currentOrder.quoteStatus || currentOrder.quote_status) === 'issued'" class="quote-stage quote-stage--phone-decision">
+                <section v-if="canPerformOrderAction('issue_quote')" class="quote-stage quote-stage--phone-decision">
                   <div class="quote-stage-head">
                     <span class="quote-stage-index">6</span>
                     <div><strong>电话确认客户决定</strong><span>客户不方便登录小程序时，售后电话确认后代录决定，无需客户在线确认。</span></div>
                   </div>
-                  <div class="quote-actions">
-                    <span class="quote-actions-note">用于售后已电话联系客户并确认其决定</span>
-                    <el-button type="success" :loading="phoneDecisionSaving" @click="handlePhoneConfirmRepair">{{ isCurrentOrderWarrantyFree ? '客户同意质保维修（电话确认）' : '客户同意付费维修（电话确认）' }}</el-button>
-                    <el-button type="danger" plain :loading="phoneDecisionSaving" @click="handlePhoneRejectRepair">客户不修（电话确认）</el-button>
+                  <div class="quote-actions quote-phone-decision-actions">
+                    <p class="quote-actions-note">用于售后已电话联系客户并确认其决定</p>
+                    <div class="quote-phone-decision-buttons">
+                      <el-button type="success" :loading="phoneDecisionSaving" @click="handlePhoneConfirmRepair">{{ isCurrentOrderWarrantyFree ? '客户同意质保维修（电话确认）' : '客户同意付费维修（电话确认）' }}</el-button>
+                      <el-button type="danger" plain :loading="phoneDecisionSaving" @click="handlePhoneRejectRepair">客户不修（电话确认）</el-button>
+                    </div>
                   </div>
                 </section>
               </div>
+            </div>
+            </div>
             </div>
           </el-tab-pane>
           <el-tab-pane label="收款" name="payment">
             <div class="drawer-section payment-section">
               <div class="drawer-section-head">
-                <p class="drawer-section-title">付款核销</p>
+                <p class="drawer-section-title">收款</p>
                 <el-tag :type="getPaymentStatusType(currentOrder)" size="small">{{ getPaymentStatusText(currentOrder) }}</el-tag>
+                <el-button type="primary" plain class="payment-finance-link" @click="goCurrentOrderFinance"><el-icon><ArrowRight /></el-icon> 前往财务中心</el-button>
               </div>
+              <p class="payment-section-helper"><el-icon><InfoFilled /></el-icon> 请及时跟进收款状态，完成工单结算</p>
               <div class="payment-status-grid">
-                <div>
+                <div class="payment-status-card"><el-icon class="payment-status-icon"><User /></el-icon><div>
                   <span>客户确认</span>
                   <strong>{{ getAuthorizationStatusText(currentOrder.authorizationStatus) }}</strong>
-                </div>
-                <div>
+                </div></div>
+                <div class="payment-status-card"><el-icon class="payment-status-icon"><Wallet /></el-icon><div>
                   <span>应收金额</span>
                   <strong>{{ formatMoney(currentOrder.totalPrice) }}</strong>
-                </div>
-                <div>
+                </div></div>
+                <div class="payment-status-card"><el-icon class="payment-status-icon"><Clock /></el-icon><div>
                   <span>付款状态</span>
                   <strong>{{ getPaymentStatusText(currentOrder) }}</strong>
-                </div>
-                <div>
+                </div></div>
+                <div class="payment-status-card"><el-icon class="payment-status-icon"><CreditCard /></el-icon><div>
                   <span>付款方式</span>
                   <strong>{{ getPaymentMethodLabel(currentOrder.paymentMethod) }}</strong>
-                </div>
+                </div></div>
               </div>
               <CorporateAccountDetails v-if="currentOrder.paymentMethod !== 'wechat_pay'" class="payment-account" :account="corporateAccount" />
               <div v-if="resolvePaymentStatus(currentOrder) === 'uploaded' && canPerformOrderAction('view_payment_proof') && currentOrder.paymentProofs && currentOrder.paymentProofs.length" class="payment-proof-list">
@@ -1019,6 +1137,7 @@
                     v-if="isPreviewableProof(proof)"
                     :src="getProofUrl(proof)"
                     :preview-src-list="getPaymentPreviewList(currentOrder.paymentProofs)"
+                    preview-teleported
                     class="payment-proof-thumb"
                     fit="cover"
                   ></el-image>
@@ -1032,8 +1151,8 @@
                 </div>
               </div>
               <div v-else-if="!Number(currentOrder.totalPrice || 0)" class="payment-guide payment-guide--waiting">
-                <strong>还不能收款</strong>
-                <span>请先在“检测与报价”中填写并发布维修报价。</span>
+                <div class="payment-guide-copy"><div class="payment-guide-heading"><el-icon><WarningFilled /></el-icon><strong>暂未收款</strong></div><span>请先在“检测与报价”中填写并发布维修报价，客户确认后再跟进收款。</span></div>
+                <el-icon class="payment-guide-illustration"><Document /></el-icon>
               </div>
               <div v-else-if="resolvePaymentStatus(currentOrder) === 'not_required'" class="payment-guide payment-guide--success">
                 <strong>质保免付款</strong>
@@ -1110,21 +1229,28 @@
                   恢复库存出库
                 </el-button>
               </div>
+              <div class="payment-finance-footer">
+                <div><el-icon><InfoFilled /></el-icon><span>更多收款记录、对账单、发票管理等，请前往 <a href="#/finance">财务中心</a> 查看和管理。</span></div>
+                <el-button type="primary" @click="goCurrentOrderFinance">前往财务中心 <el-icon><ArrowRight /></el-icon></el-button>
+              </div>
             </div>
           </el-tab-pane>
           <el-tab-pane label="发票" name="invoice">
             <div class="drawer-section invoice-section">
-              <div class="drawer-section-head">
+              <div class="drawer-section-head invoice-hero-head">
                 <div>
                   <p class="drawer-section-title">发票处理</p>
                   <p class="section-helper">已完工且已支付的订单可进入发票流程。</p>
                 </div>
-                <el-tag :type="getInvoiceType(normalizeInvoiceStatus(currentOrder))" size="small">{{ normalizeInvoiceStatus(currentOrder) }}</el-tag>
+                <div class="invoice-head-actions">
+                  <el-button type="primary" size="small" @click="goCurrentOrderFinance">前往财务中心 <el-icon><ArrowRight /></el-icon></el-button>
+                  <el-tag :type="getInvoiceType(normalizeInvoiceStatus(currentOrder))" size="small">{{ normalizeInvoiceStatus(currentOrder) }}</el-tag>
+                </div>
               </div>
               <div class="invoice-summary-grid">
                 <div><span>客户申请</span><strong>{{ currentOrder.needInvoice ? '需要开票' : '无需开票' }}</strong></div>
                 <div><span>开票时效</span><strong>7-15 个工作日</strong></div>
-                <div><span>开票状态</span><strong>{{ normalizeInvoiceStatus(currentOrder) }}</strong></div>
+                <div :class="['invoice-status-summary', normalizeInvoiceStatus(currentOrder) === '无需开票' ? 'is-not-needed' : 'is-needed']"><span>开票状态</span><strong>{{ normalizeInvoiceStatus(currentOrder) }}</strong></div>
                 <div><span>税收分类</span><strong>{{ currentOrder.invoiceTaxCategory || '修理修配劳务' }}</strong></div>
                 <div><span>发票项目</span><strong>{{ currentOrder.invoiceItemName || '牙科设备检修服务费' }}</strong></div>
                 <div><span>归档工单</span><strong>{{ currentOrder.invoiceArchiveOrderNo || currentOrder.id }}</strong></div>
@@ -1139,7 +1265,7 @@
                 class="invoice-alert"
               ></el-alert>
               <el-alert
-                v-else-if="isInvoicePaymentMethod(currentOrder.paymentMethod) && currentOrder.statusEn !== 'completed'"
+                v-else-if="currentOrder && isInvoicePaymentMethod(currentOrder.paymentMethod) && currentOrder.statusEn !== 'completed'"
                 title="检修服务尚未完工结单"
                 description="工单状态变为已完成后，客户才能申请开票，财务才能登记开票结果。"
                 type="warning"
@@ -1147,24 +1273,27 @@
                 show-icon
                 class="invoice-alert"
               ></el-alert>
-              <div v-if="isInvoicePaymentMethod(currentOrder.paymentMethod) && resolvePaymentStatus(currentOrder) === 'paid' && currentOrder.statusEn === 'completed' && !currentOrder.needInvoice && !invoiceEditorExpanded" class="invoice-empty-state">
-                <strong>本单暂不需要发票</strong>
-                <span>如果客户补充开票需求，可在这里登记发票信息。</span>
-                <el-button v-if="canPerformOrderAction('update_invoice')" size="small" plain @click="invoiceEditorExpanded = true">登记发票</el-button>
-              </div>
-              <template v-else-if="isInvoicePaymentMethod(currentOrder.paymentMethod) || currentOrder.needInvoice">
-                <div class="invoice-editor-heading">
-                  <strong>发票信息</strong>
-                  <span>带 * 的信息用于开票和客户接收</span>
-                </div>
-              <p>是否需要开票：{{currentOrder.needInvoice ? '是' : '否'}}</p>
-              <template v-if="currentOrder.needInvoice">
-                <p>发票抬头：{{currentOrder.invoiceTitle || '-'}}</p>
-                <p>税号：{{currentOrder.taxId || '-'}}</p>
-              </template>
-              <el-divider border-style="dashed"></el-divider>
-              <p class="drawer-section-title">发票登记</p>
-              <el-form label-position="top" size="small" class="invoice-form" :disabled="!canPerformOrderAction('update_invoice') || !canManuallyRegisterInvoice">
+              <template v-if="currentOrder">
+                <section class="invoice-application-panel">
+                  <div class="invoice-panel-title"><strong>发票申请信息</strong><div class="invoice-panel-actions"><el-tooltip v-if="invoiceEditorExpanded" content="收回编辑区，恢复只读信息" placement="top"><el-button circle plain size="small" aria-label="收回编辑区" @click="invoiceEditorExpanded = false"><el-icon><ArrowUp /></el-icon></el-button></el-tooltip><el-button v-else-if="canPerformOrderAction('update_invoice') && canManuallyRegisterInvoice" plain size="small" @click="invoiceEditorExpanded = true"><el-icon><EditPen /></el-icon>编辑</el-button></div></div>
+                  <div class="invoice-request-row"><span>发票需求</span><strong>{{ currentOrder.needInvoice ? '需要开票' : '无需开票' }}</strong><small v-if="currentOrder.needInvoice">电子发票</small></div>
+                  <div class="invoice-detail-grid">
+                    <div><span>发票抬头</span><strong>{{ currentOrder.needInvoice ? (currentOrder.invoiceTitle || '--') : '--' }}</strong></div>
+                    <div><span>纳税人识别号</span><strong>{{ currentOrder.needInvoice ? (currentOrder.taxId || '--') : '--' }}</strong></div>
+                    <div><span>开票类型</span><strong>{{ currentOrder.needInvoice ? (currentOrder.invoiceType || '电子普通发票') : '--' }}</strong></div>
+                    <div><span>申请时间</span><strong>{{ currentOrder.invoiceApplyTime || currentOrder.invoiceCreatedAt || '--' }}</strong></div>
+                  </div>
+                </section>
+                <section v-if="!invoiceEditorExpanded" class="invoice-flow-panel">
+                  <div class="invoice-panel-title"><strong>发票流程</strong><span>客户申请后由财务完成核对、开具与归档</span></div>
+                  <div class="invoice-flow-steps"><div v-for="(step, index) in ['客户申请','审核确认','开具发票','归档保存']" :key="step" class="invoice-flow-step"><i>{{ index + 1 }}</i><strong>{{ step }}</strong><span>{{ ['客户选择电子发票类型并提交申请','财务核实客户资料','财务开具电子发票并发送','发票信息归档便于查询'][index] }}</span><em v-if="index < 3">→</em></div></div>
+                </section>
+                <section v-if="!invoiceEditorExpanded" class="invoice-notes-panel">
+                  <div class="invoice-panel-title"><strong>备注与附件</strong><el-button v-if="canPerformOrderAction('update_invoice')" plain size="small" @click="invoiceEditorExpanded = true">编辑</el-button></div>
+                  <p>{{ currentOrder.invoiceRemark || '暂无内部备注' }}</p>
+                  <a v-if="currentOrder.invoicePdfUrl || currentOrder.invoiceUrl" :href="currentOrder.invoicePdfUrl || currentOrder.invoiceUrl" target="_blank" rel="noopener">查看已归档发票附件</a>
+                </section>
+                <el-form v-if="invoiceEditorExpanded" label-position="top" size="small" class="invoice-form" :disabled="!canPerformOrderAction('update_invoice') || !canManuallyRegisterInvoice">
                 <div class="invoice-form-grid">
                 <el-form-item label="发票状态 *">
                   <el-select v-model="invoiceStatus" :disabled="!canPerformOrderAction('update_invoice')" style="width:100%;">
@@ -1175,8 +1304,8 @@
                   </el-select>
                 </el-form-item>
                 <el-form-item label="预计时效"><el-input model-value="7-15 个工作日" disabled></el-input></el-form-item>
-                <el-form-item label="开票模式 *">
-                  <el-input model-value="人工开票并登记" disabled></el-input>
+                <el-form-item label="开票类型 *">
+                  <el-input model-value="电子发票" disabled></el-input>
                 </el-form-item>
                 <el-form-item label="税收分类">
                   <el-input model-value="修理修配劳务" disabled></el-input>
@@ -1224,7 +1353,7 @@
                   </div>
                 </details>
               </el-form>
-              <div class="invoice-actions">
+              <div v-if="invoiceEditorExpanded" class="invoice-actions">
               <el-tooltip v-if="canPerformOrderAction('update_invoice') && canManuallyRegisterInvoice" content="财务线下开具后，登记号码、日期和归档原件" placement="top">
                 <el-button type="primary" size="small" @click="saveInvoiceStatus">保存发票信息</el-button>
               </el-tooltip>
@@ -1317,61 +1446,39 @@
             </div>
           </el-tab-pane>
           <el-tab-pane label="回寄" name="return">
-            <div class="drawer-section">
-              <div class="drawer-section-head">
-                <p class="drawer-section-title">回寄物流</p>
-                <div class="return-logistics-actions">
-                  <el-tag :type="currentOrder.returnNo ? 'success' : 'info'" size="small">{{ currentOrder.returnNo ? '已录入' : '待回寄' }}</el-tag>
-                  <el-tooltip :content="returnLogisticsHint" placement="top">
-                    <span>
-                      <el-button
-                        type="primary"
-                        plain
-                        size="small"
-                        :disabled="!canRecordReturnLogistics"
-                        @click="openReturnLogisticsDialog"
-                      >录入回寄物流</el-button>
-                    </span>
-                  </el-tooltip>
+            <div class="return-workbench drawer-scroll-pane">
+              <section class="return-card return-card--recipient">
+                <div class="return-card-head"><div><el-icon><User /></el-icon><strong>回寄信息</strong></div><el-button plain size="small" :disabled="!getReturnAddressCopyText(currentOrder)" @click="copyReturnAddress(currentOrder)"><el-icon><DocumentCopy /></el-icon>复制收件信息</el-button></div>
+                <div class="return-recipient-grid">
+                  <div><span>收件人</span><strong>{{ currentOrder.contactName || currentOrder.customerName || '-' }}</strong></div>
+                  <div><span>联系电话</span><strong class="mono-text">{{ currentOrder.phone || '-' }}</strong></div>
+                  <div class="return-recipient-address"><span>收件地址</span><strong>{{ currentOrder.returnAddress || currentOrder.address || '-' }}</strong></div>
                 </div>
-              </div>
-              <div class="drawer-info-grid">
-                <div class="drawer-info-item">
-                  <span>回寄物流</span>
-                  <strong>{{currentOrder.returnCompany || '暂无（待发货）'}}</strong>
+              </section>
+
+              <section class="return-card return-card--shipping">
+                <div class="return-card-head"><div><el-icon><Van /></el-icon><strong>物流信息</strong></div><el-tag :type="currentOrder.returnNo ? 'success' : 'info'" effect="light">{{ currentOrder.returnNo ? '已录入' : '待回寄' }}</el-tag></div>
+                <div class="return-shipping-grid">
+                  <label><span>物流公司</span><el-select v-model="quickShipForm.returnCompany" :disabled="!canRecordReturnLogistics || Boolean(currentOrder.returnNo)" filterable allow-create default-first-option placeholder="请选择物流公司"><el-option v-for="company in logisticsCompanyOptions" :key="company" :label="company" :value="company" /></el-select></label>
+                  <label><span>物流单号</span><div class="return-number-input"><el-input v-model="quickShipForm.returnNo" :disabled="!canRecordReturnLogistics || Boolean(currentOrder.returnNo)" placeholder="请输入物流单号" /><el-button plain :disabled="!canRecordReturnLogistics || Boolean(currentOrder.returnNo)" @click="pasteReturnTracking">粘贴</el-button></div><small :class="{'is-valid': returnTrackingValid}">{{ returnTrackingValid ? '✓ 单号格式正确' : '支持常见快递单号格式' }}</small></label>
+                  <label><span>发货时间</span><el-date-picker v-model="returnShipDate" type="datetime" value-format="YYYY-MM-DD HH:mm" placeholder="选择发货时间" :disabled="Boolean(currentOrder.returnNo)" /></label>
                 </div>
-                <div class="drawer-info-item">
-                  <span>回寄单号</span>
-                  <strong class="mono-text">{{currentOrder.returnNo || '暂无（待发货）'}}</strong>
-                </div>
-                <div class="drawer-info-item is-wide">
-                  <span>收件地址</span>
-                  <div class="return-address-value">
-                    <strong>{{currentOrder.returnAddress || currentOrder.address || '-'}}</strong>
-                    <el-button
-                      size="small"
-                      text
-                      type="primary"
-                      :disabled="!getReturnAddressCopyText(currentOrder)"
-                      @click="copyReturnAddress(currentOrder)"
-                    ><el-icon><DocumentCopy /></el-icon>复制收件信息</el-button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-if="canPerformDrawerStatusAction(currentOrder)" class="drawer-section">
-              <div class="drawer-section-head">
-                <p class="drawer-section-title">更改工单进度</p>
-                <el-tag type="info" size="small">{{ getNextAction(currentOrder).label }}</el-tag>
-              </div>
-              <p class="section-helper">保存后会将工单状态同步给客户小程序；选择“已回寄”时需要录入回寄物流。</p>
-              <el-radio-group v-if="getAllowedStatusOptions(currentOrder).length" v-model="newStatus" class="status-radio-group">
-                <el-radio v-for="status in getAllowedStatusOptions(currentOrder)" :key="status" :label="status">{{ status }}</el-radio>
-              </el-radio-group>
-              <span v-else class="empty-text">当前状态暂无可执行的下一步。</span>
-            </div>
-            <div class="drawer-section">
-              <p class="drawer-section-title">备注与留言</p>
+                <div class="return-logistics-link"><span><el-icon><Clock /></el-icon>物流轨迹可在物流管理模块查看，实时跟踪包裹运输状态。</span><el-button type="primary" @click="router.push('/logistics')">前往物流管理 <el-icon><ArrowRight /></el-icon></el-button></div>
+              </section>
+
+              <section class="return-card">
+                <div class="return-card-head"><div><el-icon><Box /></el-icon><strong>回寄设备</strong><span class="return-muted">（已维修）</span></div><strong class="return-total">共 {{ returnDeviceTotal }} 件设备</strong></div>
+                <div v-if="returnDevices.length" class="return-device-list"><div v-for="item in returnDevices" :key="item.key" class="return-device-item"><span class="return-device-thumb">{{ (item.name || '设备').slice(0, 1) }}</span><strong>{{ item.name || '未命名设备' }}</strong><span>× {{ item.quantity }}</span></div></div><div v-else class="empty-text">暂无设备明细</div>
+              </section>
+
+              <section class="return-card">
+                <div class="return-card-head"><div><el-icon><CircleCheck /></el-icon><strong>回寄状态</strong></div></div>
+                <div class="return-status-track"><button v-for="item in returnStatusOptions" :key="item.value" type="button" :class="{active: returnStatusValue === item.value}" @click="returnStatusValue = item.value"><span></span>{{ item.label }}</button></div>
+                <div class="return-proof"><div class="return-proof-title">发货凭证</div><div class="return-proof-grid"><label class="return-proof-upload"><input type="file" accept="image/*,.pdf" multiple @change="handleReturnProofSelect" /><el-icon><Plus /></el-icon><strong>上传发货凭证</strong><small>支持图片、PDF，最多上传 5 个文件</small></label><div v-for="(proof, index) in returnProofs" :key="proof.fileID || proof.url || index" class="return-proof-file"><el-image v-if="isPreviewableUrl(proof.url)" :src="proof.url" fit="cover" /><div><strong>{{ proof.name || '发货凭证' }}</strong><span>{{ proof.time || '刚刚上传' }}</span><small>{{ proof.size || '' }}</small></div><el-button link type="danger" @click="removeReturnProof(index)"><el-icon><Delete /></el-icon></el-button></div></div></div>
+              </section>
+
+              <section class="return-card return-card--remarks">
+                <div class="return-card-head"><div><el-icon><Document /></el-icon><strong>备注与留言</strong></div></div>
               <div class="remark-field remark-field--internal">
                 <div class="remark-field-head">
                   <strong>内部备注</strong>
@@ -1399,6 +1506,7 @@
               <el-tooltip content="保存后内部备注仅后台可见，随件留言会进入打印单据" placement="top">
                 <el-button type="primary" plain size="small" :loading="remarkSaving" @click="saveRemarks">保存备注</el-button>
               </el-tooltip>
+              </section>
             </div>
           </el-tab-pane>
           <el-tab-pane label="流转记录" name="timeline">
@@ -1406,10 +1514,10 @@
               <p class="drawer-section-title">工单时间线</p>
               <div v-if="currentOrder.timeline && currentOrder.timeline.length" class="timeline-list">
                 <div v-for="(item, index) in currentOrder.timeline" :key="index" class="timeline-item">
-                  <div class="timeline-dot"></div>
+                  <div class="timeline-rail"><span class="timeline-dot" :class="{ 'is-latest': index === currentOrder.timeline.length - 1 }"></span></div>
                   <div class="timeline-content">
+                    <div class="timeline-meta"><time>{{ formatTimelineTime(item.time || item.createTime || item.updateTime) }}</time><span>{{ item.operator || item.actor || item.userName || item.user || '系统记录' }}</span></div>
                     <strong>{{ item.title || item.statusText || '状态更新' }}</strong>
-                    <span>{{ formatTimelineTime(item.time || item.createTime || item.updateTime) }}</span>
                     <p>{{ item.desc || item.description || item.content || '-' }}</p>
                   </div>
                 </div>
@@ -1472,6 +1580,7 @@
           <el-tooltip v-if="activeDrawerTab === 'return' && canPerformDrawerStatusAction(currentOrder) && getAllowedStatusOptions(currentOrder).length" content="确认后会推进工单状态，并同步客户小程序进度" placement="top">
             <el-button type="primary" :loading="quickStatusLoading" @click="confirmStatus">{{ drawerStatusActionLabel }}</el-button>
           </el-tooltip>
+          <el-button v-else-if="currentOrder && getRecommendedDrawerTab(currentOrder) !== activeDrawerTab" type="primary" @click="focusNextDrawerStep">推进至下一步</el-button>
         </div>
       </div>
     </template>
@@ -1583,6 +1692,42 @@
     <template #footer>
       <el-button @click="remarkDialogVisible = false">取消</el-button>
       <el-button type="primary" :loading="quickStatusLoading" @click="confirmSaveRemark">保存</el-button>
+    </template>
+  </el-dialog>
+
+  <el-dialog v-model="inboundLogisticsDialogVisible" title="修改寄入物流" width="500px" align-center @closed="resetInboundLogisticsForm">
+    <el-alert
+      title="用于补录或修正客户填写的寄入物流信息"
+      description="保存后会同步工单的寄入物流和签收记录，请先核对工单号与单号。"
+      type="info"
+      show-icon
+      :closable="false"
+      class="inbound-logistics-editor-alert"
+    ></el-alert>
+    <el-form label-width="90px" class="inbound-logistics-editor-form">
+      <el-form-item label="工单号">
+        <el-input :model-value="currentOrder?.id || currentOrder?._id || '-'" disabled></el-input>
+      </el-form-item>
+      <el-form-item label="物流公司" required>
+        <el-select
+          v-model="inboundLogisticsForm.logisticsCompany"
+          placeholder="请选择物流公司"
+          filterable
+          allow-create
+          default-first-option
+          clearable
+          style="width: 100%;"
+        >
+          <el-option v-for="company in logisticsCompanyOptions" :key="company" :label="company" :value="company"></el-option>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="物流单号" required>
+        <el-input v-model="inboundLogisticsForm.logisticsNo" maxlength="40" clearable placeholder="请输入正确的物流单号"></el-input>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="inboundLogisticsDialogVisible = false">取消</el-button>
+      <el-button type="primary" :loading="inboundLogisticsSaving" @click="saveInboundLogistics">保存修改</el-button>
     </template>
   </el-dialog>
 
@@ -1892,10 +2037,10 @@
 
 <script setup>
 import { ref, reactive, computed, onBeforeUnmount, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { CirclePlus, DocumentCopy, RefreshLeft } from '@element-plus/icons-vue'
-import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmInboundArrival, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
+import { CirclePlus, DocumentCopy, RefreshLeft, ArrowRight, User, Wallet, Clock, CreditCard, InfoFilled, WarningFilled, Document, CircleCheck, Box, Plus, Van, Delete, Edit } from '@element-plus/icons-vue'
+import { assignEngineer, batchDeleteOrders, batchImportLogistics, batchUpdateShipping, confirmInboundArrival, confirmReceivedParts, createAdminOrder, getOrderList, getStatistics, getWorkflowConfig, refundOrderPayment, rejectPaymentProof, recordCustomerQuoteDecision, restoreCancelledOrder, saveOrderItems, saveReceivedParts, saveRepairRecord, syncRefundStatus, updateInboundLogistics, updateInvoiceStatus, updateOrderQuote, updateOrderStatus, updatePaymentStatus, updateRemarks } from '../api/order.js'
 import { getPartList, recoverOrderInventory } from '../api/inventory.js'
 import { lookupDeviceBySn as lookupDeviceBySnApi, logSnAction } from '../api/customer.js'
 import { getSettings, getStaffList, getTempFileURL } from '../api/admin.js'
@@ -1921,9 +2066,68 @@ import { getPaymentMethodLabel, isCorporateTransferPayment, isInvoicePaymentMeth
 import CorporateAccountDetails from '../components/CorporateAccountDetails.vue'
 
 const route = useRoute()
+const router = useRouter()
 const isMobile = ref(window.innerWidth <= 768)
+const drawerWidthStorageKey = 'workOrderDrawerWidth'
+const defaultDrawerWidth = 820
+const storedDrawerWidth = Number(localStorage.getItem(drawerWidthStorageKey))
+const drawerWidth = ref(Number.isFinite(storedDrawerWidth) && storedDrawerWidth > 0 ? storedDrawerWidth : defaultDrawerWidth)
+let drawerResizeState = null
+
+const getDrawerWidthBounds = () => {
+  const maximum = Math.max(620, Math.min(1280, window.innerWidth - 64))
+  return { min: Math.min(620, maximum), max: maximum }
+}
+
+const clampDrawerWidth = (width) => {
+  const { min, max } = getDrawerWidthBounds()
+  return Math.min(max, Math.max(min, Number(width) || defaultDrawerWidth))
+}
+
+const drawerSize = computed(() => isMobile.value ? '100%' : `${clampDrawerWidth(drawerWidth.value)}px`)
+
+const stopDrawerResize = () => {
+  if (!drawerResizeState) return
+  drawerResizeState = null
+  document.body.classList.remove('is-resizing-work-order-drawer')
+  window.removeEventListener('pointermove', resizeDrawer)
+  window.removeEventListener('pointerup', stopDrawerResize)
+  window.removeEventListener('pointercancel', stopDrawerResize)
+  drawerWidth.value = clampDrawerWidth(drawerWidth.value)
+  localStorage.setItem(drawerWidthStorageKey, String(Math.round(drawerWidth.value)))
+}
+
+const resizeDrawer = (event) => {
+  if (!drawerResizeState) return
+  drawerWidth.value = clampDrawerWidth(drawerResizeState.startWidth + drawerResizeState.startX - event.clientX)
+}
+
+const startDrawerResize = (event) => {
+  if (isMobile.value || event.button !== 0) return
+  event.preventDefault()
+  drawerResizeState = { startX: event.clientX, startWidth: clampDrawerWidth(drawerWidth.value) }
+  document.body.classList.add('is-resizing-work-order-drawer')
+  window.addEventListener('pointermove', resizeDrawer)
+  window.addEventListener('pointerup', stopDrawerResize)
+  window.addEventListener('pointercancel', stopDrawerResize)
+}
+
+const resetDrawerWidth = () => {
+  drawerWidth.value = clampDrawerWidth(defaultDrawerWidth)
+  localStorage.removeItem(drawerWidthStorageKey)
+}
+
+const handleDrawerResizeKeydown = (event) => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return
+  event.preventDefault()
+  if (event.key === 'Home') return resetDrawerWidth()
+  drawerWidth.value = clampDrawerWidth(drawerWidth.value + (event.key === 'ArrowLeft' ? 24 : -24))
+  localStorage.setItem(drawerWidthStorageKey, String(Math.round(drawerWidth.value)))
+}
+
 const updateIsMobile = () => {
   isMobile.value = window.innerWidth <= 768
+  if (!isMobile.value) drawerWidth.value = clampDrawerWidth(drawerWidth.value)
 }
 const adminStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
 const adminActionStatusOptions = ['已提交', '运输中', '已签收', '处理中', '已回寄', '已完成', '已取消']
@@ -2137,23 +2341,31 @@ const getSlaText = (order = {}) => {
 }
 
 const getNextAction = (order = {}) => {
-  if (order.status === '已取消') return { label: '已作废', desc: '无需处理', type: 'info' }
-  if (order.status === '已完成') return { label: '已结案', desc: '流程完成', type: 'success' }
-  if (order.status === '已回寄' || order.returnNo) return { label: '待结案', desc: '确认完成归档', type: 'success' }
-  if (['已提交', '运输中'].includes(order.status)) return { label: '待签收', desc: '确认寄入设备', type: 'warning' }
+  // 工单状态是主流程来源；报价、付款字段只用于细分已签收/处理中阶段。
+  const status = order.status || ''
+  if (status === '已取消') return { label: '已作废', desc: '无需处理', type: 'info' }
+  if (status === '已完成') return { label: '已结案', desc: '流程完成', type: 'success' }
+  if (status === '已回寄' || order.returnNo) return { label: '已回寄', desc: '已填写回寄单号，等待客户签收', type: 'success' }
+  if (status === '已提交' || status === '运输中') return { label: '待签收', desc: '确认寄入设备', type: 'warning' }
   const quoteStatus = order.quoteStatus || order.quote_status || ''
   const paymentStatus = resolvePaymentStatus(order)
+  if (status === '检测中' && ['pending', 'draft', ''].includes(quoteStatus)) {
+    return { label: '待报价', desc: '完成检测并发布维修报价', type: 'primary' }
+  }
+  if (status === '处理中') {
+    return { label: '维修中', desc: '完成维修并填写维修记录', type: 'primary' }
+  }
   if (quoteStatus === 'rejected') {
     return { label: '拒修待回寄', desc: '无需付款，可直接安排设备回寄', type: 'warning' }
   }
-  if (order.status === '已签收' && ['pending', 'draft', ''].includes(quoteStatus)) {
-    return { label: '待报价', desc: '检测并发布报价', type: 'primary' }
+  if ((status === '已签收' || status === '检测中') && ['pending', 'draft', ''].includes(quoteStatus)) {
+    return { label: '待处理', desc: '完成检测并发布报价', type: 'primary' }
   }
   if (['pending', 'draft'].includes(quoteStatus)) {
-    return { label: '待报价', desc: '补齐维修报价', type: 'primary' }
+    return { label: '待处理', desc: '补齐维修报价', type: 'primary' }
   }
   if (quoteStatus === 'issued' && !isRepairStageReady(order, paymentStatus)) {
-    return { label: '待确认', desc: '等待客户确认报价或录入电话确认', type: 'warning' }
+    return { label: '待付款', desc: '等待客户确认报价并付款', type: 'warning' }
   }
   if (order.chargeType === 'free' && ['issued', 'confirmed'].includes(quoteStatus)) {
     const warrantyStatus = order.warrantyStatus || order.warranty_status || ''
@@ -2167,28 +2379,31 @@ const getNextAction = (order = {}) => {
       : { label: '待确认', desc: '等待客户确认质保维修', type: 'success' }
   }
   if (!order.returnNo && ['issued', 'confirmed'].includes(quoteStatus)) {
-    if (paymentStatus === 'paid') return { label: '待回寄', desc: '继续维修并录入回寄物流', type: 'warning' }
+    if (paymentStatus === 'paid') return { label: '维修中', desc: '维修完成后填写回寄信息', type: 'primary' }
     if (paymentStatus === 'uploaded') return { label: '维修待处理', desc: '可先维修，付款凭证待审核', type: 'primary' }
     return { label: '维修待处理', desc: '可先维修或回寄，付款继续跟进', type: 'primary' }
   }
   if (paymentStatus === 'uploaded') return { label: '待审核', desc: '核对对公流水', type: 'warning' }
   if (paymentStatus === 'rejected') return { label: '已驳回', desc: '等待客户重传凭证', type: 'danger' }
   if (paymentStatus !== 'paid') return { label: '待付款', desc: '等待客户付款', type: 'info' }
-  if (!order.returnNo) return { label: '待回寄', desc: '录入回寄物流', type: 'warning' }
+  if (!order.returnNo) return { label: '维修中', desc: '维修完成后填写回寄信息', type: 'primary' }
   if (order.status === '已回寄') return { label: '待结案', desc: '确认完成归档', type: 'success' }
   return { label: '维修中', desc: '维修/质检处理', type: 'primary' }
 }
 
 const drawerWorkflowStages = [
-  { key: 'intake', label: '受理' },
-  { key: 'diagnosis', label: '检测' },
-  { key: 'quote', label: '报价' },
-  { key: 'repair', label: '维修' },
-  { key: 'return', label: '回寄' }
+  { key: 'intake', label: '受理', tip: '确认签收表示已经受理自动跳/推进下步' },
+  { key: 'diagnosis-quote', label: '检测与报价', tip: '上面检测 2 和报价 3 可以合在一起，发布报价后推进下步' },
+  { key: 'payment', label: '收款', tip: '客户付款，或电话确认后自动跳转，也可手动推进下一步' },
+  { key: 'repair', label: '维修', tip: '维修完成填好维修项目，自动推进到下一步' },
+  { key: 'return', label: '回寄', tip: '填写回寄单号、物流信息后推进' }
 ]
 
 const getDrawerStageIndex = (order = {}) => {
-  return getWorkflowStageIndex(order, resolvePaymentStatus(order))
+  const index = getWorkflowStageIndex(order, resolvePaymentStatus(order))
+  // 原状态机将报价记为第 3 阶段；合并“检测与报价”后，未付款的报价单显示在收款阶段。
+  if (index === 2 && !isRepairStageReady(order, resolvePaymentStatus(order))) return 2
+  return index
 }
 
 const getRecommendedDrawerTab = (order = {}) => {
@@ -2522,6 +2737,19 @@ const searchInvoiceStatus = ref('')
 const searchPaymentStatus = ref('')
 const slaFilter = ref('')
 const statusBreakdown = ref({ pending: 0, sent: 0, received: 0, inspecting: 0, fixing: 0, shipped: 0, completed: 0, cancelled: 0 })
+const statusSummaryVisibleKeys = ref([])
+const statusSummaryOptions = [
+  { key: 'pending', label: '已提交' }, { key: 'sent', label: '运输中' }, { key: 'received', label: '已签收' },
+  { key: 'processing', label: '处理中' }, { key: 'shipped', label: '已回寄' }, { key: 'completed', label: '已完成' }, { key: 'cancelled', label: '已取消' }
+]
+const defaultStatusSummaryKeys = statusSummaryOptions.map(item => item.key)
+const loadStatusSummaryPreference = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('adminStatusSummaryVisibleKeys') || 'null')
+    statusSummaryVisibleKeys.value = Array.isArray(saved) && saved.length ? saved.filter(key => defaultStatusSummaryKeys.includes(key)) : defaultStatusSummaryKeys
+  } catch { statusSummaryVisibleKeys.value = defaultStatusSummaryKeys }
+}
+watch(statusSummaryVisibleKeys, value => localStorage.setItem('adminStatusSummaryVisibleKeys', JSON.stringify(value)))
 const paymentBreakdown = ref({ pending: 0, paid: 0 })
 const activeTodoType = ref('')
 const activeTodoLabel = computed(() => todoTypeMap[activeTodoType.value] || '待办筛选')
@@ -2541,7 +2769,7 @@ const loadWorkflowConfig = async () => {
 
 const statusSummaryCards = computed(() => {
   const counts = statusBreakdown.value
-  return [
+  const cards = [
     { key: 'pending', label: '已提交', count: counts.pending, filter: '已提交', tone: 'pending' },
     { key: 'sent', label: '运输中', count: counts.sent, filter: '运输中', tone: 'sent' },
     { key: 'received', label: '已签收', count: counts.received, filter: '已签收', tone: 'received' },
@@ -2550,6 +2778,7 @@ const statusSummaryCards = computed(() => {
     { key: 'completed', label: '已完成', count: counts.completed, filter: '已完成', tone: 'completed' },
     { key: 'cancelled', label: '已取消', count: counts.cancelled, filter: '已取消', tone: 'cancelled' }
   ]
+  return cards.filter(item => statusSummaryVisibleKeys.value.includes(item.key))
 })
 
 const paymentSummaryItems = computed(() => [
@@ -2596,6 +2825,14 @@ const loadStatusBreakdown = async () => {
   }
 }
 
+const formatDrawerDateTime = (value = '') => {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
 let paymentBreakdownRequestId = 0
 const loadPaymentBreakdown = async () => {
   const requestId = ++paymentBreakdownRequestId
@@ -2619,7 +2856,8 @@ const loadPaymentBreakdown = async () => {
 
 const refreshStatusBreakdown = async () => {
   try {
-    await Promise.all([loadStatusBreakdown(), loadPaymentBreakdown()])
+    await loadStatusBreakdown()
+    await loadPaymentBreakdown()
   } catch (error) {
     ElMessage.warning(error.message || '工单概览统计加载失败')
   }
@@ -2630,6 +2868,11 @@ const canPerformOrderAction = (action) => {
 }
 
 const canChangeOrderStatus = computed(() => canPerformOrderAction('update_order_status'))
+
+const handleOverviewStatusChange = async (status) => {
+  if (!currentOrder.value || !status || status === currentOrder.value.status) return
+  await handleQuickStatusChange(currentOrder.value, status)
+}
 
 // ============== 指派工程师（前后端均使用 assign_engineer 权限） ==============
 const engineerOptions = ref([])
@@ -2670,6 +2913,7 @@ const submitAssignEngineer = async () => {
 }
 
 const getOrderStatusValue = (order = {}) => {
+  if (!order) return ''
   return order.statusEn || toEnglishStatus(order.status || '')
 }
 
@@ -2684,6 +2928,26 @@ const getReturnAddressCopyText = (order = {}) => {
     phone ? `联系电话：${phone}` : '',
     address ? `收件地址：${address}` : ''
   ].filter(Boolean).join('\n')
+}
+
+const copyOrderId = async (orderId = '') => {
+  const text = String(orderId || '').trim()
+  if (!text) return
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('工单号已复制')
+  } catch (error) {
+    const input = document.createElement('textarea')
+    input.value = text
+    input.style.position = 'fixed'
+    input.style.opacity = '0'
+    document.body.appendChild(input)
+    input.select()
+    const copied = document.execCommand('copy')
+    document.body.removeChild(input)
+    if (copied) ElMessage.success('工单号已复制')
+    else ElMessage.error('复制失败，请手动复制')
+  }
 }
 
 const copyReturnAddress = async (order = {}) => {
@@ -2707,15 +2971,26 @@ const copyReturnAddress = async (order = {}) => {
 }
 const shouldConfirmInboundArrival = (order = {}) => order.arrivalConfirmStatus === 'pending'
 const shouldSyncReceivedStatus = (order = {}) => needsReceivedPartsStatusSync(order)
-const canSyncReceivedOrderStatus = (order = {}) => shouldConfirmInboundArrival(order)
-  ? canPerformOrderAction('confirm_inbound_arrival')
-  : canPerformOrderAction('update_order_status')
+// 推进至已签收 = 确认设备签收入库：仅当工单仍处于已提交/运输中时才成立。
+const canSyncReceivedOrderStatus = (order = {}) => (
+  ['pending', 'sent'].includes(getOrderStatusValue(order))
+  && (shouldConfirmInboundArrival(order)
+    ? canPerformOrderAction('confirm_inbound_arrival')
+    : canPerformOrderAction('update_order_status'))
+)
+// 目标状态为已签收且当前为已提交/运输中：统一走签收同步（待入库→确认入库；已确认但状态滞后→补改状态）。
+const isReceivedStatusAdvance = (order = {}, status = '') => (
+  status === '已签收'
+  && ['pending', 'sent'].includes(getOrderStatusValue(order))
+  && canSyncReceivedOrderStatus(order)
+)
 const syncReceivedOrderStatus = (token, order = {}) => shouldConfirmInboundArrival(order)
   ? confirmInboundArrival(token, order._id, { suppressErrorMessage: true })
   : updateOrderStatus(token, order._id, 'received', { suppressErrorMessage: true })
 const canPerformDrawerStatusAction = (order = {}) => (
-  canChangeOrderStatus.value || (needsReceivedPartsStatusSync(order) && canSyncReceivedOrderStatus(order))
+  canChangeOrderStatus.value || canSyncReceivedOrderStatus(order)
 )
+
 
 const getReturnShipmentBlockReason = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
@@ -2751,11 +3026,18 @@ const getAllowedStatusOptions = (order = {}) => {
   const currentStatus = getOrderStatusValue(order)
   const transitions = (workflowConfig.value && workflowConfig.value.transitions && workflowConfig.value.transitions[currentStatus]) || []
   if (needsReceivedPartsStatusSync(order)) {
-    return transitions.includes('received') && canSyncReceivedOrderStatus(order)
+    const statuses = transitions.includes('received') && canSyncReceivedOrderStatus(order)
       ? [workflowStatusLabelMap.value.received || '已签收']
       : []
+    if (canPerformOrderAction('update_order_status') && !['已完成', '已取消'].includes(order.status)) statuses.push('已取消')
+    return statuses
   }
-  return transitions.filter(targetStatus => {
+  const nextStatuses = transitions.filter(targetStatus => {
+    // 已提交/运输中 -> 已签收 表示确认设备签收入库：具备对应权限即可直接推进，
+    // 由 syncReceivedOrderStatus 统一执行（待入库->确认入库；已确认但状态滞后->补改状态）。
+    if (targetStatus === 'received' && ['pending', 'sent'].includes(currentStatus)) {
+      return canSyncReceivedOrderStatus(order)
+    }
     if (targetStatus === 'shipped') {
       if (!canPerformOrderAction('record_return_logistics') && !canChangeOrderStatus.value) return false
     } else if (!canChangeOrderStatus.value) return false
@@ -2787,6 +3069,11 @@ const getAllowedStatusOptions = (order = {}) => {
     }
     return targetStatus !== currentStatus
   }).map(status => workflowStatusLabelMap.value[status] || status)
+  // 纠错场景允许直接作废，详情概览与列表状态下拉保持一致。
+  if (canPerformOrderAction('update_order_status') && !['已完成', '已取消'].includes(order.status)) {
+    nextStatuses.push('已取消')
+  }
+  return [...new Set(nextStatuses)]
 }
 
 const getAllStatusOptions = (order = {}) => {
@@ -2799,11 +3086,21 @@ const getAllStatusOptions = (order = {}) => {
 
 // 表格标签展示完整人工状态菜单；不可按当前状态机流转的选项置灰，避免误以为只能改下一步。
 const getManualStatusOptions = (order = {}) => {
-  if (!order || !canPerformOrderAction('update_status')) return []
+  // 列表状态下拉与执行函数必须使用同一权限，避免菜单显示但所有选项不可点击。
+  if (!order || !canPerformOrderAction('update_order_status')) return []
   return adminStatusOptions.filter(status => status !== order.status)
 }
 
-const canMoveOrderToStatus = (order, status) => getAllowedStatusOptions(order).includes(status)
+// 作废是后台纠错入口：客户填错工单时，无需先走完整维修状态机即可取消，随后才能按规则删除。
+// 仅对仍在进行中的工单开放，已完成/已取消不允许再次切换。
+const canMoveOrderToStatus = (order, status) => {
+  if (status === '已取消') {
+    return Boolean(order)
+      && canPerformOrderAction('update_order_status')
+      && !['已完成', '已取消'].includes(order.status)
+  }
+  return getAllowedStatusOptions(order).includes(status)
+}
 const resetSelectedOrderStatus = (order = {}, activeTab = activeDrawerTab.value) => {
   const allowedStatuses = getAllowedStatusOptions(order)
   newStatus.value = selectPreferredDrawerStatus({ order, allowedStatuses, activeTab })
@@ -2896,6 +3193,7 @@ const clearTodoFilter = () => {
 }
 
 onMounted(async () => {
+  loadStatusSummaryPreference()
   updateIsMobile()
   window.addEventListener('resize', updateIsMobile)
   applyRouteFilters()
@@ -2907,12 +3205,13 @@ onMounted(async () => {
   }
   // 工程师列表仅在拥有指派权限时请求
   if (canPerformOrderAction('assign_engineer')) loadEngineerOptions()
-  loadOrders()
+  await loadOrders()
   refreshStatusBreakdown()
 })
 
 onBeforeUnmount(() => {
   workOrderQuery.cancel()
+  stopDrawerResize()
   window.removeEventListener('resize', updateIsMobile)
 })
 
@@ -2975,6 +3274,10 @@ watch(
 
 const drawerVisible = ref(false)
 const currentOrder = ref(null)
+const goCurrentOrderFinance = () => {
+  const orderNo = currentOrder.value?.orderNo || currentOrder.value?.order_no || currentOrder.value?.orderId || currentOrder.value?.id || ''
+  router.push({ path: '/finance', query: { tab: 'settlement', keyword: orderNo } })
+}
 const orderVideoDialogVisible = ref(false)
 const activeOrderVideoUrl = ref('')
 const orderVideoError = ref('')
@@ -2999,6 +3302,7 @@ const resetOrderVideo = () => {
   orderVideoError.value = ''
 }
 const activeDrawerTab = ref('base')
+const quoteDeviceEditing = ref(false)
 const invoiceEditorExpanded = ref(false)
 const corporateAccount = ref(resolveCorporateAccount())
 // SN 回填：每个工单项的查询结果与 loading 状态（按下标）
@@ -3012,7 +3316,7 @@ const remarkDialogVisible = ref(false)
 const newStatus = ref('')
 const drawerStatusActionLabel = computed(() => {
   if (needsReceivedPartsStatusSync(currentOrder.value) && newStatus.value === '已签收') return '同步为已签收'
-  if (newStatus.value === '已回寄' && !currentOrder.value?.returnNo) return '录入回寄物流'
+  if (newStatus.value === '已回寄' && !currentOrder.value?.returnNo) return '推进至已寄出'
   return `推进至${newStatus.value}`
 })
 watch(activeDrawerTab, (tab) => {
@@ -3038,6 +3342,8 @@ const canManuallyRegisterInvoice = computed(() => (
   && currentOrder.value.statusEn === 'completed'
 ))
 const remarkSaving = ref(false)
+const overviewRemarkEditing = ref(false)
+const overviewRemarkDraft = ref('')
 const repairRecordSaving = ref(false)
 const repairPhotoUploading = ref(false)
 const repairRecordForm = reactive({ content: '', products: [], photos: [] })
@@ -3071,7 +3377,29 @@ const logisticsCompanyOptions = [
   '安能物流'
 ]
 const quickShipForm = reactive({ returnCompany: '顺丰速运', returnNo: '' })
+const returnShipDate = ref('')
+const returnStatusValue = ref('pending')
+const returnProofs = ref([])
+const returnStatusOptions = [
+  { value: 'pending', label: '待回寄' },
+  { value: 'shipped', label: '已寄出' },
+  { value: 'delivered', label: '已签收' },
+  { value: 'exception', label: '异常/退回' }
+]
+const returnDevices = computed(() => (Array.isArray(currentOrder.value?.itemsList) ? currentOrder.value.itemsList : []).map((item, index) => ({
+  key: item._id || item.id || index,
+  name: item.product_name || item.productName || item.name || item.model || '维修设备',
+  quantity: Math.max(1, Number(item.quantity || item.qty || 1) || 1)
+})))
+const returnDeviceTotal = computed(() => returnDevices.value.reduce((sum, item) => sum + item.quantity, 0))
+const returnTrackingValid = computed(() => {
+  const value = String(quickShipForm.returnNo || '').trim()
+  return !value || /^[A-Za-z0-9-]{6,40}$/.test(value)
+})
 const quickRemarkForm = reactive({ adminRemark: '', printRemark: '' })
+const inboundLogisticsDialogVisible = ref(false)
+const inboundLogisticsSaving = ref(false)
+const inboundLogisticsForm = reactive({ logisticsCompany: '', logisticsNo: '' })
 
 const hasRepairRecord = computed(() => Boolean(
   repairRecordForm.content.trim()
@@ -3232,6 +3560,7 @@ const quoteForm = reactive({
   status: 'pending',
   remark: '',
   finalPrice: 0,
+  warrantyMonths: 3,
   paymentDeadlineDays: 7,
   parts: [createPartRow()],
   services: [createServiceRow()],
@@ -3251,10 +3580,25 @@ const coverageResultOptions = [
   { value: 'not_covered', label: '在保但不保' }
 ]
 
+const currentChargeMode = computed(() => {
+  const items = Array.isArray(currentOrder.value?.itemsList) ? currentOrder.value.itemsList : []
+  if (items.length && items.every(item => item.coverage_result === 'free')) return 'free'
+  if (items.some(item => ['paid', 'partial', 'not_covered'].includes(item.coverage_result))) return 'paid'
+  return quoteTotal.value > 0 ? 'paid' : ''
+})
+
+const setChargeMode = (mode) => {
+  if (!canPerformOrderAction('issue_quote') || !Array.isArray(currentOrder.value?.itemsList)) return
+  currentOrder.value.itemsList.forEach(item => {
+    item.coverage_result = mode === 'free' ? 'free' : 'paid'
+  })
+  if (mode === 'free') quoteForm.finalPrice = 0
+}
+
 const manualWarrantyStatusOptions = [
   { value: 'pending', label: '未判断' },
   { value: 'in_warranty', label: '人工判断：在保' },
-  { value: 'expired', label: '人工判断：过保' }
+  { value: 'expired', label: '人工判断：保外维修' }
 ]
 
 const coverageReasonOptions = [
@@ -3382,7 +3726,8 @@ const resetQuoteForm = (order = {}) => {
   quoteForm.status = order.quoteStatus || order.quote_status || (totalPrice > 0 ? 'issued' : 'pending')
   quoteForm.remark = remark
   quoteForm.finalPrice = Number(detail.finalPrice ?? detail.final_price ?? totalPrice ?? 0) || 0
-  quoteForm.paymentDeadlineDays = quoteForm.paymentDeadlineDays || 7
+  quoteForm.warrantyMonths = Number(order.quoteWarrantyMonths ?? order.quote_warranty_months ?? detail.warrantyMonths ?? detail.warranty_months ?? 3)
+  quoteForm.paymentDeadlineDays = Number(order.paymentDeadlineDays ?? order.payment_deadline_days ?? detail.paymentDeadlineDays ?? detail.payment_deadline_days ?? 7) || 7
 
   if (Array.isArray(detail.parts) || Array.isArray(detail.services) || Array.isArray(detail.others)) {
     quoteForm.parts = (Array.isArray(detail.parts) ? detail.parts : []).map(createPartRow)
@@ -3497,7 +3842,7 @@ const buildQuotePayload = (status) => {
     remark,
     finalPrice,
     final_price: finalPrice,
-    quote_warranty_months: 3,
+    quote_warranty_months: Math.max(0, Number(quoteForm.warrantyMonths) || 0),
     payment_deadline_days: Math.max(1, Number(quoteForm.paymentDeadlineDays) || 7),
     quote_detail: {
       parts,
@@ -3564,6 +3909,8 @@ const openExportDialog = () => {
 
 const openDrawer = (row) => {
   currentOrder.value = row
+  overviewRemarkEditing.value = false
+  overviewRemarkDraft.value = row.adminRemark || ''
   activeDrawerTab.value = getRecommendedDrawerTab(row)
   invoiceEditorExpanded.value = Boolean(row.needInvoice || normalizeInvoiceStatus(row) !== '无需开票')
   assignEngineerId.value = row.engineerId || ''
@@ -3586,7 +3933,18 @@ const openDrawer = (row) => {
   resetQuoteForm(row)
   resetRepairRecordForm(row)
   resetReceivedPartsForm(row)
+  loadReturnDraft(row)
   drawerVisible.value = true
+}
+
+const startOverviewRemarkEdit = () => {
+  overviewRemarkDraft.value = currentOrder.value?.adminRemark || ''
+  overviewRemarkEditing.value = true
+}
+
+const cancelOverviewRemarkEdit = () => {
+  overviewRemarkDraft.value = currentOrder.value?.adminRemark || ''
+  overviewRemarkEditing.value = false
 }
 
 const addQuoteRow = (type) => {
@@ -3786,7 +4144,7 @@ const currentOrderWarrantyHint = computed(() => {
   if (status === 'expired') {
     return { show: true, type: 'error', text: '设备已人工判断为过保，可继续发布收费报价' }
   }
-  return { show: true, type: 'warning', text: '质保资料可选填；请逐台选择人工判断为在保或过保后再发布报价' }
+  return { show: true, type: 'warning', text: '质保资料可选填；请逐台选择人工判断为在保或保外维修后再发布报价' }
 })
 
 const isManualWarrantyComplete = (item = {}) => ['in_warranty', 'expired'].includes(item.manual_warranty_status)
@@ -3915,6 +4273,40 @@ const resetQuickShipDialog = () => {
   quickShipForm.returnNo = ''
 }
 
+const loadReturnDraft = (order = {}) => {
+  returnShipDate.value = order.returnShipDate || order.return_ship_date || ''
+  returnStatusValue.value = order.returnNo ? 'shipped' : 'pending'
+  try {
+    const saved = JSON.parse(localStorage.getItem(`returnProofs:${order._id || order.id}`) || '[]')
+    returnProofs.value = Array.isArray(saved) ? saved : []
+  } catch { returnProofs.value = [] }
+}
+
+const pasteReturnTracking = async () => {
+  try {
+    quickShipForm.returnNo = (await navigator.clipboard.readText()).trim()
+    ElMessage.success('已粘贴物流单号')
+  } catch { ElMessage.warning('无法读取剪贴板，请手动输入') }
+}
+
+const handleReturnProofSelect = async (event) => {
+  const files = Array.from(event.target.files || []).slice(0, 5 - returnProofs.value.length)
+  for (const file of files) {
+    if (file.size > 20 * 1024 * 1024) { ElMessage.warning(`${file.name} 超过 20MB`); continue }
+    try {
+      const uploaded = await uploadFileToCloud(file, `return-proof/${currentOrder.value?._id || currentOrder.value?.id || 'order'}/`, 20 * 1024 * 1024)
+      returnProofs.value.push({ name: file.name, size: `${Math.ceil(file.size / 1024)}KB`, time: new Date().toLocaleString('zh-CN', { hour12: false }), fileID: uploaded.fileUrl, url: uploaded.tempUrl || uploaded.fileUrl })
+      localStorage.setItem(`returnProofs:${currentOrder.value?._id || currentOrder.value?.id}`, JSON.stringify(returnProofs.value))
+    } catch (error) { ElMessage.error(error.message || '凭证上传失败') }
+  }
+  event.target.value = ''
+}
+
+const removeReturnProof = (index) => {
+  returnProofs.value.splice(index, 1)
+  if (currentOrder.value) localStorage.setItem(`returnProofs:${currentOrder.value._id || currentOrder.value.id}`, JSON.stringify(returnProofs.value))
+}
+
 const hasRemark = (row) => {
   return Boolean((row.adminRemark || '').trim() || (row.printRemark || '').trim())
 }
@@ -3944,6 +4336,69 @@ const resetRemarkForm = () => {
   currentRemarkOrder.value = null
   quickRemarkForm.adminRemark = ''
   quickRemarkForm.printRemark = ''
+}
+
+const openInboundLogisticsEditor = () => {
+  const order = currentOrder.value
+  if (!order || !canPerformOrderAction('import_inbound_logistics')) {
+    ElMessage.error('当前角色无权修改寄入物流')
+    return
+  }
+  inboundLogisticsForm.logisticsCompany = order.logisticsCompany || ''
+  inboundLogisticsForm.logisticsNo = order.logisticsNo || ''
+  inboundLogisticsDialogVisible.value = true
+}
+
+const resetInboundLogisticsForm = () => {
+  inboundLogisticsForm.logisticsCompany = ''
+  inboundLogisticsForm.logisticsNo = ''
+}
+
+const saveInboundLogistics = async () => {
+  const order = currentOrder.value
+  if (!order || inboundLogisticsSaving.value) return
+  if (!canPerformOrderAction('import_inbound_logistics')) {
+    ElMessage.error('当前角色无权修改寄入物流')
+    return
+  }
+
+  const logisticsCompany = String(inboundLogisticsForm.logisticsCompany || '').trim()
+  const logisticsNo = String(inboundLogisticsForm.logisticsNo || '').trim().replace(/\s/g, '')
+  if (!logisticsCompany) {
+    ElMessage.warning('请填写物流公司')
+    return
+  }
+  if (!logisticsNo) {
+    ElMessage.warning('请填写物流单号')
+    return
+  }
+  if (!/^[A-Za-z0-9-]{6,40}$/.test(logisticsNo)) {
+    ElMessage.warning('请输入正确的物流单号')
+    return
+  }
+
+  inboundLogisticsSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const result = await updateInboundLogistics(
+      token,
+      order.id || order.orderNo || order.order_no,
+      logisticsCompany,
+      logisticsNo
+    )
+    for (const updatedOrder of (Array.isArray(result?.orders) ? result.orders : [])) {
+      const matchingRow = orders.value.find(item => item._id === updatedOrder._id)
+      applyOrderSnapshot(updatedOrder, matchingRow || order)
+    }
+    await Promise.all([loadOrders(), refreshStatusBreakdown()])
+    syncCurrentOrderFromList(order)
+    inboundLogisticsDialogVisible.value = false
+    ElMessage.success('寄入物流已更新')
+  } catch (error) {
+    ElMessage.error(error.message || '寄入物流更新失败')
+  } finally {
+    inboundLogisticsSaving.value = false
+  }
 }
 
 const syncCurrentOrderFromList = (row) => {
@@ -4012,6 +4467,12 @@ const mergeOrderSnapshot = (base, snapshot) => {
   if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'return_no') || hasOwn(snapshot, 'returnNo')) {
     next.returnNo = snapshot.return_no ?? snapshot.returnNo ?? transformed.returnNo ?? next.returnNo
   }
+  if (hasOwn(snapshot, 'ship_out_info') || hasOwn(snapshot, 'shipOutInfo') || hasOwn(snapshot, 'logistics_company') || hasOwn(snapshot, 'logisticsCompany')) {
+    next.logisticsCompany = snapshot.logistics_company ?? snapshot.logisticsCompany ?? transformed.logisticsCompany ?? next.logisticsCompany
+  }
+  if (hasOwn(snapshot, 'ship_out_info') || hasOwn(snapshot, 'shipOutInfo') || hasOwn(snapshot, 'logistics_no') || hasOwn(snapshot, 'logisticsNo')) {
+    next.logisticsNo = snapshot.logistics_no ?? snapshot.logisticsNo ?? transformed.logisticsNo ?? next.logisticsNo
+  }
   if (hasOwn(snapshot, 'ship_back_info') || hasOwn(snapshot, 'shipBackInfo') || hasOwn(snapshot, 'shipped_at') || hasOwn(snapshot, 'shippedAt')) {
     next.shippedAt = snapshot.shipped_at ?? snapshot.shippedAt ?? transformed.shippedAt ?? next.shippedAt
   }
@@ -4072,6 +4533,7 @@ const applyOrderSnapshot = (result, fallbackRow = null) => {
     resetSelectedOrderStatus(merged)
     resetReceivedPartsForm(merged)
   }
+  window.dispatchEvent(new CustomEvent('workorder-updated', { detail: { orderId, status: merged.statusEn || merged.status } }))
   return merged
 }
 
@@ -4242,7 +4704,8 @@ const buildBatchConfirmMessage = (actionText, targetOrders = [], skippedOrders =
 
 const handleQuickStatusChange = async (row, status) => {
   const isReceiptStatusRecovery = status === '已签收' && needsReceivedPartsStatusSync(row)
-  if (!canChangeOrderStatus.value && !(isReceiptStatusRecovery && canSyncReceivedOrderStatus(row))) {
+  const isReceivedSync = isReceiptStatusRecovery || isReceivedStatusAdvance(row, status)
+  if (!canChangeOrderStatus.value && !(isReceivedSync && canSyncReceivedOrderStatus(row))) {
     ElMessage.error('仅管理员可以修改工单状态')
     return false
   }
@@ -4319,13 +4782,13 @@ const handleQuickStatusChange = async (row, status) => {
     }
     quickStatusLoading.value = true
     const token = localStorage.getItem('adminToken')
-    const result = isReceiptStatusRecovery
+    const result = isReceivedSync
       ? await syncReceivedOrderStatus(token, row)
       : await updateOrderStatus(token, row._id, toEnglishStatus(status))
     await refreshOrderAfterMutation(result, row, {
-      preserveReceiptSnapshot: isReceiptStatusRecovery
+      preserveReceiptSnapshot: isReceivedSync
     })
-    ElMessage.success(isReceiptStatusRecovery ? '签收状态已同步，可继续处理工单' : '工单状态更新成功')
+    ElMessage.success(isReceivedSync ? '签收状态已同步，可继续处理工单' : '工单状态更新成功')
     return true
   } catch (error) {
     if (!isUserCancel(error)) {
@@ -4517,9 +4980,9 @@ const confirmStatus = async () => {
     ElMessage.error('当前状态不允许执行该操作')
     return
   }
-  const isReceiptStatusRecovery = newStatus.value === '已签收' && needsReceivedPartsStatusSync(currentOrder.value)
+  const isReceivedSync = isReceivedStatusAdvance(currentOrder.value, newStatus.value)
   const changed = await handleQuickStatusChange(currentOrder.value, newStatus.value)
-  if (changed && !isReceiptStatusRecovery) {
+  if (changed && !isReceivedSync) {
     drawerVisible.value = false
   }
 }
@@ -4594,7 +5057,7 @@ const saveOrderQuote = async (status = 'draft') => {
   const orderItems = currentOrder.value.itemsList || []
 
   if (status === 'issued' && orderItems.some(item => !['in_warranty', 'expired'].includes(item.manual_warranty_status))) {
-    ElMessage.warning('发布报价前，请先逐台选择人工质保判断：在保或过保')
+    ElMessage.warning('发布报价前，请先逐台选择人工质保判断：在保或保外维修')
     return
   }
 
@@ -4986,6 +5449,27 @@ const saveRemarks = async () => {
     }
   } catch (error) {
     ElMessage.error(error.message || '备注保存失败')
+  } finally {
+    remarkSaving.value = false
+  }
+}
+
+const saveOverviewRemark = async () => {
+  if (!currentOrder.value || !canPerformOrderAction('edit_order_remarks')) return
+  remarkSaving.value = true
+  try {
+    const token = localStorage.getItem('adminToken')
+    const orderId = currentOrder.value._id
+    const adminRemark = overviewRemarkDraft.value.trim()
+    await updateRemarks(token, orderId, adminRemark, currentOrder.value.printRemark || '')
+    currentOrder.value.adminRemark = adminRemark
+    overviewRemarkEditing.value = false
+    ElMessage.success('内部备注已保存')
+    await loadOrders()
+    const fresh = orders.value.find(item => item._id === orderId)
+    if (fresh) currentOrder.value = { ...fresh, adminRemark }
+  } catch (error) {
+    ElMessage.error(error.message || '内部备注保存失败')
   } finally {
     remarkSaving.value = false
   }
@@ -5518,6 +6002,9 @@ const confirmExportExcel = async () => {
 .attention-strip { display: flex; align-items: center; gap: 14px; min-height: 48px; margin-bottom: 16px; padding: 7px 10px; border: 1px solid #edf1f7; border-radius: 8px; background: #fff; }
 .attention-label { flex: none; color: #667085; font-size: 12px; font-weight: 700; }
 .status-summary-board { display: grid; grid-template-columns: repeat(7, minmax(82px, 1fr)); flex: 1; gap: 6px; }
+.status-summary-config { margin-left: 4px; color: #5b6b82; }
+.status-summary-config-title { margin-bottom: 8px; color: #1d2129; font-weight: 600; font-size: 13px; }
+.status-summary-config-list { display: grid; gap: 4px; }
 .status-summary-card { appearance: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; height: 34px; margin: 0; border: 1px solid #e5e6eb; border-radius: 6px; background: #fff; padding: 7px 10px; text-align: left; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 .status-summary-card:hover, .status-summary-card.active { border-color: #8bbcf2; background: #f7fbff; }
 .status-summary-card span { min-width: 0; overflow: hidden; color: #4e5969; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -5638,11 +6125,42 @@ const confirmExportExcel = async () => {
   line-height: 1.45;
   overflow: hidden;
 }
+.drawer-resize-handle {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  bottom: 0;
+  left: -7px;
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+  outline: none;
+}
+.drawer-resize-handle span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4px;
+  height: 52px;
+  border-radius: 999px;
+  background: #b8c7d9;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.9), 0 3px 10px rgba(23, 62, 105, .14);
+  transform: translate(-50%, -50%);
+  transition: width .15s ease, height .15s ease, background .15s ease, box-shadow .15s ease;
+}
+.drawer-resize-handle:hover span,
+.drawer-resize-handle:focus-visible span { width: 5px; height: 68px; background: #1677ff; box-shadow: 0 0 0 3px rgba(22,119,255,.12); }
 .drawer-sticky-head { flex: none; display: flex; flex-direction: column; gap: 6px; }
 .drawer-order-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 0; }
 .drawer-order-identity { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 1px 8px; }
 .drawer-order-kicker { grid-row: 1 / span 2; align-self: stretch; display: inline-flex; align-items: center; padding: 0 8px; border-radius: 6px; background: #102a43; color: #fff; font-size: 12px; font-weight: 600; }
 .drawer-order-id { min-width: 0; color: #17212f; font-family: 'Consolas', 'Menlo', monospace; font-size: 16px; line-height: 1.3; overflow-wrap: anywhere; }
+.drawer-order-id-row { min-width: 0; display: flex; align-items: center; gap: 4px; }
+.drawer-order-id-row .drawer-order-id { flex: 0 1 auto; }
+.drawer-order-copy { flex: none; margin: 0; padding: 3px; font-size: 14px; }
 .drawer-order-customer { color: #52637a; font-size: 13px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .drawer-order-status { flex: none; display: flex; align-items: center; gap: 6px; }
 .drawer-next-step { min-height: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 0; padding: 8px 10px; border: 1px solid #b9d8fa; border-radius: 8px; background: #eef6ff; }
@@ -5657,6 +6175,7 @@ const confirmExportExcel = async () => {
 .drawer-next-step-button { flex: none; }
 .drawer-workflow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0 2px; }
 .drawer-workflow-stage { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #98a2b3; font-size: 12px; line-height: 1.2; }
+.drawer-workflow-stage-content { display: flex; flex-direction: column; align-items: center; gap: 3px; cursor: help; }
 .drawer-workflow-stage::before { content: ''; position: absolute; top: 9px; left: -50%; width: 100%; height: 2px; background: #e5e9ef; }
 .drawer-workflow-stage:first-child::before { display: none; }
 .drawer-workflow-dot { position: relative; z-index: 1; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; border: 2px solid #d8dee7; border-radius: 50%; background: #fff; color: #98a2b3; font-family: 'Consolas', 'Menlo', monospace; font-size: 10px; font-weight: 700; }
@@ -5728,10 +6247,82 @@ const confirmExportExcel = async () => {
 .customer-section { background: #eef6ff; }
 .product-overview-section { background: #fff8f0; }
 .received-parts-section { background: #f4fbff; border: 1px solid #cfe8f5; }
+.overview-dashboard {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(250px, .95fr);
+  grid-template-areas:
+    "customer logistics"
+    "product summary"
+    "parts remark";
+  align-items: start;
+  gap: 12px;
+  padding: 2px 2px 8px;
+}
+
+.overview-dashboard > .drawer-section { margin: 0; }
+.overview-customer-workorder { grid-area: customer; display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); column-gap: 0; min-width: 0; padding: 0 10px 10px; border: 1px solid #dfe7f1; border-radius: 8px; background: #fff; box-shadow: 0 2px 10px rgba(22, 54, 92, .035); }
+.overview-combined-title { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; min-height: 42px; color: #17212f; font-size: 15px; }
+.overview-combined-title .el-icon { width: 25px; height: 25px; border-radius: 6px; background: #eaf3ff; color: #1769e0; font-size: 15px; }
+.overview-customer-workorder > .overview-panel { overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.overview-customer-workorder > .workorder-info-section { padding-left: 18px; border-left: 1px solid #e5eaf1; }
+.overview-customer-workorder > .customer-section { padding-right: 18px; }
+.overview-subsection-title { min-height: 34px; display: flex; align-items: center; padding: 0 4px; color: #1677ff; font-size: 13px; font-weight: 700; }
+.overview-panel { padding: 0; overflow: hidden; border: 1px solid #dfe7f1; border-radius: 8px; background: #fff; box-shadow: 0 2px 10px rgba(22, 54, 92, .035); }
+.overview-panel-title { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 14px; color: #17212f; font-size: 15px; }
+.overview-panel-title-main { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.overview-panel-title .el-icon { width: 25px; height: 25px; border-radius: 6px; background: #eaf3ff; color: #1769e0; font-size: 15px; }
+.overview-panel-title strong { font-weight: 700; }
+.overview-panel > .drawer-info-grid,
+.overview-panel > .drawer-meta-disclosure,
+.overview-panel > .overview-product-list,
+.overview-panel > .overview-fault-fallback,
+.overview-panel > .received-parts-list,
+.overview-panel > .received-parts-empty,
+.overview-panel > .received-parts-actions,
+.overview-panel > .received-part-photo-list,
+.overview-panel > .received-parts-receipt,
+.overview-panel > .received-parts-footer { margin-right: 10px; margin-left: 10px; }
+.overview-panel > .drawer-info-grid { margin-bottom: 8px; padding: 10px; border: 1px solid #e7edf5; border-radius: 8px; background: #fff; }
+.overview-customer-workorder > .overview-panel > .drawer-info-grid { margin-right: 0; margin-left: 0; padding: 4px; border: 0; border-radius: 0; }
+.overview-customer-workorder .drawer-info-item { background: transparent; }
+.workorder-info-section > .drawer-info-grid { grid-template-columns: 1fr; }
+.logistics-overview-section > .drawer-info-grid { grid-template-columns: 1fr; }
+.logistics-overview-section > .overview-panel-title { justify-content: space-between; gap: 12px; }
+.logistics-overview-section .drawer-info-item strong { word-break: normal; overflow-wrap: break-word; }
+.inbound-logistics-editor-alert { margin-bottom: 18px; }
+.inbound-logistics-editor-form { padding-top: 4px; }
+.workorder-info-section .drawer-info-item strong { word-break: normal; }
+.workorder-info-section .drawer-info-item strong { white-space: nowrap; font-size: 12px; }
+.overview-panel > .drawer-meta-disclosure { margin-bottom: 10px; padding: 0 10px; }
+.customer-section, .workorder-info-section { background: #f8fbff; }
+.logistics-overview-section { grid-area: logistics; min-height: 100%; background: #f8fbff; }
+.product-overview-section { grid-area: product; border-color: #f0d9bd; background: #fffaf4; }
+.received-parts-section { grid-area: parts; background: #f7fbff; }
+.order-summary-section { grid-area: summary; }
+.remark-overview-section { grid-area: remark; min-height: 132px; }
+.remark-overview-section .overview-panel-title > span { display: grid; gap: 1px; }
+.remark-overview-section .overview-panel-title small { color: #98a2b3; font-size: 10px; font-weight: 400; }
+.overview-remark-input { margin: 0 10px 8px; width: calc(100% - 20px); }
+.overview-remark-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 0 10px 10px; }
+.product-overview-section > .drawer-section-head,
+.received-parts-section > .drawer-section-head,
+.remark-overview-section > .drawer-section-head { min-height: 42px; margin: 0; padding-right: 12px; }
+.product-overview-section .overview-panel-title .el-icon { background: #fff0db; color: #db7b00; }
+.overview-summary-list { margin: 0 10px 10px; padding: 10px; border: 1px solid #e7edf5; border-radius: 8px; }
+.overview-summary-list > div { display: grid; gap: 3px; padding: 7px 0; }
+.overview-summary-list > div + div { border-top: 1px solid #edf1f6; }
+.overview-summary-list span { color: #718096; font-size: 12px; }
+.overview-summary-list strong { color: #17212f; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.remark-overview-section > p { min-height: 70px; margin: 0 10px 10px; padding: 12px; border: 1px solid #e7edf5; border-radius: 8px; color: #718096; font-size: 13px; line-height: 1.55; white-space: pre-wrap; }
 .received-parts-section .section-helper { display: block; color: #697a91; font-size: 12px; line-height: 1.45; }
 .received-parts-list { display: flex; flex-direction: column; gap: 7px; }
+.received-part-columns { display: grid; grid-template-columns: 28px minmax(150px, 1.1fr) 110px minmax(160px, 1.5fr) 44px; align-items: center; gap: 8px; margin: 6px 10px 0; padding: 8px; border: 1px solid #dbeaf2; border-bottom: 0; border-radius: 7px 7px 0 0; background: #f7faff; color: #697a91; font-size: 12px; font-weight: 600; }
 .received-part-row { display: grid; grid-template-columns: 28px minmax(150px, 1.1fr) 110px minmax(160px, 1.5fr) auto; align-items: center; gap: 8px; padding: 8px; border: 1px solid #dbeaf2; border-radius: 7px; background: #fff; }
+.received-part-columns + .received-parts-list .received-part-row:first-child { border-radius: 0 0 7px 7px; }
 .received-part-index { color: #1677a8; font-size: 12px; font-weight: 700; text-align: center; }
+.received-part-value { min-width: 0; color: #344054; font-size: 13px; font-weight: 500; line-height: 1.45; overflow-wrap: anywhere; }
+.received-part-quantity { text-align: center; }
+.received-part-remark { color: #667085; }
 .received-part-row :deep(.el-input-number) { width: 100%; }
 .received-parts-empty { padding: 6px 0; }
 .received-parts-actions, .received-parts-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -5752,9 +6343,12 @@ const confirmExportExcel = async () => {
 .drawer-status-inline { display: flex !important; align-items: center; flex-wrap: wrap; gap: 4px; }
 .drawer-meta-disclosure { margin-top: 4px; color: #697a91; font-size: 13px; }
 .overview-product-list { display: flex; flex-direction: column; gap: 8px; }
-.overview-product-card { padding: 8px 10px; border: 1px solid #f0e2d0; border-radius: 8px; background: #fff; }
+.overview-product-card { display: grid; grid-template-columns: 122px minmax(0, 1fr); column-gap: 16px; padding: 12px; border: 1px solid #f0e2d0; border-radius: 8px; background: #fff; }
+.overview-product-image { grid-column: 1; grid-row: 1 / span 3; width: 122px; height: 166px; border-right: 1px solid #edf1f5; background: #fafbfc; }
+.overview-product-head, .overview-product-card > .drawer-info-grid, .overview-product-card > .overview-attachment-block { grid-column: 2; }
+.overview-product-card:not(:has(.overview-product-image)) > * { grid-column: 1 / -1; }
 .overview-product-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
-.overview-product-head strong { min-width: 0; color: #17212f; font-size: 15px; line-height: 1.35; }
+.overview-product-head strong { min-width: 0; color: #17212f; font-size: 16px; line-height: 1.35; }
 .overview-fault-text { white-space: pre-wrap; word-break: break-word; font-size: 14px !important; line-height: 1.55 !important; }
 .overview-attachment-block { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .overview-fault-fallback { padding-top: 2px; }
@@ -5766,13 +6360,70 @@ const confirmExportExcel = async () => {
 .quote-editor-section, .payment-section, .invoice-section { background: #fff; border: 1px solid #e2e8f0; box-shadow: 0 8px 24px rgba(28, 45, 68, 0.05); }
 .quote-staircase { display: flex; flex-direction: column; gap: 0; }
 .quote-stage { position: relative; padding: 0 0 14px 44px; }
+.quote-workbench-layout { display: grid; grid-template-columns: minmax(260px, 30%) minmax(0, 1fr); align-items: stretch; gap: 14px; padding: 2px; background: #f7faff; }
+.quote-workbench-device { position: sticky; top: 0; min-width: 0; }
+.quote-workbench-main { min-width: 0; display: block; }
+.quote-workbench-alert { border: 1px solid #b9d7ff; border-radius: 8px; }
+.quote-charge-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 4px; }
+.quote-charge-card { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 70px; padding: 12px 14px; border: 1px solid #dbe3ed; border-radius: 8px; background: #fff; color: #17212f; text-align: left; cursor: pointer; transition: border-color .16s ease, box-shadow .16s ease, background .16s ease; }
+.quote-charge-card:hover:not(:disabled) { border-color: #7bb4ff; box-shadow: 0 3px 12px rgba(23, 105, 170, .1); }
+.quote-charge-card.is-selected { border-color: #1769aa; background: #f5f9ff; box-shadow: inset 0 0 0 1px #1769aa; }
+.quote-charge-card span { display: grid; gap: 4px; }
+.quote-charge-card strong { font-size: 14px; }
+.quote-charge-card small { color: #7b8798; font-size: 12px; }
+.quote-charge-card i { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid #ccd5e0; border-radius: 50%; color: transparent; font-size: 12px; font-style: normal; }
+.quote-charge-card.is-selected i { border-color: #1769aa; background: #1769aa; color: #fff; }
+.quote-charge-card:disabled { cursor: not-allowed; opacity: .66; }
+.quote-device-panel { min-height: 100%; margin-bottom: 0; padding: 14px; border: 1px solid #dce8f5; box-shadow: 0 4px 16px rgba(38, 86, 132, .05); }
+.quote-device-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.quote-device-heading .drawer-section-title { margin: 0; }
+.quote-device-heading-actions { display: inline-flex; align-items: center; gap: 6px; }
+.quote-device-panel .product-detail-card { gap: 12px; padding: 0; border: 0; background: transparent; }
+.quote-device-summary { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; align-items: start; }
+.quote-device-summary:not(:has(.quote-device-photo)) { grid-template-columns: minmax(0, 1fr); }
+.quote-device-photo { width: 112px; height: 160px; border: 1px solid #e4eaf2; border-radius: 8px; background: #fff; }
+.quote-device-identity { min-width: 0; }
+.quote-device-identity > strong { display: block; margin: 6px 0 12px; color: #17212f; font-size: 15px; line-height: 1.4; }
+.quote-device-identity dl { display: grid; gap: 9px; margin: 0; }
+.quote-device-identity dl > div { display: grid; gap: 2px; }
+.quote-device-identity dt { color: #7b8798; font-size: 12px; }
+.quote-device-identity dd { margin: 0; color: #344054; font-size: 13px; overflow-wrap: anywhere; }
+.quote-device-edit-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 10px; border: 1px solid #d8e8ff; border-radius: 8px; background: #f7fbff; }
+.quote-device-edit-grid .el-button { grid-column: 1 / -1; }
+.quote-device-warranty { margin-top: 10px; padding: 12px; border: 1px solid #e5edf5; border-radius: 8px; background: #fbfdff; }
+.quote-device-warranty > strong { display: block; color: #17212f; font-size: 14px; }
+.quote-device-warranty > strong small { margin-left: 5px; color: #7b8798; font-size: 12px; font-weight: 400; }
+.quote-device-source-hint { display: block; margin-top: 4px; color: #98a2b3; font-size: 11px; line-height: 1.4; }
+.quote-warranty-edit-grid { display: grid; gap: 8px; margin-top: 10px; }
+.quote-warranty-edit-grid label { display: grid; gap: 4px; }
+.quote-warranty-edit-grid label > span { color: #708198; font-size: 12px; }
+.quote-warranty-edit-grid :deep(.el-date-editor) { width: 100%; }
+.quote-device-warranty dl { display: grid; gap: 8px; margin: 10px 0 0; }
+.quote-device-warranty dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.quote-device-warranty dt { color: #708198; font-size: 12px; }
+.quote-device-warranty dd { margin: 0; color: #39485a; font-size: 12px; text-align: right; }
+.quote-device-materials, .quote-device-description { padding: 12px; border: 1px solid #e5edf5; border-radius: 8px; background: #fff; }
+.quote-device-subhead { display: grid; gap: 3px; margin-bottom: 9px; }
+.quote-device-subhead strong, .quote-device-description > strong { color: #17212f; font-size: 13px; }
+.quote-device-subhead span { color: #7b8798; font-size: 11px; line-height: 1.4; }
+.quote-material-list { display: grid; gap: 7px; }
+.quote-material-list a { display: block; padding: 9px 10px; border: 1px solid #e2e8f0; border-radius: 6px; color: #1769aa; font-size: 12px; line-height: 1.4; text-decoration: none; }
+.quote-material-list--images { display: flex; flex-wrap: wrap; gap: 8px; }
+.quote-material-thumb { width: 64px; height: 64px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; }
+.quote-device-empty { margin: 0; color: #98a2b3; font-size: 12px; }
+.quote-device-description { display: grid; gap: 6px; }
+.quote-device-description > strong:not(:first-child) { margin-top: 9px; padding-top: 10px; border-top: 1px solid #edf1f5; }
+.quote-device-description p { margin: 0; color: #52637a; font-size: 12px; line-height: 1.55; white-space: pre-wrap; }
+.quote-device-panel .product-detail-actions { justify-content: center; margin-top: 4px; padding-top: 12px; border-top: 1px solid #edf1f5; }
+.quote-editor-section { margin-bottom: 0; border: 1px solid #dce8f5; box-shadow: 0 4px 16px rgba(38, 86, 132, .05); }
 .quote-stage:not(:last-child)::before { content: ''; position: absolute; top: 30px; bottom: 0; left: 15px; width: 2px; background: #dbe7f4; }
 .quote-stage-head { display: flex; align-items: flex-start; gap: 10px; min-height: 36px; margin-left: -44px; margin-bottom: 8px; }
 .quote-stage-index { position: relative; z-index: 1; width: 32px; height: 32px; flex: none; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: #eaf3ff; color: #1769aa; font-size: 14px; font-weight: 700; }
 .quote-stage-head > div { display: grid; gap: 1px; min-width: 0; }
 .quote-stage-head strong { color: #17212f; font-size: 15px; line-height: 1.35; }
 .quote-stage-head span { color: #64748b; font-size: 13px; line-height: 1.4; }
-.quote-stage--publish { padding-top: 14px; padding-bottom: 14px; border-top: 1px solid #d1e5ff; border-bottom: 1px solid #d1e5ff; background: #f4f8ff; }
+.quote-stage--publish { min-height: 118px; margin: 0 -14px -14px; padding: 18px 18px 18px 58px; border-top: 1px solid #d1e5ff; border-bottom: 0; background: #f4f8ff; }
+.quote-stage--publish .quote-stage-head { margin-left: -44px; }
 .quote-stage--publish .quote-stage-index { background: #1769aa; color: #fff; }
 .quote-quick-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(160px, 220px); align-items: center; gap: 12px; padding: 12px 14px; margin-bottom: 4px; border-radius: 8px; background: #f4f8ff; border: 1px solid #d1e5ff; }
 .quote-quick-panel strong { display: block; margin-bottom: 4px; color: #10264a; font-size: 15px; line-height: 1.4; }
@@ -5785,6 +6436,7 @@ const confirmExportExcel = async () => {
 .quote-summary-bar .quote-total { color: #1677ff; font-size: 18px; }
 .quote-detail-disclosure { margin-bottom: 12px; border-radius: 8px; border: 1px solid #eef0f3; background: #fbfcfe; }
 .quote-detail-disclosure > summary { min-height: 48px; padding: 0 16px; display: flex; align-items: center; gap: 10px; cursor: pointer; color: #1d2129; font-size: 15px; font-weight: 700; list-style: none; }
+.quote-detail-icon { color: #1769e0; font-size: 17px; }
 .quote-detail-disclosure > summary::-webkit-details-marker { display: none; }
 .quote-detail-disclosure > summary::before { content: ''; width: 8px; height: 8px; border-right: 2px solid #8a97aa; border-bottom: 2px solid #8a97aa; transform: rotate(-45deg); transition: transform 160ms ease; }
 .quote-detail-disclosure[open] > summary::before { transform: rotate(45deg); }
@@ -5805,15 +6457,54 @@ const confirmExportExcel = async () => {
 .quote-item-list, .quote-section { overflow-x: auto; }
 .quote-row-grid :deep(.el-input-number) { width: 100%; }
 .quote-row-grid strong { color: #1d2129; font-size: 13px; white-space: nowrap; }
-.quote-terms-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+.quote-terms-row { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, .9fr) minmax(150px, 1fr); align-items: end; gap: 12px; margin-bottom: 14px; }
+.quote-term-control { display: grid; gap: 7px; min-width: 0; }
+.quote-term-control > span { color: #1d2129; font-size: 13px; font-weight: 600; }
+.quote-term-control em { color: #d92d20; font-style: normal; }
+.quote-term-control :deep(.el-input-number), .quote-term-control :deep(.el-select) { width: 100%; }
+.quote-deadline-card { min-height: 40px; display: flex; align-items: center; padding: 0 14px; border: 1px solid #f5c777; border-radius: 8px; background: #fff9ed; color: #9a6700; font-size: 12px; line-height: 1.4; }
+.quote-customer-remark { margin-bottom: 10px; }
+.quote-customer-remark .remark-field-head { margin-bottom: 7px; }
+.quote-customer-remark .remark-field-head small { color: #7b8798; font-size: 11px; font-weight: 400; }
 .quote-final-row { display: grid; grid-template-columns: 112px minmax(160px, 1fr); align-items: center; gap: 10px; margin: 0; color: #1d2129; font-size: 15px; font-weight: 600; }
 .quote-final-row :deep(.el-input-number) { width: 100%; }
-.quote-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.quote-actions { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 8px; }
+.quote-publish-copy { min-width: 0; }
+.quote-publish-copy strong { color: #52637a; font-size: 12px; font-weight: 500; }
+.quote-publish-buttons { display: flex; align-items: center; gap: 10px; flex: none; }
 .quote-actions-note { margin-right: auto; color: #52637a; font-size: 12px; line-height: 1.4; }
+.quote-stage--phone-decision { margin-top: 12px; padding: 16px 18px 18px 44px; border: 1px solid #dbe7f5; border-radius: 10px; background: #f8fbff; }
+.quote-stage--phone-decision .quote-stage-head { margin-bottom: 14px; }
+.quote-stage--phone-decision .quote-stage-head strong { font-size: 15px; }
+.quote-stage--phone-decision .quote-stage-head span { font-size: 13px; line-height: 1.55; }
+.quote-stage--phone-decision .quote-actions { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.quote-stage--phone-decision .quote-actions-note { max-width: none; margin: 0; font-size: 13px; line-height: 1.55; }
+.quote-stage--phone-decision .quote-phone-decision-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.quote-stage--phone-decision .quote-actions :deep(.el-button) { white-space: nowrap; }
+@media screen and (max-width: 1100px) {
+  .quote-stage--phone-decision .quote-actions { gap: 8px; }
+  .quote-stage--phone-decision .quote-phone-decision-buttons { flex-direction: column; align-items: stretch; width: 100%; }
+  .quote-stage--phone-decision .quote-phone-decision-buttons :deep(.el-button) { width: 100%; margin: 0; }
+}
 .quote-actions :deep(.el-button) { min-width: 112px; min-height: 40px; font-size: 15px; font-weight: 600; }
 .payment-status-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.payment-title-row { display: flex; align-items: center; gap: 10px; }
+.payment-section > .drawer-section-head { align-items: center; }
+.payment-section > .drawer-section-head .drawer-section-title { margin-right: 0; }
+.payment-section-helper { display: flex; align-items: center; gap: 5px; margin: 2px 0 12px !important; color: #718096; font-size: 12px; }
+.payment-section-helper .el-icon { color: #718096; }
+.payment-finance-link { flex: none; min-height: 36px; font-weight: 600; }
+.payment-status-card { display: flex; align-items: center; gap: 10px; min-height: 72px; padding: 12px 14px !important; border-color: #d9e9ff !important; background: linear-gradient(135deg, #f5f9ff, #fff) !important; }
+.payment-status-card > div { min-width: 0; }
+.payment-status-icon { flex: none; width: 34px; height: 34px; padding: 8px; border-radius: 9px; box-sizing: border-box; color: #fff; background: #2d7ff9; font-size: 18px; box-shadow: 0 4px 10px rgba(45, 127, 249, .2); }
+.payment-status-card strong { font-size: 16px; }
 .payment-account { margin-bottom: 12px; }
 .payment-guide { min-height: 78px; display: flex; flex-direction: column; justify-content: center; gap: 4px; margin-top: 12px; padding: 14px 16px; border-radius: 8px; border: 1px dashed #cfd7e3; background: #fafbfc; }
+.payment-guide--waiting { flex-direction: row; align-items: center; justify-content: space-between; min-height: 118px; padding: 20px 28px; background: #fbfcff; }
+.payment-guide-copy { display: grid; gap: 8px; min-width: 0; }
+.payment-guide-heading { display: flex; align-items: center; gap: 9px; }
+.payment-guide-heading .el-icon { color: #f5a623; font-size: 18px; }
+.payment-guide-illustration { flex: none; width: 72px; height: 72px; padding: 17px; box-sizing: border-box; border-radius: 18px; color: #5e98ef; background: #e9f2ff; font-size: 38px; opacity: .9; }
 .payment-guide strong { color: #17212f; font-size: 14px; }
 .payment-guide span { color: #6b778c; font-size: 12px; line-height: 1.55; }
 .payment-guide--success { border-color: #a9d8bd; background: #f2fbf6; }
@@ -5830,10 +6521,44 @@ const confirmExportExcel = async () => {
 .payment-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .payment-paid-tip { color: #52c41a; font-size: 13px; }
 .payment-rejected-tip { color: #f56c6c; font-size: 13px; }
+.payment-finance-footer { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; padding: 12px 14px; border: 1px solid #d6e7ff; border-radius: 8px; background: #f4f8ff; color: #697a91; font-size: 12px; }
+.payment-finance-footer > div { display: flex; align-items: center; gap: 7px; min-width: 0; line-height: 1.5; }
+.payment-finance-footer .el-icon { flex: none; color: #347ff2; }
+.payment-finance-footer a { color: #1769e0; font-weight: 700; }
+.payment-finance-footer :deep(.el-button) { flex: none; min-height: 34px; }
 .invoice-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
 .invoice-summary-grid > div { padding: 11px 12px; border-radius: 8px; border: 1px solid #e8ebef; background: #fafbfc; }
 .invoice-summary-grid span { display: block; margin-bottom: 4px; color: #7a8699; font-size: 12px; line-height: 1.3; }
 .invoice-summary-grid strong { display: block; color: #17212f; font-size: 14px; line-height: 1.4; }
+.invoice-hero-head { align-items: center; }
+.invoice-head-actions { display: flex; align-items: center; gap: 10px; }
+.invoice-application-panel, .invoice-flow-panel, .invoice-notes-panel { margin: 14px 0; padding: 16px; border: 1px solid #e5eaf2; border-radius: 10px; background: #fff; }
+.invoice-panel-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.invoice-panel-actions { display: inline-flex; align-items: center; gap: 8px; }
+.invoice-panel-title strong { color: #17212f; font-size: 15px; }
+.invoice-panel-title span { color: #86909c; font-size: 12px; }
+.invoice-request-row { display: flex; align-items: center; gap: 16px; padding: 10px 12px; border-radius: 8px; background: #f6f9ff; color: #52637a; font-size: 13px; }
+.invoice-request-row strong { color: #17212f; font-size: 14px; }
+.invoice-request-row small { color: #347ff2; }
+.invoice-detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-top: 16px; }
+.invoice-detail-grid > div { min-width: 0; padding: 0 14px; border-right: 1px solid #edf0f5; }
+.invoice-detail-grid > div:first-child { padding-left: 0; }
+.invoice-detail-grid > div:last-child { padding-right: 0; border-right: 0; }
+.invoice-detail-grid span { display: block; margin-bottom: 6px; color: #86909c; font-size: 12px; }
+.invoice-detail-grid strong { display: block; overflow: hidden; color: #17212f; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.invoice-summary-grid .invoice-status-summary { transition: border-color .2s ease, background .2s ease; }
+.invoice-summary-grid .invoice-status-summary.is-not-needed { border-color: #b7ebc6; background: #f0fff4; }
+.invoice-summary-grid .invoice-status-summary.is-not-needed strong { color: #16803c; }
+.invoice-summary-grid .invoice-status-summary.is-needed { border-color: #ffccc7; background: #fff2f0; }
+.invoice-summary-grid .invoice-status-summary.is-needed strong { color: #cf1322; }
+.invoice-flow-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.invoice-flow-step { position: relative; display: grid; justify-items: center; gap: 5px; min-width: 0; text-align: center; }
+.invoice-flow-step i { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; background: #e8f1ff; color: #347ff2; font-size: 12px; font-style: normal; font-weight: 700; }
+.invoice-flow-step strong { color: #17212f; font-size: 13px; }
+.invoice-flow-step span { color: #86909c; font-size: 11px; line-height: 1.45; }
+.invoice-flow-step em { position: absolute; top: 6px; right: -9px; color: #aab5c5; font-style: normal; }
+.invoice-notes-panel p { margin: 0; color: #697a91; font-size: 13px; line-height: 1.6; }
+.invoice-notes-panel a { display: inline-block; margin-top: 8px; color: #1769e0; font-size: 12px; }
 .invoice-alert { margin-bottom: 14px; }
 .invoice-empty-state { min-height: 180px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; border: 1px dashed #cfd7e3; border-radius: 8px; background: #fafbfc; text-align: center; }
 .invoice-empty-state strong { color: #17212f; font-size: 15px; }
@@ -5844,6 +6569,15 @@ const confirmExportExcel = async () => {
 .invoice-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; }
 .invoice-form-grid :deep(.el-form-item) { margin-bottom: 14px; }
 .invoice-form-grid :deep(.el-form-item__label) { padding-bottom: 5px; color: #4e5969; font-size: 12px; line-height: 1.35; }
+.invoice-form :deep(.el-input__wrapper),
+.invoice-form :deep(.el-select__wrapper),
+.invoice-form :deep(.el-date-editor.el-input__wrapper) { min-height: 44px; padding: 1px 13px; font-size: 14px; }
+.invoice-form :deep(.el-input__inner),
+.invoice-form :deep(.el-select__selected-item),
+.invoice-form :deep(.el-select__placeholder) { font-size: 14px; }
+.invoice-form :deep(.el-textarea__inner) { min-height: 112px; padding: 11px 13px; font-size: 14px; line-height: 1.6; }
+.invoice-form :deep(.el-form-item__label) { font-size: 13px; }
+.invoice-form :deep(.el-button) { min-height: 40px; padding: 8px 16px; font-size: 14px; }
 .invoice-detail-disclosure { margin: 4px 0 14px; border: 1px solid #e5e9ef; border-radius: 8px; background: #fafbfc; }
 .invoice-detail-disclosure > summary { position: relative; min-height: 46px; display: flex; align-items: center; gap: 10px; padding: 0 14px; color: #17212f; cursor: pointer; list-style: none; font-size: 13px; font-weight: 600; }
 .invoice-detail-disclosure > summary::-webkit-details-marker { display: none; }
@@ -5853,6 +6587,19 @@ const confirmExportExcel = async () => {
 .invoice-detail-disclosure > .invoice-form-grid { padding: 2px 14px 4px; }
 .invoice-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .invoice-upload-status { display: block; margin-top: 6px; color: #86909c; font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.timeline-list { position: relative; display: flex; flex-direction: column; gap: 0; padding: 8px 4px 8px 0; }
+.timeline-item { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); column-gap: 12px; min-height: 92px; }
+.timeline-rail { position: relative; display: flex; justify-content: center; }
+.timeline-rail::after { content: ''; position: absolute; top: 18px; bottom: -2px; width: 2px; background: #e2e8f2; }
+.timeline-item:last-child .timeline-rail::after { display: none; }
+.timeline-dot { position: relative; z-index: 1; width: 14px; height: 14px; margin-top: 4px; border: 3px solid #fff; border-radius: 50%; background: #aebbd0; box-shadow: 0 0 0 2px #d7e0ed; }
+.timeline-dot.is-latest { background: #2478ed; box-shadow: 0 0 0 3px #cfe1ff; }
+.timeline-content { min-width: 0; padding: 0 14px 18px; border: 1px solid #e6ebf3; border-radius: 10px; background: #fff; box-shadow: 0 3px 10px rgba(34, 56, 86, .04); }
+.timeline-meta { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0 7px; color: #86909c; font-size: 12px; }
+.timeline-meta time { color: #52637a; font-variant-numeric: tabular-nums; }
+.timeline-meta span { padding: 2px 8px; border-radius: 999px; background: #f0f4fa; color: #697a91; white-space: nowrap; }
+.timeline-content > strong { display: block; color: #17212f; font-size: 14px; line-height: 1.45; }
+.timeline-content > p { margin: 6px 0 0; color: #697a91; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
 .drawer-section .el-textarea { margin-bottom: 10px; }
 .drawer-section .el-button { margin-top: 2px; }
 .drawer-footer { width: 100%; display: flex; flex-direction: column; gap: 14px; padding-top: 4px; }
@@ -5876,7 +6623,8 @@ const confirmExportExcel = async () => {
 .warranty-entry-row > div > span { display: block; margin-bottom: 4px; color: #4e5969; font-size: 13px; font-weight: 600; }
 .warranty-entry-row :deep(.el-input-number) { width: 100%; }
 .warranty-entry-row > p { margin: 0; color: #7a5200; font-size: 13px; line-height: 1.45; align-self: center; }
-.coverage-review-row { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 12px; border: 1px solid #f3c47b; border-radius: 8px; background: #fff9ef; }
+.coverage-review-row { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 14px; border: 1px solid #dbe3ed; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgba(28, 45, 68, .03); }
+.coverage-review-row:focus-within { border-color: #1677ff; box-shadow: 0 0 0 2px rgba(22, 119, 255, .12); }
 .coverage-review-row.is-complete { border-color: #9dd7b2; background: #f3fbf6; }
 .coverage-review-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .coverage-review-head > div { display: grid; gap: 2px; min-width: 0; }
@@ -5976,10 +6724,83 @@ const confirmExportExcel = async () => {
 .invoice-未发票 { background: #fff7e6 !important; color: #ff9800 !important; border-color: #ffd666 !important; }
 .invoice-已发票 { background: #e6f7f0 !important; color: #52c41a !important; border-color: #95de64 !important; }
 
+.return-workbench { display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 18px; }
+.return-card { padding: 14px; border: 1px solid #e5ebf3; border-radius: 10px; background: #fff; box-shadow: 0 2px 8px rgba(31, 55, 86, .03); }
+.return-card--shipping { background: #fbfdff; }
+.return-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; }
+.return-card-head > div { display: flex; align-items: center; gap: 8px; color: #17212f; }
+.return-card-head .el-icon { color: #1677ff; font-size: 17px; }
+.return-card-head strong { font-size: 15px; }
+.return-muted { color: #86909c; font-size: 12px; }
+.return-recipient-grid { display: grid; grid-template-columns: 150px 190px minmax(0, 1fr); gap: 12px; }
+.return-recipient-grid > div { min-height: 66px; padding: 12px 14px; border: 1px solid #e7edf5; border-radius: 8px; background: #fcfdff; }
+.return-recipient-grid span, .return-shipping-grid label > span { display: block; margin-bottom: 8px; color: #697a91; font-size: 12px; }
+.return-recipient-grid strong { color: #17212f; font-size: 14px; line-height: 1.5; }
+.return-shipping-grid { display: grid; grid-template-columns: 1fr 1.35fr 1fr; gap: 12px; }
+.return-shipping-grid label { display: block; min-width: 0; }
+.return-shipping-grid .el-select, .return-shipping-grid .el-date-editor { width: 100%; }
+.return-number-input { display: flex; gap: 8px; }
+.return-number-input .el-input { flex: 1; min-width: 0; }
+.return-shipping-grid small { display: block; margin-top: 7px; color: #98a2b3; font-size: 11px; }
+.return-shipping-grid small.is-valid { color: #18a058; }
+.return-logistics-link { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 8px 10px; border: 1px solid #dbe9ff; border-radius: 8px; background: #f2f7ff; color: #6d7f98; font-size: 12px; }
+.return-logistics-link > span { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.return-logistics-link .el-button { flex: none; }
+.return-total { color: #365174; font-size: 13px !important; font-weight: 500 !important; }
+.return-total::first-letter { color: #1677ff; }
+.return-device-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.return-device-item { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px; border: 1px solid #e7edf5; border-radius: 8px; color: #17212f; }
+.return-device-item strong { overflow: hidden; flex: 1; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.return-device-item > span:last-child { color: #6d7f98; font-size: 13px; }
+.return-device-thumb { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 6px; background: #eff5ff; color: #1677ff; font-size: 15px; font-weight: 700; }
+.return-status-track { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; margin: 2px 0 16px; }
+.return-status-track button { position: relative; display: flex; align-items: center; justify-content: center; gap: 7px; border: 0; background: transparent; color: #8a97a8; font-size: 13px; cursor: pointer; }
+.return-status-track button:not(:last-child)::after { content: ''; position: absolute; top: 8px; left: calc(50% + 16px); width: calc(100% - 32px); height: 2px; background: #dfe6ef; }
+.return-status-track button span { position: relative; z-index: 1; width: 16px; height: 16px; border: 4px solid #d7dfe9; border-radius: 50%; background: #fff; }
+.return-status-track button.active { color: #1677ff; font-weight: 600; }
+.return-status-track button.active span { border-color: #1677ff; background: #1677ff; box-shadow: 0 0 0 3px #e7f0ff; }
+.return-status-track button.active:not(:last-child)::after { background: #7eafff; }
+.return-proof { padding: 12px; border: 1px solid #edf1f7; border-radius: 8px; }
+.return-proof-title { margin-bottom: 10px; color: #39485a; font-size: 13px; font-weight: 600; }
+.return-proof-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.return-proof-upload { display: flex; min-height: 92px; align-items: center; justify-content: center; flex-direction: column; gap: 5px; border: 1px dashed #c8d6e8; border-radius: 8px; color: #1677ff; cursor: pointer; }
+.return-proof-upload input { display: none; }
+.return-proof-upload small { color: #8b98aa; font-size: 11px; }
+.return-proof-file { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px; border: 1px solid #e1e8f1; border-radius: 8px; }
+.return-proof-file .el-image { width: 64px; height: 64px; flex: none; border-radius: 5px; }
+.return-proof-file > div { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.return-proof-file strong { overflow: hidden; color: #334155; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.return-proof-file span, .return-proof-file small { color: #8a97a8; font-size: 11px; }
+.return-card--remarks .remark-field { margin-bottom: 10px; }
+
+@media screen and (max-width: 768px) {
+  .return-recipient-grid, .return-shipping-grid, .return-device-list, .return-proof-grid { grid-template-columns: 1fr; }
+  .return-logistics-link { align-items: stretch; flex-direction: column; }
+  .return-logistics-link .el-button { width: 100%; }
+  .return-status-track { overflow-x: auto; min-width: 520px; }
+}
+
 @media screen and (max-width: 1200px) {
   .attention-strip { align-items: flex-start; flex-wrap: wrap; }
   .status-summary-board { grid-template-columns: repeat(4, minmax(92px, 1fr)); }
   .payment-summary { width: 100%; margin-left: 0; padding: 7px 0 0; border-top: 1px solid #edf1f7; border-left: 0; }
+  .quote-workbench-layout { grid-template-columns: minmax(210px, 0.3fr) minmax(0, 1fr); gap: 10px; }
+  .overview-dashboard {
+    grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+    grid-template-areas:
+      "customer logistics"
+      "product summary"
+      "parts remark";
+  }
+  .overview-customer-workorder { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media screen and (max-width: 640px) {
+  .payment-section > .drawer-section-head { align-items: flex-start; flex-wrap: wrap; }
+  .payment-finance-link { margin-left: auto; }
+  .payment-status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payment-finance-footer { align-items: stretch; flex-direction: column; }
+  .payment-finance-footer :deep(.el-button) { width: 100%; }
 }
 
 @media screen and (max-width: 768px) {
@@ -5993,6 +6814,14 @@ const confirmExportExcel = async () => {
   .attention-strip { align-items: flex-start; flex-direction: column; gap: 8px; }
   .status-summary-board { width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .payment-summary { justify-content: flex-end; }
+  .quote-workbench-layout { display: flex; flex-direction: column; padding: 0; background: transparent; }
+  .quote-workbench-device { position: static; width: 100%; }
+  .quote-workbench-main { width: 100%; }
+  .quote-terms-row { grid-template-columns: 1fr; }
+  .quote-stage--publish { margin: 0; padding: 14px; }
+  .quote-stage--publish .quote-stage-head { margin-left: 0; }
+  .quote-actions, .quote-publish-buttons { align-items: stretch; flex-direction: column; width: 100%; }
+  .quote-charge-cards { grid-template-columns: 1fr; }
   .table-section-head { align-items: flex-start; flex-direction: column; gap: 4px; }
   .table-section-head > div { align-items: flex-start; flex-direction: column; gap: 2px; }
   .drawer-body { gap: 8px; }
@@ -6008,25 +6837,42 @@ const confirmExportExcel = async () => {
   .drawer-tabs :deep(.el-tabs__item) { padding: 0 10px; }
   .drawer-info-grid--dense { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .drawer-info-grid { grid-template-columns: 1fr; }
+  .overview-dashboard { display: flex; flex-direction: column; gap: 10px; }
+  .overview-dashboard > .overview-panel { width: 100%; }
+  .overview-customer-workorder { display: flex; flex-direction: column; gap: 10px; }
+  .overview-customer-workorder > .customer-section { padding-right: 0; }
+  .overview-customer-workorder > .workorder-info-section { padding-top: 10px; padding-left: 0; border-top: 1px solid #e5eaf1; border-left: 0; }
+  .overview-product-card { grid-template-columns: 88px minmax(0, 1fr); column-gap: 10px; }
+  .overview-product-image { width: 88px; height: 126px; }
   .repair-parts-head { align-items: flex-start; flex-direction: column; }
   .repair-product-toolbar { align-items:flex-start; flex-direction:column; }
   .repair-product-meta-grid { grid-template-columns:1fr; }
   .repair-parts-actions { width: 100%; }
   .repair-parts-actions .el-button { flex: 1; margin: 0; }
   .repair-part-columns { display: none; }
+  .received-part-columns { display: none; }
+  .received-part-row { grid-template-columns: 28px minmax(0, 1fr) 88px auto; }
+  .received-part-row > :nth-child(4) { grid-column: 2 / -1; }
   .repair-part-row { grid-template-columns: 34px minmax(0, 1fr) 96px 28px; }
   .repair-part-meta-input { grid-column: 2 / 4; }
   .quote-stage { padding-left: 0; }
   .quote-stage:not(:last-child)::before { display: none; }
   .quote-stage-head { margin-left: 0; }
   .quote-summary-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .quote-quick-panel, .quote-terms-grid { grid-template-columns: 1fr; }
+  .quote-quick-panel, .quote-terms-row { grid-template-columns: 1fr; }
   .quote-final-row { grid-template-columns: 1fr; align-items: stretch; }
   .quote-actions { justify-content: stretch; }
   .quote-actions { flex-wrap: wrap; }
   .quote-actions-note { width: 100%; margin-right: 0; }
   .quote-actions :deep(.el-button) { flex: 1; min-width: 0; }
   .payment-status-grid, .invoice-summary-grid, .invoice-form-grid { grid-template-columns: 1fr; }
+  .invoice-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 0; }
+  .invoice-detail-grid > div:nth-child(2) { border-right: 0; }
+  .invoice-detail-grid > div:nth-child(3) { padding-left: 0; }
+  .invoice-detail-grid > div:nth-child(4) { padding-right: 0; }
+  .invoice-flow-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 10px; }
+  .invoice-flow-step em { display: none; }
+  .invoice-head-actions { align-items: flex-end; flex-direction: column; }
   .coverage-review-head { align-items: flex-start; flex-direction: column; gap: 2px; }
   .coverage-fields-grid { grid-template-columns: 1fr; }
   .invoice-editor-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
@@ -6055,8 +6901,11 @@ const confirmExportExcel = async () => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: visible;
   box-shadow: -12px 0 36px rgba(23, 33, 47, 0.12);
 }
+body.is-resizing-work-order-drawer,
+body.is-resizing-work-order-drawer * { cursor: ew-resize !important; user-select: none !important; }
 .work-order-drawer .el-drawer__header {
   margin-bottom: 0;
   flex: none;

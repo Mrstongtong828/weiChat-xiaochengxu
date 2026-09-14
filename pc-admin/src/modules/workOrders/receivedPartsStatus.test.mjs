@@ -47,3 +47,12 @@ test('ordinary orders keep the first workflow transition', () => {
     activeTab: 'base'
   }), '运输中')
 })
+
+test('null order is treated as not needing receipt status sync', () => {
+  assert.equal(needsReceivedPartsStatusSync(null), false)
+  assert.equal(selectPreferredDrawerStatus({
+    order: null,
+    allowedStatuses: [],
+    activeTab: 'return'
+  }), '')
+})

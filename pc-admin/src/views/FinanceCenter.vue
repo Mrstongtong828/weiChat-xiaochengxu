@@ -34,6 +34,9 @@
     </section>
 
     <el-tabs v-model="activeTab" class="fc-tabs">
+      <el-tab-pane label="结算管理" name="settlement">
+        <SettlementManagement />
+      </el-tab-pane>
       <el-tab-pane label="开票任务看板" name="workboard">
         <section class="invoice-board" v-loading="invoiceBoardLoading">
           <div class="invoice-board-head">
@@ -75,9 +78,6 @@
           </div>
         </section>
       </el-tab-pane>
-      <el-tab-pane label="结算管理" name="settlement">
-        <SettlementManagement />
-      </el-tab-pane>
       <el-tab-pane label="开票管理" name="invoice" lazy>
         <InvoiceManagement />
       </el-tab-pane>
@@ -105,8 +105,8 @@ import { createCurrentMonthRange, dateRangeShortcuts, toApiDateRange } from '../
 // 支持 /finance?tab=invoice|ledger 直达对应 Tab
 const route = useRoute()
 const router = useRouter()
-const TAB_ALIAS = { workboard: 'workboard', invoice: 'invoice', ledger: 'ledger', aging: 'aging' }
-const activeTab = ref(TAB_ALIAS[route.query.tab] || 'workboard')
+const TAB_ALIAS = { settlement: 'settlement', workboard: 'workboard', invoice: 'invoice', ledger: 'ledger', aging: 'aging' }
+const activeTab = ref(TAB_ALIAS[route.query.tab] || 'settlement')
 
 const getToken = () => localStorage.getItem('adminToken')
 

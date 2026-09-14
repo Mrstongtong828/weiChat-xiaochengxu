@@ -41,7 +41,7 @@
           <div class="breadcrumb-title">{{ getAdminNavTitle(activeMenu) }}</div>
         </div>
         <div class="header-actions">
-          <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="isMobile ? 296 : 440" trigger="click" @show="loadNotifications()">
+          <el-popover v-model:visible="notificationVisible" placement="bottom-end" :width="isMobile ? 296 : 440" trigger="click" @show="loadNotifications(true)">
             <template #reference>
               <el-badge :value="notificationTotal" :max="99" :hidden="!notificationTotal" class="notification-badge">
                 <el-button circle text class="notification-trigger" aria-label="打开提醒中心">
@@ -75,7 +75,7 @@
               </div>
             </div>
           </el-popover>
-          <el-button type="primary" plain round size="small" class="visit-miniapp-btn" @click="openMiniappDialog"><el-icon><Monitor /></el-icon><span>访问小程序</span></el-button>
+          <el-button type="primary" plain round size="small" class="visit-miniapp-btn" @click="openFeedbackBox"><el-icon><ChatDotSquare /></el-icon><span>后台意见箱</span></el-button>
           <el-dropdown>
             <el-avatar :size="40" :src="profileAvatarUrl" class="admin-avatar" :aria-label="profileEntryLabel" :title="profileEntryLabel"><el-icon :size="20"><User /></el-icon></el-avatar>
             <template #dropdown>
@@ -194,6 +194,7 @@ let feedbackRefreshTimer = null
 const accessibleSidebarNavItems = computed(() => getSidebarAdminNav().filter(item => canAccessMenu(item.key)))
 const canLoadWarrantyNotifications = () => hasPermission('view_customer')
 const notificationTagType = (severity) => ({ critical: 'danger', warning: 'warning', info: 'primary' }[severity] || 'info')
+const handleWorkorderUpdated = () => loadNotifications(true)
 const notificationRoutes = {
   warranty_missing: { path: '/customers', query: { alert: 'missing' } },
   warranty_expiring: { path: '/customers', query: { alert: 'expiring' } },
@@ -232,12 +233,17 @@ const miniappDialogVisible = ref(false)
 const miniappLoading = ref(false)
 const miniappQrUrl = ref('')
 let miniappQrLoaded = false
+const FEEDBACK_BOX_URL = 'https://larkcommunity.feishu.cn/wiki/I9ebwXOZIiwsxSkta15cmcNRn1c'
 const permissionRefreshVersion = ref(0)
 const canManageSettings = computed(() => {
   permissionRefreshVersion.value
   return hasPermission('manage_settings')
 })
 const isWebUrl = (v) => /^https?:\/\//i.test(String(v || ''))
+
+const openFeedbackBox = () => {
+  window.open(FEEDBACK_BOX_URL, '_blank', 'noopener,noreferrer')
+}
 
 const openMiniappDialog = async () => {
   miniappDialogVisible.value = true
@@ -424,7 +430,7 @@ const openProfileDrawer = () => {
 
 const loadNotifications = async (force = false) => {
   const now = Date.now()
-  if (notificationLoading.value || (!force && notificationLoadedAt && now - notificationLoadedAt < 30000)) return
+  if (notificationLoading.value || (!force && notificationLoadedAt && now - notificationLoadedAt < 1000)) return
   const token = localStorage.getItem('adminToken')
   if (!token) return
   notificationLoading.value = true
@@ -573,7 +579,7 @@ const saveNewPassword = async () => {
 }
 
 watch(() => route.path, () => { activeMenu.value = getMenuFromPath() })
-watch(() => route.fullPath, () => { loadNotifications() })
+watch(() => route.fullPath, () => { loadNotifications(true) })
 
 onMounted(() => {
   checkMobile()
@@ -584,10 +590,11 @@ onMounted(() => {
   refreshPermissionSession()
   notificationRefreshTimer = window.setInterval(() => {
     loadNotifications(true)
-  }, 60000)
+  }, 5000)
   feedbackRefreshTimer = window.setInterval(loadFeedbackUnread, 30000)
   document.addEventListener('visibilitychange', handleVisibilityChange)
   window.addEventListener('feedback-unread-changed', loadFeedbackUnread)
+  window.addEventListener('workorder-updated', handleWorkorderUpdated)
   window.addEventListener(PERMISSION_CHANGED_EVENT, refreshPermissionSession)
   if (forcedPasswordChange.value) {
     ElMessage.warning('当前使用临时密码，请先修改登录密码')
@@ -601,6 +608,7 @@ onUnmounted(() => {
   if (feedbackRefreshTimer) window.clearInterval(feedbackRefreshTimer)
   document.removeEventListener('visibilitychange', handleVisibilityChange)
   window.removeEventListener('feedback-unread-changed', loadFeedbackUnread)
+  window.removeEventListener('workorder-updated', handleWorkorderUpdated)
   window.removeEventListener(PERMISSION_CHANGED_EVENT, refreshPermissionSession)
   window.removeEventListener('resize', checkMobile)
 })

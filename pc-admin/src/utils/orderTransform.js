@@ -40,7 +40,10 @@ const normalizeOrderItems = (order) => {
         sn: order.sn,
         buy_date: order.buy_date,
         fault_desc: order.fault_desc,
-        media_urls: order.media_urls
+        media_urls: order.media_urls,
+        image_urls: order.image_urls || order.imageUrls,
+        video_urls: order.video_urls || order.videoUrls,
+        voucher_urls: order.voucher_urls || order.voucherUrls
       }]
 
   return sourceItems.map((item = {}) => ({
@@ -152,6 +155,29 @@ const normalizeReceivedPartPhotos = (order = {}) => {
   })).filter(photo => photo.fileID || photo.url)
 }
 
+const formatReceivedDate = (value) => {
+  if (!value) return ''
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10)
+  const pad = part => String(part).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+const getReceivedDateValue = (order = {}) => {
+  const receipt = order.received_parts_receipt || order.receivedPartsReceipt || {}
+  const shipOut = order.ship_out_info || {}
+  return order.arrival_confirmed_at || order.arrivalConfirmedAt
+    || receipt.confirmed_at || receipt.confirmedAt
+    || shipOut.received_at || shipOut.receivedAt || ''
+}
+
+const getOrderSortTime = (order = {}) => {
+  const received = getReceivedDateValue(order)
+  const receivedTime = received ? new Date(received).getTime() : NaN
+  if (Number.isFinite(receivedTime)) return receivedTime
+  return Number(order.create_time || order.createTime || 0) || 0
+}
+
 export const transformOrder = (order) => {
   if (!order) return null
 
@@ -183,7 +209,8 @@ export const transformOrder = (order) => {
     phone: shipBack.phone || '',
     address: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
     customerAddress: `${shipBack.region || ''} ${shipBack.detail || ''}`.trim(),
-    receivedDate: shipOut.received_at || shipOut.receivedAt || '',
+    // 收件日期即寄入设备签收日期；兼容签收确认、配件签收和历史物流导入数据。
+    receivedDate: formatReceivedDate(getReceivedDateValue(order)),
     bizUser: order.biz_user || order.bizUser || (order.customer && order.customer.biz_user) || '',
     // 下单用户类型快照：clinic / dealer / individual（优先订单字段，其次 CRM 摘要）
     customerType: order.customer_type || order.customerType || (order.customer && order.customer.customer_type) || '',
@@ -317,5 +344,9 @@ export const transformOrder = (order) => {
 
 // 批量转换
 export const transformOrders = (orders) => {
-  return Array.isArray(orders) ? orders.map(transformOrder) : []
+  if (!Array.isArray(orders)) return []
+  return orders
+    .slice()
+    .sort((a, b) => getOrderSortTime(b) - getOrderSortTime(a))
+    .map(transformOrder)
 }

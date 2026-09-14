@@ -50,3 +50,9 @@ export const STATUS_TAG_TYPE = {
 export const toChineseStatus = (status) => STATUS_MAP[status] || status
 export const toEnglishStatus = (status) => STATUS_REVERSE_MAP[status] || status
 export const getStatusTagType = (status) => STATUS_TAG_TYPE[status] || 'info'
+
+// 回寄页优先展示“已回寄”，避免状态机按顺序把“检测中”误作为默认目标。
+export const getPreferredStatusOption = (statuses = []) => {
+  const options = Array.isArray(statuses) ? statuses : []
+  return options.includes('已回寄') ? '已回寄' : (options[0] || '')
+}

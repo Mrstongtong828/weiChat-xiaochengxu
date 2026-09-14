@@ -35,6 +35,12 @@ test('preserves a confirmed receipt over a stale inbound row', () => {
   assert.deepEqual(preserveReceivedOrderSnapshot(rows, snapshot), [snapshot])
 })
 
+test('returns rows unchanged when no receipt snapshot is provided', () => {
+  const rows = [{ _id: 'order-1', statusEn: 'sent', status: '运输中' }]
+
+  assert.equal(preserveReceivedOrderSnapshot(rows, null), rows)
+})
+
 test('preserves a phone-confirmed authorization when a same-status list response is stale', () => {
   const rows = [{
     _id: 'order-1',

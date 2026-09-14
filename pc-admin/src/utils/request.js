@@ -10,11 +10,23 @@ const request = axios.create({
 
 const authFailurePattern = /(鉴权失败|Token已过期|token expired|unauthorized|登录已过期|请重新登录)/i
 const permissionFailurePattern = /无权限/i
+const rateLimitPattern = /System Invoke Limited|RateLimit|请求过于频繁|限流|rate limited/i
 
 const isAuthFailure = (payload, message = '') => {
   const status = payload && (payload.status || payload.statusCode || payload.code)
   if (status === 401) return true
   return authFailurePattern.test(String(message || getErrorMessage(payload, '')))
+}
+
+const isRateLimited = (message = '') => rateLimitPattern.test(String(message))
+
+const retryRateLimitedRequest = (config) => {
+  if (!config || config.__rateLimitRetried) return null
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      request({ ...config, __rateLimitRetried: true }).then(resolve).catch(reject)
+    }, 900)
+  })
 }
 
 const rejectWithDisplayedError = (message) => {
@@ -40,6 +52,10 @@ request.interceptors.response.use(
     const res = response.data
     if (res.code !== 0) {
       const errMsg = getErrorMessage(res)
+      if (isRateLimited(errMsg)) {
+        const retried = retryRateLimitedRequest(response.config)
+        if (retried) return retried
+      }
       if (permissionFailurePattern.test(errMsg)) notifyPermissionChanged()
       if (isAuthFailure(res, errMsg)) {
         handleSessionExpired(errMsg)
@@ -55,6 +71,10 @@ request.interceptors.response.use(
     console.error('请求错误:', error)
     const responseData = error.response && error.response.data
     const errMsg = getErrorMessage(responseData, error.message || '网络错误')
+    if (isRateLimited(errMsg)) {
+      const retried = retryRateLimitedRequest(error.config)
+      if (retried) return retried
+    }
     if (permissionFailurePattern.test(errMsg)) notifyPermissionChanged()
     if (isAuthFailure({ ...(responseData || {}), status: error.response && error.response.status }, errMsg)) {
       handleSessionExpired(errMsg)

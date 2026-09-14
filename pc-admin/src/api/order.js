@@ -106,6 +106,15 @@ export const batchImportLogistics = (token, type, rows, importDate = '') => {
   })
 }
 
+// 后台修正客户寄入物流单号（复用寄入签收接口，兼容补录和纠错）
+export const updateInboundLogistics = (token, orderNo, logisticsCompany, logisticsNo) => {
+  return batchImportLogistics(token, 'inbound', [{
+    orderNo,
+    logisticsCompany,
+    logisticsNo
+  }])
+}
+
 // 更新工单备注
 export const updateRemarks = (token, orderId, adminRemark, printRemark) => {
   return request.post(`${API_BASE.adminOrder}/updateRemarks`, {

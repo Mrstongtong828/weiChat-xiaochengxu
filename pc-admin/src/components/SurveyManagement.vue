@@ -37,8 +37,23 @@
       <el-table-column prop="contact" label="联系方式" width="150" show-overflow-tooltip />
       <el-table-column label="提交时间" width="170"><template #default="{ row }">{{ formatSurveyTime(row.create_time) }}</template></el-table-column>
       <el-table-column label="状态" width="130"><template #default="{ row }"><el-select :model-value="row.status || 'new'" size="small" :disabled="!canHandleFeedback" @change="(status) => changeSurveyStatus(row, status)"><el-option label="新提交" value="new" /><el-option label="已联系" value="contacted" /><el-option label="已关闭" value="closed" /></el-select></template></el-table-column>
+      <el-table-column label="操作" width="90" fixed="right"><template #default="{ row }"><el-button type="primary" link @click="openSurveyDetail(row)">查看详情</el-button></template></el-table-column>
     </el-table>
     <div class="survey-pagination"><el-pagination v-model:current-page="surveyQuery.page" v-model:page-size="surveyQuery.pageSize" :total="surveyTotal" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next" @size-change="loadSurveyRecords" @current-change="loadSurveyRecords" /></div>
+    <el-dialog v-model="surveyDetailVisible" title="调研详情（客户填写，只读）" width="620px" append-to-body>
+      <template v-if="selectedSurvey">
+        <div class="survey-detail-grid">
+          <div><label>工单号 / SN</label><span>{{ selectedSurvey.order_no || '未填写' }}</span></div>
+          <div><label>提交时间</label><span>{{ formatSurveyTime(selectedSurvey.create_time) || '未记录' }}</span></div>
+          <div><label>满意度</label><span>{{ selectedSurvey.satisfaction || '未填写' }}</span></div>
+          <div><label>评分</label><span>{{ selectedSurvey.rating ?? '未填写' }}</span></div>
+          <div><label>是否解决</label><span>{{ selectedSurvey.resolved || '未填写' }}</span></div>
+          <div><label>联系方式</label><span>{{ selectedSurvey.contact || '未填写' }}</span></div>
+        </div>
+        <div class="survey-detail-section"><label>客户建议 / 反馈</label><div class="survey-detail-content">{{ selectedSurvey.comment || '客户未填写内容' }}</div></div>
+      </template>
+      <template #footer><el-button @click="surveyDetailVisible = false">关闭</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -58,6 +73,8 @@ const surveyLoading = ref(false)
 const deletingSurveys = ref(false)
 const savingSurvey = ref(false)
 const surveyTotal = ref(0)
+const selectedSurvey = ref(null)
+const surveyDetailVisible = ref(false)
 const surveyQuery = reactive({ keyword: '', status: '', page: 1, pageSize: 10 })
 const canHandleFeedback = hasPermission('handle_feedback')
 const canManageSettings = hasPermission('manage_settings')
@@ -69,6 +86,7 @@ const saveSurveyConfig = async () => { savingSurvey.value = true; try { await sa
 const formatSurveyTime = (value) => { const d = new Date(Number(value)); if (!value || Number.isNaN(d.getTime())) return ''; const pad = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}` }
 const loadSurveyRecords = async () => { if (surveyLoading.value) return; surveyLoading.value = true; try { const data = await getSurveyList(token(), { ...surveyQuery }); surveyRecords.value = data?.list || []; surveyTotal.value = data?.total || 0 } finally { surveyLoading.value = false } }
 const changeSurveyStatus = async (row, status) => { try { await updateSurveyStatus(token(), row._id || row.id, status); row.status = status; ElMessage.success('状态已更新') } catch (error) { /* request interceptor displays the error */ } }
+const openSurveyDetail = (row) => { selectedSurvey.value = row; surveyDetailVisible.value = true }
 const deleteSelectedSurveys = async () => {
   const ids = selectedSurveyRows.value.map(row => row._id || row.id).filter(Boolean)
   if (!ids.length || !canDeleteSurvey) return
@@ -93,4 +111,10 @@ onMounted(async () => { if (canManageSettings) await loadConfig(); await loadSur
 .survey-toolbar { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .survey-record-actions { display:flex; align-items:center; gap:10px; }
 .survey-pagination { display:flex; justify-content:flex-end; margin-top:16px; }
+.survey-detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 20px; }
+.survey-detail-grid > div { display:flex; gap:8px; min-width:0; }
+.survey-detail-grid label, .survey-detail-section > label { color:#86909c; flex:0 0 92px; }
+.survey-detail-grid span { color:#1d2129; word-break:break-all; }
+.survey-detail-section { margin-top:18px; }
+.survey-detail-content { margin-top:8px; padding:12px; min-height:90px; white-space:pre-wrap; word-break:break-word; line-height:1.7; color:#1d2129; background:#f7f8fa; border-radius:8px; }
 </style>
